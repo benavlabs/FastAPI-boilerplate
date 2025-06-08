@@ -23,4 +23,3 @@ def create_user(db: Session, is_super_user: bool = False) -> models.User:
     db.refresh(_user)
 
     return _user
-

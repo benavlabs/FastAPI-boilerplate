@@ -294,10 +294,10 @@ Then head to `http://127.0.0.1:8000/docs`.
 
 ### 3.3 From Scratch
 
-Install poetry:
+Install uv:
 
 ```sh
-pip install poetry
+pip install uv
 ```
 
 ## 4. Usage
@@ -329,7 +329,7 @@ So you may skip to [5. Extending](#5-extending).
 In the `root` directory (`FastAPI-boilerplate` if you didn't change anything), run to install required packages:
 
 ```sh
-poetry install
+uv sync
 ```
 
 Ensuring it ran without any problem.
@@ -401,7 +401,7 @@ redis:alpine
 While in the `root` folder, run to start the application with uvicorn server:
 
 ```sh
-poetry run uvicorn src.app.main:app --reload
+uv run uvicorn src.app.main:app --reload
 ```
 
 > \[!TIP\]
@@ -471,7 +471,7 @@ docker-compose stop create_superuser
 While in the `root` folder, run (after you started the application at least once to create the tables):
 
 ```sh
-poetry run python -m src.scripts.create_first_superuser
+uv run python -m src.scripts.create_first_superuser
 ```
 
 ### 4.3.3 Creating the first tier
@@ -516,17 +516,17 @@ Getting:
 While in the `src` folder, run Alembic migrations:
 
 ```sh
-poetry run alembic revision --autogenerate
+uv run alembic revision --autogenerate
 ```
 
 And to apply the migration
 
 ```sh
-poetry run alembic upgrade head
+uv run alembic upgrade head
 ```
 
 > [!NOTE]
-> If you do not have poetry, you may run it without poetry after running `pip install alembic`
+> If you do not have uv, you may run it without uv after running `pip install alembic`
 
 ## 5. Extending
 
@@ -538,22 +538,22 @@ First, you may want to take a look at the project structure and understand what 
 .
 ├── Dockerfile                        # Dockerfile for building the application container.
 ├── docker-compose.yml                # Docker Compose file for defining multi-container applications.
-├── pyproject.toml                    # Poetry configuration file with project metadata and dependencies.
+├── pyproject.toml                    # Project configuration file with metadata and dependencies (PEP 621).
+├── uv.lock                          # uv lock file specifying exact versions of dependencies.
 ├── README.md                         # Project README providing information and instructions.
 ├── LICENSE.md                        # License file for the project.
 │
-├── tests                             # Unit and integration tests for the application.
+├── tests                             # Unit tests for the application.
 │   ├──helpers                        # Helper functions for tests.
 │   │   ├── generators.py             # Helper functions for generating test data.
-│   │   └── mocks.py                  # Mock function for testing.
+│   │   └── mocks.py                  # Mock functions for testing.
 │   ├── __init__.py
 │   ├── conftest.py                   # Configuration and fixtures for pytest.
-│   └── test_user.py                  # Test cases for user-related functionality.
+│   └── test_user_unit.py             # Unit test cases for user-related functionality.
 │
 └── src                               # Source code directory.
     ├── __init__.py                   # Initialization file for the src package.
     ├── alembic.ini                   # Configuration file for Alembic (database migration tool).
-    ├── poetry.lock                   # Poetry lock file specifying exact versions of dependencies.
     │
     ├── app                           # Main application directory.
     │   ├── __init__.py               # Initialization file for the app package.
@@ -737,13 +737,13 @@ class EntityDelete(BaseModel):
 Then, while in the `src` folder, run Alembic migrations:
 
 ```sh
-poetry run alembic revision --autogenerate
+uv run alembic revision --autogenerate
 ```
 
 And to apply the migration
 
 ```sh
-poetry run alembic upgrade head
+uv run alembic upgrade head
 ```
 
 ### 5.6 CRUD
@@ -1299,7 +1299,7 @@ If you are using `docker compose`, the worker is already running.
 If you are doing it from scratch, run while in the `root` folder:
 
 ```sh
-poetry run arq src.app.core.worker.settings.WorkerSettings
+uv run arq src.app.core.worker.settings.WorkerSettings
 ```
 
 #### Database session with background tasks
@@ -1512,13 +1512,13 @@ If you are doing it from scratch, ensure your postgres and your redis are runnin
 while in the `root` folder, run to start the application with uvicorn server:
 
 ```sh
-poetry run uvicorn src.app.main:app --reload
+uv run uvicorn src.app.main:app --reload
 ```
 
 And for the worker:
 
 ```sh
-poetry run arq src.app.core.worker.settings.WorkerSettings
+uv run arq src.app.core.worker.settings.WorkerSettings
 ```
 ### 5.14 Create Application
 
@@ -1834,73 +1834,100 @@ And finally, on your browser: `http://localhost/docs`.
 
 ## 7. Testing
 
-While in the tests folder, create your test file with the name "test\_{entity}.py", replacing entity with what you're testing
+This project uses **fast unit tests** that don't require external services like databases or Redis. Tests are isolated using mocks and run in milliseconds.
+
+### 7.1 Writing Tests
+
+Create test files with the name `test_{entity}_unit.py` in the `tests/` folder, replacing `{entity}` with what you're testing:
 
 ```sh
-touch test_items.py
+touch tests/test_items_unit.py
 ```
 
-Finally create your tests (you may want to copy the structure in test_user.py)
+Follow the structure in `tests/test_user_unit.py` for examples. Our tests use:
 
-Now, to run:
+- **pytest** with **pytest-asyncio** for async support
+- **unittest.mock** for mocking dependencies  
+- **AsyncMock** for async function mocking
+- **Faker** for generating test data
 
-### 7.1  Docker Compose
+Example test structure:
 
-First you need to uncomment the following part in the `docker-compose.yml` file:
+```python
+import pytest
+from unittest.mock import AsyncMock, patch
+from src.app.api.v1.users import write_user
 
-```YAML
-  #-------- uncomment to run tests --------
-  # pytest:
-  #   build:
-  #     context: .
-  #     dockerfile: Dockerfile
-  #   env_file:
-  #     - ./src/.env
-  #   depends_on:
-  #     - db
-  #     - redis
-  #   command: python -m pytest ./tests
-  #   volumes:
-  #     - .:/code
+class TestWriteUser:
+    @pytest.mark.asyncio
+    async def test_create_user_success(self, mock_db, sample_user_data):
+        """Test successful user creation."""
+        with patch("src.app.api.v1.users.crud_users") as mock_crud:
+            mock_crud.exists = AsyncMock(return_value=False)
+            mock_crud.create = AsyncMock(return_value=Mock(id=1))
+            
+            result = await write_user(Mock(), sample_user_data, mock_db)
+            
+            assert result.id == 1
+            mock_crud.create.assert_called_once()
 ```
 
-You'll get:
+### 7.2 Running Tests
 
-```YAML
-  #-------- uncomment to run tests --------
-  pytest:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    env_file:
-      - ./src/.env
-    depends_on:
-      - db
-      - redis
-    command: python -m pytest ./tests
-    volumes:
-      - .:/code
-```
-
-Start the Docker Compose services:
+Run all unit tests:
 
 ```sh
-docker-compose up -d
+uv run pytest
 ```
 
-It will automatically run the tests, but if you want to run again later:
+Run specific test file:
 
 ```sh
-docker-compose run --rm pytest
+uv run pytest tests/test_user_unit.py
 ```
 
-### 7.2  From Scratch
-
-While in the `root` folder, run:
+Run specific test file:
 
 ```sh
-poetry run python -m pytest
+uv run pytest tests/test_user_unit.py
 ```
+
+Run with verbose output:
+
+```sh
+uv run pytest -v
+```
+
+Run specific test:
+
+```sh
+uv run pytest tests/test_user_unit.py::TestWriteUser::test_create_user_success
+```
+
+### 7.3 Test Configuration
+
+Tests are configured in `pyproject.toml`:
+
+```toml
+[tool.pytest.ini_options]
+filterwarnings = [
+    "ignore::PendingDeprecationWarning:starlette.formparsers",
+]
+```
+
+### 7.4 Test Structure
+
+- **Unit Tests** (`test_*_unit.py`): Fast, isolated tests with mocked dependencies
+- **Fixtures** (`conftest.py`): Shared test fixtures and mock setups  
+- **Helpers** (`tests/helpers/`): Utilities for generating test data and mocks
+
+### 7.5 Benefits of Our Approach
+
+✅ **Fast**: Tests run in ~0.04 seconds  
+✅ **Reliable**: No external dependencies required  
+✅ **Isolated**: Each test focuses on one piece of functionality  
+✅ **Maintainable**: Easy to understand and modify  
+✅ **CI/CD Ready**: Run anywhere without infrastructure setup
 
 ## 8. Contributing
 
