@@ -1,0 +1,27 @@
+name: Tests
+
+on: [push, pull_request]
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: 3.11
+
+    - name: Install uv
+      run: pip install uv
+
+    - name: Create venv
+      run: uv venv
+
+    - name: Install package with dev dependencies
+      run: uv pip install -e ".[dev,memcached]"
+
+    - name: Run tests
+      run: uv run pytest

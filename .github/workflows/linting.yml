@@ -1,0 +1,26 @@
+name: Linting
+
+on: [push, pull_request]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: 3.11
+
+    - name: Install uv
+      run: pip install uv
+
+    - name: Create venv
+      run: uv venv
+
+    - name: Install package with dev dependencies
+      run: uv pip install -e ".[dev]"
+
+    - name: Run Ruff
+      run: uv run ruff check src
