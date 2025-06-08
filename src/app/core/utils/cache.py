@@ -4,7 +4,7 @@ import re
 from collections.abc import Callable
 from typing import Any
 
-from fastapi import Request, Response
+from fastapi import Request
 from fastapi.encoders import jsonable_encoder
 from redis.asyncio import ConnectionPool, Redis
 
@@ -285,7 +285,7 @@ def cache(
 
     def wrapper(func: Callable) -> Callable:
         @functools.wraps(func)
-        async def inner(request: Request, *args: Any, **kwargs: Any) -> Response:
+        async def inner(request: Request, *args: Any, **kwargs: Any) -> Any:
             if client is None:
                 raise MissingClientError
 
@@ -313,7 +313,7 @@ def cache(
                 await client.set(cache_key, serialized_data)
                 await client.expire(cache_key, expiration)
 
-                serialized_data = json.loads(serialized_data)
+                return json.loads(serialized_data)
 
             else:
                 await client.delete(cache_key)

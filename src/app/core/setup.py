@@ -14,7 +14,7 @@ from fastapi.openapi.utils import get_openapi
 from ..api.dependencies import get_current_superuser
 from ..core.utils.rate_limit import rate_limiter
 from ..middleware.client_cache_middleware import ClientCacheMiddleware
-from ..models import *
+from ..models import *  # noqa: F403
 from .config import (
     AppSettings,
     ClientSideCacheSettings,
@@ -44,7 +44,8 @@ async def create_redis_cache_pool() -> None:
 
 
 async def close_redis_cache_pool() -> None:
-    await cache.client.aclose()  # type: ignore
+    if cache.client is not None:
+        await cache.client.aclose()  # type: ignore
 
 
 # -------------- queue --------------
@@ -53,7 +54,8 @@ async def create_redis_queue_pool() -> None:
 
 
 async def close_redis_queue_pool() -> None:
-    await queue.pool.aclose()  # type: ignore
+    if queue.pool is not None:
+        await queue.pool.aclose()  # type: ignore
 
 
 # -------------- rate limit --------------
@@ -62,7 +64,8 @@ async def create_redis_rate_limit_pool() -> None:
 
 
 async def close_redis_rate_limit_pool() -> None:
-    await rate_limiter.client.aclose()  # type: ignore
+    if rate_limiter.client is not None:
+        await rate_limiter.client.aclose()  # type: ignore
 
 
 # -------------- application --------------
@@ -221,4 +224,4 @@ def create_application(
 
             application.include_router(docs_router)
 
-        return application
+    return application

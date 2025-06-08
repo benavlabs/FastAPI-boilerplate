@@ -93,20 +93,6 @@ services:
   #   volumes:
   #     - ./src:/code/src
 
-  #-------- uncomment to run tests --------
-  # pytest:
-  #   build:
-  #     context: .
-  #     dockerfile: Dockerfile
-  #   env_file:
-  #     - ./src/.env
-  #   depends_on:
-  #     - db
-  #     - redis
-  #   command: python -m pytest ./tests
-  #   volumes:
-  #     - .:/code
-
   #-------- uncomment to create first tier --------
   # create_tier:
   #   build:

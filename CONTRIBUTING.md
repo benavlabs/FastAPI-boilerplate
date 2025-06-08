@@ -10,22 +10,27 @@ Start by forking and cloning the FastAPI-boilerplate repository:
 
 1. **Fork the Repository**: Begin by forking the project repository. You can do this by visiting https://github.com/igormagalhaesr/FastAPI-boilerplate and clicking the "Fork" button.
 1. **Create a Feature Branch**: Once you've forked the repo, create a branch for your feature by running `git checkout -b feature/fooBar`.
-1. **Testing Changes**: Ensure that your changes do not break existing functionality by running tests. In the root folder, execute poetry run `python -m pytest` to run the tests.
+1. **Testing Changes**: Ensure that your changes do not break existing functionality by running tests. In the root folder, execute `uv run pytest` to run the tests.
 
-### Using Poetry for Dependency Management
-FastAPI-boilerplate uses Poetry for managing dependencies. If you don't have Poetry installed, follow the instructions on the [official Poetry website](https://python-poetry.org/docs/).
+### Using uv for Dependency Management
+FastAPI-boilerplate uses uv for managing dependencies. If you don't have uv installed, follow the instructions on the [official uv website](https://docs.astral.sh/uv/).
 
-Once Poetry is installed, navigate to the cloned repository and install the dependencies:
+Once uv is installed, navigate to the cloned repository and install the dependencies:
 ```sh
 cd FastAPI-boilerplate
-poetry install
+uv sync
 ```
 
 ### Activating the Virtual Environment
-Poetry creates a virtual environment for your project. Activate it using:
+uv creates a virtual environment for your project. Activate it using:
 
 ```sh
-poetry shell
+source .venv/bin/activate
+```
+
+Alternatively, you can run commands directly with `uv run` without activating the environment:
+```sh
+uv run python your_script.py
 ```
 
 ## Making Contributions
@@ -37,7 +42,7 @@ poetry shell
 ### Testing with Pytest
 FastAPI-boilerplate uses pytest for testing. Run tests using:
 ```sh
-poetry run pytest
+uv run pytest
 ```
 
 ### Linting
@@ -59,7 +64,7 @@ Ensure your code passes linting before submitting.
 It helps in identifying simple issues before submission to code review. By running automated checks, pre-commit can ensure code quality and consistency.
 
 1. **Install Pre-commit**:
-   - **Installation**: Install pre-commit in your development environment. Use the command `pip install pre-commit`.
+   - **Installation**: Install pre-commit in your development environment. Use the command `uv add --dev pre-commit` or `pip install pre-commit`.
    - **Setting Up Hooks**: After installing pre-commit, set up the hooks with `pre-commit install`. This command will install hooks into your .git/ directory which will automatically check your commits for issues.
 1. **Committing Your Changes**:
    After making your changes, use `git commit -am 'Add some fooBar'` to commit them. Pre-commit will run automatically on your files when you commit, ensuring that they meet the required standards.

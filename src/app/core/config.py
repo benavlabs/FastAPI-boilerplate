@@ -1,8 +1,8 @@
 import os
 from enum import Enum
 
-from pydantic_settings import BaseSettings
 from pydantic import SecretStr
+from pydantic_settings import BaseSettings
 from starlette.config import Config
 
 current_file_dir = os.path.dirname(os.path.realpath(__file__))
@@ -45,7 +45,7 @@ class MySQLSettings(DatabaseSettings):
     MYSQL_URI: str = f"{MYSQL_USER}:{MYSQL_PASSWORD}@{MYSQL_SERVER}:{MYSQL_PORT}/{MYSQL_DB}"
     MYSQL_SYNC_PREFIX: str = config("MYSQL_SYNC_PREFIX", default="mysql://")
     MYSQL_ASYNC_PREFIX: str = config("MYSQL_ASYNC_PREFIX", default="mysql+aiomysql://")
-    MYSQL_URL: str = config("MYSQL_URL", default=None)
+    MYSQL_URL: str | None = config("MYSQL_URL", default=None)
 
 
 class PostgresSettings(DatabaseSettings):
@@ -67,8 +67,7 @@ class FirstUserSettings(BaseSettings):
     ADMIN_PASSWORD: str = config("ADMIN_PASSWORD", default="!Ch4ng3Th1sP4ssW0rd!")
 
 
-class TestSettings(BaseSettings):
-    ...
+class TestSettings(BaseSettings): ...
 
 
 class RedisCacheSettings(BaseSettings):
@@ -104,7 +103,7 @@ class EnvironmentOption(Enum):
 
 
 class EnvironmentSettings(BaseSettings):
-    ENVIRONMENT: EnvironmentOption = config("ENVIRONMENT", default="local")
+    ENVIRONMENT: EnvironmentOption = config("ENVIRONMENT", default=EnvironmentOption.LOCAL)
 
 
 class Settings(

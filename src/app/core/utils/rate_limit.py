@@ -15,7 +15,7 @@ class RateLimiter:
     pool: Optional[ConnectionPool] = None
     client: Optional[Redis] = None
 
-    def __new__(cls):
+    def __new__(cls) -> "RateLimiter":
         if cls._instance is None:
             cls._instance = super().__new__(cls)
         return cls._instance

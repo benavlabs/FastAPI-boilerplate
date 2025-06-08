@@ -1,4 +1,4 @@
-from typing import Annotated, Any
+from typing import Annotated, Any, cast
 
 from fastapi import APIRouter, Depends, Request
 from fastcrud.paginated import PaginatedListResponse, compute_offset, paginated_response
@@ -21,22 +21,28 @@ async def write_post(
     request: Request,
     username: str,
     post: PostCreate,
-    current_user: Annotated[UserRead, Depends(get_current_user)],
+    current_user: Annotated[dict, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(async_get_db)],
 ) -> PostRead:
-    db_user = await crud_users.get(db=db, schema_to_select=UserRead, username=username, is_deleted=False)
+    db_user = await crud_users.get(db=db, username=username, is_deleted=False, schema_to_select=UserRead)
     if db_user is None:
         raise NotFoundException("User not found")
 
-    if current_user["id"] != db_user["id"]:
+    db_user = cast(UserRead, db_user)
+    if current_user["id"] != db_user.id:
         raise ForbiddenException()
 
     post_internal_dict = post.model_dump()
-    post_internal_dict["created_by_user_id"] = db_user["id"]
+    post_internal_dict["created_by_user_id"] = db_user.id
 
     post_internal = PostCreateInternal(**post_internal_dict)
-    created_post: PostRead = await crud_posts.create(db=db, object=post_internal)
-    return created_post
+    created_post = await crud_posts.create(db=db, object=post_internal)
+
+    post_read = await crud_posts.get(db=db, id=created_post.id, schema_to_select=PostRead)
+    if post_read is None:
+        raise NotFoundException("Created post not found")
+
+    return cast(PostRead, post_read)
 
 
 @router.get("/{username}/posts", response_model=PaginatedListResponse[PostRead])
@@ -52,16 +58,16 @@ async def read_posts(
     page: int = 1,
     items_per_page: int = 10,
 ) -> dict:
-    db_user = await crud_users.get(db=db, schema_to_select=UserRead, username=username, is_deleted=False)
+    db_user = await crud_users.get(db=db, username=username, is_deleted=False, schema_to_select=UserRead)
     if not db_user:
         raise NotFoundException("User not found")
 
+    db_user = cast(UserRead, db_user)
     posts_data = await crud_posts.get_multi(
         db=db,
         offset=compute_offset(page, items_per_page),
         limit=items_per_page,
-        schema_to_select=PostRead,
-        created_by_user_id=db_user["id"],
+        created_by_user_id=db_user.id,
         is_deleted=False,
     )
 
@@ -73,18 +79,19 @@ async def read_posts(
 @cache(key_prefix="{username}_post_cache", resource_id_name="id")
 async def read_post(
     request: Request, username: str, id: int, db: Annotated[AsyncSession, Depends(async_get_db)]
-) -> dict:
-    db_user = await crud_users.get(db=db, schema_to_select=UserRead, username=username, is_deleted=False)
+) -> PostRead:
+    db_user = await crud_users.get(db=db, username=username, is_deleted=False, schema_to_select=UserRead)
     if db_user is None:
         raise NotFoundException("User not found")
 
-    db_post: PostRead | None = await crud_posts.get(
-        db=db, schema_to_select=PostRead, id=id, created_by_user_id=db_user["id"], is_deleted=False
+    db_user = cast(UserRead, db_user)
+    db_post = await crud_posts.get(
+        db=db, id=id, created_by_user_id=db_user.id, is_deleted=False, schema_to_select=PostRead
     )
     if db_post is None:
         raise NotFoundException("Post not found")
 
-    return db_post
+    return cast(PostRead, db_post)
 
 
 @router.patch("/{username}/post/{id}")
@@ -94,17 +101,18 @@ async def patch_post(
     username: str,
     id: int,
     values: PostUpdate,
-    current_user: Annotated[UserRead, Depends(get_current_user)],
+    current_user: Annotated[dict, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(async_get_db)],
 ) -> dict[str, str]:
-    db_user = await crud_users.get(db=db, schema_to_select=UserRead, username=username, is_deleted=False)
+    db_user = await crud_users.get(db=db, username=username, is_deleted=False, schema_to_select=UserRead)
     if db_user is None:
         raise NotFoundException("User not found")
 
-    if current_user["id"] != db_user["id"]:
+    db_user = cast(UserRead, db_user)
+    if current_user["id"] != db_user.id:
         raise ForbiddenException()
 
-    db_post = await crud_posts.get(db=db, schema_to_select=PostRead, id=id, is_deleted=False)
+    db_post = await crud_posts.get(db=db, id=id, is_deleted=False, schema_to_select=PostRead)
     if db_post is None:
         raise NotFoundException("Post not found")
 
@@ -118,17 +126,18 @@ async def erase_post(
     request: Request,
     username: str,
     id: int,
-    current_user: Annotated[UserRead, Depends(get_current_user)],
+    current_user: Annotated[dict, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(async_get_db)],
 ) -> dict[str, str]:
-    db_user = await crud_users.get(db=db, schema_to_select=UserRead, username=username, is_deleted=False)
+    db_user = await crud_users.get(db=db, username=username, is_deleted=False, schema_to_select=UserRead)
     if db_user is None:
         raise NotFoundException("User not found")
 
-    if current_user["id"] != db_user["id"]:
+    db_user = cast(UserRead, db_user)
+    if current_user["id"] != db_user.id:
         raise ForbiddenException()
 
-    db_post = await crud_posts.get(db=db, schema_to_select=PostRead, id=id, is_deleted=False)
+    db_post = await crud_posts.get(db=db, id=id, is_deleted=False, schema_to_select=PostRead)
     if db_post is None:
         raise NotFoundException("Post not found")
 
@@ -142,11 +151,11 @@ async def erase_post(
 async def erase_db_post(
     request: Request, username: str, id: int, db: Annotated[AsyncSession, Depends(async_get_db)]
 ) -> dict[str, str]:
-    db_user = await crud_users.get(db=db, schema_to_select=UserRead, username=username, is_deleted=False)
+    db_user = await crud_users.get(db=db, username=username, is_deleted=False, schema_to_select=UserRead)
     if db_user is None:
         raise NotFoundException("User not found")
 
-    db_post = await crud_posts.get(db=db, schema_to_select=PostRead, id=id, is_deleted=False)
+    db_post = await crud_posts.get(db=db, id=id, is_deleted=False, schema_to_select=PostRead)
     if db_post is None:
         raise NotFoundException("Post not found")
 
