@@ -36,6 +36,8 @@ dev = [
     "pytest>=7.4.2",
     "pytest-mock>=3.14.0",
     "faker>=26.0.0",
+    "mypy>=1.8.0",
+    "types-redis>=4.6.0",
 ]
 
 [build-system]
@@ -100,3 +102,15 @@ filterwarnings = [
 dev = [
     "pytest-asyncio>=1.0.0",
 ]
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true
+mypy_path = "src"
+explicit_package_bases = true
+
+[[tool.mypy.overrides]]
+module = "src.app.*"
+disallow_untyped_defs = true
