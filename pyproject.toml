@@ -1,49 +1,60 @@
-[tool.poetry]
+[project]
 name = "fastapi-boilerplate"
 version = "0.1.0"
 description = "A fully Async FastAPI boilerplate using SQLAlchemy and Pydantic 2"
-authors = ["Igor Magalhaes <igor.magalhaes.r@gmail.com>"]
-license = "MIT"
+authors = [{ name = "Igor Magalhaes", email = "igor.magalhaes.r@gmail.com" }]
+license = { text = "MIT" }
 readme = "README.md"
-packages = [{ include = "src" }]
+requires-python = "~=3.11"
+dependencies = [
+    "python-dotenv>=1.0.0",
+    "pydantic[email]>=2.6.1",
+    "fastapi>=0.109.1",
+    "uvicorn>=0.27.0",
+    "uvloop>=0.19.0",
+    "httptools>=0.6.1",
+    "uuid>=1.30",
+    "alembic>=1.13.1",
+    "asyncpg>=0.29.0",
+    "SQLAlchemy-Utils>=0.41.1",
+    "python-jose>=3.3.0",
+    "SQLAlchemy>=2.0.25",
+    "python-multipart>=0.0.9",
+    "greenlet>=2.0.2",
+    "httpx>=0.26.0",
+    "pydantic-settings>=2.0.3",
+    "redis>=5.0.1",
+    "arq>=0.25.0",
+    "gunicorn>=22.0.0",
+    "bcrypt>=4.1.1",
+    "psycopg2-binary>=2.9.9",
+    "fastcrud>=0.15.5",
+]
 
-[tool.poetry.dependencies]
-python = "~3.11"
-python-dotenv = "^1.0.0"
-pydantic = { extras = ["email"], version = "^2.6.1" }
-fastapi = "^0.109.1"
-uvicorn = "^0.27.0"
-uvloop = "^0.19.0"
-httptools = "^0.6.1"
-uuid = "^1.30"
-alembic = "^1.13.1"
-asyncpg = "^0.29.0"
-SQLAlchemy-Utils = "^0.41.1"
-python-jose = "^3.3.0"
-SQLAlchemy = "^2.0.25"
-pytest = "^7.4.2"
-python-multipart = "^0.0.9"
-greenlet = "^2.0.2"
-httpx = "^0.26.0"
-pydantic-settings = "^2.0.3"
-redis = "^5.0.1"
-arq = "^0.25.0"
-gunicorn = "^22.0.0"
-bcrypt = "^4.1.1"
-faker = "^26.0.0"
-psycopg2-binary = "^2.9.9"
-pytest-mock = "^3.14.0"
-fastcrud = "^0.15.5"
-
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.2",
+    "pytest-mock>=3.14.0",
+    "faker>=26.0.0",
+]
 
 [build-system]
-requires = ["poetry-core"]
-build-backend = "poetry.core.masonry.api"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.sdist]
+include = ["src/"]
+
+[tool.hatch.build.targets.wheel]
+include = ["src/"]
+packages = ["src"]
 
 [tool.ruff]
 target-version = "py311"
 line-length = 120
 fix = true
+
+[tool.ruff.lint]
 select = [
     # https://docs.astral.sh/ruff/rules/#pyflakes-f
     "F", # Pyflakes
@@ -67,14 +78,25 @@ ignore = [
     "E741",  # Ambiguous variable name
     # "UP035", # deprecated-assertion
 ]
-[tool.ruff.per-file-ignores]
+
+[tool.ruff.lint.per-file-ignores]
 "__init__.py" = [
     "F401", # unused import
     "F403", # star imports
 ]
 
-[tool.ruff.mccabe]
+[tool.ruff.lint.mccabe]
 max-complexity = 24
 
-[tool.ruff.pydocstyle]
+[tool.ruff.lint.pydocstyle]
 convention = "numpy"
+
+[tool.pytest.ini_options]
+filterwarnings = [
+    "ignore::PendingDeprecationWarning:starlette.formparsers",
+]
+
+[dependency-groups]
+dev = [
+    "pytest-asyncio>=1.0.0",
+]
