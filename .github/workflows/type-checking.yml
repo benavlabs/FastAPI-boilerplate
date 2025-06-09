@@ -25,3 +25,6 @@ jobs:
 
     - name: Run mypy
       run: uv run mypy src --config-file pyproject.toml
+      env:
+        ENVIRONMENT: local
+        SECRET_KEY: test-secret-key-for-testing-only

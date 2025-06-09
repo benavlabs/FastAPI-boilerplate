@@ -25,10 +25,12 @@ dependencies = [
     "pydantic-settings>=2.0.3",
     "redis>=5.0.1",
     "arq>=0.25.0",
-    "gunicorn>=22.0.0",
     "bcrypt>=4.1.1",
     "psycopg2-binary>=2.9.9",
     "fastcrud>=0.15.5",
+    "gunicorn>=23.0.0",
+    "ruff>=0.11.13",
+    "mypy>=1.16.0",
 ]
 
 [project.optional-dependencies]
@@ -38,6 +40,7 @@ dev = [
     "faker>=26.0.0",
     "mypy>=1.8.0",
     "types-redis>=4.6.0",
+    "ruff>=0.1.0",
 ]
 
 [build-system]

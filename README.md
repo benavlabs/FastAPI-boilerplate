@@ -1838,13 +1838,13 @@ This project uses **fast unit tests** that don't require external services like 
 
 ### 7.1 Writing Tests
 
-Create test files with the name `test_{entity}_unit.py` in the `tests/` folder, replacing `{entity}` with what you're testing:
+Create test files with the name `test_{entity}.py` in the `tests/` folder, replacing `{entity}` with what you're testing:
 
 ```sh
-touch tests/test_items_unit.py
+touch tests/test_items.py
 ```
 
-Follow the structure in `tests/test_user_unit.py` for examples. Our tests use:
+Follow the structure in `tests/test_user.py` for examples. Our tests use:
 
 - **pytest** with **pytest-asyncio** for async support
 - **unittest.mock** for mocking dependencies  
