@@ -55,4 +55,5 @@ async def get_task(task_id: str) -> dict[str, Any] | None:
     job_info = await job.info()
     if job_info is None:
         return None
-    return job_info.__dict__ if hasattr(job_info, '__dict__') else dict(job_info) if job_info else None
+    
+    return job_info.__dict__
