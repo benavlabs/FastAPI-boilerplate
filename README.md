@@ -1,11 +1,11 @@
-<h1 align="center"> Fast FastAPI boilerplate</h1>
+<h1 align="center"> Benav Labs FastAPI boilerplate</h1>
 <p align="center" markdown=1>
   <i>Yet another template to speed your FastAPI development up.</i>
 </p>
 
 <p align="center">
   <a href="https://github.com/igormagalhaesr/FastAPI-boilerplate">
-    <img src="https://user-images.githubusercontent.com/43156212/277095260-ef5d4496-8290-4b18-99b2-0c0b5500504e.png" alt="Blue Rocket with FastAPI Logo as its window. There is a word FAST written" width="35%" height="auto">
+    <img src="docs/assets/FastAPI-boilerplate.png" alt="Purple Rocket with FastAPI Logo as its window." width="35%" height="auto">
   </a>
 </p>
 
@@ -33,6 +33,16 @@
   </a>
 </p>
 
+---
+
+## 📖 Documentation
+
+📚 **[Visit our comprehensive documentation at benavlabs.github.io/fastapi-boilerplate](https://benavlabs.github.io/fastapi-boilerplate/)**
+
+This README provides a quick reference for LLMs and developers, but the full documentation contains detailed guides, examples, and best practices.
+
+---
+
 ## 0. About
 
 **FastAPI boilerplate** creates an extendable async API using FastAPI, Pydantic V2, SQLAlchemy 2.0 and PostgreSQL:
@@ -47,7 +57,7 @@
 - [`NGINX`](https://nginx.org/en/) High-performance low resource consumption web server used for Reverse Proxy and Load Balancing.
 
 > \[!TIP\] 
-> If you want the `SQLModel` version instead, head to [SQLModel-boilerplate](https://github.com/igorbenav/SQLModel-boilerplate).
+> There's a `SQLModel` version as well, but it's no longer updated: [SQLModel-boilerplate](https://github.com/igorbenav/SQLModel-boilerplate).
 
 ## 1. Features
 
@@ -62,8 +72,6 @@
 - ⎘ Out of the box offset and cursor pagination support with <a href="https://github.com/igorbenav/fastcrud">fastcrud</a>
 - 🛑 Rate Limiter dependency
 - 👮 FastAPI docs behind authentication and hidden based on the environment
-- 🦾 Easily extendable
-- 🤸‍♂️ Flexible
 - 🚚 Easy running with docker compose
 - ⚖️ NGINX Reverse Proxy and Load Balancing
 
@@ -118,6 +126,8 @@ ______________________________________________________________________
 
 ## 3. Prerequisites
 
+> 📖 **[See detailed installation guide in our docs](https://benavlabs.github.io/fastapi-boilerplate/getting-started/installation/)**
+
 ### 3.0 Start
 
 Start by using the template, and naming the repository to what you want.
@@ -143,6 +153,8 @@ git clone https://github.com/igormagalhaesr/FastAPI-boilerplate
 > Do not forget to place `docker-compose.yml` and `Dockerfile` in the `root` folder, while `.env` should be in the `src` folder.
 
 ### 3.1 Environment Variables (.env)
+
+> 📖 **[See complete configuration guide in our docs](https://benavlabs.github.io/fastapi-boilerplate/getting-started/configuration/)**
 
 Then create a `.env` file inside `src` directory:
 
@@ -301,6 +313,8 @@ pip install uv
 ```
 
 ## 4. Usage
+
+> 📖 **[See complete first run guide in our docs](https://benavlabs.github.io/fastapi-boilerplate/getting-started/first-run/)**
 
 ### 4.1 Docker Compose
 
@@ -530,7 +544,11 @@ uv run alembic upgrade head
 
 ## 5. Extending
 
+> 📖 **[See comprehensive development guide in our docs](https://benavlabs.github.io/fastapi-boilerplate/user-guide/development/)**
+
 ### 5.1 Project Structure
+
+> 📖 **[See detailed project structure guide in our docs](https://benavlabs.github.io/fastapi-boilerplate/user-guide/project-structure/)**
 
 First, you may want to take a look at the project structure and understand what each file is doing.
 
@@ -661,6 +679,8 @@ Note that this table is used to blacklist the `JWT` tokens (it's how you log a u
 
 ### 5.3 SQLAlchemy Models
 
+> 📖 **[See database models guide in our docs](https://benavlabs.github.io/fastapi-boilerplate/user-guide/database/models/)**
+
 Inside `app/models`, create a new `entity.py` for each new entity (replacing entity with the name) and define the attributes according to [SQLAlchemy 2.0 standards](https://docs.sqlalchemy.org/en/20/orm/mapping_styles.html#orm-mapping-styles):
 
 > \[!WARNING\]
@@ -682,6 +702,8 @@ class Entity(Base):
 ```
 
 ### 5.4 Pydantic Schemas
+
+> 📖 **[See database schemas guide in our docs](https://benavlabs.github.io/fastapi-boilerplate/user-guide/database/schemas/)**
 
 Inside `app/schemas`, create a new `entity.py` for each new entity (replacing entity with the name) and create the schemas according to [Pydantic V2](https://docs.pydantic.dev/latest/#pydantic-examples) standards:
 
@@ -731,6 +753,8 @@ class EntityDelete(BaseModel):
 
 ### 5.5 Alembic Migrations
 
+> 📖 **[See database migrations guide in our docs](https://benavlabs.github.io/fastapi-boilerplate/user-guide/database/migrations/)**
+
 > \[!WARNING\]
 > To create the tables if you did not create the endpoints, ensure that you import the models in src/app/models/__init__.py. This step is crucial to create the new models.
 
@@ -747,6 +771,8 @@ uv run alembic upgrade head
 ```
 
 ### 5.6 CRUD
+
+> 📖 **[See CRUD operations guide in our docs](https://benavlabs.github.io/fastapi-boilerplate/user-guide/database/crud/)**
 
 Inside `app/crud`, create a new `crud_entities.py` inheriting from `FastCRUD` for each new entity:
 
@@ -953,6 +979,8 @@ crud_user.get(db=db, username="myusername", schema_to_select=UserRead)
 
 ### 5.7 Routes
 
+> 📖 **[See API endpoints guide in our docs](https://benavlabs.github.io/fastapi-boilerplate/user-guide/api/endpoints/)**
+
 Inside `app/api/v1`, create a new `entities.py` file and create the desired routes
 
 ```python
@@ -992,6 +1020,8 @@ router.include_router(entity_router)
 ```
 
 #### 5.7.1 Paginated Responses
+
+> 📖 **[See API pagination guide in our docs](https://benavlabs.github.io/fastapi-boilerplate/user-guide/api/pagination/)**
 
 With the `get_multi` method we get a python `dict` with full suport for pagination:
 
@@ -1057,6 +1087,8 @@ async def read_entities(
 
 #### 5.7.2 HTTP Exceptions
 
+> 📖 **[See API exceptions guide in our docs](https://benavlabs.github.io/fastapi-boilerplate/user-guide/api/exceptions/)**
+
 To add exceptions you may just import from `app/core/exceptions/http_exceptions` and optionally add a detail:
 
 ```python
@@ -1083,6 +1115,8 @@ if not post:
 - `RateLimitException`: 429 too many requests
 
 ### 5.8 Caching
+
+> 📖 **[See comprehensive caching guide in our docs](https://benavlabs.github.io/fastapi-boilerplate/user-guide/caching/)**
 
 The `cache` decorator allows you to cache the results of FastAPI endpoint functions, enhancing response times and reducing the load on your application by storing and retrieving data in a cache.
 
@@ -1247,6 +1281,8 @@ For `client-side caching`, all you have to do is let the `Settings` class define
 
 ### 5.10 ARQ Job Queues
 
+> 📖 **[See background tasks guide in our docs](https://benavlabs.github.io/fastapi-boilerplate/user-guide/background-tasks/)**
+
 Depending on the problem your API is solving, you might want to implement a job queue. A job queue allows you to run tasks in the background, and is usually aimed at functions that require longer run times and don't directly impact user response in your frontend. As a rule of thumb, if a task takes more than 2 seconds to run, can be executed asynchronously, and its result is not needed for the next step of the user's interaction, then it is a good candidate for the job queue.
 
 > [!TIP]
@@ -1341,6 +1377,8 @@ async def your_background_function(
 > When using database sessions, you will want to use Pydantic objects. However, these objects don't mingle well with the seralization required by ARQ tasks and will be retrieved as a dictionary.
 
 ### 5.11 Rate Limiting
+
+> 📖 **[See rate limiting guide in our docs](https://benavlabs.github.io/fastapi-boilerplate/user-guide/rate-limiting/)**
 
 To limit how many times a user can make a request in a certain interval of time (very useful to create subscription plans or just to protect your API against DDOS), you may just use the `rate_limiter_dependency` dependency:
 
@@ -1455,6 +1493,8 @@ Note that for flexibility (since this is a boilerplate), it's not necessary to p
 > If a user does not have a `tier` or the tier does not have a defined `rate limit` for the path and the token is still passed to the request, the default `limit` and `period` will be used, this will be saved in `app/logs`.
 
 ### 5.12 JWT Authentication
+
+> 📖 **[See authentication guide in our docs](https://benavlabs.github.io/fastapi-boilerplate/user-guide/authentication/)**
 
 #### 5.12.1 Details
 
@@ -1640,6 +1680,8 @@ volumes:
 ```
 
 ## 6. Running in Production
+
+> 📖 **[See production deployment guide in our docs](https://benavlabs.github.io/fastapi-boilerplate/user-guide/production/)**
 
 ### 6.1 Uvicorn Workers with Gunicorn
 
@@ -1833,6 +1875,8 @@ And finally, on your browser: `http://localhost/docs`.
 > Note that we are using `fastapi1:8000` and `fastapi2:8000` as examples, you should replace it with the actual name of your service and the port it's running on.
 
 ## 7. Testing
+
+> 📖 **[See comprehensive testing guide in our docs](https://benavlabs.github.io/fastapi-boilerplate/user-guide/testing/)**
 
 This project uses **fast unit tests** that don't require external services like databases or Redis. Tests are isolated using mocks and run in milliseconds.
 

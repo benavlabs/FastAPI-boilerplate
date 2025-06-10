@@ -1,0 +1,20 @@
+/* Make only the header/favicon logo white, keep other instances purple */
+.md-header__button.md-logo img,
+.md-nav__button.md-logo img {
+    filter: brightness(0) invert(1);
+}
+
+/* Ensure header logo is white in both light and dark modes */
+[data-md-color-scheme="default"] .md-header__button.md-logo img,
+[data-md-color-scheme="default"] .md-nav__button.md-logo img {
+    filter: brightness(0) invert(1);
+}
+
+[data-md-color-scheme="slate"] .md-header__button.md-logo img,
+[data-md-color-scheme="slate"] .md-nav__button.md-logo img {
+    filter: brightness(0) invert(1);
+} 
+
+:root {
+    --md-primary-fg-color: #cd4bfb;
+}

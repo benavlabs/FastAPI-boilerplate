@@ -1,0 +1,150 @@
+site_name: FastAPI Boilerplate
+site_description: A production-ready FastAPI boilerplate with async support, JWT authentication, Redis caching, and more.
+site_author: Benav Labs
+site_url: https://github.com/benavlabs/fastapi-boilerplate
+
+theme:
+  name: material
+  font:
+    text: Ubuntu
+  logo: assets/FastAPI-boilerplate.png
+  favicon: assets/FastAPI-boilerplate.png
+  features:
+    - navigation.instant
+    - navigation.instant.prefetch
+    - navigation.tabs
+    - navigation.indexes
+    - search.suggest
+    - content.code.copy
+    - content.code.annotate
+    - navigation.top
+    - navigation.footer
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/brightness-7 
+        name: Switch to dark mode
+
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          rendering:
+            show_source: true
+
+nav:
+  - Home: index.md
+  - Getting Started:
+    - Overview: getting-started/index.md
+    - Installation: getting-started/installation.md
+    - Configuration: getting-started/configuration.md
+    - First Run: getting-started/first-run.md
+  - User Guide:
+    - Overview: user-guide/index.md
+    - Project Structure: user-guide/project-structure.md
+    - Configuration:
+      - Overview: user-guide/configuration/index.md
+      - Environment Variables: user-guide/configuration/environment-variables.md
+      - Settings Classes: user-guide/configuration/settings-classes.md
+      - Docker Setup: user-guide/configuration/docker-setup.md
+      - Environment-Specific: user-guide/configuration/environment-specific.md
+    - Database:
+      - Overview: user-guide/database/index.md
+      - Models: user-guide/database/models.md
+      - Schemas: user-guide/database/schemas.md
+      - CRUD Operations: user-guide/database/crud.md
+      - Migrations: user-guide/database/migrations.md
+    - API:
+      - Overview: user-guide/api/index.md
+      - Endpoints: user-guide/api/endpoints.md
+      - Pagination: user-guide/api/pagination.md
+      - Exceptions: user-guide/api/exceptions.md
+      - Versioning: user-guide/api/versioning.md
+    - Authentication:
+      - Overview: user-guide/authentication/index.md
+      - JWT Tokens: user-guide/authentication/jwt-tokens.md
+      - User Management: user-guide/authentication/user-management.md
+      - Permissions: user-guide/authentication/permissions.md
+    - Caching:
+      - Overview: user-guide/caching/index.md
+      - Redis Cache: user-guide/caching/redis-cache.md
+      - Client Cache: user-guide/caching/client-cache.md
+      - Cache Strategies: user-guide/caching/cache-strategies.md
+    - Background Tasks: user-guide/background-tasks/index.md
+    - Rate Limiting: user-guide/rate-limiting/index.md
+    - Development: user-guide/development.md
+    - Production: user-guide/production.md
+    - Testing: user-guide/testing.md
+  # - Examples:
+  #   - Overview: examples/index.md
+  #   - Basic CRUD: examples/basic-crud.md
+  #   - Authentication Flow: examples/authentication-flow.md
+  #   - Background Job Workflow: examples/background-job-workflow.md
+  #   - Caching Patterns: examples/caching-patterns.md
+  #   - Production Setup: examples/production-setup.md
+  # - Reference:
+  #   - Overview: reference/index.md
+  #   - API Reference: reference/api-reference.md
+  #   - Configuration Reference: reference/configuration-reference.md
+  #   - Database Schema: reference/database-schema.md
+  #   - Middleware Reference: reference/middleware-reference.md
+  #   - Dependencies Reference: reference/dependencies-reference.md
+  # - Contributing:
+  #   - Overview: contributing/index.md
+  #   - Development Setup: contributing/development-setup.md
+  #   - Coding Standards: contributing/coding-standards.md
+  #   - Pull Request Process: contributing/pull-request-process.md
+  #   - Testing Guidelines: contributing/testing-guidelines.md
+  # - Migration Guides:
+  #   - Overview: migration-guides/index.md
+  #   - Version Migrations: migration-guides/from-v1-to-v2.md
+  #   - From Other Frameworks: migration-guides/from-other-frameworks.md
+  # - FAQ: faq.md
+
+markdown_extensions:
+  - admonition
+  - codehilite
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - attr_list
+  - md_in_html
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/benavlabs/fastapi-boilerplate
+    - icon: fontawesome/brands/python
+      link: https://pypi.org/project/fastapi/
+  version:
+    provider: mike
+
+extra_css:
+  - stylesheets/extra.css
+
+repo_name: benavlabs/fastapi-boilerplate
+repo_url: https://github.com/benavlabs/fastapi-boilerplate
+edit_uri: edit/main/docs/ 
