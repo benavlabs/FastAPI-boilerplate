@@ -58,18 +58,18 @@ class TokenData(BaseModel):
     username_or_email: str
 
 
-class TokenBlacklistBase(BaseModel):
+class TokenBlackListBase(BaseModel):
     token: str
     expires_at: datetime
 
 
-class TokenBlacklistRead(TokenBlacklistBase):
+class TokenBlackListRead(TokenBlackListBase):
     id: int
 
 
-class TokenBlacklistCreate(TokenBlacklistBase):
+class TokenBlackListCreate(TokenBlackListBase):
     pass
 
 
-class TokenBlacklistUpdate(TokenBlacklistBase):
+class TokenBlackListUpdate(TokenBlackListBase):
     pass

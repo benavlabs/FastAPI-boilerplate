@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..crud.crud_users import crud_users
 from .config import settings
 from .db.crud_token_blacklist import crud_token_blacklist
-from .schemas import TokenBlacklistCreate, TokenData
+from .schemas import TokenBlackListCreate, TokenData
 
 SECRET_KEY: SecretStr = settings.SECRET_KEY
 ALGORITHM = settings.ALGORITHM
@@ -126,7 +126,7 @@ async def blacklist_tokens(access_token: str, refresh_token: str, db: AsyncSessi
         exp_timestamp = payload.get("exp")
         if exp_timestamp is not None:
             expires_at = datetime.fromtimestamp(exp_timestamp)
-            await crud_token_blacklist.create(db, object=TokenBlacklistCreate(token=token, expires_at=expires_at))
+            await crud_token_blacklist.create(db, object=TokenBlackListCreate(token=token, expires_at=expires_at))
 
 
 async def blacklist_token(token: str, db: AsyncSession) -> None:
@@ -134,4 +134,4 @@ async def blacklist_token(token: str, db: AsyncSession) -> None:
     exp_timestamp = payload.get("exp")
     if exp_timestamp is not None:
         expires_at = datetime.fromtimestamp(exp_timestamp)
-        await crud_token_blacklist.create(db, object=TokenBlacklistCreate(token=token, expires_at=expires_at))
+        await crud_token_blacklist.create(db, object=TokenBlackListCreate(token=token, expires_at=expires_at))

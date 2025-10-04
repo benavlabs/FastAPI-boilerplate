@@ -1,14 +1,14 @@
 from fastcrud import FastCRUD
 
-from ..db.token_blacklist import TokenBlacklist
-from ..schemas import TokenBlacklistCreate, TokenBlacklistRead, TokenBlacklistUpdate
+from ..db.token_blacklist import TokenBlackList
+from ..schemas import TokenBlackListCreate, TokenBlackListRead, TokenBlackListUpdate
 
-CRUDTokenBlacklist = FastCRUD[
-    TokenBlacklist,
-    TokenBlacklistCreate,
-    TokenBlacklistUpdate,
-    TokenBlacklistUpdate,
-    TokenBlacklistUpdate,
-    TokenBlacklistRead,
+CRUDTokenBlackList = FastCRUD[
+    TokenBlackList,
+    TokenBlackListCreate,
+    TokenBlackListUpdate,
+    TokenBlackListUpdate,
+    TokenBlackListUpdate,
+    TokenBlackListRead,
 ]
-crud_token_blacklist = CRUDTokenBlacklist(TokenBlacklist)
+crud_token_blacklist = CRUDTokenBlackList(TokenBlackList)

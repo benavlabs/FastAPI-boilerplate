@@ -315,7 +315,7 @@ The system uses a database table to track invalidated tokens:
 
 ```python
 # models/token_blacklist.py
-class TokenBlacklist(Base):
+class TokenBlackList(Base):
     __tablename__ = "token_blacklist"
     
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -360,7 +360,7 @@ async def blacklist_token(token: str, db: AsyncSession) -> None:
         # 3. Store in blacklist with expiration
         await crud_token_blacklist.create(
             db, 
-            object=TokenBlacklistCreate(token=token, expires_at=expires_at)
+            object=TokenBlackListCreate(token=token, expires_at=expires_at)
         )
 ```
 
