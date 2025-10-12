@@ -144,7 +144,7 @@ async def write_category(
     db: Annotated[AsyncSession, Depends(async_get_db)],
 ):
     category_row = await crud_categories.exists(db=db, name=category.name)
-    if category_row:
+    if category_row is True:
         raise DuplicateValueException("Category name already exists")
 
     return await crud_categories.create(db=db, object=category)
@@ -180,7 +180,7 @@ async def read_category(
         id=category_id,
         is_deleted=False
     )
-    if not db_category:
+    if db_category is None:
         raise NotFoundException("Category not found")
 
     return db_category
@@ -195,12 +195,12 @@ async def patch_category(
     db: Annotated[AsyncSession, Depends(async_get_db)],
 ):
     db_category = await crud_categories.get(db=db, id=category_id, is_deleted=False)
-    if not db_category:
+    if db_category is None:
         raise NotFoundException("Category not found")
 
-    if values.name:
+    if values.name is True:
         category_row = await crud_categories.exists(db=db, name=values.name)
-        if category_row and category_row["id"] != category_id:
+        if category_row is True and category_row["id"] != category_id:
             raise DuplicateValueException("Category name already exists")
 
     return await crud_categories.update(db=db, object=values, id=category_id)
@@ -214,7 +214,7 @@ async def erase_category(
     db: Annotated[AsyncSession, Depends(async_get_db)],
 ):
     db_category = await crud_categories.get(db=db, id=category_id, is_deleted=False)
-    if not db_category:
+    if db_category is None:
         raise NotFoundException("Category not found")
 
     await crud_categories.delete(db=db, db_row=db_category, garbage_collection=False)
