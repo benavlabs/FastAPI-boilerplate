@@ -182,8 +182,10 @@ Retrieving the current user's profile is a fundamental operation that should be 
 @router.get("/user/me/", response_model=UserRead)
 async def read_users_me(current_user: dict = Depends(get_current_user)) -> dict:
     return current_user
+```
+# Frontend usage`
 
-# Frontend usage
+```javascript
 async function getCurrentUser() {
     const token = localStorage.getItem('access_token');
     const response = await fetch('/api/v1/user/me/', {
