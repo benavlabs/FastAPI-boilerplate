@@ -632,7 +632,7 @@ class UserRead(BaseModel):
 @classmethod  
 def validate_email_unique(cls, v):
     # Database query in validator - slow!
-    if crud_users.exists(email=v):
+    if crud_users.exists(email=v) is True:
         raise ValueError('Email already exists')
 
 # DO - Handle uniqueness in business logic

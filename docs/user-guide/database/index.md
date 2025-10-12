@@ -185,7 +185,7 @@ async def create_user(
     db: Annotated[AsyncSession, Depends(async_get_db)]
 ):
     # Check for duplicates
-    if await crud_users.exists(db=db, email=user_data.email):
+    if await crud_users.exists(db=db, email=user_data.email) is True:
         raise DuplicateValueException("Email already exists")
     
     # Create user (password gets hashed automatically)

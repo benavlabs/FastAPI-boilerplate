@@ -130,7 +130,7 @@ username_taken = await crud_users.exists(db=db, username="john_doe")
 ```python
 # From src/app/api/v1/users.py - checking before creating
 email_row = await crud_users.exists(db=db, email=user.email)
-if email_row:
+if email_row is True:
     raise DuplicateValueException("Email is already registered")
 ```
 
@@ -223,7 +223,7 @@ Update with validation:
 # From real endpoint - check before updating
 if values.username != db_user.username:
     existing_username = await crud_users.exists(db=db, username=values.username)
-    if existing_username:
+    if existing_username is True:
         raise DuplicateValueException("Username not available")
 
 await crud_users.update(db=db, object=values, username=username)
@@ -423,10 +423,10 @@ from app.core.exceptions.http_exceptions import NotFoundException, DuplicateValu
 
 async def safe_user_creation(db: AsyncSession, user_data: UserCreate):
     # Check for duplicates
-    if await crud_users.exists(db=db, email=user_data.email):
+    if await crud_users.exists(db=db, email=user_data.email) is True:
         raise DuplicateValueException("Email already registered")
     
-    if await crud_users.exists(db=db, username=user_data.username):
+    if await crud_users.exists(db=db, username=user_data.username) is True:
         raise DuplicateValueException("Username not available")
     
     # Create user
@@ -475,12 +475,12 @@ Use `exists()` instead of `get()` when you only need to check existence:
 
 ```python
 # Good - faster, doesn't load data
-if await crud_users.exists(db=db, email=email):
+if await crud_users.exists(db=db, email=email) is True:
     raise DuplicateValueException("Email taken")
 
 # Avoid - slower, loads unnecessary data
 user = await crud_users.get(db=db, email=email)
-if user:
+if user is True:
     raise DuplicateValueException("Email taken")
 ```
 
