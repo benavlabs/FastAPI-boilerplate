@@ -14,7 +14,7 @@ Create a new file in `src/app/models/` (e.g., `category.py`):
 
 ```python
 from sqlalchemy import String, ForeignKey
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column
 
 from ..core.db.database import Base
 
@@ -33,8 +33,8 @@ class Category(Base):
     name: Mapped[str] = mapped_column(String(50))
     description: Mapped[str | None] = mapped_column(String(255), default=None)
     
-    # Relationships
-    posts: Mapped[list["Post"]] = relationship(back_populates="category")
+    # No relationships: use ForeignKey only
+    # Related data is fetched explicitly via CRUD operations
 ```
 
 #### 2. Create Pydantic Schemas
@@ -667,7 +667,7 @@ uv run alembic upgrade head
 
 ```python
 # 1. Create the model file (e.g., src/app/models/category.py)
-from sqlalchemy import String
+from sqlalchemy import String, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db.database import Base
@@ -678,6 +678,8 @@ class Category(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(50))
     description: Mapped[str] = mapped_column(String(255), nullable=True)
+    # Foreign key without relationship
+    created_by_user_id: Mapped[int] = mapped_column(ForeignKey("user.id"), index=True)
 ```
 
 ```python
