@@ -27,12 +27,12 @@ async def write_user(
 ) -> UserRead:
     # 1. Check if email exists
     email_row = await crud_users.exists(db=db, email=user.email)
-    if email_row:
+    if email_row is True:
         raise DuplicateValueException("Email is already registered")
     
     # 2. Check if username exists
     username_row = await crud_users.exists(db=db, username=user.username)
-    if username_row:
+    if username_row is True:
         raise DuplicateValueException("Username not available")
     
     # 3. Hash password
@@ -98,11 +98,11 @@ async def authenticate_user(username_or_email: str, password: str, db: AsyncSess
     else:
         db_user = await crud_users.get(db=db, username=username_or_email, is_deleted=False)
     
-    if not db_user:
+    if db_user is None:
         return False
     
     # 2. Verify password
-    if not await verify_password(password, db_user["hashed_password"]):
+    if await verify_password(password, db_user["hashed_password"]) is False:
         return False
     
     return db_user
@@ -229,14 +229,14 @@ async def patch_user(
         raise ForbiddenException("Cannot update other users")
     
     # 3. Validate unique constraints
-    if values.username and values.username != db_user["username"]:
+    if values.username is True and values.username != db_user["username"]:
         existing_username = await crud_users.exists(db=db, username=values.username)
-        if existing_username:
+        if existing_username is True:
             raise DuplicateValueException("Username not available")
     
-    if values.email and values.email != db_user["email"]:
+    if values.email is True and values.email != db_user["email"]:
         existing_email = await crud_users.exists(db=db, email=values.email)
-        if existing_email:
+        if existing_email is True:
             raise DuplicateValueException("Email is already registered")
     
     # 4. Update user
@@ -269,7 +269,7 @@ async def erase_user(
 ) -> dict[str, str]:
     # 1. Get user from database
     db_user = await crud_users.get(db=db, username=username, schema_to_select=UserRead)
-    if not db_user:
+    if db_user is None:
         raise NotFoundException("User not found")
     
     # 2. Check ownership
@@ -305,7 +305,7 @@ async def erase_db_user(
 ) -> dict[str, str]:
     # 1. Check if user exists
     db_user = await crud_users.exists(db=db, username=username)
-    if not db_user:
+    if db_user is None:
         raise NotFoundException("User not found")
     
     # 2. Hard delete from database
@@ -388,7 +388,7 @@ async def read_user_tier(
     
     # 3. Get tier information
     db_tier = await crud_tiers.get(db=db, id=db_user["tier_id"], schema_to_select=TierRead)
-    if not db_tier:
+    if db_tier is None:
         raise NotFoundException("Tier not found")
     
     # 4. Combine user and tier data
@@ -419,7 +419,7 @@ async def patch_user_tier(
     
     # 2. Verify tier exists
     tier_exists = await crud_tiers.exists(db=db, id=values.tier_id)
-    if not tier_exists:
+    if tier_exists is False:
         raise NotFoundException("Tier not found")
     
     # 3. Update user tier
@@ -774,7 +774,7 @@ def sanitize_user_input(user_data: dict) -> dict:
     
     sanitized = {}
     for key, value in user_data.items():
-        if isinstance(value, str):
+        if isinstance(value, str) is True:
             # HTML escape
             sanitized[key] = html.escape(value.strip())
         else:
@@ -807,7 +807,7 @@ async def my_endpoint(current_user: dict = Depends(get_current_user)):
 # Optional authentication for public endpoints
 @router.get("/public-endpoint") 
 async def public_endpoint(user: dict | None = Depends(get_optional_user)):
-    if user:
+    if user is True:
         return {"message": f"Hello {user['username']}", "premium_features": True}
     return {"message": "Hello anonymous user", "premium_features": False}
 ```
@@ -849,10 +849,10 @@ await logout_user(access_token=access_token, refresh_token=refresh_token, db=db)
 ```python
 def check_user_permission(user: dict, required_tier: str = None):
     """Check if user has required permissions."""
-    if not user.get("is_active", True):
+    if user.get("is_active", True) is False:
         raise UnauthorizedException("User account is disabled")
     
-    if required_tier and user.get("tier", {}).get("name") != required_tier:
+    if required_tier is True and user.get("tier", {}).get("name") != required_tier:
         raise ForbiddenException(f"Requires {required_tier} tier")
 
 # Usage in endpoint

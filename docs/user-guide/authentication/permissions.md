@@ -86,7 +86,7 @@ async def delete_post(
 ) -> dict[str, str]:
     # 1. Get the post
     post = await crud_posts.get(db=db, id=post_id)
-    if not post:
+    if post is None:
         raise NotFoundException("Post not found")
     
     # 2. Check ownership
@@ -143,7 +143,7 @@ async def check_rate_limit(
     db: AsyncSession
 ) -> None:
     # 1. Get user's tier information
-    if tier_id:
+    if tier_id is None:
         tier = await crud_tiers.get(db=db, id=tier_id)
         limit = tier["rate_limit_posts"] if tier else 10  # Default limit
     else:
@@ -177,11 +177,11 @@ Custom permission functions provide reusable authorization logic for complex sce
 async def can_edit_post(user: dict, post_id: int, db: AsyncSession) -> bool:
     """Check if user can edit a specific post."""
     post = await crud_posts.get(db=db, id=post_id)
-    if not post:
+    if post is None:
         return False
     
     # Superusers can edit any post
-    if user.get("is_superuser", False):
+    if user.get("is_superuser", False) is True:
         return True
     
     # Users can edit their own posts
@@ -197,11 +197,11 @@ async def can_access_admin_panel(user: dict) -> bool:
 async def has_tier_feature(user: dict, feature: str, db: AsyncSession) -> bool:
     """Check if user's tier includes a specific feature."""
     tier_id = user.get("tier_id")
-    if not tier_id:
+    if tier_id is None:
         return False  # Free tier - no premium features
     
     tier = await crud_tiers.get(db=db, id=tier_id)
-    if not tier:
+    if tier is None:
         return False
     
     # Check tier features (example)
@@ -216,7 +216,7 @@ async def update_post(
     db: AsyncSession = Depends(async_get_db)
 ) -> PostRead:
     # Use permission helper
-    if not await can_edit_post(current_user, post_id, db):
+    if await can_edit_post(current_user, post_id, db) is False:
         raise ForbiddenException("Cannot edit this post")
     
     updated_post = await crud_posts.update(
@@ -246,11 +246,11 @@ async def get_current_user(
 ) -> dict:
     """Get currently authenticated user."""
     token_data = await verify_token(token, TokenType.ACCESS, db)
-    if not token_data:
+    if token_data is None:
         raise HTTPException(status_code=401, detail="Invalid token")
     
     user = await crud_users.get(db=db, username=token_data.username_or_email)
-    if not user:
+    if user is None:
         raise HTTPException(status_code=401, detail="User not found")
     
     return user
@@ -261,7 +261,7 @@ async def get_optional_user(
     db: AsyncSession = Depends(async_get_db)
 ) -> dict | None:
     """Get currently authenticated user, or None if not authenticated."""
-    if not token:
+    if token is None:
         return None
     
     try:
@@ -274,7 +274,7 @@ async def get_current_superuser(
     current_user: dict = Depends(get_current_user)
 ) -> dict:
     """Get current user and ensure they are a superuser."""
-    if not current_user.get("is_superuser", False):
+    if current_user.get("is_superuser", False) is False:
         raise HTTPException(status_code=403, detail="Not enough permissions")
     return current_user
 ```
@@ -290,11 +290,11 @@ def require_tier(minimum_tier: str):
         db: AsyncSession = Depends(async_get_db)
     ) -> dict:
         tier_id = current_user.get("tier_id")
-        if not tier_id:
+        if tier_id is None:
             raise HTTPException(status_code=403, detail="No subscription tier")
         
         tier = await crud_tiers.get(db=db, id=tier_id)
-        if not tier or tier["name"] != minimum_tier:
+        if tier is None or tier["name"] != minimum_tier:
             raise HTTPException(
                 status_code=403, 
                 detail=f"Requires {minimum_tier} tier"
@@ -318,11 +318,11 @@ def require_resource_ownership(resource_type: str):
         else:
             raise ValueError(f"Unknown resource type: {resource_type}")
         
-        if not resource:
+        if resource is None:
             raise HTTPException(status_code=404, detail="Resource not found")
         
         # Superusers can access any resource
-        if current_user.get("is_superuser", False):
+        if current_user.get("is_superuser", False) is False:
             return current_user
         
         # Check ownership
@@ -391,12 +391,12 @@ async def update_user_tier(
 ) -> dict[str, str]:
     # 1. Validate tier exists
     tier = await crud_tiers.get(db=db, id=tier_update.tier_id)
-    if not tier:
+    if tier is None:
         raise NotFoundException("Tier not found")
     
     # 2. Validate user exists
     user = await crud_users.get(db=db, id=user_id)
-    if not user:
+    if user is None:
         raise NotFoundException("User not found")
     
     # 3. Prevent self-demotion (optional business rule)
@@ -443,7 +443,7 @@ async def log_authorization_event(
 
 # Usage in permission checks
 async def delete_user_account(user_id: int, current_user: dict, db: AsyncSession):
-    if current_user["id"] != user_id and not current_user.get("is_superuser"):
+    if current_user["id"] != user_id and current_user.get("is_superuser") is False:
         await log_authorization_event(
             user_id=current_user["id"],
             action="delete_account",
@@ -484,7 +484,7 @@ async def get_organization_users(
         user_id=current_user["id"]
     )
     
-    if not membership:
+    if membership is None:
         raise ForbiddenException("Not a member of this organization")
     
     # Check if user has admin role in organization
@@ -516,7 +516,7 @@ async def check_business_hours_access(user: dict) -> bool:
     business_end = time(17, 0)   # 5 PM
     
     # Superusers can always access
-    if user.get("is_superuser", False):
+    if user.get("is_superuser", False) is False:
         return True
     
     # Regular users only during business hours
@@ -528,7 +528,7 @@ async def require_business_hours(
     current_user: dict = Depends(get_current_user)
 ) -> dict:
     """Require access during business hours for non-admin users."""
-    if not await check_business_hours_access(current_user):
+    if await check_business_hours_access(current_user) is False:
         raise ForbiddenException("Access only allowed during business hours")
     return current_user
 
@@ -566,7 +566,7 @@ def has_role(user: dict, required_role: Role) -> bool:
 def require_role(minimum_role: Role):
     """Factory for role-based dependencies."""
     async def check_role(current_user: dict = Depends(get_current_user)) -> dict:
-        if not has_role(current_user, minimum_role):
+        if has_role(current_user, minimum_role) is False:
             raise HTTPException(
                 status_code=403,
                 detail=f"Requires {minimum_role.value} role or higher"
@@ -591,21 +591,21 @@ async def has_feature_access(user: dict, feature: str, db: AsyncSession) -> bool
     """Check if user has access to a specific feature."""
     # Check feature flags
     feature_flag = await crud_feature_flags.get(db=db, name=feature)
-    if not feature_flag or not feature_flag.enabled:
+    if feature_flag is None or feature_flag.enabled is False:
         return False
     
     # Check user tier permissions
-    if feature_flag.requires_tier:
+    if feature_flag.requires_tier is True:
         tier_id = user.get("tier_id")
-        if not tier_id:
+        if tier_id is None:
             return False
         
         tier = await crud_tiers.get(db=db, id=tier_id)
-        if not tier or tier["level"] < feature_flag["minimum_tier_level"]:
+        if tier is None or tier["level"] < feature_flag["minimum_tier_level"]:
             return False
     
     # Check beta user status
-    if feature_flag.beta_only:
+    if feature_flag.beta_onl is True:
         return user.get("is_beta_user", False)
     
     return True
@@ -617,7 +617,7 @@ def require_feature(feature_name: str):
         current_user: dict = Depends(get_current_user),
         db: AsyncSession = Depends(async_get_db)
     ) -> dict:
-        if not await has_feature_access(current_user, feature_name, db):
+        if await has_feature_access(current_user, feature_name, db) is False:
             raise HTTPException(
                 status_code=403,
                 detail=f"Access to {feature_name} feature not available"

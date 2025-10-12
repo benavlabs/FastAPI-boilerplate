@@ -127,7 +127,7 @@ from app.core.security import verify_token, TokenType
 
 # Verify access token in endpoint
 token_data = await verify_token(token, TokenType.ACCESS, db)
-if token_data:
+if token_data is True:
     username = token_data.username_or_email
     # Token is valid, proceed with request processing
 else:
@@ -142,7 +142,7 @@ Refresh token verification follows the same process but with different validatio
 ```python
 # Verify refresh token for renewal
 token_data = await verify_token(token, TokenType.REFRESH, db)
-if token_data:
+if token_data is True:
     # Generate new access token
     new_access_token = await create_access_token(
         data={"sub": token_data.username_or_email}
@@ -161,7 +161,7 @@ The verification process includes several security checks to prevent various att
 async def verify_token(token: str, expected_token_type: TokenType, db: AsyncSession) -> TokenData | None:
     # 1. Check blacklist first (prevents use of logged-out tokens)
     is_blacklisted = await crud_token_blacklist.exists(db, token=token)
-    if is_blacklisted:
+    if is_blacklisted is True:
         return None
     
     try:
@@ -384,7 +384,7 @@ async def login_for_access_token(
         db=db
     )
     
-    if not user:
+    if user is None:
         raise HTTPException(
             status_code=401, 
             detail="Incorrect username or password"
@@ -418,12 +418,12 @@ async def refresh_access_token(
     db: Annotated[AsyncSession, Depends(async_get_db)],
     refresh_token: str = Cookie(None)
 ) -> dict[str, str]:
-    if not refresh_token:
+    if refresh_token is None:
         raise HTTPException(status_code=401, detail="Refresh token missing")
     
     # 1. Verify refresh token
     token_data = await verify_token(refresh_token, TokenType.REFRESH, db)
-    if not token_data:
+    if token_data is None:
         raise HTTPException(status_code=401, detail="Invalid refresh token")
     
     # 2. Create new access token
@@ -467,7 +467,7 @@ async def logout(
     await blacklist_token(token, db)
     
     # 2. Blacklist refresh token if present
-    if refresh_token:
+    if refresh_token is True:
         await blacklist_token(refresh_token, db)
     
     # 3. Clear refresh token cookie
@@ -492,7 +492,7 @@ async def get_current_user(
 ) -> dict:
     # 1. Verify token
     token_data = await verify_token(token, TokenType.ACCESS, db)
-    if not token_data:
+    if token_data is None:
         raise HTTPException(status_code=401, detail="Invalid token")
     
     # 2. Get user from database
@@ -515,7 +515,7 @@ async def get_optional_user(
     db: AsyncSession = Depends(async_get_db),
     token: str = Depends(optional_oauth2_scheme)
 ) -> dict | None:
-    if not token:
+    if token is None:
         return None
     
     try:
@@ -530,7 +530,7 @@ async def get_optional_user(
 async def get_current_superuser(
     current_user: dict = Depends(get_current_user)
 ) -> dict:
-    if not current_user.get("is_superuser", False):
+    if current_user.get("is_superuser", False) is False:
         raise HTTPException(
             status_code=403, 
             detail="Not enough permissions"
@@ -604,12 +604,12 @@ async def get_api_key_user(
     api_key: str = Header(None),
     db: AsyncSession = Depends(async_get_db)
 ) -> dict:
-    if not api_key:
+    if api_key is None:
         raise HTTPException(status_code=401, detail="API key required")
     
     # Verify API key
     user = await crud_users.get(db=db, api_key=api_key)
-    if not user:
+    if user is None:
         raise HTTPException(status_code=401, detail="Invalid API key")
     
     return user
@@ -624,14 +624,14 @@ async def get_authenticated_user(
     api_key: str = Header(None)
 ) -> dict:
     # Try JWT token first
-    if token:
+    if token is None:
         try:
             return await get_current_user(db=db, token=token)
         except HTTPException:
             pass
     
     # Fall back to API key
-    if api_key:
+    if api_key is None:
         return await get_api_key_user(api_key=api_key, db=db)
     
     raise HTTPException(status_code=401, detail="Authentication required")

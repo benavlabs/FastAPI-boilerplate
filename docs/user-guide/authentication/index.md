@@ -58,7 +58,7 @@ async def protected_endpoint(current_user: dict = Depends(get_current_user)):
 # Optional authentication
 @router.get("/public")
 async def public_endpoint(user: dict | None = Depends(get_optional_user)):
-    if user:
+    if user is True:
         return {"premium_content": True}
     return {"premium_content": False}
 
@@ -76,7 +76,7 @@ async def update_post(post_id: int, current_user: dict = Depends(get_current_use
     post = await crud_posts.get(db=db, id=post_id)
     
     # Check ownership or admin privileges
-    if post["created_by_user_id"] != current_user["id"] and not current_user["is_superuser"]:
+    if post["created_by_user_id"] != current_user["id"] and current_user["is_superuser"] is False:
         raise ForbiddenException("Cannot update other users' posts")
     
     return await crud_posts.update(db=db, id=post_id, object=updates)
@@ -148,7 +148,7 @@ async def get_my_data(current_user: dict = Depends(get_current_user)):
 
 # Check user permissions
 def check_tier_access(user: dict, required_tier: str):
-    if not user.get("tier") or user["tier"]["name"] != required_tier:
+    if user.get("tier") is None or user["tier"]["name"] != required_tier:
         raise ForbiddenException(f"Requires {required_tier} tier")
 
 # Custom authentication dependency
