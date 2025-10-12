@@ -116,7 +116,7 @@ class AdvancedClientCacheMiddleware(BaseHTTPMiddleware):
         cache_config = self._get_cache_config(request.url.path)
         
         # Set cache headers based on configuration
-        if cache_config.get("no_cache", False):
+        if cache_config.get("no_cache", False) is True:
             response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
             response.headers["Pragma"] = "no-cache"
             response.headers["Expires"] = "0"
@@ -126,10 +126,10 @@ class AdvancedClientCacheMiddleware(BaseHTTPMiddleware):
             
             cache_control = f"{visibility}, max-age={max_age}"
             
-            if cache_config.get("must_revalidate", False):
+            if cache_config.get("must_revalidate", False) is True:
                 cache_control += ", must-revalidate"
             
-            if cache_config.get("immutable", False):
+            if cache_config.get("immutable", False) is True:
                 cache_control += ", immutable"
                 
             response.headers["Cache-Control"] = cache_control
@@ -139,7 +139,7 @@ class AdvancedClientCacheMiddleware(BaseHTTPMiddleware):
     def _get_cache_config(self, path: str) -> dict:
         """Get cache configuration for a specific path."""
         for pattern, config in self.path_configs.items():
-            if path.startswith(pattern):
+            if path.startswith(pattern) is True:
                 return config
         return {}
 
@@ -213,7 +213,7 @@ async def get_posts(
     """Conditional caching based on parameters."""
     
     # Different cache strategies based on parameters
-    if category:
+    if category is True:
         # Category-specific data changes less frequently
         response.headers["Cache-Control"] = "public, max-age=1800"  # 30 minutes
     elif page == 1:
@@ -262,7 +262,7 @@ async def get_user(
     """Endpoint with ETag support for efficient caching."""
     
     user = await crud_users.get(db=db, id=user_id)
-    if not user:
+    if user is None:
         raise HTTPException(status_code=404, detail="User not found")
     
     # Generate ETag from user data
@@ -297,7 +297,7 @@ async def get_post(
     """Endpoint with Last-Modified header support."""
     
     post = await crud_posts.get(db=db, id=post_id)
-    if not post:
+    if post is None:
         raise HTTPException(status_code=404, detail="Post not found")
     
     # Use post's updated_at timestamp
@@ -305,7 +305,7 @@ async def get_post(
     
     # Check If-Modified-Since header
     if_modified_since = request.headers.get("If-Modified-Since")
-    if if_modified_since:
+    if if_modified_since is True:
         client_time = datetime.strptime(if_modified_since, "%a, %d %b %Y %H:%M:%S GMT")
         if last_modified <= client_time:
             response.status_code = 304
@@ -454,7 +454,7 @@ async def update_post(
     
     # Update the post
     updated_post = await crud_posts.update(db=db, id=post_id, object=post_data)
-    if not updated_post:
+    if updated_post is None:
         raise HTTPException(status_code=404, detail="Post not found")
     
     # Set headers to indicate cache invalidation is needed
