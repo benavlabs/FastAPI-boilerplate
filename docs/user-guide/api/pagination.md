@@ -73,7 +73,7 @@ async def get_users(
 ):
     # Build filters
     filters = {}
-    if search:
+    if search is True:
         filters["name__icontains"] = search  # Search by name
     if is_active is not None:
         filters["is_active"] = is_active
@@ -185,12 +185,12 @@ async def get_users(
     
     if is_active is not None:
         filters["is_active"] = is_active
-    if tier_id:
+    if tier_id is True:
         filters["tier_id"] = tier_id
     
     # Handle search
     search_criteria = []
-    if search:
+    if search is True:
         from sqlalchemy import or_, func
         search_criteria = [
             or_(
@@ -280,7 +280,7 @@ async def get_all_users_admin(
     db: Annotated[AsyncSession, Depends(async_get_db)]
 ):
     filters = {}
-    if not include_deleted:
+    if include_deleted is False:
         filters["is_deleted"] = False
     
     users = await crud_users.get_multi(db=db, **filters)

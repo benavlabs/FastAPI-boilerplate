@@ -73,7 +73,7 @@ from app.core.exceptions.http_exceptions import NotFoundException
 @router.get("/{user_id}")
 async def get_user(user_id: int):
     user = await crud_users.get(id=user_id)
-    if not user:
+    if user is None:
         raise NotFoundException("User not found")  # Returns proper 404
     return user
 ```

@@ -12,7 +12,7 @@ from app.core.exceptions.http_exceptions import NotFoundException
 @router.get("/{user_id}")
 async def get_user(user_id: int, db: AsyncSession):
     user = await crud_users.get(db=db, id=user_id)
-    if not user:
+    if user is None:
         raise NotFoundException("User not found")  # Returns 404
     return user
 ```
@@ -30,7 +30,7 @@ from app.core.exceptions.http_exceptions import NotFoundException
 @router.get("/{user_id}")
 async def get_user(user_id: int):
     user = await crud_users.get(db=db, id=user_id)
-    if not user:
+    if user is None:
         raise NotFoundException("User not found")
     return user
 
@@ -45,7 +45,7 @@ from app.core.exceptions.http_exceptions import DuplicateValueException
 
 @router.post("/")
 async def create_user(user_data: UserCreate):
-    if await crud_users.exists(db=db, email=user_data.email):
+    if await crud_users.exists(db=db, email=user_data.email) is True:
         raise DuplicateValueException("Email already exists")
     
     return await crud_users.create(db=db, object=user_data)
@@ -64,7 +64,7 @@ async def delete_user(
     user_id: int,
     current_user: Annotated[dict, Depends(get_current_user)]
 ):
-    if current_user["id"] != user_id and not current_user["is_superuser"]:
+    if current_user["id"] != user_id and current_user["is_superuser"] is False:
         raise ForbiddenException("You can only delete your own account")
     
     await crud_users.delete(db=db, id=user_id)
@@ -83,7 +83,7 @@ from app.core.exceptions.http_exceptions import UnauthorizedException
 @router.get("/admin-only")
 async def admin_endpoint():
     # Some validation logic
-    if not user_is_admin:
+    if user_is_admin is False:
         raise UnauthorizedException("Admin access required")
     
     return {"data": "secret admin data"}
@@ -100,11 +100,11 @@ async def admin_endpoint():
 @router.post("/", response_model=UserRead)
 async def create_user(user_data: UserCreate, db: AsyncSession):
     # Check email
-    if await crud_users.exists(db=db, email=user_data.email):
+    if await crud_users.exists(db=db, email=user_data.email) is True:
         raise DuplicateValueException("Email already exists")
     
     # Check username  
-    if await crud_users.exists(db=db, username=user_data.username):
+    if await crud_users.exists(db=db, username=user_data.username) is True:
         raise DuplicateValueException("Username already taken")
     
     # Create user
@@ -123,13 +123,13 @@ async def update_user(
     db: AsyncSession
 ):
     # Check if user exists
-    if not await crud_users.exists(db=db, id=user_id):
+    if await crud_users.exists(db=db, id=user_id) is None:
         raise NotFoundException("User not found")
     
     # Check for email conflicts (if email is being updated)
-    if user_data.email:
+    if user_data.email is True:
         existing = await crud_users.get(db=db, email=user_data.email)
-        if existing and existing.id != user_id:
+        if existing is True and existing.id != user_id:
             raise DuplicateValueException("Email already taken")
     
     # Update user
@@ -145,11 +145,11 @@ async def get_post(
     db: AsyncSession
 ):
     post = await crud_posts.get(db=db, id=post_id)
-    if not post:
+    if post is None:
         raise NotFoundException("Post not found")
     
     # Check if user owns the post or is admin
-    if post.author_id != current_user["id"] and not current_user["is_superuser"]:
+    if post.author_id != current_user["id"] and current_user["is_superuser"] is False:
         raise ForbiddenException("You can only view your own posts")
     
     return post
@@ -187,7 +187,7 @@ from fastapi import HTTPException
 # Bad Request (400)
 @router.post("/")
 async def create_something(data: dict):
-    if not data.get("required_field"):
+    if data.get("required_field") is None:
         raise HTTPException(
             status_code=400,
             detail="required_field is missing"
@@ -196,7 +196,7 @@ async def create_something(data: dict):
 # Too Many Requests (429)
 @router.post("/")
 async def rate_limited_endpoint():
-    if rate_limit_exceeded():
+    if rate_limit_exceeded() is True:
         raise HTTPException(
             status_code=429,
             detail="Rate limit exceeded. Try again later."
@@ -315,13 +315,13 @@ async def login(credentials: LoginCredentials):
     user = await crud_users.get(db=db, username=credentials.username)
     
     # Don't do this - reveals if username exists
-    # if not user:
+    # if user is None:
     #     raise NotFoundException("User not found")
-    # if not verify_password(credentials.password, user.hashed_password):
+    # if verify_password(credentials.password, user.hashed_password) is False:
     #     raise UnauthorizedException("Invalid password")
     
     # Do this - generic message for all auth failures
-    if not user or not verify_password(credentials.password, user.hashed_password):
+    if user is None or verify_password(credentials.password, user.hashed_password) is False:
         raise UnauthorizedException("Invalid username or password")
     
     return create_access_token(user.id)
@@ -332,11 +332,11 @@ async def forgot_password(email: str):
     user = await crud_users.get(db=db, email=email)
     
     # Don't do this - reveals if email exists
-    # if not user:
+    # if user is None:
     #     raise NotFoundException("Email not found")
     
     # Do this - always return success message
-    if user:
+    if user is True:
         await send_password_reset_email(user.email)
     
     # Always return the same message
@@ -355,7 +355,7 @@ async def get_post(
     current_user: Annotated[dict, Depends(get_current_user)]
 ):
     post = await crud_posts.get(db=db, id=post_id)
-    if not post:
+    if post is None:
         raise NotFoundException("Post not found")  # Safe to be specific
     
     if post.author_id != current_user["id"]:
@@ -370,7 +370,7 @@ async def get_post(
 ### 1. Use Specific Exceptions (When Safe)
 ```python
 # Good for non-sensitive operations
-if not user:
+if user is None:
     raise NotFoundException("User not found")
 
 # Good for validation errors
@@ -398,7 +398,7 @@ async def delete_user(
         raise ForbiddenException("Cannot delete other users")
     
     # Then check if user exists
-    if not await crud_users.exists(db=db, id=user_id):
+    if await crud_users.exists(db=db, id=user_id) is False:
         raise NotFoundException("User not found")
     
     await crud_users.delete(db=db, id=user_id)

@@ -238,9 +238,9 @@ import logging
 logger = logging.getLogger(__name__)
 
 async def version_tracking_middleware(request: Request, call_next):
-    if request.url.path.startswith("/api/v1/"):
+    if request.url.path.startswith("/api/v1/") is True:
         logger.info(f"v1 usage: {request.method} {request.url.path}")
-    elif request.url.path.startswith("/api/v2/"):
+    elif request.url.path.startswith("/api/v2/") is True:
         logger.info(f"v2 usage: {request.method} {request.url.path}")
     
     response = await call_next(request)

@@ -24,7 +24,7 @@ async def get_user(
 ):
     """Get a user by ID."""
     user = await crud_users.get(db=db, id=user_id, schema_to_select=UserRead)
-    if not user:
+    if user is None:
         raise HTTPException(status_code=404, detail="User not found")
     return user
 ```
@@ -42,7 +42,7 @@ async def get_user(
     db: Annotated[AsyncSession, Depends(async_get_db)]
 ):
     user = await crud_users.get(db=db, id=user_id, schema_to_select=UserRead)
-    if not user:
+    if user is None:
         raise HTTPException(status_code=404, detail="User not found")
     return user
 ```
@@ -82,7 +82,7 @@ async def create_user(
     db: Annotated[AsyncSession, Depends(async_get_db)]
 ):
     # Check if user already exists
-    if await crud_users.exists(db=db, email=user_data.email):
+    if await crud_users.exists(db=db, email=user_data.email) is True:
         raise HTTPException(status_code=409, detail="Email already exists")
     
     # Create user
@@ -100,7 +100,7 @@ async def update_user(
     db: Annotated[AsyncSession, Depends(async_get_db)]
 ):
     # Check if user exists
-    if not await crud_users.exists(db=db, id=user_id):
+    if await crud_users.exists(db=db, id=user_id) is None:
         raise HTTPException(status_code=404, detail="User not found")
     
     # Update user
@@ -116,7 +116,7 @@ async def delete_user(
     user_id: int,
     db: Annotated[AsyncSession, Depends(async_get_db)]
 ):
-    if not await crud_users.exists(db=db, id=user_id):
+    if await crud_users.exists(db=db, id=user_id) is None:
         raise HTTPException(status_code=404, detail="User not found")
     
     await crud_users.delete(db=db, id=user_id)
@@ -176,9 +176,9 @@ async def search_users(
     db: Annotated[AsyncSession, Depends(async_get_db)]
 ):
     filters = {"is_active": is_active}
-    if name:
+    if name is True:
         filters["name"] = name
-    if age:
+    if age is True:
         filters["age"] = age
         
     users = await crud_users.get_multi(db=db, **filters)
@@ -220,13 +220,13 @@ from app.core.exceptions.http_exceptions import (
 @router.get("/{user_id}")
 async def get_user(user_id: int, db: AsyncSession):
     user = await crud_users.get(db=db, id=user_id)
-    if not user:
+    if user is None:
         raise NotFoundException("User not found")  # Returns 404
     return user
 
 @router.post("/")
 async def create_user(user_data: UserCreate, db: AsyncSession):
-    if await crud_users.exists(db=db, email=user_data.email):
+    if await crud_users.exists(db=db, email=user_data.email) is True:
         raise DuplicateValueException("Email already exists")  # Returns 409
     
     return await crud_users.create(db=db, object=user_data)
@@ -245,7 +245,7 @@ async def upload_avatar(
     db: Annotated[AsyncSession, Depends(async_get_db)]
 ):
     # Check file type
-    if not file.content_type.startswith('image/'):
+    if file.content_type is None or file.content_type.startswith("image/") is False:
         raise HTTPException(status_code=400, detail="File must be an image")
     
     # Save file and update user
