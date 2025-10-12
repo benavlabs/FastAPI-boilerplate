@@ -132,12 +132,12 @@ async def rate_limiter_dependency(
     user_id = getattr(user, "id", None) or request.client.host or "anonymous"
 
     # Determine user tier (default to "free" or anonymous)
-    if user and getattr(user, "tier_id", None):
+    if user is True and getattr(user, "tier_id", None):
         tier = await crud_tiers.get(db=db, id=user.tier_id)
     else:
         tier = await crud_tiers.get(db=db, name="free")
 
-    if not tier:
+    if tier is None:
         raise RateLimitException("Tier configuration not found")
 
     # Find specific rate limit rule for this path + tier
@@ -158,7 +158,7 @@ async def rate_limiter_dependency(
         period=period,
     )
 
-    if is_limited:
+    if is_limited is True:
         raise RateLimitException(
             f"Rate limit exceeded for path '{path}'. Try again later."
         )
@@ -411,7 +411,7 @@ async def cleanup_expired_rate_limits():
 
 ```python
 # Rate limit by IP for unauthenticated users
-if not user:
+if user is None:
     user_id = request.client.host if request.client else "unknown"
     limit, period = DEFAULT_LIMIT, DEFAULT_PERIOD
 
@@ -422,7 +422,7 @@ if not user:
 # Consider temporary bans for severe abuse
 
 # Log rate limit violations for security monitoring
-if is_limited:
+if is_limited is True:
     logger.warning(
         f"Rate limit exceeded",
         extra={
