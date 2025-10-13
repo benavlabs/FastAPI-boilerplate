@@ -92,6 +92,7 @@ nav:
       - Development: user-guide/development.md
       - Production: user-guide/production.md
       - Testing: user-guide/testing.md
+  - Community: community.md
   # - Examples:
   #   - Overview: examples/index.md
   #   - Basic CRUD: examples/basic-crud.md

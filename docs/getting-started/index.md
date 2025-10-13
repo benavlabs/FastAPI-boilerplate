@@ -173,6 +173,7 @@ Not using Docker? No problem!
 
 ## Need Help?
 
+- Join our **[Discord Community](../community.md)** - Get help from other developers
 - Report issues on **[GitHub](https://github.com/benavlabs/fastapi-boilerplate/issues)**
 
 ---

@@ -112,11 +112,12 @@ That's it! Your API will be available at `http://localhost:8000/docs`
 
 - **REST APIs** - Build robust, scalable REST APIs
 - **Microservices** - Create microservice architectures
-- **Smll Applications** - Multi-tenant applications with user tiers
+- **SaaS Applications** - Multi-tenant applications with user tiers
 - **Data APIs** - APIs for data processing and analytics
 
 ## Community & Support
 
+- **[Discord Community](community.md)** - Join our Discord server to connect with other developers
 - **[GitHub Issues](https://github.com/benavlabs/fastapi-boilerplate/issues)** - Bug reports and feature requests
 
 <hr>

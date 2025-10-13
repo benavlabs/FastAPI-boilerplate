@@ -73,6 +73,20 @@ This README provides a quick reference for LLMs and developers, but the full doc
 </a>
 <br>
 
+## 🚀 Join Our Community
+
+💬 **[Join our Discord community](https://discord.gg/jhhbkxBmhj)** - Connect with other developers using the FastAPI boilerplate!
+
+Our Discord server features:
+- **🤝 Networking** - Connect with fellow developers and share experiences
+- **💡 Product Updates** - Stay updated with FastroAI and our other products  
+- **📸 Showcase** - Share what you've built using our tools
+- **🗒️ Blog** - Latest blog posts and technical insights
+- **💬 General Discussion** - Open space for questions and discussions
+- **🎤 Community Voice** - Join live talks and community events
+
+Whether you're just getting started or building production applications, our community is here to help you succeed!
+
 ## 1. Features
 
 - ⚡️ Fully async
