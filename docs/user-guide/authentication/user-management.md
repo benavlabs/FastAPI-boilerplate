@@ -305,7 +305,7 @@ async def erase_db_user(
 ) -> dict[str, str]:
     # 1. Check if user exists
     db_user = await crud_users.exists(db=db, username=username)
-    if db_user is None:
+    if db_user is False:
         raise NotFoundException("User not found")
     
     # 2. Hard delete from database

@@ -82,7 +82,7 @@ async def create_user(
     db: Annotated[AsyncSession, Depends(async_get_db)]
 ):
     # Check if user already exists
-    if await crud_users.exists(db=db, email=user_data.email) is True:
+    if await crud_users.exists(db=db, email=user_data.email):
         raise HTTPException(status_code=409, detail="Email already exists")
     
     # Create user
@@ -100,7 +100,7 @@ async def update_user(
     db: Annotated[AsyncSession, Depends(async_get_db)]
 ):
     # Check if user exists
-    if await crud_users.exists(db=db, id=user_id) is None:
+    if await crud_users.exists(db=db, id=user_id) is False:
         raise HTTPException(status_code=404, detail="User not found")
     
     # Update user
@@ -116,7 +116,7 @@ async def delete_user(
     user_id: int,
     db: Annotated[AsyncSession, Depends(async_get_db)]
 ):
-    if await crud_users.exists(db=db, id=user_id) is None:
+    if await crud_users.exists(db=db, id=user_id) is False:
         raise HTTPException(status_code=404, detail="User not found")
     
     await crud_users.delete(db=db, id=user_id)
@@ -176,9 +176,9 @@ async def search_users(
     db: Annotated[AsyncSession, Depends(async_get_db)]
 ):
     filters = {"is_active": is_active}
-    if name is True:
+    if name:
         filters["name"] = name
-    if age is True:
+    if age:
         filters["age"] = age
         
     users = await crud_users.get_multi(db=db, **filters)
@@ -226,7 +226,7 @@ async def get_user(user_id: int, db: AsyncSession):
 
 @router.post("/")
 async def create_user(user_data: UserCreate, db: AsyncSession):
-    if await crud_users.exists(db=db, email=user_data.email) is True:
+    if await crud_users.exists(db=db, email=user_data.email):
         raise DuplicateValueException("Email already exists")  # Returns 409
     
     return await crud_users.create(db=db, object=user_data)

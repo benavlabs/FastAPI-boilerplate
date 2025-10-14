@@ -123,7 +123,7 @@ async def update_user(
     db: AsyncSession
 ):
     # Check if user exists
-    if await crud_users.exists(db=db, id=user_id) is None:
+    if await crud_users.exists(db=db, id=user_id) is False:
         raise NotFoundException("User not found")
     
     # Check for email conflicts (if email is being updated)
@@ -145,7 +145,7 @@ async def get_post(
     db: AsyncSession
 ):
     post = await crud_posts.get(db=db, id=post_id)
-    if post is None:
+    if not post:
         raise NotFoundException("Post not found")
     
     # Check if user owns the post or is admin
@@ -355,7 +355,7 @@ async def get_post(
     current_user: Annotated[dict, Depends(get_current_user)]
 ):
     post = await crud_posts.get(db=db, id=post_id)
-    if post is None:
+    if not post:
         raise NotFoundException("Post not found")  # Safe to be specific
     
     if post.author_id != current_user["id"]:
