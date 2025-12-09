@@ -10,7 +10,7 @@ from ..core.db.models import TimestampMixin, UUIDMixin
 class RateLimit(Base, UUIDMixin, TimestampMixin):
     __tablename__ = "rate_limit"
 
-    tier_id: Mapped[uuid_pkg.UUID] = mapped_column(ForeignKey("tier.uuid"), index=True)
+    tier_id: Mapped[uuid_pkg.UUID] = mapped_column(ForeignKey("tier.id"), index=True)
     name: Mapped[str] = mapped_column(String, nullable=False, unique=True)
     path: Mapped[str] = mapped_column(String, nullable=False)
     limit: Mapped[int] = mapped_column(Integer, nullable=False)

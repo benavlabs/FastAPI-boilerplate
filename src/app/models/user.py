@@ -18,4 +18,4 @@ class User(Base, UUIDMixin, TimestampMixin, SoftDeleteMixin):
     profile_image_url: Mapped[str] = mapped_column(String, default="https://profileimageurl.com")
     is_superuser: Mapped[bool] = mapped_column(default=False)
 
-    tier_id: Mapped[uuid_pkg.UUID | None] = mapped_column(ForeignKey("tier.uuid"), index=True, default=None, init=False)
+    tier_id: Mapped[uuid_pkg.UUID | None] = mapped_column(ForeignKey("tier.id"), index=True, default=None, init=False)

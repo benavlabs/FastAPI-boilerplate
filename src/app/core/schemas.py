@@ -25,7 +25,7 @@ class ReadyCheck(BaseModel):
 
 # -------------- mixins --------------
 class UUIDSchema(BaseModel):
-    uuid: uuid_pkg.UUID = Field(default_factory=uuid7)
+    id: uuid_pkg.UUID = Field(default_factory=uuid7)
 
 
 class TimestampSchema(BaseModel):
