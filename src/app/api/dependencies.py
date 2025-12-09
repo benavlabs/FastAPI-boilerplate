@@ -13,6 +13,7 @@ from ..crud.crud_rate_limit import crud_rate_limits
 from ..crud.crud_tier import crud_tiers
 from ..crud.crud_users import crud_users
 from ..schemas.rate_limit import RateLimitRead, sanitize_path
+from ..middleware.authentication import AuthenticatedUser
 from ..schemas.tier import TierRead
 
 logger = logging.getLogger(__name__)
@@ -22,8 +23,12 @@ DEFAULT_PERIOD = settings.DEFAULT_RATE_LIMIT_PERIOD
 
 
 async def get_current_user(
-    token: Annotated[str, Depends(oauth2_scheme)], db: Annotated[AsyncSession, Depends(async_get_db)]
+    request: Request, token: Annotated[str, Depends(oauth2_scheme)], db: Annotated[AsyncSession, Depends(async_get_db)]
 ) -> dict[str, Any]:
+    # Optimization: Check if user is already authenticated by middleware
+    if hasattr(request, "user") and isinstance(request.user, AuthenticatedUser):
+        return request.user.extra_data
+
     token_data = await verify_token(token, TokenType.ACCESS, db)
     if token_data is None:
         raise UnauthorizedException("User not authenticated.")
