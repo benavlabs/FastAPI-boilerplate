@@ -81,6 +81,7 @@ class TestSettings(BaseSettings):
 class RedisCacheSettings(BaseSettings):
     REDIS_CACHE_HOST: str = "localhost"
     REDIS_CACHE_PORT: int = 6379
+    REDIS_ENABLED: bool = True
 
     @computed_field  # type: ignore[prop-decorator]
     @property

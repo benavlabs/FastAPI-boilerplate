@@ -101,13 +101,13 @@ def lifespan_factory(
         await set_threadpool_tokens()
 
         try:
-            if isinstance(settings, RedisCacheSettings):
+            if isinstance(settings, RedisCacheSettings) and settings.REDIS_ENABLED:
                 await create_redis_cache_pool()
 
-            if isinstance(settings, RedisQueueSettings):
+            if isinstance(settings, RedisQueueSettings) and settings.REDIS_ENABLED:
                 await create_redis_queue_pool()
 
-            if isinstance(settings, RedisRateLimiterSettings):
+            if isinstance(settings, RedisRateLimiterSettings) and settings.REDIS_ENABLED:
                 await create_redis_rate_limit_pool()
 
             if create_tables_on_start:
@@ -118,13 +118,13 @@ def lifespan_factory(
             yield
 
         finally:
-            if isinstance(settings, RedisCacheSettings):
+            if isinstance(settings, RedisCacheSettings) and settings.REDIS_ENABLED:
                 await close_redis_cache_pool()
 
-            if isinstance(settings, RedisQueueSettings):
+            if isinstance(settings, RedisQueueSettings) and settings.REDIS_ENABLED:
                 await close_redis_queue_pool()
 
-            if isinstance(settings, RedisRateLimiterSettings):
+            if isinstance(settings, RedisRateLimiterSettings) and settings.REDIS_ENABLED:
                 await close_redis_rate_limit_pool()
 
     return lifespan
@@ -228,7 +228,12 @@ def create_application(
 
             @docs_router.get("/docs", include_in_schema=False)
             async def get_swagger_documentation() -> fastapi.responses.HTMLResponse:
-                return get_swagger_ui_html(openapi_url="/openapi.json", title="docs")
+                return get_swagger_ui_html(
+                    openapi_url="/openapi.json",
+                    title="docs",
+                    swagger_js_url="https://cdnjs.cloudflare.com/ajax/libs/swagger-ui/5.29.1/swagger-ui-bundle.min.js",
+                    swagger_css_url="https://cdnjs.cloudflare.com/ajax/libs/swagger-ui/5.29.1/swagger-ui.min.css",
+                )
 
             @docs_router.get("/redoc", include_in_schema=False)
             async def get_redoc_documentation() -> fastapi.responses.HTMLResponse:

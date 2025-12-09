@@ -36,6 +36,10 @@ class RateLimiter:
         return instance.client
 
     async def is_rate_limited(self, db: AsyncSession, user_id: int, path: str, limit: int, period: int) -> bool:
+        if self.client is None:
+            # If Redis is not initialized, skip rate limiting
+            return False
+
         client = self.get_client()
         current_timestamp = int(datetime.now(UTC).timestamp())
         window_start = current_timestamp - (current_timestamp % period)
