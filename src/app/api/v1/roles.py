@@ -1,12 +1,15 @@
-from fastapi import APIRouter, Depends, HTTPException, Path
-from ...core.authz.casbin import enforcer
-from ...schemas.role import RoleCreate, RoleUpdate, RoleRead, Permission
+from fastapi import APIRouter, Depends, HTTPException
+
 from ...api.dependencies import get_current_superuser
+from ...core.authz.casbin import enforcer
+from ...schemas.role import Permission, RoleCreate, RoleRead, RoleUpdate
 
 router = APIRouter(tags=["roles"])
 
 def ensure_role_prefix(name: str) -> str:
     return name if name.startswith("role:") else f"role:{name}"
+
+RESERVED_ROLES = {"role:superuser", "role:anonymous"}
 
 @router.get("/roles", response_model=list[RoleRead], dependencies=[Depends(get_current_superuser)])
 async def get_roles():
@@ -18,13 +21,13 @@ async def get_roles():
 
     # Collect all unique roles from policies (p) and groupings (g)
     roles = set()
-    
+
     # From 'p' policies (subjects)
     all_subjects = enforcer.get_all_subjects()
     for sub in all_subjects:
         if sub.startswith("role:"):
             roles.add(sub)
-            
+
     # From 'g' policies (roles)
     # get_filtered_grouping_policy(0) returns all 'g' rules
     # g rules are [user, role]
@@ -32,7 +35,7 @@ async def get_roles():
     for rule in grouping_policies:
         if len(rule) > 1 and rule[1].startswith("role:"):
             roles.add(rule[1])
-            
+
     result = []
     for role in roles:
         # Get permissions for this role
@@ -43,9 +46,9 @@ async def get_roles():
             # rule: [sub, obj, act]
             if len(rule) >= 3:
                 perms.append(Permission(resource=rule[1], action=rule[2]))
-        
+
         result.append(RoleRead(name=role, permissions=perms))
-    
+
     return result
 
 @router.post("/roles", dependencies=[Depends(get_current_superuser)])
@@ -57,11 +60,11 @@ async def create_role(role: RoleCreate):
         raise HTTPException(status_code=503, detail="Authorization service not available")
 
     role_name = ensure_role_prefix(role.name)
-    
+
     # Add permissions
     for perm in role.permissions:
         await enforcer.add_policy(role_name, perm.resource, perm.action)
-        
+
     return {"message": "Role created successfully"}
 
 @router.put("/roles/{role_name}", dependencies=[Depends(get_current_superuser)])
@@ -73,15 +76,17 @@ async def update_role(role_name: str, role_data: RoleUpdate):
         raise HTTPException(status_code=503, detail="Authorization service not available")
 
     full_role_name = ensure_role_prefix(role_name)
-    
+    if full_role_name in RESERVED_ROLES:
+        raise HTTPException(status_code=400, detail="Built-in role cannot be modified")
+
     # 1. Remove all existing permissions for this role
     # field_index 0 is 'sub'
     await enforcer.remove_filtered_policy(0, full_role_name)
-    
+
     # 2. Add new permissions
     for perm in role_data.permissions:
         await enforcer.add_policy(full_role_name, perm.resource, perm.action)
-        
+
     return {"message": "Role updated successfully"}
 
 @router.delete("/roles/{role_name}", dependencies=[Depends(get_current_superuser)])
@@ -93,16 +98,18 @@ async def delete_role(role_name: str):
         raise HTTPException(status_code=503, detail="Authorization service not available")
 
     full_role_name = ensure_role_prefix(role_name)
-    
+    if full_role_name in RESERVED_ROLES:
+        raise HTTPException(status_code=400, detail="Built-in role cannot be deleted")
+
     # Check if any user has this role
     users = enforcer.get_users_for_role(full_role_name)
     if users:
         raise HTTPException(status_code=400, detail=f"Role is assigned to {len(users)} users. Cannot delete.")
-    
+
     # Delete permissions (p policies)
     await enforcer.remove_filtered_policy(0, full_role_name)
     # Delete groupings (g policies) where role is the group
     # g: [user, role] -> role is at index 1
     await enforcer.remove_filtered_grouping_policy(1, full_role_name)
-    
+
     return {"message": "Role deleted successfully"}

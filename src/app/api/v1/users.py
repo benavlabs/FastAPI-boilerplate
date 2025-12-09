@@ -213,12 +213,12 @@ async def assign_user_roles(id: str, roles: list[str] = Body(embed=True)) -> dic
     # remove_filtered_grouping_policy(field_index, field_value)
     # field_index 0 is the user (g rule: user, role)
     await enforcer.remove_filtered_grouping_policy(0, id)
-    
+
     # 2. Add new roles
     for role in roles:
         role_name = role if role.startswith("role:") else f"role:{role}"
         await enforcer.add_grouping_policy(id, role_name)
-        
+
     return {"message": "Roles assigned successfully"}
 
 
@@ -226,10 +226,10 @@ async def assign_user_roles(id: str, roles: list[str] = Body(embed=True)) -> dic
 async def get_user_roles(id: str) -> dict[str, list[str]]:
     if not enforcer:
          raise NotFoundException("Authorization service not available")
-         
+
     # get_filtered_grouping_policy(0, id) returns list of [user, role]
     # This reads from memory, so it is synchronous
     grouping_policies = enforcer.get_filtered_grouping_policy(0, id)
     roles = [rule[1] for rule in grouping_policies if len(rule) > 1]
-    
+
     return {"roles": roles}

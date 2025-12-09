@@ -7,7 +7,7 @@ from ...api.dependencies import get_current_superuser
 router = APIRouter(tags=["permissions"])
 
 
-@router.get("/permissions/tree", dependencies=[Depends(get_current_superuser)])
+@router.get("/permissions", dependencies=[Depends(get_current_superuser)])
 async def get_permission_tree(request: Request) -> list[dict[str, Any]]:
     """
     Get the permission tree of the system.
@@ -24,8 +24,8 @@ async def get_permission_tree(request: Request) -> list[dict[str, Any]]:
                     "methods": methods,
                     "name": route.name
                 })
-    
+
     # Sort by path
     routes.sort(key=lambda x: x["path"])
-    
+
     return routes

@@ -11,14 +11,14 @@ from fastapi import APIRouter, Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
 from fastapi.openapi.utils import get_openapi
+from fastapi_authz import CasbinMiddleware
+from starlette.middleware.authentication import AuthenticationMiddleware
 
 from ..api.dependencies import get_current_superuser
+from ..core.authz.casbin import enforcer, initialize_enforcer
 from ..core.utils.rate_limit import rate_limiter
-from ..middleware.client_cache_middleware import ClientCacheMiddleware
 from ..middleware.authentication import JWTAuthenticationBackend
-from ..middleware.authorization import RBACMiddleware
-from ..core.authz.casbin import init_enforcer
-from starlette.middleware.authentication import AuthenticationMiddleware
+from ..middleware.client_cache_middleware import ClientCacheMiddleware
 from ..models import *  # noqa: F403
 from .config import (
     AppSettings,
@@ -117,8 +117,7 @@ def lifespan_factory(
             if create_tables_on_start:
                 await create_tables()
 
-            # Initialize Casbin Enforcer
-            await init_enforcer()
+            await initialize_enforcer()
 
             initialization_complete.set()
 
@@ -215,11 +214,7 @@ def create_application(
     application = FastAPI(lifespan=lifespan, **kwargs)
     application.include_router(router)
 
-    # Add RBAC and Authentication Middlewares
-    # Order matters: Middleware added later runs earlier.
-    # We want: Authentication -> RBAC -> App
-    # So we add RBAC first, then Authentication.
-    application.add_middleware(RBACMiddleware)
+    application.add_middleware(CasbinMiddleware, enforcer=enforcer)
     application.add_middleware(AuthenticationMiddleware, backend=JWTAuthenticationBackend())
 
     if isinstance(settings, ClientSideCacheSettings):

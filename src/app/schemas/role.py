@@ -1,5 +1,6 @@
 from pydantic import BaseModel
 
+
 class Permission(BaseModel):
     resource: str
     action: str

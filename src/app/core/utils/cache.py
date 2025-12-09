@@ -8,7 +8,7 @@ from fastapi import Request
 from fastapi.encoders import jsonable_encoder
 from redis.asyncio import ConnectionPool, Redis
 
-from ..exceptions.cache_exceptions import CacheIdentificationInferenceError, InvalidRequestError, MissingClientError
+from ..exceptions.cache_exceptions import CacheIdentificationInferenceError, InvalidRequestError
 
 pool: ConnectionPool | None = None
 client: Redis | None = None
@@ -289,7 +289,7 @@ def cache(
         @functools.wraps(func)
         async def inner(request: Request, *args: Any, **kwargs: Any) -> Any:
             if client is None:
-                return await func(request, *args, **kwargs)# If Redis is not initialized, just run the function without caching
+                return await func(request, *args, **kwargs)
 
             if resource_id_name:
                 resource_id = kwargs[resource_id_name]

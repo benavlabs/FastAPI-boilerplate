@@ -3,13 +3,13 @@ from fastapi import APIRouter
 from .health import router as health_router
 from .login import router as login_router
 from .logout import router as logout_router
+from .permissions import router as permissions_router
 from .posts import router as posts_router
 from .rate_limits import router as rate_limits_router
+from .roles import router as roles_router
 from .tasks import router as tasks_router
 from .tiers import router as tiers_router
 from .users import router as users_router
-from .permissions import router as permissions_router
-from .roles import router as roles_router
 
 router = APIRouter(prefix="/v1")
 router.include_router(health_router)

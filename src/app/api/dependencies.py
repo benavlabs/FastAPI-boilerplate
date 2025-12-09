@@ -12,8 +12,8 @@ from ..core.utils.rate_limit import rate_limiter
 from ..crud.crud_rate_limit import crud_rate_limits
 from ..crud.crud_tier import crud_tiers
 from ..crud.crud_users import crud_users
-from ..schemas.rate_limit import RateLimitRead, sanitize_path
 from ..middleware.authentication import AuthenticatedUser
+from ..schemas.rate_limit import RateLimitRead, sanitize_path
 from ..schemas.tier import TierRead
 
 logger = logging.getLogger(__name__)

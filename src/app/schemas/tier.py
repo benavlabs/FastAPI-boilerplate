@@ -1,6 +1,6 @@
+import uuid as uuid_pkg
 from datetime import datetime
 from typing import Annotated
-import uuid as uuid_pkg
 
 from pydantic import BaseModel, Field
 
