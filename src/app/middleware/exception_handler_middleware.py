@@ -1,5 +1,4 @@
-"""
-Exception Handler Middleware for FastAPI.
+"""Exception Handler Middleware for FastAPI.
 
 Catches all exceptions and returns consistent JSON responses using the APIResponse schema.
 Handles:
@@ -176,7 +175,7 @@ class ExceptionHandlerMiddleware(BaseHTTPMiddleware):
         """Handle FastAPI/Starlette HTTP exceptions."""
         logger.warning(f"HTTP exception: {exc.status_code} - {exc.detail}")
 
-        response = APIResponse(
+        response: APIResponse[None] = APIResponse(
             data=None,
             isSuccess=False,
             message=str(exc.detail) if exc.detail else "An error occurred",

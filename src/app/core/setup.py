@@ -224,19 +224,19 @@ def create_application(
     # Exception handler middleware (catches exceptions during request processing)
     if isinstance(settings, EnvironmentSettings):
         is_debug = settings.ENVIRONMENT != EnvironmentOption.PRODUCTION
-        application.add_middleware(ExceptionHandlerMiddleware, debug=is_debug)
+        application.add_middleware(ExceptionHandlerMiddleware, debug=is_debug)  # type: ignore[arg-type]
 
     # Logging middleware (logs all requests/responses)
     if isinstance(settings, LoggingSettings):
         application.add_middleware(
-            LoggingMiddleware,
+            LoggingMiddleware,  # type: ignore[arg-type]
             log_request_body=settings.LOG_REQUEST_BODY,
             log_response_body=settings.LOG_RESPONSE_BODY,
             exclude_paths=settings.LOG_EXCLUDE_PATHS,
         )
 
     if isinstance(settings, ClientSideCacheSettings):
-        application.add_middleware(ClientCacheMiddleware, max_age=settings.CLIENT_CACHE_MAX_AGE)
+        application.add_middleware(ClientCacheMiddleware, max_age=settings.CLIENT_CACHE_MAX_AGE)  # type: ignore[arg-type]
 
     if isinstance(settings, CORSSettings):
         application.add_middleware(
