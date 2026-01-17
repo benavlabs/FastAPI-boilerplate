@@ -14,6 +14,7 @@ from fastapi.openapi.utils import get_openapi
 
 from ..api.dependencies import get_current_superuser
 from ..core.utils.rate_limit import rate_limiter
+from ..middleware import ExceptionHandlerMiddleware, LoggingMiddleware, setup_exception_handlers
 from ..middleware.client_cache_middleware import ClientCacheMiddleware
 from ..models import *  # noqa: F403
 from .config import (
@@ -23,6 +24,7 @@ from .config import (
     DatabaseSettings,
     EnvironmentOption,
     EnvironmentSettings,
+    LoggingSettings,
     RedisCacheSettings,
     RedisQueueSettings,
     RedisRateLimiterSettings,
@@ -30,6 +32,7 @@ from .config import (
 )
 from .db.database import Base
 from .db.database import async_engine as engine
+from .logger import setup_logging
 from .utils import cache, queue
 
 
@@ -86,6 +89,7 @@ def lifespan_factory(
         | RedisQueueSettings
         | RedisRateLimiterSettings
         | EnvironmentSettings
+        | LoggingSettings
     ),
     create_tables_on_start: bool = True,
 ) -> Callable[[FastAPI], _AsyncGeneratorContextManager[Any]]:
@@ -142,6 +146,7 @@ def create_application(
         | RedisQueueSettings
         | RedisRateLimiterSettings
         | EnvironmentSettings
+        | LoggingSettings
     ),
     create_tables_on_start: bool = True,
     lifespan: Callable[[FastAPI], _AsyncGeneratorContextManager[Any]] | None = None,
@@ -207,6 +212,28 @@ def create_application(
 
     application = FastAPI(lifespan=lifespan, **kwargs)
     application.include_router(router)
+
+    # Initialize logging if LoggingSettings is provided
+    if isinstance(settings, LoggingSettings):
+        setup_logging(settings)
+
+    # Register exception handlers (catches validation errors during request parsing)
+    # This must be done BEFORE adding middlewares
+    setup_exception_handlers(application)
+
+    # Exception handler middleware (catches exceptions during request processing)
+    if isinstance(settings, EnvironmentSettings):
+        is_debug = settings.ENVIRONMENT != EnvironmentOption.PRODUCTION
+        application.add_middleware(ExceptionHandlerMiddleware, debug=is_debug)
+
+    # Logging middleware (logs all requests/responses)
+    if isinstance(settings, LoggingSettings):
+        application.add_middleware(
+            LoggingMiddleware,
+            log_request_body=settings.LOG_REQUEST_BODY,
+            log_response_body=settings.LOG_RESPONSE_BODY,
+            exclude_paths=settings.LOG_EXCLUDE_PATHS,
+        )
 
     if isinstance(settings, ClientSideCacheSettings):
         application.add_middleware(ClientCacheMiddleware, max_age=settings.CLIENT_CACHE_MAX_AGE)

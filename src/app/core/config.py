@@ -74,8 +74,7 @@ class FirstUserSettings(BaseSettings):
     ADMIN_PASSWORD: str = "!Ch4ng3Th1sP4ssW0rd!"
 
 
-class TestSettings(BaseSettings):
-    ...
+class TestSettings(BaseSettings): ...
 
 
 class RedisCacheSettings(BaseSettings):
@@ -149,6 +148,45 @@ class CORSSettings(BaseSettings):
     CORS_HEADERS: list[str] = ["*"]
 
 
+class LoggingSettings(BaseSettings):
+    """Settings for application logging configuration.
+
+    Attributes
+    ----------
+    LOG_LEVEL : str
+        Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL). Default: INFO
+    LOG_DIR : str
+        Directory for log files. Default: ./logs
+    LOG_FILE : str
+        Log file name. Default: api.log
+    LOG_MAX_BYTES : int
+        Maximum size of each log file in bytes before rotation. Default: 10MB
+    LOG_BACKUP_COUNT : int
+        Number of backup files to keep. Default: 5
+    LOG_FORMAT : str
+        Log message format string.
+    LOG_DATE_FORMAT : str
+        Date format for log timestamps.
+    LOG_REQUEST_BODY : bool
+        Whether to log request bodies (use with caution in production). Default: False
+    LOG_RESPONSE_BODY : bool
+        Whether to log response bodies (use with caution in production). Default: False
+    LOG_EXCLUDE_PATHS : list[str]
+        Paths to exclude from request/response logging (e.g., health checks).
+    """
+
+    LOG_LEVEL: str = "INFO"
+    LOG_DIR: str = "./logs"
+    LOG_FILE: str = "api.log"
+    LOG_MAX_BYTES: int = 10485760  # 10MB
+    LOG_BACKUP_COUNT: int = 5
+    LOG_FORMAT: str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    LOG_DATE_FORMAT: str = "%Y-%m-%d %H:%M:%S"
+    LOG_REQUEST_BODY: bool = True
+    LOG_RESPONSE_BODY: bool = True
+    LOG_EXCLUDE_PATHS: list[str] = ["/health", "/metrics", "/favicon.ico"]
+
+
 class Settings(
     AppSettings,
     SQLiteSettings,
@@ -164,6 +202,7 @@ class Settings(
     CRUDAdminSettings,
     EnvironmentSettings,
     CORSSettings,
+    LoggingSettings,
 ):
     model_config = SettingsConfigDict(
         env_file=os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "..", ".env"),
