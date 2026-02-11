@@ -3,8 +3,8 @@ from enum import Enum
 from typing import Any, Literal
 
 import bcrypt
+import jwt
 from fastapi.security import OAuth2PasswordBearer
-from jose import JWTError, jwt
 from pydantic import SecretStr
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -54,10 +54,10 @@ async def authenticate_user(username_or_email: str, password: str, db: AsyncSess
 async def create_access_token(data: dict[str, Any], expires_delta: timedelta | None = None) -> str:
     to_encode = data.copy()
     if expires_delta:
-        expire = datetime.now(UTC).replace(tzinfo=None) + expires_delta
+        expire = datetime.now(UTC) + expires_delta
     else:
-        expire = datetime.now(UTC).replace(tzinfo=None) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    to_encode.update({"exp": expire, "token_type": TokenType.ACCESS})
+        expire = datetime.now(UTC) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    to_encode.update({"exp": int(expire.timestamp()), "token_type": TokenType.ACCESS})
     encoded_jwt: str = jwt.encode(to_encode, SECRET_KEY.get_secret_value(), algorithm=ALGORITHM)
     return encoded_jwt
 
@@ -65,10 +65,10 @@ async def create_access_token(data: dict[str, Any], expires_delta: timedelta | N
 async def create_refresh_token(data: dict[str, Any], expires_delta: timedelta | None = None) -> str:
     to_encode = data.copy()
     if expires_delta:
-        expire = datetime.now(UTC).replace(tzinfo=None) + expires_delta
+        expire = datetime.now(UTC) + expires_delta
     else:
-        expire = datetime.now(UTC).replace(tzinfo=None) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
-    to_encode.update({"exp": expire, "token_type": TokenType.REFRESH})
+        expire = datetime.now(UTC) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
+    to_encode.update({"exp": int(expire.timestamp()), "token_type": TokenType.REFRESH})
     encoded_jwt: str = jwt.encode(to_encode, SECRET_KEY.get_secret_value(), algorithm=ALGORITHM)
     return encoded_jwt
 
@@ -104,7 +104,7 @@ async def verify_token(token: str, expected_token_type: TokenType, db: AsyncSess
 
         return TokenData(username_or_email=username_or_email)
 
-    except JWTError:
+    except jwt.PyJWTError:
         return None
 
 

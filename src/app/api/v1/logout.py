@@ -1,7 +1,7 @@
 from typing import Optional
 
+import jwt
 from fastapi import APIRouter, Cookie, Depends, Response
-from jose import JWTError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...core.db.database import async_get_db
@@ -27,5 +27,5 @@ async def logout(
 
         return {"message": "Logged out successfully"}
 
-    except JWTError:
+    except jwt.PyJWTError:
         raise UnauthorizedException("Invalid token.")
