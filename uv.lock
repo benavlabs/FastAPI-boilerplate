@@ -405,8 +405,6 @@ dependencies = [
     { name = "sqlalchemy" },
     { name = "sqlalchemy-utils" },
     { name = "structlog" },
-    { name = "uuid" },
-    { name = "uuid6" },
     { name = "uvicorn" },
     { name = "uvloop" },
 ]
@@ -459,8 +457,6 @@ requires-dist = [
     { name = "sqlalchemy-utils", specifier = ">=0.41.1" },
     { name = "structlog", specifier = ">=25.1.0,<=25.5.0" },
     { name = "types-redis", marker = "extra == 'dev'", specifier = ">=4.6.0" },
-    { name = "uuid", specifier = ">=1.30" },
-    { name = "uuid6", specifier = ">=2024.1.12" },
     { name = "uvicorn", specifier = ">=0.27.0" },
     { name = "uvloop", specifier = ">=0.19.0" },
 ]
@@ -1498,21 +1494,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/e3/e1/63c5bfb485a945010c8cbc7a52f85573561737648d36b30394248730a7bc/user-agents-2.2.0.tar.gz", hash = "sha256:d36d25178db65308d1458c5fa4ab39c9b2619377010130329f3955e7626ead26", size = 9525, upload-time = "2020-08-23T06:01:56.382Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/8f/1c/20bb3d7b2bad56d881e3704131ddedbb16eb787101306887dff349064662/user_agents-2.2.0-py3-none-any.whl", hash = "sha256:a98c4dc72ecbc64812c4534108806fb0a0b3a11ec3fd1eafe807cee5b0a942e7", size = 9614, upload-time = "2020-08-23T06:01:54.047Z" },
-]
-
-[[package]]
-name = "uuid"
-version = "1.30"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/ce/63/f42f5aa951ebf2c8dac81f77a8edcc1c218640a2a35a03b9ff2d4aa64c3d/uuid-1.30.tar.gz", hash = "sha256:1f87cc004ac5120466f36c5beae48b4c48cc411968eed0eaecd3da82aa96193f", size = 5811, upload-time = "2007-05-26T11:13:24Z" }
-
-[[package]]
-name = "uuid6"
-version = "2025.0.1"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/ca/b7/4c0f736ca824b3a25b15e8213d1bcfc15f8ac2ae48d1b445b310892dc4da/uuid6-2025.0.1.tar.gz", hash = "sha256:cd0af94fa428675a44e32c5319ec5a3485225ba2179eefcf4c3f205ae30a81bd", size = 13932, upload-time = "2025-07-04T18:30:35.186Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/3d/b2/93faaab7962e2aa8d6e174afb6f76be2ca0ce89fde14d3af835acebcaa59/uuid6-2025.0.1-py3-none-any.whl", hash = "sha256:80530ce4d02a93cdf82e7122ca0da3ebbbc269790ec1cb902481fa3e9cc9ff99", size = 6979, upload-time = "2025-07-04T18:30:34.001Z" },
 ]
 
 [[package]]

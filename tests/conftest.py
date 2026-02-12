@@ -72,13 +72,13 @@ def sample_user_data():
 @pytest.fixture
 def sample_user_read():
     """Generate a sample UserRead object."""
-    from uuid6 import uuid7
+    import uuid
 
     from src.app.schemas.user import UserRead
 
     return UserRead(
         id=1,
-        uuid=uuid7(),
+        uuid=uuid.uuid4(),
         name=fake.name(),
         username=fake.user_name(),
         email=fake.email(),

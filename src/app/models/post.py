@@ -3,7 +3,6 @@ from datetime import UTC, datetime
 
 from sqlalchemy import UUID, DateTime, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column
-from uuid6 import uuid7
 
 from ..core.db.database import Base
 
@@ -15,7 +14,7 @@ class Post(Base):
     created_by_user_id: Mapped[int] = mapped_column(ForeignKey("user.id"), index=True)
     title: Mapped[str] = mapped_column(String(30))
     text: Mapped[str] = mapped_column(String(63206))
-    uuid: Mapped[uuid_pkg.UUID] = mapped_column(UUID(as_uuid=True), default_factory=uuid7, unique=True)
+    uuid: Mapped[uuid_pkg.UUID] = mapped_column(UUID(as_uuid=True), default_factory=uuid_pkg.uuid4, unique=True)
     media_url: Mapped[str | None] = mapped_column(String, default=None)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default_factory=lambda: datetime.now(UTC))
