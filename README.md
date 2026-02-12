@@ -195,6 +195,22 @@ curl -X POST 'http://127.0.0.1:8000/api/v1/tasks/task?message=hello'
 
 More examples (superuser creation, tiers, rate limits, admin usage) in the [docs](https://benavlabs.github.io/FastAPI-boilerplate/getting-started/first-run/).
 
+## Background jobs & ARQ
+
+This boilerplate ships with [ARQ](https://github.com/samuelcolvin/arq) as the default async background worker built on top of Redis. It is proven and works well for many use cases, but is currently in maintenance mode rather than active feature development.
+
+For most projects, ARQ is still a solid choice if:
+
+- you are comfortable with Redis as the only dependency for background jobs, and
+- you prefer a lightweight, fully-async worker that integrates nicely with FastAPI.
+
+If your team expects to invest heavily in background processing (workflows, retries, scheduling, monitoring, etc.), you may want to:
+
+- keep ARQ for now and plan a migration path later, or
+- swap ARQ out for another worker (e.g. RQ, Celery, Dramatiq, or a hosted solution) behind the same queue abstractions.
+
+See the [background tasks guide](https://benavlabs.github.io/FastAPI-boilerplate/user-guide/background-tasks/) for more details on how ARQ is wired into this project and how to adapt it to your own needs.
+
 ## Contributing
 
 Read [contributing](CONTRIBUTING.md).
