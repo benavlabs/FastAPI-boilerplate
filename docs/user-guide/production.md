@@ -139,14 +139,15 @@ To build the production image:
 docker build --target prod -t myapp-api:1.0.0 -f backend/Dockerfile backend/
 ```
 
-To run a one-off migration:
+To run a one-off migration, build the `migrate` image and run it:
 
 ```bash
+docker build --target migrate -t myapp-migrate:1.0.0 -f backend/Dockerfile backend/
+
 docker run --rm \
     --env-file backend/.env.production \
     -e CONFIRM_PRODUCTION_MIGRATION=yes \
-    --target migrate \
-    myapp-api:1.0.0
+    myapp-migrate:1.0.0
 ```
 
 The `prod` stage's `CMD` is:
@@ -208,7 +209,7 @@ CONFIRM_PRODUCTION_MIGRATION=yes alembic upgrade head
 This is intentional: `alembic upgrade head` should not be a routine boot-time command. Run migrations as a deliberate step in your deployment pipeline:
 
 1. Build the new image
-2. Run the migration container (`--target migrate` with `CONFIRM_PRODUCTION_MIGRATION=yes`)
+2. Build & run the `migrate` image with `CONFIRM_PRODUCTION_MIGRATION=yes`
 3. **Then** roll out the API container
 
 If your pipeline runs migrations after rollout, you can briefly serve a new code version against an old schema. Don't do that.

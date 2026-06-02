@@ -56,7 +56,7 @@ TASKIQ_WORKER_CONCURRENCY=2
 TASKIQ_MAX_TASKS_PER_WORKER=1000
 ```
 
-The default `TASKIQ_REDIS_DB=3` keeps Taskiq isolated from Cache (DB 0), Session (DB 1), and Rate Limiter (DB 2) — so `redis-cli FLUSHDB` on one doesn't trash the others.
+The default `TASKIQ_REDIS_DB=3` keeps Taskiq isolated from Cache and Session (DB 0, shared) and the Rate Limiter (DB 1) — so `redis-cli FLUSHDB` on one doesn't trash the others.
 
 If you pick `TASKIQ_BROKER_TYPE=rabbitmq`, install the optional broker:
 

@@ -259,10 +259,10 @@ class AppSettings(BaseSettings):
     """Application-related settings."""
 
     # Note: For API documentation, prefer using API_* fields in APIDocSettings
-    APP_NAME: str = "FastAPI Boilerplate"
-    APP_DESCRIPTION: str = "Modular FastAPI starter"
+    APP_NAME: str = config("APP_NAME", default="FastAPI Boilerplate")
+    APP_DESCRIPTION: str = config("APP_DESCRIPTION", default="Modular FastAPI starter")
     DEBUG: bool = config("DEBUG", default=False, cast=bool)
-    VERSION: str = "0.1.0"
+    VERSION: str = config("VERSION", default="0.1.0")
     CONTACT_NAME: str = config("CONTACT_NAME", default="Support")
     CONTACT_EMAIL: str = config("CONTACT_EMAIL", default="support@example.com")
     LICENSE_NAME: str = config("LICENSE_NAME", default="All rights reserved.")

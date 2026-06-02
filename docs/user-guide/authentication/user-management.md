@@ -235,24 +235,23 @@ Service implementation:
 
 ```python
 async def anonymize_user(self, user_id: int, db: AsyncSession) -> None:
-    await crud_users.update(
-        db=db,
-        object=UserAnonymize(
-            name="DELETED USER",
-            username=f"deleted-{user_id}-{uuid4().hex[:8]}",
-            hashed_password=None,
-            profile_image_url=None,
-            tier_id=None,
-            is_superuser=False,
-            google_id=None,
-            github_id=None,
-            oauth_provider=None,
-            email_verified=False,
-            oauth_created_at=None,
-            oauth_updated_at=None,
-        ),
-        id=user_id,
+    anonymize_data = UserAnonymize(
+        name="[DELETED]",
+        username=f"del_{user_id}_{timestamp % 10000}",
+        hashed_password="DELETED_INVALID_HASH",
+        profile_image_url="https://deleted.com/deleted.jpg",
+        tier_id=None,
+        is_superuser=False,
+        google_id=None,
+        github_id=None,
+        oauth_provider=None,
+        email_verified=False,
+        oauth_created_at=None,
+        oauth_updated_at=None,
     )
+    # anonymize the row, then soft-delete it
+    await crud_users.update(db=db, object=anonymize_data, commit=False, id=user_id)
+    await crud_users.delete(db=db, id=user_id)
 ```
 
 Email is intentionally retained for legal compliance purposes (audit trail, "right to be forgotten" doesn't always apply if the platform is required to keep records).

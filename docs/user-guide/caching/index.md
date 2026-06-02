@@ -6,7 +6,7 @@ The boilerplate ships a flexible caching system supporting **Redis or Memcached*
 
 Three layers, used together as needed:
 
-- **`@cache` decorator** — Caches GET endpoints, automatically invalidates on PUT/POST/DELETE
+- **`@cache` decorator** — Caches GET endpoints, automatically invalidates on any mutation (POST/PUT/PATCH/DELETE)
 - **Provider API** — Direct cache operations (`get`, `set`, `delete`, etc.) for non-route code
 - **Client-side cache headers** — `Cache-Control` headers added by middleware for browser caching
 

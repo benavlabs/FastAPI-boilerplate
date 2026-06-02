@@ -43,7 +43,7 @@ router.include_router(api_keys_router, prefix="/api-keys")
 
 The aggregator is the **only** place that knows about every module's router. Each module exposes a single `router` from its `routes.py`, and v1 mounts them all under their respective prefixes.
 
-`infrastructure/main.py` then mounts the API tree:
+`interfaces/main.py` then mounts the API tree:
 
 ```python
 from ..interfaces.api import router
