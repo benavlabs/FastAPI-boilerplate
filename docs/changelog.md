@@ -8,7 +8,7 @@ For the full narrative on each release — rationale, decisions, migration guide
 
 ___
 
-## [0.18.0] - May 24, 2026 — The Pluggable Restructure
+## 0.18.0 - May 24, 2026 - The Pluggable Restructure
 
 This is the release we promised in v0.17.0; the one that tears the layout apart and rebuilds it as a real plugin system. If you've been pinned to v0.17.0 waiting for it, this is your moment.
 

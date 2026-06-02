@@ -16,5 +16,10 @@
 } 
 
 :root {
-    --md-primary-fg-color: #cd4bfb;
+    --md-primary-fg-color: #0d9488;
 }
+:root { --md-accent-fg-color: #14b8a6; }
+
+/* Theme-aware marketing images (Material #only-light / #only-dark convention) */
+[data-md-color-scheme="default"] img[src$="#only-dark"] { display: none; }
+[data-md-color-scheme="slate"] img[src$="#only-light"] { display: none; }
