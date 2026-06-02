@@ -57,7 +57,7 @@ services:
       - redis
 
   db:
-    image: postgres:17-alpine
+    image: postgres:16-alpine
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
@@ -334,7 +334,7 @@ docker compose up
 - Run the `migrate` stage as a separate job before launching the app
 - Set `ENVIRONMENT=production` to enable the security validator
 - Run as the non-root `appuser` (already set up in the Dockerfile)
-- Pin image tags (`postgres:17-alpine`, not `postgres:latest`)
+- Pin image tags (`postgres:16-alpine`, not `postgres:latest`)
 
 ### Security
 - Containers run as non-root in dev/prod stages

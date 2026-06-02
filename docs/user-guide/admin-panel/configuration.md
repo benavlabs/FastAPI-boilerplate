@@ -27,7 +27,7 @@ The variables map to two settings classes in `src/infrastructure/config/settings
 
 ## What Happens at Startup
 
-1. `infrastructure/main.py` calls `create_admin_interface(app)` from `interfaces/admin/initialize.py`
+1. `interfaces/main.py` calls `create_admin_interface(app)` from `interfaces/admin/initialize.py`
 2. If `ADMIN_ENABLED=false`, the function returns `None` and the admin panel is **not mounted**
 3. Otherwise, an `AdminAuth` backend is constructed using `SECRET_KEY`
 4. A SQLAdmin `Admin` instance is created against the app's existing database `engine`

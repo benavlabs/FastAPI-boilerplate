@@ -1,6 +1,6 @@
 # Testing
 
-The boilerplate ships pytest configured against `tests/` at the repo root, with `testcontainers-postgres` available for real-database tests and `httpx` for HTTP-level tests against the FastAPI app. **No example tests ship yet** — this page covers the patterns you'll use when you add them.
+The boilerplate ships pytest configured against `backend/tests/`, with `testcontainers-postgres` available for real-database tests and `httpx` for HTTP-level tests against the FastAPI app. **No example tests ship yet** — this page covers the patterns you'll use when you add them.
 
 ## What's Configured
 

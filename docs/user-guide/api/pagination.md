@@ -5,21 +5,20 @@ The boilerplate uses FastCRUD's `PaginatedListResponse[T]` and `paginated_respon
 ## Quick Start
 
 ```python
-from typing import Annotated, Any
+from typing import Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter
 from fastcrud import PaginatedListResponse, compute_offset, paginated_response
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...infrastructure.database.session import async_session
+from ...infrastructure.dependencies import AsyncSessionDep
+from .dependencies import UserServiceDep
 from .schemas import UserRead
-from .service import UserService
 
 
 @router.get("/", response_model=PaginatedListResponse[UserRead])
-async def list_users(
-    db: Annotated[AsyncSession, Depends(async_session)],
-    user_service: Annotated[UserService, Depends(get_user_service)],
+async def get_users(
+    db: AsyncSessionDep,
+    user_service: UserServiceDep,
     page: int = 1,
     items_per_page: int = 10,
 ) -> dict[str, Any]:
@@ -233,10 +232,10 @@ From `modules/api_keys/routes.py` — same pattern, different limit cap:
     response_model=PaginatedListResponse[KeyUsageRead],
 )
 async def get_key_usage(
+    current_user: CurrentUserDep,
+    api_key_service: APIKeyServiceDep,
+    db: AsyncSessionDep,
     key_id: int = Path(..., description="API key ID"),
-    current_user: User = Depends(get_current_user),
-    api_key_service: APIKeyService = Depends(get_api_key_service),
-    db: AsyncSession = Depends(async_session),
     page: int = Query(1, ge=1, description="Page number"),
     items_per_page: int = Query(100, ge=1, le=1000, description="Items per page"),
 ) -> dict[str, Any]:

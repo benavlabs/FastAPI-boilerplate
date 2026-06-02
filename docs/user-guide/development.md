@@ -15,7 +15,7 @@ This page is the meta-guide that ties them together.
 
 ```bash
 cd backend
-uv run uvicorn src.interfaces.main:app --reload --host 0.0.0.0 --port 8000
+uv run fastapi dev src/interfaces/main.py
 ```
 
 `--reload` watches the filesystem and restarts on Python file changes. Use it for development; **never** in production.

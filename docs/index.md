@@ -1,17 +1,13 @@
-# Benav Labs FastAPI Boilerplate
+# Fastro · The Benav Labs FastAPI Boilerplate
 
 <p align="center">
-  <img src="assets/FastAPI-boilerplate.png" alt="Purple Rocket with FastAPI Logo as its window." width="35%" height="auto">
+  <img src="assets/fastro-cover-light.png#only-light" alt="Fastro - open-source FastAPI boilerplate" width="100%">
+  <img src="assets/fastro-cover-dark.png#only-dark" alt="Fastro - open-source FastAPI boilerplate" width="100%">
 </p>
 
 <p align="center">
   <i>A production-ready FastAPI boilerplate to speed up your development.</i>
 </p>
-
-!!! warning "Documentation Status"
-    This is our first version of the documentation. While functional, we acknowledge it's rough around the edges - there's a huge amount to document and we needed to start somewhere! We built this foundation (with a lot of AI assistance) so we can improve upon it. 
-    
-    Better documentation, examples, and guides are actively being developed. Contributions and feedback are greatly appreciated!
 
 <p align="center">
   <a href="https://fastapi.tiangolo.com">
@@ -122,6 +118,17 @@ Your API will be available at `http://localhost:8000/docs`
 - **SaaS Applications** - Multi-tenant applications with user tiers
 - **Data APIs** - APIs for data processing and analytics
 
+## Building a complete SaaS? Meet FastroAI
+
+Fastro is the free **foundation**. **[FastroAI](https://fastro.ai)** builds on the same base for shipping a full SaaS - Stripe billing (subscriptions, credits, discounts), entitlements, transactional email, a frontend, and AI agents - all wired together, so you don't build them from scratch.
+
+<p align="center">
+  <a href="https://fastro.ai">
+    <img src="assets/fastroai-card-light.png#only-light" alt="FastroAI - the complete SaaS template" width="100%">
+    <img src="assets/fastroai-card-dark.png#only-dark" alt="FastroAI - the complete SaaS template" width="100%">
+  </a>
+</p>
+
 ## Community & Support
 
 - **[Discord Community](community.md)** - Join our Discord server to connect with other developers
@@ -129,5 +136,6 @@ Your API will be available at `http://localhost:8000/docs`
 
 <hr>
 <a href="https://benav.io">
-  <img src="https://github.com/benavlabs/fastcrud/raw/main/docs/assets/benav_labs_banner.png" alt="Powered by Benav Labs - benav.io"/>
+  <img src="assets/benav-labs-banner-light.png#only-light" alt="Benav Labs - benav.io"/>
+  <img src="assets/benav-labs-banner-dark.png#only-dark" alt="Benav Labs - benav.io"/>
 </a>
