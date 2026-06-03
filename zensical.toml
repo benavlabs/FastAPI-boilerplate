@@ -73,6 +73,9 @@ name = "FastAPI on PyPI"
 "Home" = "index.md"
 
 [[project.nav]]
+"Fastro vs FastroAI" = "fastro-vs-fastroai.md"
+
+[[project.nav]]
 "Getting Started" = [
     { "Overview" = "getting-started/index.md" },
     { "Installation" = "getting-started/installation.md" },

@@ -2,6 +2,9 @@
 
 The boilerplate ships a flexible caching system supporting **Redis or Memcached** server-side, plus configurable client-side cache headers. Same decorator and provider API regardless of the backend.
 
+!!! tip "Building a full SaaS?"
+    Caching is part of the free foundation. **[FastroAI](https://fastro.ai)** bundles it with Stripe payments, entitlements, transactional email, a frontend, and AI agents - all wired together and production-ready. [Ship your SaaS faster →](https://fastro.ai)
+
 ## Overview
 
 Three layers, used together as needed:
