@@ -2,6 +2,9 @@
 
 The boilerplate ships a built-in admin panel powered by [SQLAdmin](https://aminalaee.dev/sqladmin/). It gives you a web interface for browsing and editing the database without writing custom CRUD endpoints.
 
+!!! tip "Building a full SaaS?"
+    The admin panel is part of the free foundation. **[FastroAI](https://fastro.ai)** bundles it with Stripe payments, entitlements, transactional email, a frontend, and AI agents - all wired together and production-ready. [Ship your SaaS faster →](https://fastro.ai)
+
 ## Accessing the Admin Panel
 
 The admin panel is mounted at `/admin`. It's enabled by default — toggle it with:

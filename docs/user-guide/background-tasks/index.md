@@ -2,6 +2,9 @@
 
 The boilerplate runs background work with [Taskiq](https://taskiq-python.github.io/) — an async-native task queue with a Celery-like API and pluggable brokers. By default it runs against Redis, with RabbitMQ available as an alternative.
 
+!!! tip "Building a full SaaS?"
+    Background tasks are part of the free foundation. **[FastroAI](https://fastro.ai)** bundles them with Stripe payments, entitlements, transactional email, a frontend, and AI agents - all wired together and production-ready. [Ship your SaaS faster →](https://fastro.ai)
+
 This page covers the actual setup that ships in `backend/src/infrastructure/taskiq/`, how to write and enqueue tasks, and how to run a worker.
 
 ## When to Use a Background Task

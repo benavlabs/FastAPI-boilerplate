@@ -2,6 +2,9 @@
 
 The boilerplate ships a flexible rate limiter that supports per-tier, per-path limits with Redis or Memcached backends. This page covers how the pieces fit together, how to enable enforcement on your routes, and the gotchas to know upfront.
 
+!!! tip "Building a full SaaS?"
+    Rate limiting is part of the free foundation. **[FastroAI](https://fastro.ai)** bundles it with Stripe payments, entitlements, transactional email, a frontend, and AI agents - all wired together and production-ready. [Ship your SaaS faster →](https://fastro.ai)
+
 ## What's Built In
 
 ```text
