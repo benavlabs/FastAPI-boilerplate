@@ -32,6 +32,7 @@ dependencies = [
     "taskiq-redis>=1.1.2",
     "taskiq-aio-pika>=0.4.3",
     "user-agents>=2.2.0",
+    "testcontainers>=4.14.2",
 ]
 
 [project.optional-dependencies]

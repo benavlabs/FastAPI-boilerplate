@@ -5,11 +5,11 @@ from fastapi import FastAPI
 from starlette.middleware.sessions import SessionMiddleware
 
 from ..infrastructure.app_factory import create_application, lifespan_factory
+from ..infrastructure.auth.crudauth import auth
 from ..infrastructure.config.settings import get_settings
 from ..infrastructure.security import validate_production_security
 from ..interfaces.api import router
 from .admin.initialize import create_admin_interface
-from ..infrastructure.auth.crudauth import auth
 
 settings = get_settings()
 
@@ -20,14 +20,14 @@ async def lifespan_with_security(app: FastAPI) -> AsyncGenerator[None, None]:
     if settings.PRODUCTION_SECURITY_VALIDATION_ENABLED:
         validate_production_security(settings)
 
-    await auth.initializa()
+    await auth.initialize()
 
     default_lifespan = lifespan_factory(settings)
 
     async with default_lifespan(app):
         yield
 
-    await auth.shutdoen()
+    await auth.shutdown()
 
 app = create_application(
     router=router,

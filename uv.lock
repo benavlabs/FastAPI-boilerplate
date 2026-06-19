@@ -668,6 +668,7 @@ dependencies = [
     { name = "taskiq" },
     { name = "taskiq-aio-pika" },
     { name = "taskiq-redis" },
+    { name = "testcontainers" },
     { name = "user-agents" },
 ]
 
@@ -710,6 +711,7 @@ requires-dist = [
     { name = "taskiq", specifier = ">=0.11.20" },
     { name = "taskiq-aio-pika", specifier = ">=0.4.3" },
     { name = "taskiq-redis", specifier = ">=1.1.2" },
+    { name = "testcontainers", specifier = ">=4.14.2" },
     { name = "testcontainers", extras = ["postgres"], marker = "extra == 'dev'", specifier = ">=4.10.0" },
     { name = "user-agents", specifier = ">=2.2.0" },
 ]
