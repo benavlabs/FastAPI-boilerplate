@@ -9,6 +9,7 @@ from ..infrastructure.config.settings import get_settings
 from ..infrastructure.security import validate_production_security
 from ..interfaces.api import router
 from .admin.initialize import create_admin_interface
+from ..infrastructure.auth.crudauth import auth
 
 settings = get_settings()
 
@@ -19,11 +20,14 @@ async def lifespan_with_security(app: FastAPI) -> AsyncGenerator[None, None]:
     if settings.PRODUCTION_SECURITY_VALIDATION_ENABLED:
         validate_production_security(settings)
 
+    await auth.initializa()
+
     default_lifespan = lifespan_factory(settings)
 
     async with default_lifespan(app):
         yield
 
+    await auth.shutdoen()
 
 app = create_application(
     router=router,

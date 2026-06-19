@@ -1,35 +1,22 @@
-from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String
+from crudauth.models import AuthUserMixin
+from sqlalchemy import ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from ...infrastructure.database.models import SoftDeleteMixin, TimestampMixin
+from ...infrastructure.database.models import SoftDeleteMixin
 from ...infrastructure.database.session import Base
 
 if TYPE_CHECKING:
     from ..tier.models import Tier
 
 
-class User(Base, TimestampMixin, SoftDeleteMixin):
+class User(Base, SoftDeleteMixin, AuthUserMixin):
     """User model representing application users."""
 
     __tablename__ = "user"
 
-    id: Mapped[int] = mapped_column(
-        "id",
-        autoincrement=True,
-        nullable=False,
-        unique=True,
-        primary_key=True,
-        init=False,
-    )
-
-    name: Mapped[str] = mapped_column(String(30))
-    username: Mapped[str] = mapped_column(String(20), unique=True, index=True)
-    email: Mapped[str] = mapped_column(String(50), unique=True, index=True)
-    hashed_password: Mapped[str] = mapped_column(String(100))
-
+    name: Mapped[str] = mapped_column(String(30), kw_only=True)
     profile_image_url: Mapped[str] = mapped_column(String, default="https://profileimageurl.com")
 
     tier_id: Mapped[int | None] = mapped_column(
@@ -38,15 +25,6 @@ class User(Base, TimestampMixin, SoftDeleteMixin):
         index=True,
         default=None,
     )
-
-    is_superuser: Mapped[bool] = mapped_column(default=False)
-
-    google_id: Mapped[str | None] = mapped_column(String(50), unique=True, index=True, default=None)
-    github_id: Mapped[str | None] = mapped_column(String(50), unique=True, index=True, default=None)
-    oauth_provider: Mapped[str | None] = mapped_column(String(20), default=None)
-    email_verified: Mapped[bool] = mapped_column(default=False)
-    oauth_created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
-    oauth_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
 
     tier: Mapped["Tier | None"] = relationship("Tier", back_populates="users", lazy="selectin", init=False)
 

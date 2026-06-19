@@ -248,6 +248,16 @@ class AuthSettings(BaseSettings):
     OAUTH_GITHUB_CLIENT_SECRET: str = config("OAUTH_GITHUB_CLIENT_SECRET", default="")
     OAUTH_REDIRECT_BASE_URL: str = config("OAUTH_REDIRECT_BASE_URL", default="http://localhost:8000")
 
+    SESSION_REDIS_HOST: str = config("SESSION_REDIS_HOST", default="localhost")
+    SESSION_REDIS_PORT: int = config("SESSION_REDIS_PORT", default=6379, cast=int)
+    SESSION_REDIS_DB: int = config("SESSION_REDIS_DB", default=2, cast=int)
+    SESSION_REDIS_PASSWORD: str | None = config("SESSION_REDIS_PASSWORD", default=None)
+
+    @property
+    def SESSION_REDIS_URL(self) -> str:
+        password_part = f":{self.SESSION_REDIS_PASSWORD}@" if self.SESSION_REDIS_PASSWORD else ""
+        return f"redis://{password_part}{self.SESSION_REDIS_HOST}:{self.SESSION_REDIS_PORT}/{self.SESSION_REDIS_DB}"
+
 
 class APISettings(BaseSettings):
     """API-related settings."""
