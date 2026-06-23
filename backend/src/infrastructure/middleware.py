@@ -4,7 +4,8 @@ from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.types import ASGIApp
 
-from .auth.constants import HSTS_MAX_AGE_SECONDS
+# Two years, matching the HSTS preload-list requirement.
+HSTS_MAX_AGE_SECONDS = 63072000
 
 
 class ClientCacheMiddleware(BaseHTTPMiddleware):

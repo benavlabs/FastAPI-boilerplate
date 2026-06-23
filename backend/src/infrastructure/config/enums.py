@@ -17,11 +17,10 @@ class CacheBackend(StrEnum):
 class SessionBackend(StrEnum):
     """Session storage backend types.
 
-    Supported backends for session storage.
+    Supported backends for session storage (crudauth supports redis and memory only).
     """
 
     REDIS = "redis"
-    MEMCACHED = "memcached"
     MEMORY = "memory"
 
 

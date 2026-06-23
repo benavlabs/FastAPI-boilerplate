@@ -226,21 +226,19 @@ class AuthSettings(BaseSettings):
     """Authentication-related settings."""
 
     SECRET_KEY: str = config("SECRET_KEY", default="insecure-secret-key-change-this")
-    ALGORITHM: str = config("ALGORITHM", default="HS256")
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = config("ACCESS_TOKEN_EXPIRE_MINUTES", default=30, cast=int)
-    REFRESH_TOKEN_EXPIRE_DAYS: int = config("REFRESH_TOKEN_EXPIRE_DAYS", default=7, cast=int)
 
     SESSION_TIMEOUT_MINUTES: int = config("SESSION_TIMEOUT_MINUTES", default=30, cast=int)
     SESSION_CLEANUP_INTERVAL_MINUTES: int = config("SESSION_CLEANUP_INTERVAL_MINUTES", default=15, cast=int)
     MAX_SESSIONS_PER_USER: int = config("MAX_SESSIONS_PER_USER", default=5, cast=int)
     SESSION_SECURE_COOKIES: bool = config("SESSION_SECURE_COOKIES", default=True, cast=bool)
     SESSION_BACKEND: str = config("SESSION_BACKEND", default=SessionBackend.REDIS.value)
-    SESSION_COOKIE_MAX_AGE: int = config("SESSION_COOKIE_MAX_AGE", default=86400, cast=int)
 
     CSRF_ENABLED: bool = config("CSRF_ENABLED", default=True, cast=bool)
 
-    LOGIN_MAX_ATTEMPTS: int = config("LOGIN_MAX_ATTEMPTS", default=5, cast=int)
-    LOGIN_WINDOW_MINUTES: int = config("LOGIN_WINDOW_MINUTES", default=15, cast=int)
+    # Number of trusted reverse proxies in front of the app. crudauth resolves the
+    # client IP for login lockout from the last hop of X-Forwarded-For; 0 = the socket
+    # peer (no proxy). Set to 1 behind a single nginx/Caddy, 2 if Cloudflare is also in front.
+    TRUSTED_PROXY_HOPS: int = config("TRUSTED_PROXY_HOPS", default=0, cast=int)
 
     OAUTH_GOOGLE_CLIENT_ID: str = config("OAUTH_GOOGLE_CLIENT_ID", default="")
     OAUTH_GOOGLE_CLIENT_SECRET: str = config("OAUTH_GOOGLE_CLIENT_SECRET", default="")

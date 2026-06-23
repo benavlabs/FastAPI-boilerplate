@@ -1,35 +1,40 @@
 import os
-import secrets
-import sys
-from pathlib import Path
-from unittest.mock import MagicMock
 
-import pytest
-import pytest_asyncio
-import redis as syncredis
-import redis.asyncio as aioredis
-from faker import Faker
-from httpx import ASGITransport, AsyncClient
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-from sqlalchemy.orm import sessionmaker
-from testcontainers.core.docker_client import DockerClient
+# Configure the environment BEFORE importing anything from ``src``: the crudauth
+# ``auth`` singleton is constructed at import time and reads ``SESSION_BACKEND``,
+# so it must be set to the in-memory backend (no Redis) before that import runs.
+os.environ.setdefault("SESSION_BACKEND", "memory")
+# Tests run over http (base_url http://test), so the session/CSRF cookies must not be
+# Secure-only or httpx won't send them back on follow-up requests.
+os.environ.setdefault("SESSION_SECURE_COOKIES", "false")
+os.environ.setdefault("SECRET_KEY", "test_secret_key_for_tests")
+os.environ.setdefault("SQLITE_URI", ":memory:")
+os.environ.setdefault("SQLITE_ASYNC_PREFIX", "sqlite+aiosqlite:///")
+
+import sys  # noqa: E402
+from pathlib import Path  # noqa: E402
+from unittest.mock import MagicMock  # noqa: E402
+
+import pytest  # noqa: E402
+import pytest_asyncio  # noqa: E402
+import redis as syncredis  # noqa: E402
+import redis.asyncio as aioredis  # noqa: E402
+from crudauth import get_password_hash  # noqa: E402
+from faker import Faker  # noqa: E402
+from httpx import ASGITransport, AsyncClient  # noqa: E402
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine  # noqa: E402
+from sqlalchemy.orm import sessionmaker  # noqa: E402
+from testcontainers.core.docker_client import DockerClient  # noqa: E402
 
 # mypy: disable-error-code="import-untyped"
-from testcontainers.postgres import PostgresContainer
+from testcontainers.postgres import PostgresContainer  # noqa: E402
 
-from src.infrastructure.auth.session.backends.memory import MemorySessionStorage
-from src.infrastructure.auth.session.dependencies import get_current_superuser, get_current_user
-from src.infrastructure.auth.session.schemas import CSRFToken, SessionData
-from src.infrastructure.auth.utils import get_password_hash
-from src.infrastructure.config.settings import Settings, get_settings
-from src.infrastructure.database.session import Base, async_session
-from src.interfaces.main import app
-from src.modules.tier.models import Tier
-from src.modules.user.models import User
-
-os.environ["SQLITE_URI"] = ":memory:"
-os.environ["SQLITE_ASYNC_PREFIX"] = "sqlite+aiosqlite:///"
-os.environ["SECRET_KEY"] = "test_secret_key_for_tests"
+from src.infrastructure.auth.dependencies import get_current_superuser, get_current_user  # noqa: E402
+from src.infrastructure.config.settings import Settings, get_settings  # noqa: E402
+from src.infrastructure.database.session import Base, async_session  # noqa: E402
+from src.interfaces.main import app  # noqa: E402
+from src.modules.tier.models import Tier  # noqa: E402
+from src.modules.user.models import User  # noqa: E402
 
 TEST_DATABASE_URL = get_settings().DATABASE_URL
 
@@ -253,35 +258,6 @@ async def superuser_auth_client(client: AsyncClient, test_superuser: dict):
     app.dependency_overrides[get_current_user] = override_get_current_user
     app.dependency_overrides[get_current_superuser] = override_get_current_superuser
     return client
-
-
-@pytest.fixture(autouse=True)
-def mock_session_backend(monkeypatch):
-    """Use in-memory session backend instead of Redis during tests."""
-    memory_storage: MemorySessionStorage[SessionData] = MemorySessionStorage(prefix="session:", expiration=1800)
-    memory_csrf_storage: MemorySessionStorage[CSRFToken] = MemorySessionStorage(prefix="csrf:", expiration=1800)
-
-    def override_session_dependency(backend, model_type, **kwargs):
-        if model_type == CSRFToken:
-            return memory_csrf_storage
-        return memory_storage
-
-    async def mock_execute(self):
-        return [True]
-
-    async def mock_create(self, data):
-        session_id = secrets.token_hex(16)
-        self.data[f"{self.prefix}{session_id}"] = data.model_dump()
-        return session_id
-
-    setattr(memory_storage, "execute", mock_execute)
-    setattr(memory_csrf_storage, "execute", mock_execute)
-    setattr(memory_storage, "create", mock_create)
-    setattr(memory_csrf_storage, "create", mock_create)
-
-    monkeypatch.setattr("src.infrastructure.auth.session.storage.get_session_storage", override_session_dependency)
-    monkeypatch.setattr("src.infrastructure.auth.session.manager.get_session_storage", override_session_dependency)
-    monkeypatch.setenv("SESSION_BACKEND", "memory")
 
 
 @pytest.fixture(autouse=True)

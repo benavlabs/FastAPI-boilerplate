@@ -50,5 +50,15 @@ class User(Base, TimestampMixin, SoftDeleteMixin):
 
     tier: Mapped["Tier | None"] = relationship("Tier", back_populates="users", lazy="selectin", init=False)
 
+    @property
+    def is_active(self) -> bool:
+        """Derived active flag for crudauth: a soft-deleted user is inactive.
+
+        ``is_deleted`` stays the single source of truth; crudauth reads ``is_active``
+        to gate authentication, so this maps the contract onto the existing column
+        without adding a new one.
+        """
+        return not self.is_deleted
+
     def __repr__(self) -> str:
         return f"{self.name} ({self.email})"

@@ -2,11 +2,11 @@
 
 from typing import Any
 
+from crudauth import get_password_hash
 from sqladmin import ModelView
 from starlette.requests import Request
 from wtforms import SelectField
 
-from ....infrastructure.auth.utils import get_password_hash
 from ....infrastructure.database.session import local_session
 from ....modules.user.enums import OAuthProvider
 from ....modules.user.models import User
