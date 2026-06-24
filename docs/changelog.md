@@ -8,6 +8,48 @@ For the full narrative on each release — rationale, decisions, migration guide
 
 ___
 
+## 0.19.0 - (unreleased) - The crudauth Migration
+
+The vendored authentication stack — the in-tree `SessionManager`, its storage backends, the OAuth provider framework, and the token/password utilities — has been replaced with the [`crudauth`](https://pypi.org/project/crudauth/) library. The boilerplate now keeps only the wiring: a single `auth = CRUDAuth(...)` singleton in `infrastructure/auth/setup.py`, the FastAPI dependencies that wrap it, the OAuth building blocks, and the route handlers. Session validation, CSRF, login lockout, and session storage all live in the library.
+
+This is a **breaking** release for anyone importing from the old auth modules or relying on the removed settings. See Breaking Changes below for the migration.
+
+---
+
+#### Added
+
+- **`crudauth` library integration** by [@igorbenav](https://github.com/igorbenav)
+  - `auth = CRUDAuth(...)` composition root in `infrastructure/auth/setup.py`; the app lifespan calls `auth.initialize()` / `auth.shutdown()`
+  - New `Principal`-based dependencies `get_current_principal` / `get_optional_principal` alongside the dict-returning `get_current_user` / `get_optional_user` / `get_current_superuser`
+- **`TRUSTED_PROXY_HOPS` setting** (default `0`) — number of trusted reverse proxies in front of the app, used by crudauth to resolve the real client IP for login lockout. Set `1` behind a single nginx/Caddy.
+- **`User.is_active` property** — derived from `not is_deleted`; crudauth reads it during login so soft-deleted users can't authenticate.
+
+#### Changed
+
+- Auth dependencies now import from `infrastructure.auth.dependencies` (was `infrastructure.auth.session.dependencies`).
+- `get_password_hash` / `verify_password` now come `from crudauth` (was `infrastructure.auth.utils`).
+- Login lockout now returns **`429 Too Many Requests` with a `Retry-After` header** (was a generic `401`). It is throttled internally by crudauth (escalating per-IP / per-identifier), not via env vars.
+- OAuth providers are now registered via crudauth's `OAuthProviderFactory` in `infrastructure/auth/oauth.py` rather than as separate `oauth/providers/<name>.py` files. Google remains wired.
+
+#### Removed
+
+- The vendored session stack: `SessionManager`, the memory/redis/memcached session backends, session storage/schemas/dependencies, and the user-agent parsing helpers.
+- The in-tree OAuth package (provider framework, factory, `providers/google.py`, `providers/github.py`, services) and `auth/utils.py` / `auth/constants.py`.
+- The **memcached session backend** — sessions now support only `redis` and `memory`. (The general cache and rate limiter still support memcached.)
+- The GitHub OAuth provider file. The `User` model keeps its `github_id` / `oauth_provider` columns, so the data model still anticipates GitHub, but no provider or routes ship.
+- Settings `ALGORITHM`, `ACCESS_TOKEN_EXPIRE_MINUTES`, `REFRESH_TOKEN_EXPIRE_DAYS`, `SESSION_COOKIE_MAX_AGE`, `LOGIN_MAX_ATTEMPTS`, and `LOGIN_WINDOW_MINUTES`.
+- The dependency aliases `SessionManagerDep`, `CurrentSessionDataDep`, `OptionalSessionDataDep`, `GoogleOAuthProviderDep`, and `OAuthStateStorageDep`.
+
+#### Breaking Changes
+
+- **Imports moved.** Replace `from ...infrastructure.auth.session.dependencies import ...` with `from ...infrastructure.auth.dependencies import ...`, and import `get_password_hash` / `verify_password` from `crudauth`.
+- **Removed settings.** Delete `ALGORITHM`, `ACCESS_TOKEN_EXPIRE_MINUTES`, `REFRESH_TOKEN_EXPIRE_DAYS`, `SESSION_COOKIE_MAX_AGE`, `LOGIN_MAX_ATTEMPTS`, and `LOGIN_WINDOW_MINUTES` from your environment — they no longer exist. Add `TRUSTED_PROXY_HOPS` if you run behind a proxy.
+- **Login lockout response changed** from `401` to `429` + `Retry-After`; update any client that special-cased the old status/message.
+- **`SESSION_BACKEND=memcached` is no longer valid** — switch to `redis` or `memory`.
+- **`SessionManager` and friends are gone.** Code that called the session manager directly (e.g. listing a user's sessions) must move to crudauth's session APIs.
+
+___
+
 ## 0.18.0 - May 24, 2026 - The Pluggable Restructure
 
 This is the release we promised in v0.17.0; the one that tears the layout apart and rebuilds it as a real plugin system. If you've been pinned to v0.17.0 waiting for it, this is your moment.

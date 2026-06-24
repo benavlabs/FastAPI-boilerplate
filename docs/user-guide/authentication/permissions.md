@@ -29,7 +29,7 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends
 
-from ...infrastructure.auth.session.dependencies import get_current_superuser
+from ...infrastructure.auth.dependencies import get_current_superuser
 
 router = APIRouter()
 

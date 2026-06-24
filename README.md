@@ -39,7 +39,7 @@
 
 * Fully async FastAPI + SQLAlchemy 2.0
 * Pydantic v2 models & validation
-* Server-side sessions + CSRF; OAuth (Google wired, GitHub scaffolded); API keys
+* Server-side sessions + CSRF via [crudauth](https://pypi.org/project/crudauth/); OAuth (Google wired); API keys
 * Annotated type aliases for all FastAPI dependencies
 * Rate limiter with per-tier, per-path rules
 * FastCRUD for efficient CRUD & pagination

@@ -66,11 +66,12 @@ CACHE_REDIS_HOST=<redis-host>
 CACHE_REDIS_PASSWORD=<redis-password>
 
 # Sessions
-SESSION_BACKEND=redis
+SESSION_BACKEND=redis                  # redis | memory
 SESSION_REDIS_HOST=<redis-host>
 SESSION_REDIS_PASSWORD=<redis-password>
 SESSION_SECURE_COOKIES=true            # required when serving over HTTPS
 CSRF_ENABLED=true
+TRUSTED_PROXY_HOPS=1                    # set to the number of proxies in front of the app
 
 # Rate limiting
 RATE_LIMITER_ENABLED=true
@@ -232,6 +233,8 @@ The proxy must:
 - Pass through cookies (`Set-Cookie`) untouched
 - Set `Host` correctly so the API's URL building works
 
+Set `TRUSTED_PROXY_HOPS` to the number of reverse proxies you've put in front of the app (1 for a single nginx/Caddy, 2 if Cloudflare is also in front). crudauth uses it to read the real client IP from the last trusted hop of `X-Forwarded-For` when applying login lockout — otherwise every request would appear to come from the proxy and the lockout would key on a single IP.
+
 `CORS_ORIGINS` should list your **frontend** origins, not the API origin. Wildcard (`*`) is incompatible with credentialed requests anyway — the validator warns on it for a reason.
 
 ## Logging in Production
@@ -328,7 +331,7 @@ Read the message — it tells you which check failed. Don't bypass it; fix the u
 
 ### "Sessions invalidate after every deploy"
 
-You're on `SESSION_BACKEND=memory`. Switch to `redis` (or `memcached`) and add the relevant `*_REDIS_*` env vars.
+You're on `SESSION_BACKEND=memory`. Switch to `redis` and add the relevant `SESSION_REDIS_*` env vars. (Sessions support only `redis` and `memory`; memcached is not a session backend.)
 
 ### "Sudden burst of 429s after a config change"
 

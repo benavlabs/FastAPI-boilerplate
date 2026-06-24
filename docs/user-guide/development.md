@@ -159,7 +159,7 @@ Order matters — middleware added later runs **earlier** in the request path. T
 
 ## Adding a Custom Dependency
 
-Dependencies belong with the feature they serve. For session-aware dependencies, look at `infrastructure/auth/session/dependencies.py:get_current_user` for a template.
+Dependencies belong with the feature they serve. For session-aware dependencies, look at `infrastructure/auth/dependencies.py:get_current_user` for a template.
 
 ### Define the factory
 
@@ -167,7 +167,7 @@ Dependencies belong with the feature they serve. For session-aware dependencies,
 # modules/workspace/dependencies.py
 from fastapi import Request
 
-from ...infrastructure.auth.session.dependencies import get_current_user
+from ...infrastructure.auth.dependencies import get_current_user
 from ...infrastructure.dependencies import CurrentUserDep
 
 
@@ -235,12 +235,12 @@ Each subsystem uses a different Redis DB number; see `.env.example` for the conv
 
 ### Watch sessions live
 
-If a user reports being logged out unexpectedly, check the session backend directly:
+Session storage is managed by the `crudauth` library, so there's no boilerplate `SessionManager` to call. If a user reports being logged out unexpectedly, inspect the session store directly in Redis:
 
-```python
-from src.infrastructure.auth.session import SessionManager
-manager = SessionManager()
-sessions = await manager.get_user_sessions(user_id=42)
+```bash
+redis-cli
+> SELECT 1                           # session backend DB (SESSION_REDIS_DB)
+> KEYS 'session:*'
 ```
 
 See [Authentication → Sessions](authentication/sessions.md) for full details.

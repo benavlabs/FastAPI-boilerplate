@@ -92,12 +92,12 @@ infrastructure/
 │   ├── settings.py
 │   └── enums.py
 ├── database/                 # SQLAlchemy engine, session, base model
-├── auth/                     # Session auth, OAuth, HTTP exceptions, route handlers
-│   ├── session/              # Server-side sessions (memory/redis/memcached backends)
-│   ├── oauth/                # OAuth provider abstractions (Google, GitHub stub)
+├── auth/                     # crudauth wiring: deps, OAuth, route handlers
+│   ├── setup.py              # The `auth = CRUDAuth(...)` singleton (composition root)
+│   ├── dependencies.py       # get_current_user / _superuser / _optional_user + Principal deps
+│   ├── oauth.py              # crudauth OAuth building blocks (Google wired)
 │   ├── routes.py             # /auth/login, /logout, /oauth/google, /check-auth
-│   ├── http_exceptions.py
-│   └── utils.py
+│   └── http_exceptions.py    # fastcrud HTTP exception re-export
 ├── cache/                    # Redis/Memcached cache + decorator
 │   └── backends/
 ├── rate_limit/               # Rate limiter middleware + Redis/Memcached backends
@@ -213,7 +213,7 @@ Each `modules/<feature>/` folder owns the entire stack for that feature. Adding 
 FastAPI's `Depends` is used throughout:
 
 - **Database session** — `Depends(async_session)` from `infrastructure.database.session`
-- **Current user** — `Depends(get_current_user)` from `infrastructure.auth.session.dependencies`
+- **Current user** — `Depends(get_current_user)` from `infrastructure.auth.dependencies`
 - **Superuser only** — `Depends(get_current_superuser)`
 - **Service instances** — Each module's `routes.py` defines its own `get_<feature>_service()` factory
 

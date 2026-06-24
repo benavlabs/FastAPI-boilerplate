@@ -194,8 +194,12 @@ SESSION_TIMEOUT_MINUTES=30
 SESSION_CLEANUP_INTERVAL_MINUTES=15
 MAX_SESSIONS_PER_USER=5
 SESSION_SECURE_COOKIES=true
-SESSION_BACKEND=redis
-SESSION_COOKIE_MAX_AGE=86400
+SESSION_BACKEND=redis            # redis | memory
+
+# Number of trusted reverse proxies in front of the app. crudauth uses this to
+# resolve the real client IP (from X-Forwarded-For) for login lockout.
+# 0 = no proxy; set 1 behind a single nginx/Caddy, 2 if Cloudflare is also in front.
+TRUSTED_PROXY_HOPS=0
 ```
 
 ### CSRF
@@ -205,12 +209,9 @@ SESSION_COOKIE_MAX_AGE=86400
 CSRF_ENABLED=true
 ```
 
-### Login Rate Limiting
+### Login Lockout
 
-```env
-LOGIN_MAX_ATTEMPTS=5
-LOGIN_WINDOW_MINUTES=15
-```
+There are no env vars for login throttling. `crudauth` applies an escalating per-IP / per-identifier lockout internally and returns `429 Too Many Requests` with a `Retry-After` header once the threshold is hit. Behind a proxy, set `TRUSTED_PROXY_HOPS` (above) so the lockout keys on the real client IP rather than the proxy's.
 
 ### OAuth
 
@@ -221,7 +222,7 @@ OAUTH_REDIRECT_BASE_URL=http://localhost:8000
 OAUTH_GOOGLE_CLIENT_ID=
 OAUTH_GOOGLE_CLIENT_SECRET=
 
-# GitHub OAuth (provider scaffolded; routes not yet wired)
+# GitHub OAuth (data model anticipates it; no provider/routes wired — see Authentication)
 OAUTH_GITHUB_CLIENT_ID=
 OAUTH_GITHUB_CLIENT_SECRET=
 ```

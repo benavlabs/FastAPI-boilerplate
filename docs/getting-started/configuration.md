@@ -74,16 +74,17 @@ SESSION_TIMEOUT_MINUTES=30
 SESSION_CLEANUP_INTERVAL_MINUTES=15
 MAX_SESSIONS_PER_USER=5
 SESSION_SECURE_COOKIES=true
-SESSION_BACKEND=redis
-SESSION_COOKIE_MAX_AGE=86400
+SESSION_BACKEND=redis            # redis | memory
 
 # CSRF protection (set false to disable in dev/test)
 CSRF_ENABLED=true
 
-# Login rate limiting
-LOGIN_MAX_ATTEMPTS=5
-LOGIN_WINDOW_MINUTES=15
+# Trusted reverse proxies in front of the app (used to resolve the real client
+# IP for login lockout). 0 = none; set 1 behind a single nginx/Caddy.
+TRUSTED_PROXY_HOPS=0
 ```
+
+Login lockout is handled by `crudauth` itself: it applies an escalating per-IP / per-identifier lockout and returns `429 Too Many Requests` with a `Retry-After` header. There are no `LOGIN_MAX_ATTEMPTS` / `LOGIN_WINDOW_MINUTES` knobs to set.
 
 ### First Admin User
 

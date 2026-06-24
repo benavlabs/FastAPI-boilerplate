@@ -1,6 +1,6 @@
 # Authentication & Security
 
-The boilerplate uses **server-side sessions with HTTP-only cookies** — not JWT. Sessions are stored in Redis (or memory/memcached, configurable), CSRF-protected, and rate-limited at the login endpoint.
+The boilerplate uses **server-side sessions with HTTP-only cookies** — not JWT. Auth is provided by the [`crudauth`](https://pypi.org/project/crudauth/) library: sessions are stored in Redis (or memory, configurable), CSRF-protected, and lockout-throttled at the login endpoint. The composition root is the `auth = CRUDAuth(...)` singleton in `infrastructure/auth/setup.py` (see [Sessions → Auth Architecture](sessions.md#auth-architecture)).
 
 For machine-to-machine clients, the boilerplate ships **API keys** with per-key permissions and usage tracking.
 
@@ -21,6 +21,38 @@ The original boilerplate used JWT with refresh tokens and a token blacklist. We 
 - **Sessions match how most users actually want to think about authentication.** "Is this person logged in?" is a database question, not a cryptographic one.
 
 If you specifically need stateless tokens (e.g. for inter-service auth where you can't share a session store), use **API keys** — they're stateless from the client's perspective and authenticated server-side.
+
+### Need JWT for mobile or native apps?
+
+Cookies and CSRF are awkward for mobile apps, native clients, and CLIs. crudauth handles this with a **bearer (JWT) transport** that runs *alongside* sessions — the boilerplate just doesn't enable it by default. Both transports resolve to the same `Principal`, so your route protection (`CurrentUserDep`, `get_current_user`, etc.) doesn't change; only how the client authenticates does.
+
+To turn it on, add a `BearerTransport` to the `transports` list in `infrastructure/auth/setup.py` and mount crudauth's bearer router (which adds `POST /token` to log in and `POST /refresh` to mint a new access token):
+
+```python
+# infrastructure/auth/setup.py
+from crudauth import BearerTransport, CookieConfig, CRUDAuth, SessionTransport
+
+auth = CRUDAuth(
+    session=async_session,
+    user_model=User,
+    SECRET_KEY=settings.SECRET_KEY,
+    cookies=CookieConfig(secure=settings.SESSION_SECURE_COOKIES),
+    transports=[
+        SessionTransport(...),                       # browsers (unchanged)
+        BearerTransport(access_ttl=900, refresh="body"),  # mobile / API clients
+    ],
+    ...
+)
+```
+
+```python
+# wherever the auth router is included (e.g. interfaces/api/v1)
+app.include_router(auth.bearer_router, prefix="/api/v1/auth")
+```
+
+Mobile clients typically want `refresh="body"` so the refresh token comes back in the JSON response (to store themselves) rather than as a cookie. Clients then send the access token as `Authorization: Bearer <token>`. When both a session cookie and a bearer token are present, the **first transport in the list wins**.
+
+For the full walkthrough — token lifecycle, refresh strategies, scopes, and running session + bearer together — see crudauth's [Bearer tokens](https://benavlabs.github.io/crudauth/guides/auth/bearer/) and [Multiple transports](https://benavlabs.github.io/crudauth/guides/auth/multiple-transports/) guides.
 
 ## Authentication Mechanisms
 
@@ -59,7 +91,7 @@ curl http://localhost:8000/api/v1/auth/oauth/google
 # The server creates a session and either redirects or returns JSON.
 ```
 
-A GitHub OAuth provider is **scaffolded** in `infrastructure/auth/oauth/providers/github.py` but no GitHub callback routes are wired yet. Wire those up in `infrastructure/auth/routes.py` if you need GitHub sign-in.
+Only Google is wired (in the `oauth_providers` dict in `infrastructure/auth/oauth.py`). The data model still anticipates GitHub — the `User` model keeps `github_id` and `oauth_provider` columns — but there's no GitHub provider or routes. To add another provider, register it with crudauth's `OAuthProviderFactory` in `infrastructure/auth/oauth.py` and add the matching routes in `infrastructure/auth/routes.py`.
 
 ### 3. API Keys (Machine-to-Machine)
 
@@ -80,10 +112,10 @@ The full key is returned only on creation. Each key has its own permissions, usa
 
 ### Server-Side Sessions
 
-- **Session storage**: Redis by default; memory/memcached available (`SESSION_BACKEND` env var)
+- **Session storage**: Redis by default; memory available (`SESSION_BACKEND` env var)
 - **HTTP-only cookies**: `session_id` cookie cannot be read by JavaScript
 - **CSRF tokens**: Returned on login, also set as a cookie, must be sent in `X-CSRF-Token` for state-changing requests
-- **Configurable timeout**: `SESSION_TIMEOUT_MINUTES`, `SESSION_COOKIE_MAX_AGE`
+- **Configurable timeout**: `SESSION_TIMEOUT_MINUTES`
 - **Per-user limits**: `MAX_SESSIONS_PER_USER` caps simultaneous sessions per account
 - **Automatic cleanup**: `SESSION_CLEANUP_INTERVAL_MINUTES` controls expiry sweeps
 
@@ -101,25 +133,18 @@ The full key is returned only on creation. Each key has its own permissions, usa
 - **Tier-based** access via the `Tier` model — every user belongs to a tier, and rate limits are configured per tier path
 - **Resource ownership** checks live in services (the route doesn't decide who owns what)
 
-### Login Rate Limiting
+### Login Lockout
 
-The login endpoint tracks failed attempts per IP+username. Configurable:
-
-```env
-LOGIN_MAX_ATTEMPTS=5
-LOGIN_WINDOW_MINUTES=15
-```
-
-When the limit is hit, `POST /api/v1/auth/login` returns `401 Unauthorized: Too many failed login attempts. Please try again later.`
+`crudauth` throttles the login endpoint internally with an escalating per-IP / per-identifier lockout — there are no env vars to tune. When the limit is hit, `POST /api/v1/auth/login` returns `429 Too Many Requests` with a `Retry-After` header telling the client how long to wait. Behind a reverse proxy, set `TRUSTED_PROXY_HOPS` so the lockout keys on the real client IP rather than the proxy's.
 
 ## Authentication Patterns
 
-All session deps live in `src/infrastructure/auth/session/dependencies.py`.
+All auth deps live in `src/infrastructure/auth/dependencies.py` (they wrap the `crudauth` `auth` singleton).
 
 ### Required Authentication
 
 ```python
-from ...infrastructure.auth.session.dependencies import get_current_user
+from ...infrastructure.auth.dependencies import get_current_user
 
 @router.get("/me", response_model=UserRead)
 async def me(
@@ -133,7 +158,7 @@ Returns 401 if the session cookie is missing or invalid.
 ### Optional Authentication
 
 ```python
-from ...infrastructure.auth.session.dependencies import get_optional_user
+from ...infrastructure.auth.dependencies import get_optional_user
 
 @router.get("/")
 async def list_things(
@@ -148,7 +173,7 @@ async def list_things(
 ### Superuser Only
 
 ```python
-from ...infrastructure.auth.session.dependencies import get_current_superuser
+from ...infrastructure.auth.dependencies import get_current_superuser
 
 @router.delete("/{username}/permanent")
 async def gdpr_delete_user(
@@ -217,21 +242,19 @@ SESSION_TIMEOUT_MINUTES=30
 SESSION_CLEANUP_INTERVAL_MINUTES=15
 MAX_SESSIONS_PER_USER=5
 SESSION_SECURE_COOKIES=true
-SESSION_BACKEND=redis             # redis | memory | memcached
-SESSION_COOKIE_MAX_AGE=86400
+SESSION_BACKEND=redis             # redis | memory
 
 # CSRF
 CSRF_ENABLED=true                  # set false for dev/test
 
-# Login rate limiting
-LOGIN_MAX_ATTEMPTS=5
-LOGIN_WINDOW_MINUTES=15
+# Trusted reverse proxies in front of the app (real client IP for login lockout)
+TRUSTED_PROXY_HOPS=0
 
 # OAuth
 OAUTH_REDIRECT_BASE_URL=http://localhost:8000
 OAUTH_GOOGLE_CLIENT_ID=
 OAUTH_GOOGLE_CLIENT_SECRET=
-OAUTH_GITHUB_CLIENT_ID=            # provider scaffolded; routes not wired
+OAUTH_GITHUB_CLIENT_ID=            # data model anticipates GitHub; no provider/routes wired
 OAUTH_GITHUB_CLIENT_SECRET=
 
 # Security
@@ -293,7 +316,7 @@ You can combine the built-in deps to enforce tier checks:
 from typing import Annotated, Any
 from fastapi import Depends, HTTPException
 
-from ...infrastructure.auth.session.dependencies import get_current_user
+from ...infrastructure.auth.dependencies import get_current_user
 
 
 async def require_tier(

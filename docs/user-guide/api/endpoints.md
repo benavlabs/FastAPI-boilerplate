@@ -43,11 +43,7 @@ The boilerplate pre-defines aliases for every shared dependency in `infrastructu
 | `CurrentUserDep` | `Annotated[dict[str, Any], Depends(get_current_user)]` |
 | `CurrentSuperUserDep` | `Annotated[dict[str, Any], Depends(get_current_superuser)]` |
 | `OptionalUserDep` | `Annotated[dict[str, Any] \| None, Depends(get_optional_user)]` |
-| `SessionManagerDep` | `Annotated[SessionManager, Depends(get_session_manager)]` |
-| `CurrentSessionDataDep` | `Annotated[SessionData, Depends(get_current_session_data)]` |
 | `OAuth2FormDep` | `Annotated[OAuth2PasswordRequestForm, Depends()]` |
-| `GoogleOAuthProviderDep` | `Annotated[AbstractOAuthProvider, Depends(get_google_provider)]` |
-| `OAuthStateStorageDep` | `Annotated[AbstractSessionStorage[OAuthState], Depends(get_oauth_state_storage)]` |
 
 Per-module service aliases live in `modules/<name>/dependencies.py`:
 
@@ -72,7 +68,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...infrastructure.auth.http_exceptions import HTTPException
-from ...infrastructure.auth.session.dependencies import get_current_user
+from ...infrastructure.auth.dependencies import get_current_user
 from ...infrastructure.database.session import async_session
 from ..common.utils.error_handler import handle_exception
 from .schemas import WidgetCreate, WidgetRead
@@ -238,12 +234,12 @@ async def delete_widget(
 
 ## Authentication
 
-All session-based auth dependencies live in `infrastructure/auth/session/dependencies`.
+All session-based auth dependencies live in `infrastructure/auth/dependencies`.
 
 ### Require Login
 
 ```python
-from ...infrastructure.auth.session.dependencies import get_current_user
+from ...infrastructure.auth.dependencies import get_current_user
 
 
 @router.get("/me", response_model=WidgetRead)
@@ -258,7 +254,7 @@ async def my_widget(
 ### Optional Auth
 
 ```python
-from ...infrastructure.auth.session.dependencies import get_optional_user
+from ...infrastructure.auth.dependencies import get_optional_user
 
 
 @router.get("/", response_model=list[WidgetRead])
@@ -273,7 +269,7 @@ async def list_widgets(
 ### Superuser Only
 
 ```python
-from ...infrastructure.auth.session.dependencies import get_current_superuser
+from ...infrastructure.auth.dependencies import get_current_superuser
 
 
 @router.delete("/{widget_id}/permanent")

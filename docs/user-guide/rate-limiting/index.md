@@ -128,24 +128,26 @@ else:
 
 A minimal middleware to bridge the two:
 
+Session validation now lives in the `crudauth` library — the `auth` singleton in `infrastructure/auth/setup.py` resolves the cookie (and enforces CSRF/lockout) and yields a `Principal`. The simplest way to bring the user into the rate limiter is at the route layer: depend on `get_optional_user` (from `infrastructure/auth/dependencies.py`) and stash the result on `request.state.user` before the limiter reads it.
+
 ```python
-# infrastructure/auth/rate_limit_user_middleware.py
-from starlette.middleware.base import BaseHTTPMiddleware
-from src.infrastructure.auth.session.dependencies import _resolve_session_user  # pseudo
+# a router-level dependency you can attach where tier limits matter
+from typing import Annotated, Any
+
+from fastapi import Depends, Request
+
+from src.infrastructure.auth.dependencies import get_optional_user
 
 
-class AttachUserToRateLimitMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request, call_next):
-        try:
-            user = await _resolve_session_user(request)
-            if user:
-                request.state.user = user
-        except Exception:
-            pass
-        return await call_next(request)
+async def attach_user_to_request(
+    request: Request,
+    user: Annotated[dict[str, Any] | None, Depends(get_optional_user)],
+) -> None:
+    if user is not None:
+        request.state.user = user
 ```
 
-Mount this **before** `RateLimiterMiddleware`. The exact resolution code depends on how you reuse your session backend — if this is a setup you need, copy the validation logic from `infrastructure/auth/session/dependencies.py:get_current_user` into the middleware.
+crudauth owns the cookie/CSRF/lockout validation, so you never re-implement session lookup — you only reuse the resolved user. (A pure-Starlette middleware can't run FastAPI dependencies, which is why this is wired as a dependency rather than as middleware.)
 
 For most teams, IP-based default limits (`100 req/60s`) are enough until you have an actual product reason to bring tiers into the rate-limit story.
 
