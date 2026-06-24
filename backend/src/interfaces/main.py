@@ -48,7 +48,7 @@ app = create_application(
     * Swappable cache, queue, and rate-limit backends
     * SQLAdmin admin UI
     """,
-    version="0.18.0",
+    version="0.19.0",
     contact={
         "name": "Benav Labs",
         "url": "https://github.com/benavlabs/FastAPI-boilerplate",

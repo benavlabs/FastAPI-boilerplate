@@ -8,7 +8,7 @@ For the full narrative on each release — rationale, decisions, migration guide
 
 ___
 
-## Unreleased
+## 0.19.0 - June 23, 2026 - The crudauth Migration
 
 Three changes since v0.18.0: route dependency injection moved to centralized `Annotated[...]` type aliases ([#261](https://github.com/benavlabs/FastAPI-boilerplate/pull/261)), the app metadata (`APP_NAME` / `APP_DESCRIPTION` / `VERSION`) became environment-configurable, and — the headline — the vendored authentication stack was replaced with the [`crudauth`](https://pypi.org/project/crudauth/) library.
 
@@ -54,6 +54,9 @@ This is a **breaking** change for anyone importing from the old auth modules or 
 - **Login lockout response changed** from `401` to `429` + `Retry-After`; update any client that special-cased the old status/message.
 - **`SESSION_BACKEND=memcached` is no longer valid** — switch to `redis` or `memory`.
 - **`SessionManager` and friends are gone.** Code that called the session manager directly (e.g. listing a user's sessions) must move to crudauth's session APIs.
+
+**Full release notes**: https://github.com/benavlabs/FastAPI-boilerplate/releases/tag/v0.19.0
+**Full changelog**: https://github.com/benavlabs/FastAPI-boilerplate/compare/v0.18.0...v0.19.0
 
 ___
 

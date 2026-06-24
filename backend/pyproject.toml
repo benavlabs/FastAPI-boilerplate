@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "fastapi-boilerplate"
-version = "0.18.0"
+version = "0.19.0"
 description = "Modular FastAPI starter — vertical slices, swappable infrastructure, plugin-ready."
 authors = [{ name = "Benav Labs", email = "contact@benav.io" }]
 license = { text = "MIT" }
