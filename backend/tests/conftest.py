@@ -11,6 +11,12 @@ os.environ.setdefault("SECRET_KEY", "test_secret_key_for_tests")
 os.environ.setdefault("SQLITE_URI", ":memory:")
 os.environ.setdefault("SQLITE_ASYNC_PREFIX", "sqlite+aiosqlite:///")
 
+# Disable the testcontainers Ryuk reaper. Under `pytest -n auto`, each xdist worker
+# is a separate process that spins up its own Ryuk container, and Docker Desktop
+# chokes mapping all their ports at once ("Port mapping ... port 8080 is not
+# available"). Testcontainers' own `with` blocks still clean up on normal exit.
+os.environ.setdefault("TESTCONTAINERS_RYUK_DISABLED", "true")
+
 import sys  # noqa: E402
 from pathlib import Path  # noqa: E402
 from unittest.mock import MagicMock  # noqa: E402
