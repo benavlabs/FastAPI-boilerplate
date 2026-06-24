@@ -312,7 +312,7 @@ async def check_auth(
         return {"authenticated": False, "message": "Not authenticated"}
 
     try:
-        user = await crud_users.get(db=db, id=principal.user_id)
+        user = await crud_users.get(db=db, id=principal.user_id, is_deleted=False)
 
         if not user:
             return {"authenticated": False, "message": "User not found"}
