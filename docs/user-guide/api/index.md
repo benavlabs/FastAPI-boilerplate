@@ -57,10 +57,10 @@ Final URL: `POST /api/v1/users/`.
 
 ### Built-in Authentication
 
-Session-based auth with HTTP-only cookies. Pull the current user from `infrastructure/auth/session/dependencies`:
+Session-based auth with HTTP-only cookies. Pull the current user from `infrastructure/auth/dependencies`:
 
 ```python
-from ...infrastructure.auth.session.dependencies import get_current_user
+from ...infrastructure.auth.dependencies import get_current_user
 
 @router.get("/me", response_model=UserRead)
 async def get_profile(

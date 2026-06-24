@@ -159,8 +159,9 @@ SESSION_SECURE_COOKIES=true
 SESSION_TIMEOUT_MINUTES=30
 SESSION_BACKEND=redis
 CSRF_ENABLED=true
-LOGIN_MAX_ATTEMPTS=5
-LOGIN_WINDOW_MINUTES=15
+# Trusted reverse proxies in front of the app, so crudauth keys login lockout on
+# the real client IP. Set 1 behind a single nginx/Caddy, 2 if Cloudflare is also in front.
+TRUSTED_PROXY_HOPS=1
 
 # Strict CORS
 CORS_ORIGINS=https://example.com,https://www.example.com

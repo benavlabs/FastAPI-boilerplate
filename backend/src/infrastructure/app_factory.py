@@ -14,7 +14,8 @@ from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
 from fastapi.openapi.utils import get_openapi
 
 from ..modules.common.utils.error_handler import register_exception_handlers
-from .auth.session.dependencies import get_current_superuser
+from .auth.dependencies import get_current_superuser
+from .auth.setup import auth
 from .cache.initialize import close_cache, initialize_cache
 from .config.settings import (
     CacheSettings,
@@ -62,11 +63,15 @@ def lifespan_factory(
             if isinstance(settings, RateLimiterSettings) and settings.RATE_LIMITER_ENABLED:
                 await initialize_rate_limiter()
 
+            await auth.initialize()
+
             initialization_complete.set()
 
             yield
 
         finally:
+            await auth.shutdown()
+
             if isinstance(settings, CacheSettings) and settings.CACHE_ENABLED:
                 await close_cache()
 

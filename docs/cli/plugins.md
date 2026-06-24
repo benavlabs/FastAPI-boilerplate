@@ -193,14 +193,14 @@ The installer renders `template` with the plan's `template_context` and writes t
 #### 1. Package layout
 
 ```text
-bp-feature-microsoft-oauth/
+bp-feature-audit-log/
 ├── pyproject.toml
 └── src/
-    └── bp_feature_microsoft_oauth/
+    └── bp_feature_audit_log/
         ├── __init__.py
         ├── feature.py
         └── templates/
-            └── microsoft_provider.py.j2
+            └── audit_log_module.py.j2
 ```
 
 #### 2. `feature.py` — define the feature
@@ -212,47 +212,49 @@ from cli.features.base import Feature, FeatureManifest, FeaturePlan, FileOp
 from cli.lib.project import ProjectContext
 
 
-class MicrosoftOAuthFeature(Feature):
+class AuditLogFeature(Feature):
     def manifest(self) -> FeatureManifest:
         return FeatureManifest(
-            name="microsoft-oauth",
+            name="audit-log",
             version="1.0",
-            summary="Wire up Microsoft (Entra ID) as an OAuth provider.",
+            summary="Drop in an audit-log module that records mutating requests.",
         )
 
     def plan(self, params: dict, project: ProjectContext) -> FeaturePlan:
         templates_root = Path(__file__).parent / "templates"
-        provider_path = (
+        module_path = (
             project.backend_dir
-            / "src/infrastructure/auth/oauth/providers/microsoft.py"
+            / "src/modules/audit_log/models.py"
         )
         return FeaturePlan(
             manifest=self.manifest(),
             templates_root=templates_root,
             template_context={
-                "tenant_id": params.get("tenant_id", "common"),
+                "retention_days": params.get("retention_days", 90),
             },
             files=(
-                FileOp(template="microsoft_provider.py.j2", target=provider_path),
+                FileOp(template="audit_log_module.py.j2", target=module_path),
             ),
         )
 
 
 # Entry-point target — can be a Feature instance or a callable that returns one.
-feature = MicrosoftOAuthFeature()
+feature = AuditLogFeature()
 ```
+
+A feature plugin writes into a directory that still exists in the layout — that's why this example targets `src/modules/<name>/` rather than the old `auth/oauth/providers/` path. OAuth providers are no longer separate files: they're registered with crudauth's `OAuthProviderFactory` in `infrastructure/auth/oauth.py`, so an "add an OAuth provider" plugin would edit that file (e.g. via an idempotent patch op) instead of dropping in a new module.
 
 #### 3. `pyproject.toml` — declare the entry point
 
 ```toml
 [project]
-name = "bp-feature-microsoft-oauth"
+name = "bp-feature-audit-log"
 version = "0.1.0"
 requires-python = ">=3.11"
 dependencies = ["fastapi-boilerplate-cli"]
 
 [project.entry-points."bp.features"]
-microsoft-oauth = "bp_feature_microsoft_oauth.feature:feature"
+audit-log = "bp_feature_audit_log.feature:feature"
 
 [tool.setuptools]
 include-package-data = true
@@ -269,9 +271,9 @@ Note `include-package-data = true` and the `package-data` glob — without these
 #### 4. Install
 
 ```bash
-uv pip install bp-feature-microsoft-oauth
+uv pip install bp-feature-audit-log
 # Once `bp feature` ships:
-# uv run bp feature add microsoft-oauth --tenant-id <YOUR_TENANT>
+# uv run bp feature add audit-log --retention-days 90
 ```
 
 ### Best Practices for Feature Plugins

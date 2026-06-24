@@ -144,7 +144,7 @@ The admin panel itself doesn't change behavior between `local` / `development` /
 
 - **Cookie security**: derived from your reverse proxy / TLS setup, not from the `ENVIRONMENT` setting
 - **Logging**: admin actions go through the same logger configured by `infrastructure/logging/`
-- **Session backend**: Starlette's `SessionMiddleware` is in-memory + cookie-based, not the same as the API's `SESSION_BACKEND` (Redis/memcached/memory). Restart-resilience for the *admin* login isn't relevant — admins re-log-in fine.
+- **Session backend**: Starlette's `SessionMiddleware` is in-memory + cookie-based, not the same as the API's `SESSION_BACKEND` (Redis/memory). Restart-resilience for the *admin* login isn't relevant — admins re-log-in fine.
 
 ## Troubleshooting
 

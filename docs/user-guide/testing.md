@@ -54,11 +54,13 @@ tests/
 │   ├── modules/
 │   │   ├── user/
 │   │   │   ├── test_service.py
-│   │   │   └── test_schemas.py
+│   │   │   ├── test_schemas.py
+│   │   │   └── test_models.py        # e.g. User.is_active derives from not is_deleted
 │   │   └── tier/
 │   │       └── test_service.py
 │   └── infrastructure/
-│       └── test_session_manager.py
+│       └── auth/
+│           └── test_dependencies.py  # get_current_user / _superuser / _optional_user
 └── integration/
     ├── api/
     │   ├── test_auth.py

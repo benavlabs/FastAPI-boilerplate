@@ -176,6 +176,10 @@ class User(Base, TimestampMixin, SoftDeleteMixin):
     github_id: Mapped[str | None] = mapped_column(String(50), unique=True, index=True, default=None)
     oauth_provider: Mapped[str | None] = mapped_column(String(20), default=None)
     email_verified: Mapped[bool] = mapped_column(default=False)
+
+    @property
+    def is_active(self) -> bool:
+        return not self.is_deleted
 ```
 
 Key points:
@@ -183,6 +187,7 @@ Key points:
 - `init=False` excludes the field from the dataclass `__init__` (used for the primary key and timestamps you don't want callers to set).
 - `index=True` adds a database index on lookup-heavy columns (`username`, `email`, `tier_id`, OAuth IDs).
 - `unique=True` enforces uniqueness at the DB level.
+- `is_active` is a **derived property**, not a column — it returns `not is_deleted`. The `crudauth` auth library reads it during login so soft-deleted users can't authenticate, while `is_deleted` stays the single source of truth.
 
 ## The RateLimit Model
 

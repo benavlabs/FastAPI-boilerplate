@@ -103,7 +103,7 @@ from fastapi import APIRouter, Depends
 from fastcrud import PaginatedListResponse, compute_offset, paginated_response
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...infrastructure.auth.session.dependencies import get_current_user
+from ...infrastructure.auth.dependencies import get_current_user
 from ...infrastructure.database.session import async_session
 from .schemas_v2 import UserReadV2
 from .service import UserService

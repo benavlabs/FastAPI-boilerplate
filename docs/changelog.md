@@ -1,10 +1,62 @@
-# FastAPI Boilerplate Changelog
+# Fastro - The Benav Labs FastAPI boilerplate Changelog
 
 ## Introduction
 
-The Changelog documents all notable changes to FastAPI Boilerplate, organized by version. For releases before v0.18.0, see [GitHub releases](https://github.com/benavlabs/FastAPI-boilerplate/releases).
+The Changelog documents all notable changes to the Fastro FastAPI boilerplate, organized by version. For releases before v0.18.0, see [GitHub releases](https://github.com/benavlabs/FastAPI-boilerplate/releases).
 
 For the full narrative on each release — rationale, decisions, migration guide — see the corresponding GitHub release page.
+
+___
+
+## 0.19.0 - June 23, 2026 - The crudauth Migration
+
+Three changes since v0.18.0: route dependency injection moved to centralized `Annotated[...]` type aliases ([#261](https://github.com/benavlabs/FastAPI-boilerplate/pull/261)), the app metadata (`APP_NAME` / `APP_DESCRIPTION` / `VERSION`) became environment-configurable, and — the headline — the vendored authentication stack was replaced with the [`crudauth`](https://pypi.org/project/crudauth/) library.
+
+**The crudauth migration.** The vendored authentication stack — the in-tree `SessionManager`, its storage backends, the OAuth provider framework, and the token/password utilities — has been replaced with crudauth. The boilerplate now keeps only the wiring: a single `auth = CRUDAuth(...)` singleton in `infrastructure/auth/setup.py`, the FastAPI dependencies that wrap it, the OAuth building blocks, and the route handlers. Session validation, CSRF, login lockout, and session storage all live in the library.
+
+**Annotated type-alias DI** ([#261](https://github.com/benavlabs/FastAPI-boilerplate/pull/261), by [@emiliano-gandini-outeda](https://github.com/emiliano-gandini-outeda)). Route signatures moved from inline `Depends(...)` to centralized `Annotated[..., Depends(...)]` aliases in `infrastructure/dependencies.py`, with per-module `dependencies.py` files holding the service aliases for `user`, `tier`, `rate_limit`, and `api_keys`.
+
+This is a **breaking** change for anyone importing from the old auth modules or relying on the removed settings. See Breaking Changes below for the migration.
+
+---
+
+#### Added
+
+- **`crudauth` library integration** by [@igorbenav](https://github.com/igorbenav)
+  - `auth = CRUDAuth(...)` composition root in `infrastructure/auth/setup.py`; the app lifespan calls `auth.initialize()` / `auth.shutdown()`
+  - New `Principal`-based dependencies `get_current_principal` / `get_optional_principal` alongside the dict-returning `get_current_user` / `get_optional_user` / `get_current_superuser`
+- **`TRUSTED_PROXY_HOPS` setting** (default `0`) — number of trusted reverse proxies in front of the app, used by crudauth to resolve the real client IP for login lockout. Set `1` behind a single nginx/Caddy.
+- **`User.is_active` property** — derived from `not is_deleted`; crudauth reads it during login so soft-deleted users can't authenticate.
+- **Annotated type-alias dependency injection** ([#261](https://github.com/benavlabs/FastAPI-boilerplate/pull/261)) by [@emiliano-gandini-outeda](https://github.com/emiliano-gandini-outeda) — centralized `Annotated[..., Depends(...)]` aliases in `infrastructure/dependencies.py` and per-module `dependencies.py` (`user`, `tier`, `rate_limit`, `api_keys`) with service aliases; route signatures migrated to use them.
+
+#### Changed
+
+- Auth dependencies now import from `infrastructure.auth.dependencies` (was `infrastructure.auth.session.dependencies`).
+- `get_password_hash` / `verify_password` now come `from crudauth` (was `infrastructure.auth.utils`).
+- Login lockout now returns **`429 Too Many Requests` with a `Retry-After` header** (was a generic `401`). It is throttled internally by crudauth (escalating per-IP / per-identifier), not via env vars.
+- OAuth providers are now registered via crudauth's `OAuthProviderFactory` in `infrastructure/auth/oauth.py` rather than as separate `oauth/providers/<name>.py` files. Google remains wired.
+- `APP_NAME`, `APP_DESCRIPTION`, and `VERSION` are now environment-configurable (read via `config(...)`; previously hardcoded).
+- `/check-auth` now answers anonymous callers with `{"authenticated": false}` instead of raising `401` ([#261](https://github.com/benavlabs/FastAPI-boilerplate/pull/261)).
+
+#### Removed
+
+- The vendored session stack: `SessionManager`, the memory/redis/memcached session backends, session storage/schemas/dependencies, and the user-agent parsing helpers.
+- The in-tree OAuth package (provider framework, factory, `providers/google.py`, `providers/github.py`, services) and `auth/utils.py` / `auth/constants.py`.
+- The **memcached session backend** — sessions now support only `redis` and `memory`. (The general cache and rate limiter still support memcached.)
+- The GitHub OAuth provider file. The `User` model keeps its `github_id` / `oauth_provider` columns, so the data model still anticipates GitHub, but no provider or routes ship.
+- Settings `ALGORITHM`, `ACCESS_TOKEN_EXPIRE_MINUTES`, `REFRESH_TOKEN_EXPIRE_DAYS`, `SESSION_COOKIE_MAX_AGE`, `LOGIN_MAX_ATTEMPTS`, and `LOGIN_WINDOW_MINUTES`.
+- The dependency aliases `SessionManagerDep`, `CurrentSessionDataDep`, `OptionalSessionDataDep`, `GoogleOAuthProviderDep`, and `OAuthStateStorageDep`.
+
+#### Breaking Changes
+
+- **Imports moved.** Replace `from ...infrastructure.auth.session.dependencies import ...` with `from ...infrastructure.auth.dependencies import ...`, and import `get_password_hash` / `verify_password` from `crudauth`.
+- **Removed settings.** Delete `ALGORITHM`, `ACCESS_TOKEN_EXPIRE_MINUTES`, `REFRESH_TOKEN_EXPIRE_DAYS`, `SESSION_COOKIE_MAX_AGE`, `LOGIN_MAX_ATTEMPTS`, and `LOGIN_WINDOW_MINUTES` from your environment — they no longer exist. Add `TRUSTED_PROXY_HOPS` if you run behind a proxy.
+- **Login lockout response changed** from `401` to `429` + `Retry-After`; update any client that special-cased the old status/message.
+- **`SESSION_BACKEND=memcached` is no longer valid** — switch to `redis` or `memory`.
+- **`SessionManager` and friends are gone.** Code that called the session manager directly (e.g. listing a user's sessions) must move to crudauth's session APIs.
+
+**Full release notes**: https://github.com/benavlabs/FastAPI-boilerplate/releases/tag/v0.19.0
+**Full changelog**: https://github.com/benavlabs/FastAPI-boilerplate/compare/v0.18.0...v0.19.0
 
 ___
 

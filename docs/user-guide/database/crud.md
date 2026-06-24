@@ -324,7 +324,7 @@ from src.modules.user.schemas import (
     UserRead,
     UserUpdate,
 )
-from src.infrastructure.auth.utils import get_password_hash
+from crudauth import get_password_hash
 
 
 async def user_lifecycle(db: AsyncSession) -> None:

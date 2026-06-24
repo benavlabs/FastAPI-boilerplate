@@ -267,16 +267,14 @@ Then re-export it via `__all__` and import it where needed.
 
 ### Generic Messages for Auth
 
-Authentication routes already follow this pattern in `infrastructure/auth/routes.py`:
+The login flow in `infrastructure/auth/routes.py` delegates credential checking to the `crudauth` `auth` singleton. Its `authenticate_password` does a timing-equalized check and raises `UnauthorizedException("Incorrect username or password")` on bad credentials (and a `429` once the escalating lockout trips):
 
 ```python
-user = await authenticate_user(...)
-if user is None:
-    logger.warning(f"Failed login attempt for {form_data.username} from IP {ip_address}")
-    raise UnauthorizedException("Incorrect username or password")
+# crudauth's hardened check: timing-equalized, disabled-account guard, escalating lockout
+user = await auth.authenticate_password(db, form_data.username, form_data.password, request=request)
 ```
 
-It doesn't say "username not found" or "wrong password" — both reveal whether the username exists.
+The message doesn't say "username not found" or "wrong password" — both would reveal whether the username exists.
 
 ### Hide Resource Existence
 

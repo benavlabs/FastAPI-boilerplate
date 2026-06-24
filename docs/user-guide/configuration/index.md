@@ -112,11 +112,12 @@ SECRET_KEY=your-super-secret-key-here
 
 SESSION_TIMEOUT_MINUTES=30
 SESSION_SECURE_COOKIES=true
-SESSION_BACKEND=redis
+SESSION_BACKEND=redis           # redis | memory
 CSRF_ENABLED=true
-LOGIN_MAX_ATTEMPTS=5
-LOGIN_WINDOW_MINUTES=15
+TRUSTED_PROXY_HOPS=0            # trusted reverse proxies in front of the app
 ```
+
+Login lockout is applied internally by `crudauth` (escalating per-IP / per-identifier; returns `429` with `Retry-After`) — it is not configured via env vars.
 
 ### Cache (Redis or Memcached)
 

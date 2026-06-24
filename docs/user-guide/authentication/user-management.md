@@ -84,48 +84,25 @@ class UserCreate(UserBase):
 
 ## Authentication
 
-Authentication happens via `POST /api/v1/auth/login`. See [Sessions](sessions.md) for the full flow. The function that does the credential check is `authenticate_user`:
+Authentication happens via `POST /api/v1/auth/login`. See [Sessions](sessions.md) for the full flow. The credential check itself now lives inside the `crudauth` library — the login route delegates to the `auth` singleton (`infrastructure/auth/setup.py`), which looks the user up, verifies the password, and creates the session. The boilerplate no longer ships an `authenticate_user` helper.
 
-```python
-# infrastructure/auth/session/dependencies.py
-async def authenticate_user(
-    username_or_email: str, password: str, db: AsyncSession
-) -> dict[str, Any] | None:
-    # Look up by email if "@" present, else username — both with is_deleted=False
-    if "@" in username_or_email:
-        user = await crud_users.get(db=db, email=username_or_email, is_deleted=False)
-    else:
-        user = await crud_users.get(db=db, username=username_or_email, is_deleted=False)
-
-    if not user:
-        return None
-    if not await verify_password(password, user["hashed_password"]):
-        return None
-    return user
-```
-
-Two things to note:
+Two things to note about the login behavior:
 
 - **Username or email** — both forms work in the same field
-- **Soft-deleted users can't log in** — `is_deleted=False` filters them out
+- **Soft-deleted users can't log in** — crudauth reads `User.is_active` (defined as `not is_deleted`), so deactivated accounts are rejected before the password is even checked
 
 ### Password Hashing (bcrypt)
 
-`infrastructure/auth/utils.py`:
+Password hashing helpers come from `crudauth`:
 
 ```python
-import bcrypt
+from crudauth import get_password_hash, verify_password
 
-
-async def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return bcrypt.checkpw(plain_password.encode(), hashed_password.encode())
-
-
-def get_password_hash(password: str) -> str:
-    return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+hashed = get_password_hash("plaintext")          # bcrypt, salt generated automatically
+ok = await verify_password("plaintext", hashed)  # constant-time compare
 ```
 
-bcrypt handles salt generation automatically and is computationally expensive enough to defeat brute force at scale.
+bcrypt handles salt generation automatically and is computationally expensive enough to defeat brute force at scale. `UserService.create` uses `get_password_hash` when persisting a new account (see [Registration](#registration)).
 
 ## Profile Operations
 
@@ -347,12 +324,19 @@ class User(Base, TimestampMixin, SoftDeleteMixin):
     github_id: Mapped[str | None] = mapped_column(String(50), unique=True, index=True, default=None)
     oauth_provider: Mapped[str | None] = mapped_column(String(20), default=None)
     email_verified: Mapped[bool] = mapped_column(default=False)
+
+    @property
+    def is_active(self) -> bool:
+        # Derived, not stored. is_deleted stays the single source of truth.
+        return not self.is_deleted
 ```
 
 Mixins from `infrastructure/database/models`:
 
 - `TimestampMixin` — `created_at`, `updated_at`
 - `SoftDeleteMixin` — `is_deleted`, `deleted_at`
+
+The `is_active` property is **derived** from `not is_deleted` — there's no separate column. `crudauth` reads it during login so a soft-deleted user can't authenticate; `is_deleted` remains the single source of truth.
 
 Table name is **`user`** (singular).
 
@@ -464,9 +448,9 @@ class UserClient {
 
 All input validation runs server-side via Pydantic schemas. Client-side checks are nice for UX but don't replace server validation.
 
-### Login rate limiting
+### Login lockout
 
-The login endpoint is automatically rate-limited via `LOGIN_MAX_ATTEMPTS` per `LOGIN_WINDOW_MINUTES`. See [Sessions](sessions.md#login-rate-limiting).
+The login endpoint is automatically throttled by `crudauth` — an escalating per-IP / per-identifier lockout that returns `429` with a `Retry-After` header. There are no env vars to tune it. See [Sessions](sessions.md#login-lockout).
 
 ### Generic auth error messages
 

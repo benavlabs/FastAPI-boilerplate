@@ -2,6 +2,17 @@
 
 Sessions are the boilerplate's default authentication mechanism. All built-in API routes use session auth.
 
+## Auth Architecture
+
+Authentication is provided by the [`crudauth`](https://pypi.org/project/crudauth/) library. The composition root is a single singleton in `infrastructure/auth/setup.py`:
+
+```python
+# infrastructure/auth/setup.py
+auth = CRUDAuth(session=async_session, user_model=User, SECRET_KEY=settings.SECRET_KEY, ...)
+```
+
+Routers and dependencies reference `auth` at import time, and the app lifespan calls `auth.initialize()` on startup and `auth.shutdown()` on teardown (wired in `app_factory`) to open and close the session backend connections. Everything below — the dependencies, login flow, CSRF, lockout, and session storage — is this singleton in action; the boilerplate only supplies the wiring and route handlers.
+
 ## Protecting Routes
 
 Import the session dependencies and add them to your routes:
@@ -10,7 +21,7 @@ Import the session dependencies and add them to your routes:
 from typing import Annotated, Any
 from fastapi import APIRouter, Depends
 
-from ...infrastructure.auth.session.dependencies import get_current_user
+from ...infrastructure.auth.dependencies import get_current_user
 
 router = APIRouter()
 
@@ -26,7 +37,7 @@ If the request doesn't have a valid session, the boilerplate returns `401 Unauth
 
 ### Available Dependencies
 
-All from `src/infrastructure/auth/session/dependencies.py`.
+All from `src/infrastructure/auth/dependencies.py`. They wrap the `crudauth` `auth` singleton, so cookie validation, CSRF, and login lockout live in the library while your handlers keep working with plain user dicts.
 
 **`get_current_user`** — Returns the authenticated user dict. Raises 401 if not authenticated.
 
@@ -62,7 +73,7 @@ async def list_products(
         ...
 ```
 
-**`get_current_session_data`** — Returns the full `SessionData` object (id, user_id, ip, device info, timestamps). Useful for endpoints like `/check-auth` that need to expose session metadata.
+**`get_current_principal`** — Returns the crudauth `Principal` (session-validated, CSRF-enforced). Use it when you need the session id (`principal.metadata["session_id"]`) or the `user_id` directly rather than the full user dict. `get_optional_principal` is the never-raises variant.
 
 ### Protecting Entire Routers
 
@@ -85,22 +96,22 @@ Note: router-level dependencies don't inject values into handlers. If you need t
 
 ## How Sessions Work
 
-When a user hits `POST /api/v1/auth/login`:
+The login route delegates to the `crudauth` `auth` singleton (see [Auth Architecture](#auth-architecture)). When a user hits `POST /api/v1/auth/login`, crudauth:
 
-1. Login rate limiter checks IP+username (`LOGIN_MAX_ATTEMPTS` per `LOGIN_WINDOW_MINUTES`)
-2. `authenticate_user(...)` validates the credentials
-3. `SessionManager.create_session(...)` writes a record to the configured backend (Redis by default)
-4. A new CSRF token is generated and bound to the session
-5. Two cookies are set on the response:
+1. Applies its per-IP / per-identifier login lockout (returns `429` + `Retry-After` if tripped)
+2. Validates the credentials against the user row (soft-deleted users — `is_active == False` — are rejected)
+3. Writes a session record to the configured backend (Redis by default)
+4. Generates a CSRF token bound to the session
+5. Sets two cookies on the response:
     - `session_id` — HTTP-only, the session identifier
     - `csrf_token` — readable by JS, mirrors the CSRF token returned in the JSON body
 
-On every subsequent request, the session dependency:
+On every subsequent request, the auth dependency (via crudauth):
 
 1. Reads `session_id` from cookies
 2. Looks it up in the configured backend; rejects expired or missing sessions
 3. For mutating requests (POST/PUT/DELETE/PATCH), validates the CSRF token if `CSRF_ENABLED=true`
-4. Returns the user record (joined with the `Tier` relationship via `lazy="selectin"`)
+4. Hands back a `Principal`; `get_current_user` then re-loads the full user row (joined with the `Tier` relationship via `lazy="selectin"`)
 
 Logout (`POST /api/v1/auth/logout`) terminates the session record and clears the cookies.
 
@@ -131,36 +142,11 @@ For dev/test environments where CSRF gets in the way, set `CSRF_ENABLED=false`.
 
 ## Device Tracking
 
-Sessions capture the IP address and parsed User-Agent fields. Inspect via the session dep:
+`crudauth` records session metadata (IP address, User-Agent, timestamps) internally as part of each session record. The boilerplate does **not** surface a device-listing route or a `SessionData` schema — that metadata lives inside the library's session store. If you need an "active sessions" UI, build it on crudauth's session APIs (`auth.sessions`) rather than expecting a ready-made dependency here.
 
-```python
-from typing import Annotated, Any
-from fastapi import Depends
+## Login Lockout
 
-from src.infrastructure.auth.session.dependencies import get_current_session_data
-from src.infrastructure.auth.session.schemas import SessionData
-
-
-@router.get("/my-current-session")
-async def my_session(
-    session_data: Annotated[SessionData, Depends(get_current_session_data)],
-) -> dict[str, Any]:
-    return {
-        "ip": session_data.ip_address,
-        "user_agent": session_data.user_agent,
-        "device_info": session_data.device_info,   # browser, os, is_mobile, etc.
-        "created_at": session_data.created_at,
-        "last_activity": session_data.last_activity,
-    }
-```
-
-This makes it straightforward to build "your active sessions" UIs or detect suspicious activity.
-
-## Login Rate Limiting
-
-Failed login attempts are tracked per IP+username. After `LOGIN_MAX_ATTEMPTS` failures within `LOGIN_WINDOW_MINUTES`, further attempts on `/api/v1/auth/login` are blocked.
-
-This happens automatically in the login route — you don't need to wire it up. The defaults (5 attempts in 15 minutes) are conservative; tune per your threat model.
+Failed login attempts are throttled by `crudauth` itself. It applies an **escalating per-IP / per-identifier lockout** and, once tripped, returns `429 Too Many Requests` with a `Retry-After` header on `/api/v1/auth/login`. This happens automatically inside the login flow — there's nothing to wire up and no env vars to tune. Behind a reverse proxy, set `TRUSTED_PROXY_HOPS` so the lockout keys on the real client IP rather than the proxy's.
 
 ## Session Limits
 
@@ -173,21 +159,19 @@ Sessions are stored server-side. Configure via `SESSION_BACKEND`:
 | Value | When to use |
 |-------|-------------|
 | `redis` *(default)* | Production. Supports key expiration, pattern scans for cleanup, persists across restarts |
-| `memcached` | Production alternative — choose based on what your infrastructure already runs |
 | `memory` | Tests only. Cleared on restart, not safe for multi-process deploys |
 
-Storage backends live in `src/infrastructure/auth/session/backends/`.
+The backends ship inside the `crudauth` library, not the boilerplate — `setup.py` just selects `redis` or `memory` based on `SESSION_BACKEND`. (Memcached is no longer a session option; it remains available for the general cache and rate limiter.)
 
 ## Configuration
 
 ```env
 # Backend
-SESSION_BACKEND=redis
+SESSION_BACKEND=redis                # redis | memory
 
 # Lifetime
 SESSION_TIMEOUT_MINUTES=30           # inactive sessions expire
 SESSION_CLEANUP_INTERVAL_MINUTES=15  # how often the storage backend sweeps expired entries
-SESSION_COOKIE_MAX_AGE=86400         # 1 day — total cookie lifetime
 
 # Per-user cap
 MAX_SESSIONS_PER_USER=5
@@ -198,9 +182,8 @@ SESSION_SECURE_COOKIES=true
 # CSRF
 CSRF_ENABLED=true
 
-# Login rate limiting
-LOGIN_MAX_ATTEMPTS=5
-LOGIN_WINDOW_MINUTES=15
+# Trusted reverse proxies in front of the app (real client IP for login lockout)
+TRUSTED_PROXY_HOPS=0
 ```
 
 For development you'll typically set `SESSION_SECURE_COOKIES=false` and `CSRF_ENABLED=false` so cookies work over plain HTTP and curl/Postman aren't blocked. Re-enable both for staging and production.
@@ -258,12 +241,14 @@ Terminates the session and clears the cookies.
 
 | Component | Location |
 |-----------|----------|
-| Dependencies | `backend/src/infrastructure/auth/session/dependencies.py` |
-| Session manager | `backend/src/infrastructure/auth/session/manager.py` |
-| Storage backends | `backend/src/infrastructure/auth/session/backends/` |
-| Schemas | `backend/src/infrastructure/auth/session/schemas.py` |
-| Login/logout routes | `backend/src/infrastructure/auth/routes.py` |
+| `auth = CRUDAuth(...)` singleton | `backend/src/infrastructure/auth/setup.py` |
+| Dependencies | `backend/src/infrastructure/auth/dependencies.py` |
+| OAuth building blocks | `backend/src/infrastructure/auth/oauth.py` |
+| Login/logout/OAuth routes | `backend/src/infrastructure/auth/routes.py` |
+| HTTP exceptions (fastcrud re-export) | `backend/src/infrastructure/auth/http_exceptions.py` |
 | Auth settings | `backend/src/infrastructure/config/settings.py` (`AuthSettings`) |
+
+Session storage, CSRF, and lockout themselves live in the `crudauth` library, not the boilerplate.
 
 ---
 

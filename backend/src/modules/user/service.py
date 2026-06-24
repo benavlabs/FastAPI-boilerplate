@@ -1,12 +1,12 @@
 from datetime import UTC, datetime
 from typing import Any, cast
 
+from crudauth import get_password_hash
 from fastcrud import JoinConfig
 from fastcrud.types import GetMultiResponseDict
 from sqlalchemy.exc import MultipleResultsFound, NoResultFound
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...infrastructure.auth.utils import get_password_hash
 from ...infrastructure.logging import get_logger
 from ..common.exceptions import PermissionDeniedError, TierNotFoundError, UserExistsError, UserNotFoundError, ValidationError
 from ..rate_limit.models import RateLimit
