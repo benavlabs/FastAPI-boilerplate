@@ -91,7 +91,7 @@ curl http://localhost:8000/api/v1/auth/oauth/google
 # The server creates a session and either redirects or returns JSON.
 ```
 
-Only Google is wired (in the `oauth_providers` dict in `infrastructure/auth/oauth.py`). The data model still anticipates GitHub — the `User` model keeps `github_id` and `oauth_provider` columns — but there's no GitHub provider or routes. To add another provider, register it with crudauth's `OAuthProviderFactory` in `infrastructure/auth/oauth.py` and add the matching routes in `infrastructure/auth/routes.py`.
+Only Google is wired (in the `oauth_providers` dict in `infrastructure/auth/oauth.py`), and the `User` model keeps `github_id` and `oauth_provider` columns. crudauth's `OAuthProviderFactory` already ships both `google` and `github` providers, so enabling **GitHub** is just adding a `"github"` entry to the `oauth_providers` dict and its two routes in `infrastructure/auth/routes.py` — no provider implementation needed. For a provider crudauth doesn't ship, register it with `OAuthProviderFactory` first, then wire the dict entry and routes the same way.
 
 ### 3. API Keys (Machine-to-Machine)
 
