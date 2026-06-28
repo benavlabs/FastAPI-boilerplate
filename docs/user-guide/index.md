@@ -33,7 +33,7 @@ This guide covers all aspects of working with the FastAPI Boilerplate:
 - **[Permissions](authentication/permissions.md)** - Implement role-based access control
 
 ### Admin Panel
-Powered by [SQLAdmin](https://aminalaee.dev/sqladmin/) - a flexible admin interface generated from your SQLAlchemy models.
+Powered by [SQLAdmin](https://github.com/smithyhq/sqladmin) - a flexible admin interface generated from your SQLAlchemy models.
 
 - **[Admin Panel Overview](admin-panel/index.md)** - Web-based database management interface
 - **[Configuration](admin-panel/configuration.md)** - Setup, session backends, and environment variables

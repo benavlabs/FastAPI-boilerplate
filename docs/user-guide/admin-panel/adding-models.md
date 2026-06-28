@@ -2,7 +2,7 @@
 
 Adding your own models to the admin is straightforward, but there's one quirk to know upfront: the boilerplate's models use SQLAlchemy's `MappedAsDataclass`, which requires a special mixin to play nicely with SQLAdmin.
 
-For the full range of options, see the [SQLAdmin documentation](https://aminalaee.dev/sqladmin/).
+For the full range of options, see the [SQLAdmin documentation](https://github.com/smithyhq/sqladmin).
 
 ## The DataclassModelMixin
 
