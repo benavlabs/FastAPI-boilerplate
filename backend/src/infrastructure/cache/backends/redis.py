@@ -106,19 +106,19 @@ class RedisBackend(CacheBackend):
     async def delete_pattern(self, pattern: str) -> None:
         """Delete all keys matching a pattern.
 
+        Pages the ``SCAN`` cursor to completion so every match is removed, not just
+        the first batch. Each batch is deleted as it is scanned.
+
         Args:
             pattern: The pattern to match against keys.
         """
         cursor = 0
-        keys_to_delete = []
-
-        cursor_response, keys = await self.client.scan(cursor=cursor, match=pattern + "*", count=100)
-
-        if keys:
-            keys_to_delete.extend(keys)
-
-        if keys_to_delete:
-            await self.client.delete(*keys_to_delete)
+        while True:
+            cursor, keys = await self.client.scan(cursor=cursor, match=pattern + "*", count=100)
+            if keys:
+                await self.client.delete(*keys)
+            if cursor == 0:
+                break
 
     async def exists(self, key: str) -> bool:
         """Check if a key exists in the cache.

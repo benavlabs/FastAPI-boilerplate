@@ -73,3 +73,21 @@ async def test_delete_pattern(redis_backend, mock_redis):
     mock_redis.scan.assert_called_once_with(cursor=0, match="test_*", count=100)
 
     mock_redis.delete.assert_called_once_with(b"key1", b"key2", b"key3")
+
+
+@pytest.mark.asyncio
+async def test_delete_pattern_pages_cursor(redis_backend, mock_redis):
+    """delete_pattern pages the SCAN cursor to completion, not just the first batch.
+
+    Regression: the old implementation ran a single SCAN and silently left matches
+    beyond the first window undeleted.
+    """
+    mock_redis.scan.side_effect = [(5, [b"a1", b"a2"]), (0, [b"a3"])]
+
+    await redis_backend.delete_pattern("a")
+
+    assert mock_redis.scan.await_count == 2
+    # the second scan resumes from the cursor the first one returned
+    assert mock_redis.scan.await_args_list[1].kwargs["cursor"] == 5
+    deleted = [k for call in mock_redis.delete.await_args_list for k in call.args]
+    assert deleted == [b"a1", b"a2", b"a3"]
