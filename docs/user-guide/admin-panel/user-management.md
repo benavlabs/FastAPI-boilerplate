@@ -139,7 +139,7 @@ Build a small model (`AdminUser` with `username`, `hashed_password`, `is_active`
 
 For larger orgs, mount the admin behind an SSO proxy (Authelia, Pomerium, AWS ALB with Cognito). The admin app trusts the proxy's authentication header and grants access on its presence.
 
-None of these are wired up in the boilerplate — pick the one that fits your environment and implement it. The SQLAdmin docs cover [Authentication](https://aminalaee.dev/sqladmin/authentication/) extensions in detail.
+None of these are wired up in the boilerplate — pick the one that fits your environment and implement it. The SQLAdmin docs cover [Authentication](https://github.com/smithyhq/sqladmin) extensions in detail.
 
 ## Auditing Admin Activity
 

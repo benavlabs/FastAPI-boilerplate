@@ -1,6 +1,6 @@
 # Admin Panel Configuration
 
-The admin panel has a deliberately small surface area: it's a [SQLAdmin](https://aminalaee.dev/sqladmin/) instance gated by a username/password from environment variables. Configuration boils down to a handful of `.env` values.
+The admin panel has a deliberately small surface area: it's a [SQLAdmin](https://github.com/smithyhq/sqladmin) instance gated by a username/password from environment variables. Configuration boils down to a handful of `.env` values.
 
 ## Environment Variables
 
