@@ -244,6 +244,13 @@ class AuthSettings(BaseSettings):
     OAUTH_GOOGLE_CLIENT_SECRET: str = config("OAUTH_GOOGLE_CLIENT_SECRET", default="")
     OAUTH_GITHUB_CLIENT_ID: str = config("OAUTH_GITHUB_CLIENT_ID", default="")
     OAUTH_GITHUB_CLIENT_SECRET: str = config("OAUTH_GITHUB_CLIENT_SECRET", default="")
+    # Zitadel (generic OIDC). ISSUER is the instance base URL; the authorize/token/userinfo
+    # endpoints are derived from it via OIDC discovery paths in ZitadelOAuthProvider.
+    # SECRET set -> confidential client (Zitadel app auth method POST); empty -> public
+    # client (auth method PKCE), where the token exchange omits client authentication.
+    OAUTH_ZITADEL_CLIENT_ID: str = config("OAUTH_ZITADEL_CLIENT_ID", default="")
+    OAUTH_ZITADEL_CLIENT_SECRET: str = config("OAUTH_ZITADEL_CLIENT_SECRET", default="")
+    OAUTH_ZITADEL_ISSUER: str = config("OAUTH_ZITADEL_ISSUER", default="")
     OAUTH_REDIRECT_BASE_URL: str = config("OAUTH_REDIRECT_BASE_URL", default="http://localhost:8000")
 
 

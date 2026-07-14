@@ -13,3 +13,4 @@ class OAuthProvider(StrEnum):
 
     GOOGLE = "google"
     GITHUB = "github"
+    ZITADEL = "zitadel"

@@ -137,6 +137,129 @@ async def refresh_csrf_token(
     return {"csrf_token": csrf_token}
 
 
+async def _initiate_oauth(provider_name: str, redirect_uri: str | None) -> dict[str, str]:
+    """Build a provider authorization URL and persist its CSRF state + PKCE verifier.
+
+    Shared by every provider's login route; the only per-provider input is the name,
+    which selects the configured provider and is stamped into the stored state so the
+    callback can reject a mismatched provider.
+    """
+    provider = oauth_providers.get(provider_name)
+    if provider is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"OAuth provider '{provider_name}' is not configured"
+        )
+    try:
+        auth_data = provider.get_authorization_url()
+        state_obj = OAuthState(
+            state=auth_data["state"],
+            provider=provider_name,
+            redirect_to=redirect_uri,
+            code_verifier=auth_data.get("code_verifier"),
+        )
+        await oauth_state_storage.create(state_obj, session_id=auth_data["state"], expiration=OAUTH_STATE_TTL_SECONDS)
+        return {"url": auth_data["url"]}
+    except Exception as e:
+        display = provider_name.title()
+        logger.error(f"Error initiating {display} OAuth: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Failed to initiate {display} login"
+        )
+
+
+async def _complete_oauth(
+    provider_name: str,
+    request: Request,
+    response: Response,
+    db: AsyncSessionDep,
+    code: str,
+    state: str,
+    response_format: str,
+):
+    """Verify callback state, exchange the code, link/create the user, and start a session.
+
+    Shared by every provider's callback route. ``response_format`` switches between a
+    302 redirect (browser flow) and a JSON body (mobile/SPA), matching the original
+    Google handler's two-format contract.
+    """
+    provider = oauth_providers.get(provider_name)
+    if provider is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"OAuth provider '{provider_name}' is not configured"
+        )
+
+    state_data = await oauth_state_storage.get(state, OAuthState)
+
+    if not state_data:
+        logger.warning(f"Invalid OAuth state in callback: {state}")
+        if response_format == "json":
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid OAuth state")
+        return RedirectResponse(
+            url=f"/login?error=oauth_error&provider={provider_name}&reason=invalid_state",
+            status_code=status.HTTP_302_FOUND,
+        )
+
+    if state_data.provider != provider_name:
+        logger.warning(f"Provider mismatch in OAuth callback: expected {provider_name}, got {state_data.provider}")
+        if response_format == "json":
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Provider mismatch")
+        return RedirectResponse(
+            url=f"/login?error=oauth_error&provider={provider_name}&reason=provider_mismatch",
+            status_code=status.HTTP_302_FOUND,
+        )
+
+    try:
+        token_data = await provider.exchange_code(code, code_verifier=state_data.code_verifier)
+        user_info_raw = await provider.get_user_info(token_data["access_token"])
+        user_info = await provider.process_user_info(user_info_raw)
+
+        user, is_new_user = await oauth_account_service.get_or_create_user(user_info, db)
+        user_id = crud_auth.repo.user_id(user)
+        username = crud_auth.repo.get(user, "username")
+
+        session_id, csrf_token = await crud_auth.sessions.create_session(
+            request,
+            user_id=user_id,
+            metadata={
+                "login_type": "oauth",
+                "oauth_provider": provider_name,
+                "username": username,
+                "is_new_user": is_new_user,
+            },
+        )
+        crud_auth.sessions.set_session_cookies(response, session_id, csrf_token)
+
+        await oauth_state_storage.delete(state)
+
+        if response_format == "json":
+            return {
+                "success": True,
+                "user": {
+                    "id": user_id,
+                    "username": username,
+                    "email": crud_auth.repo.get(user, "email"),
+                    "is_new_user": is_new_user,
+                },
+                "csrf_token": csrf_token,
+            }
+
+        redirect_to = str(state_data.redirect_to) if state_data.redirect_to else "/"
+        return RedirectResponse(url=redirect_to, status_code=status.HTTP_302_FOUND)
+
+    except Exception as e:
+        logger.error(f"Error in {provider_name.title()} OAuth callback: {str(e)}", exc_info=True)
+
+        if response_format == "json":
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"OAuth authentication failed: {str(e)}"
+            )
+
+        return RedirectResponse(
+            url=f"/login?error=oauth_error&provider={provider_name}",
+            status_code=status.HTTP_302_FOUND,
+        )
+
+
 @router.get(
     "/oauth/google",
     summary="Initiate Google OAuth Login",
@@ -166,19 +289,7 @@ async def oauth_google_login(
     redirect_uri: str | None = Query(None),
 ) -> dict[str, str]:
     """Initiate the Google OAuth flow: build the authorization URL and stash state + PKCE."""
-    try:
-        auth_data = oauth_providers["google"].get_authorization_url()
-        state_obj = OAuthState(
-            state=auth_data["state"],
-            provider=OAuthProvider.GOOGLE.value,
-            redirect_to=redirect_uri,
-            code_verifier=auth_data.get("code_verifier"),
-        )
-        await oauth_state_storage.create(state_obj, session_id=auth_data["state"], expiration=OAUTH_STATE_TTL_SECONDS)
-        return {"url": auth_data["url"]}
-    except Exception as e:
-        logger.error(f"Error initiating Google OAuth: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to initiate Google login")
+    return await _initiate_oauth(OAuthProvider.GOOGLE.value, redirect_uri)
 
 
 @router.get(
@@ -220,77 +331,67 @@ async def oauth_google_callback(
     response_format: str = Query("redirect", description="Response format, either 'redirect' or 'json'"),
 ):
     """Handle the Google OAuth callback: verify state, link/create the user, start a session."""
-    state_data = await oauth_state_storage.get(state, OAuthState)
+    return await _complete_oauth(OAuthProvider.GOOGLE.value, request, response, db, code, state, response_format)
 
-    if not state_data:
-        logger.warning(f"Invalid OAuth state in callback: {state}")
-        if response_format == "json":
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid OAuth state")
-        return RedirectResponse(
-            url=f"/login?error=oauth_error&provider={OAuthProvider.GOOGLE.value}&reason=invalid_state",
-            status_code=status.HTTP_302_FOUND,
-        )
 
-    if state_data.provider != OAuthProvider.GOOGLE.value:
-        logger.warning(f"Provider mismatch in OAuth callback: expected google, got {state_data.provider}")
-        if response_format == "json":
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Provider mismatch")
-        return RedirectResponse(
-            url=f"/login?error=oauth_error&provider={OAuthProvider.GOOGLE.value}&reason=provider_mismatch",
-            status_code=status.HTTP_302_FOUND,
-        )
+@router.get(
+    "/oauth/zitadel",
+    summary="Initiate Zitadel OAuth Login",
+    description="""
+            Starts the OpenID Connect (OIDC) authentication flow with Zitadel.
 
-    try:
-        provider = oauth_providers["google"]
-        token_data = await provider.exchange_code(code, code_verifier=state_data.code_verifier)
-        user_info_raw = await provider.get_user_info(token_data["access_token"])
-        user_info = await provider.process_user_info(user_info_raw)
+            Builds the Zitadel authorization URL (with a CSRF ``state`` and a PKCE
+            challenge) for the client to redirect to. After the user authenticates,
+            Zitadel redirects back to this app's callback endpoint.
 
-        user, is_new_user = await oauth_account_service.get_or_create_user(user_info, db)
-        user_id = crud_auth.repo.user_id(user)
-        username = crud_auth.repo.get(user, "username")
+            An optional ``redirect_uri`` controls where the user lands once the whole
+            flow completes. Returns 404 if Zitadel is not configured.
+            """,
+    responses={
+        200: {"description": "Authorization URL generated successfully"},
+        404: {"description": "Zitadel provider is not configured"},
+        500: {"description": "Failed to initiate Zitadel login"},
+    },
+    response_description="The Zitadel authorization URL to redirect the user to",
+)
+async def oauth_zitadel_login(
+    request: Request,
+    redirect_uri: str | None = Query(None),
+) -> dict[str, str]:
+    """Initiate the Zitadel OIDC flow: build the authorization URL and stash state + PKCE."""
+    return await _initiate_oauth(OAuthProvider.ZITADEL.value, redirect_uri)
 
-        session_id, csrf_token = await crud_auth.sessions.create_session(
-            request,
-            user_id=user_id,
-            metadata={
-                "login_type": "oauth",
-                "oauth_provider": OAuthProvider.GOOGLE.value,
-                "username": username,
-                "is_new_user": is_new_user,
-            },
-        )
-        crud_auth.sessions.set_session_cookies(response, session_id, csrf_token)
 
-        await oauth_state_storage.delete(state)
+@router.get(
+    "/oauth/callback/zitadel",
+    summary="Zitadel OAuth Callback Handler",
+    description="""
+            Processes the OIDC callback from Zitadel.
 
-        if response_format == "json":
-            return {
-                "success": True,
-                "user": {
-                    "id": user_id,
-                    "username": username,
-                    "email": crud_auth.repo.get(user, "email"),
-                    "is_new_user": is_new_user,
-                },
-                "csrf_token": csrf_token,
-            }
-
-        redirect_to = str(state_data.redirect_to) if state_data.redirect_to else "/"
-        return RedirectResponse(url=redirect_to, status_code=status.HTTP_302_FOUND)
-
-    except Exception as e:
-        logger.error(f"Error in Google OAuth callback: {str(e)}", exc_info=True)
-
-        if response_format == "json":
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"OAuth authentication failed: {str(e)}"
-            )
-
-        return RedirectResponse(
-            url=f"/login?error=oauth_error&provider={OAuthProvider.GOOGLE.value}",
-            status_code=status.HTTP_302_FOUND,
-        )
+            Validates the ``state`` (CSRF), exchanges the authorization code (PKCE)
+            for tokens, fetches the userinfo profile, links or creates the user, and
+            establishes a session. Supports ``redirect`` (default) and ``json``
+            response formats, the latter for mobile apps or SPAs.
+            """,
+    responses={
+        200: {"description": "Authentication successful (JSON response)"},
+        302: {"description": "Authentication successful (redirect response)"},
+        400: {"description": "Invalid OAuth state or other parameter"},
+        404: {"description": "Zitadel provider is not configured"},
+        500: {"description": "Server error during authentication"},
+    },
+    response_description="Authentication result with session cookies set",
+)
+async def oauth_zitadel_callback(
+    request: Request,
+    response: Response,
+    db: AsyncSessionDep,
+    code: str = Query(...),
+    state: str = Query(...),
+    response_format: str = Query("redirect", description="Response format, either 'redirect' or 'json'"),
+):
+    """Handle the Zitadel OIDC callback: verify state, link/create the user, start a session."""
+    return await _complete_oauth(OAuthProvider.ZITADEL.value, request, response, db, code, state, response_format)
 
 
 @router.get("/check-auth")

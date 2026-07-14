@@ -536,7 +536,7 @@ wheels = [
 [[package]]
 name = "crudauth"
 version = "0.6.0"
-source = { registry = "https://pypi.org/simple" }
+source = { git = "https://github.com/carlosplanchon/crudauth?branch=feature%2Fzitadel-oauth#59f2351eba3963186cb9366ee314a615083ab256" }
 dependencies = [
     { name = "bcrypt" },
     { name = "email-validator" },
@@ -545,10 +545,6 @@ dependencies = [
     { name = "pyjwt" },
     { name = "python-multipart" },
     { name = "sqlalchemy" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/e4/b9/5c698178e4d53e8e113bd35a45eff185ec7316e7775d84ab4a4e306b97f6/crudauth-0.6.0.tar.gz", hash = "sha256:25e6056584a8631b4b032725e405ff05a5513bda19e9c5131a0b8685f465fc2e", size = 103061, upload-time = "2026-06-22T02:46:23.655Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/da/11/535ee9a8f2a21ab302a249f3e37d153b4376e77503b94b9c984f099eb79a/crudauth-0.6.0-py3-none-any.whl", hash = "sha256:9951cdbd8d7c8bee33b1b789349fb565718118752dfd24779614ce2b0d5e4bf0", size = 139738, upload-time = "2026-06-22T02:46:24.869Z" },
 ]
 
 [package.optional-dependencies]
@@ -689,7 +685,7 @@ requires-dist = [
     { name = "aiosqlite", specifier = ">=0.21.0" },
     { name = "alembic", specifier = ">=1.16.4" },
     { name = "asyncpg", specifier = ">=0.30.0" },
-    { name = "crudauth", extras = ["all"], specifier = ">=0.6.0,<0.7.0" },
+    { name = "crudauth", extras = ["all"], git = "https://github.com/carlosplanchon/crudauth?branch=feature%2Fzitadel-oauth" },
     { name = "faker", specifier = ">=37.1.0" },
     { name = "fastapi", extras = ["standard"], specifier = ">=0.115.8" },
     { name = "fastcrud", specifier = ">=0.21.0" },

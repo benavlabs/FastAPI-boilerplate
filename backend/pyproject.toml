@@ -45,6 +45,13 @@ dev = [
     "pytest-xdist[psutil]>=3.8.0",
 ]
 
+# TEMPORARY local override: install crudauth from the fork branch carrying the
+# Zitadel support (GenericOIDCProvider + public-client token exchange) until it
+# lands upstream in benavlabs/crudauth and a release is published. Do not ship
+# this override in PRs to the upstream boilerplate.
+[tool.uv.sources]
+crudauth = { git = "https://github.com/carlosplanchon/crudauth", branch = "feature/zitadel-oauth" }
+
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["*"]
