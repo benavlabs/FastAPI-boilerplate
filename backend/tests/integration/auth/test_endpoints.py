@@ -340,3 +340,59 @@ async def test_check_auth_user_not_found(client: AsyncClient):
         assert response.json()["message"] == "User not found"
     finally:
         app.dependency_overrides = original_deps
+
+
+@pytest.mark.asyncio
+async def test_oidc_logout_returns_end_session_url(client: AsyncClient):
+    """An OIDC session's logout carries ``logout_url`` (RP-initiated logout).
+
+    The callback stashes the provider's ``id_token`` in the session metadata;
+    ``/logout`` then returns the end-session URL with ``id_token_hint`` so the
+    client can also terminate the IdP's own SSO session. Password sessions keep
+    the old response shape (no ``logout_url``) - covered by
+    ``test_login_then_logout``.
+    """
+    valid_state = OAuthState(
+        state="zitadel-state",
+        provider="zitadel",
+        redirect_to="/",
+        code_verifier="test-code-verifier",
+    )
+    mock_storage = MagicMock()
+    mock_storage.get = AsyncMock(return_value=valid_state)
+    mock_storage.delete = AsyncMock(return_value=None)
+
+    mock_provider = MagicMock()
+    mock_provider.exchange_code = AsyncMock(return_value={"access_token": "tok", "id_token": "idtok-abc"})
+    mock_provider.get_user_info = AsyncMock(return_value={})
+    mock_provider.process_user_info = AsyncMock(
+        return_value=OAuthUserInfo(
+            provider="zitadel",
+            provider_user_id="zitadel-uid-123",
+            email="oidc_logout@example.com",
+            email_verified=True,
+            name="OIDC Logout User",
+        )
+    )
+
+    end_session = "https://idp.example.com/oidc/v1/end_session"
+    with (
+        patch(f"{ROUTES}.oauth_state_storage", mock_storage),
+        patch(f"{ROUTES}.oauth_providers", {"zitadel": mock_provider}),
+        patch(f"{ROUTES}.oauth_end_session_endpoints", {"zitadel": end_session}),
+    ):
+        callback = await client.get(
+            "/api/v1/auth/oauth/callback/zitadel",
+            params={"code": "test-code", "state": "zitadel-state", "response_format": "json"},
+        )
+        assert callback.status_code == 200
+        csrf_token = callback.json()["csrf_token"]
+
+        logout = await client.post("/api/v1/auth/logout", headers={"X-CSRF-Token": csrf_token})
+
+    assert logout.status_code == 200
+    body = logout.json()
+    assert body["message"] == "Logged out successfully"
+    assert body["logout_url"].startswith(f"{end_session}?")
+    assert "id_token_hint=idtok-abc" in body["logout_url"]
+    assert "post_logout_redirect_uri=" in body["logout_url"]

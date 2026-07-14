@@ -1,4 +1,5 @@
 from typing import Annotated, Any
+from urllib.parse import urlencode
 
 from crudauth import Principal
 from crudauth.exceptions import UnauthorizedException
@@ -11,7 +12,14 @@ from ...modules.user.enums import OAuthProvider
 from ..dependencies import AsyncSessionDep, OAuth2FormDep
 from ..logging import get_logger
 from .dependencies import get_current_principal, get_optional_principal
-from .oauth import OAUTH_STATE_TTL_SECONDS, oauth_account_service, oauth_providers, oauth_state_storage
+from .oauth import (
+    OAUTH_STATE_TTL_SECONDS,
+    oauth_account_service,
+    oauth_end_session_endpoints,
+    oauth_post_logout_redirect_uri,
+    oauth_providers,
+    oauth_state_storage,
+)
 from .setup import auth as crud_auth
 
 logger = get_logger()
@@ -75,9 +83,16 @@ async def login(
             This endpoint:
             - Invalidates the active session in the storage backend
             - Clears all session-related cookies from the client
+            - For sessions started via an OIDC provider with a known end-session
+              endpoint (e.g. Zitadel), additionally returns a `logout_url`
 
             After logout, the user will need to authenticate again to access
             protected resources. Any existing session tokens will no longer be valid.
+
+            The local session is always terminated; `logout_url` is optional
+            extra: navigating the browser there also ends the identity
+            provider's own SSO session (OIDC RP-initiated logout) and then
+            redirects back to the registered post-logout URI.
             """,
     responses={200: {"description": "Logout successful, session terminated"}, 401: {"description": "Not authenticated"}},
     response_description="Confirmation of successful logout",
@@ -86,12 +101,33 @@ async def logout(
     response: Response,
     principal: Annotated[Principal, Depends(get_current_principal)],
 ) -> dict[str, str]:
-    """Logout endpoint to terminate the session and clear cookies (CSRF-protected)."""
+    """Logout endpoint to terminate the session and clear cookies (CSRF-protected).
+
+    For OIDC sessions (provider present in ``oauth_end_session_endpoints``) the
+    response also carries ``logout_url`` - the provider's end-session URL with
+    the stashed ``id_token`` as hint - so the client can terminate the IdP's SSO
+    session too. The session metadata must be read before revoking, after which
+    it is gone.
+    """
     session_id = principal.metadata.get("session_id")
+    logout_url: str | None = None
     if session_id:
+        session = await crud_auth.sessions.validate_session(session_id)
+        if session is not None:
+            provider = session.metadata.get("oauth_provider")
+            id_token = session.metadata.get("id_token")
+            end_session_endpoint = oauth_end_session_endpoints.get(provider) if provider else None
+            if end_session_endpoint and id_token:
+                params = {
+                    "id_token_hint": id_token,
+                    "post_logout_redirect_uri": oauth_post_logout_redirect_uri,
+                }
+                logout_url = f"{end_session_endpoint}?{urlencode(params)}"
         await crud_auth.sessions.revoke(session_id, owner_id=principal.user_id)
     crud_auth.sessions.clear_session_cookies(response)
 
+    if logout_url:
+        return {"message": "Logged out successfully", "logout_url": logout_url}
     return {"message": "Logged out successfully"}
 
 
@@ -217,15 +253,22 @@ async def _complete_oauth(
         user_id = crud_auth.repo.user_id(user)
         username = crud_auth.repo.get(user, "username")
 
+        session_metadata: dict[str, Any] = {
+            "login_type": "oauth",
+            "oauth_provider": provider_name,
+            "username": username,
+            "is_new_user": is_new_user,
+        }
+        # Stash the id_token so /logout can build an OIDC RP-initiated logout URL
+        # (id_token_hint); only for providers with an end_session endpoint, to
+        # keep the other sessions lean.
+        if provider_name in oauth_end_session_endpoints and token_data.get("id_token"):
+            session_metadata["id_token"] = token_data["id_token"]
+
         session_id, csrf_token = await crud_auth.sessions.create_session(
             request,
             user_id=user_id,
-            metadata={
-                "login_type": "oauth",
-                "oauth_provider": provider_name,
-                "username": username,
-                "is_new_user": is_new_user,
-            },
+            metadata=session_metadata,
         )
         crud_auth.sessions.set_session_cookies(response, session_id, csrf_token)
 

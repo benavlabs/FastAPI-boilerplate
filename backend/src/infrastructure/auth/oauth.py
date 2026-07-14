@@ -32,6 +32,14 @@ oauth_providers = {
     "google": _build_provider("google", settings.OAUTH_GOOGLE_CLIENT_ID, settings.OAUTH_GOOGLE_CLIENT_SECRET),
 }
 
+# OIDC RP-initiated logout: provider name -> end_session endpoint. ``/logout``
+# uses this to hand the client a ``logout_url`` that also terminates the IdP's
+# own SSO session; the ``id_token`` needed as the hint is stashed in the session
+# metadata at callback time. The post-logout target must be registered with the
+# IdP as a "Post Logout URI".
+oauth_end_session_endpoints: dict[str, str] = {}
+oauth_post_logout_redirect_uri = f"{_redirect_base}/"
+
 # Zitadel is a generic OIDC provider keyed on an issuer, which the factory's
 # create_provider cannot pass, so it is constructed directly. The endpoints are
 # Zitadel's standard layout under the issuer (confirm against
@@ -53,6 +61,7 @@ if settings.OAUTH_ZITADEL_ISSUER and settings.OAUTH_ZITADEL_CLIENT_ID:
         provider_name="zitadel",
         issuer=_zitadel_issuer,
     )
+    oauth_end_session_endpoints["zitadel"] = f"{_zitadel_issuer}/oidc/v1/end_session"
 
 oauth_state_storage = get_session_storage(
     "redis" if _use_redis else "memory",
