@@ -343,6 +343,54 @@ async def test_check_auth_user_not_found(client: AsyncClient):
 
 
 @pytest.mark.asyncio
+async def test_oauth_callback_redirect_sets_session_cookies(client: AsyncClient):
+    """The browser (redirect) callback flow must carry the session cookies on the 302.
+
+    FastAPI does not merge headers set on the injected ``response`` into a
+    directly-returned ``RedirectResponse``, so the cookies must be set on the
+    redirect itself. The json flow is covered by
+    ``test_oauth_callback_success_creates_user``; this pins the redirect flow.
+    """
+    valid_state = OAuthState(
+        state="redirect-state",
+        provider="google",
+        redirect_to="/docs",
+        code_verifier="test-code-verifier",
+    )
+    mock_storage = MagicMock()
+    mock_storage.get = AsyncMock(return_value=valid_state)
+    mock_storage.delete = AsyncMock(return_value=None)
+
+    mock_provider = MagicMock()
+    mock_provider.exchange_code = AsyncMock(return_value={"access_token": "tok"})
+    mock_provider.get_user_info = AsyncMock(return_value={})
+    mock_provider.process_user_info = AsyncMock(
+        return_value=OAuthUserInfo(
+            provider="google",
+            provider_user_id="google-uid-redirect",
+            email="redirect_flow@example.com",
+            email_verified=True,
+            name="Redirect Flow",
+        )
+    )
+
+    with (
+        patch(f"{ROUTES}.oauth_state_storage", mock_storage),
+        patch(f"{ROUTES}.oauth_providers", {"google": mock_provider}),
+    ):
+        response = await client.get(
+            "/api/v1/auth/oauth/callback/google",
+            params={"code": "test-code", "state": "redirect-state"},
+        )
+
+    assert response.status_code == 302
+    assert response.headers["location"] == "/docs"
+    set_cookie = response.headers.get_list("set-cookie")
+    assert any(c.startswith("session_id=") for c in set_cookie), set_cookie
+    assert any(c.startswith("csrf_token=") for c in set_cookie), set_cookie
+
+
+@pytest.mark.asyncio
 async def test_oidc_logout_returns_end_session_url(client: AsyncClient):
     """An OIDC session's logout carries ``logout_url`` (RP-initiated logout).
 
