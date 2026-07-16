@@ -10,18 +10,31 @@ from .enums import CacheBackend, LogFormat, LogLevel, SessionBackend, TaskiqBrok
 logger = logging.getLogger(__name__)
 
 current_file_dir = os.path.dirname(os.path.realpath(__file__))
+backend_root = os.path.abspath(os.path.join(current_file_dir, "..", "..", ".."))
 project_root = os.path.abspath(os.path.join(current_file_dir, "..", "..", "..", ".."))
 
+# backend/.env is the documented location (README: `cp backend/.env.example
+# backend/.env`); the workspace root is kept for backwards compatibility and
+# /app/.env is where the container mounts it.
 env_paths = [
     "/app/.env",
+    os.path.join(backend_root, ".env"),
     os.path.join(project_root, ".env"),
     "/.env",
 ]
 
 env_path = next((path for path in env_paths if os.path.isfile(path)), env_paths[0])
-logger.info(f"Using environment file at: {env_path}")
 
-config = Config(env_path)
+# Under pytest, skip .env loading: the unit tests assert code defaults, and a
+# developer's real backend/.env must not leak into them. The suite declares
+# ENVIRONMENT=pytest (pytest-env); PYTEST_VERSION covers runs without that
+# plugin (set by pytest itself since 8.1).
+_under_pytest = os.environ.get("ENVIRONMENT") == "pytest" or "PYTEST_VERSION" in os.environ
+if _under_pytest:
+    config = Config()
+else:
+    logger.info(f"Using environment file at: {env_path}")
+    config = Config(env_path)
 
 
 class EnvironmentOption(StrEnum):
