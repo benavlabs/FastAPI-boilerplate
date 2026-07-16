@@ -277,7 +277,13 @@ async def oauth_google_callback(
             }
 
         redirect_to = str(state_data.redirect_to) if state_data.redirect_to else "/"
-        return RedirectResponse(url=redirect_to, status_code=status.HTTP_302_FOUND)
+        # The cookies must ride the returned response itself: FastAPI does not
+        # merge headers set on the injected ``response`` into a directly-returned
+        # Response, so relying on it silently drops the session on the browser
+        # (redirect) flow - only the json flow would get the cookies.
+        redirect = RedirectResponse(url=redirect_to, status_code=status.HTTP_302_FOUND)
+        crud_auth.sessions.set_session_cookies(redirect, session_id, csrf_token)
+        return redirect
 
     except Exception as e:
         logger.error(f"Error in Google OAuth callback: {str(e)}", exc_info=True)
