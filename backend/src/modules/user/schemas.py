@@ -5,12 +5,20 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 from ..common.schemas import PersistentDeletion, TimestampSchema
 
+# Kept in one place because every user schema has to agree with the ``username``
+# column (``String(32)``) *and* with what crudauth's OAuth username generator
+# emits: it caps at 32 and sanitizes to lowercase alphanumerics plus underscores.
+# A narrower rule here does not reject the signup - crudauth writes the row
+# directly - it makes the resulting user unreadable through ``UserRead``.
+USERNAME_MAX_LENGTH = 32
+USERNAME_PATTERN = r"^[a-z0-9_]+$"
+
 
 class UserBase(BaseModel):
     name: Annotated[str, Field(min_length=2, max_length=30, examples=["User Userson"])]
     username: Annotated[
         str,
-        Field(min_length=2, max_length=20, pattern=r"^[a-z0-9]+$", examples=["userson"]),
+        Field(min_length=2, max_length=USERNAME_MAX_LENGTH, pattern=USERNAME_PATTERN, examples=["userson"]),
     ]
     email: Annotated[EmailStr, Field(examples=["user.userson@example.com"])]
 
@@ -31,6 +39,7 @@ class User(TimestampSchema, UserBase, PersistentDeletion):
 
     google_id: str | None = None
     github_id: str | None = None
+    zitadel_id: str | None = None
     oauth_provider: str | None = None
     email_verified: bool = False
     oauth_created_at: datetime | None = None
@@ -44,7 +53,7 @@ class UserRead(BaseModel):
     name: Annotated[str, Field(min_length=2, max_length=30, examples=["User Userson"])]
     username: Annotated[
         str,
-        Field(min_length=2, max_length=20, pattern=r"^[a-z0-9]+$", examples=["userson"]),
+        Field(min_length=2, max_length=USERNAME_MAX_LENGTH, pattern=USERNAME_PATTERN, examples=["userson"]),
     ]
     email: Annotated[EmailStr, Field(examples=["user.userson@example.com"])]
     profile_image_url: str
@@ -72,6 +81,7 @@ class UserCreate(UserBase):
     ]
     google_id: str | None = None
     github_id: str | None = None
+    zitadel_id: str | None = None
     oauth_provider: str | None = None
     email_verified: bool = False
     oauth_created_at: datetime | None = None
@@ -86,6 +96,7 @@ class UserCreateInternal(UserBase):
     hashed_password: str
     google_id: str | None = None
     github_id: str | None = None
+    zitadel_id: str | None = None
     oauth_provider: str | None = None
     email_verified: bool = False
     oauth_created_at: datetime | None = None
@@ -105,8 +116,8 @@ class UserUpdate(BaseModel):
         str | None,
         Field(
             min_length=2,
-            max_length=20,
-            pattern=r"^[a-z0-9]+$",
+            max_length=USERNAME_MAX_LENGTH,
+            pattern=USERNAME_PATTERN,
             examples=["userberg"],
             default=None,
         ),
@@ -122,6 +133,7 @@ class UserUpdate(BaseModel):
     ]
     google_id: str | None = None
     github_id: str | None = None
+    zitadel_id: str | None = None
     oauth_provider: str | None = None
     email_verified: bool | None = None
     oauth_updated_at: datetime | None = None
@@ -163,8 +175,12 @@ class UserAnonymize(BaseModel):
     profile_image_url: str | None = None
     tier_id: int | None = None
     is_superuser: bool = False
+    # Every provider link has to be listed here, not just nulled at the call site:
+    # a field absent from this schema cannot be cleared, so the provider account
+    # would keep resolving to the anonymized row on the next login.
     google_id: str | None = None
     github_id: str | None = None
+    zitadel_id: str | None = None
     oauth_provider: str | None = None
     email_verified: bool = False
     oauth_created_at: datetime | None = None
