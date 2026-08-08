@@ -53,15 +53,24 @@ def lifespan_factory(
 
         await set_threadpool_tokens()
 
+        # Teardown must only close what actually initialized: when startup fails
+        # midway, closing a never-initialized component raises from the finally
+        # block and masks the real startup error (e.g. an unreachable DB was
+        # reported as "Backend 'redis' is not available" from close_cache).
+        cache_initialized = False
+        rate_limiter_initialized = False
+
         try:
             if isinstance(settings, DatabaseSettings) and create_tables_on_startup:
                 await create_tables()
 
             if isinstance(settings, CacheSettings) and settings.CACHE_ENABLED:
                 await initialize_cache()
+                cache_initialized = True
 
             if isinstance(settings, RateLimiterSettings) and settings.RATE_LIMITER_ENABLED:
                 await initialize_rate_limiter()
+                rate_limiter_initialized = True
 
             await auth.initialize()
 
@@ -72,10 +81,10 @@ def lifespan_factory(
         finally:
             await auth.shutdown()
 
-            if isinstance(settings, CacheSettings) and settings.CACHE_ENABLED:
+            if cache_initialized:
                 await close_cache()
 
-            if isinstance(settings, RateLimiterSettings) and settings.RATE_LIMITER_ENABLED:
+            if rate_limiter_initialized:
                 await close_rate_limiter()
 
     return lifespan
