@@ -1,0 +1,16 @@
+# The compose files build with the WORKSPACE ROOT as context (uv.lock lives
+# here), so keep the context lean and free of secrets.
+.git
+.venv
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+**/*.egg-info
+docs/
+site/
+nginx/
+docker-compose.yml
+.env
+**/.env
