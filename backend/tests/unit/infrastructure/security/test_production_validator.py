@@ -21,6 +21,7 @@ class TestProductionSecurityValidator:
             "ENVIRONMENT": EnvironmentOption.PRODUCTION,
             "SECRET_KEY": "xF9mWqP3nL7vBfKsRt8HjZ2CyE5QaM6NuV4DgX1SpY7LwB9KzT3RhI0UoJ5PcA2MvS8",
             "POSTGRES_PASSWORD": "secure_db_password",
+            "DATABASE_URL_OVERRIDE": None,
             "REDIS_PASSWORD": "secure_redis_password",
             "CACHE_BACKEND": "memcached",
             "RATE_LIMITER_BACKEND": "memcached",
@@ -134,6 +135,64 @@ class TestProductionSecurityValidator:
             validator.validate_production_security()
 
         assert "Database password is empty" in str(exc_info.value)
+
+    def test_database_url_password_overrides_postgres_password(self):
+        """Test that credentials in DATABASE_URL are what gets validated.
+
+        A managed provider (Neon, RDS, Cloud SQL) carries its credentials in
+        DATABASE_URL while POSTGRES_PASSWORD keeps its default — that must not
+        be reported as insecure.
+        """
+        settings = self.create_mock_settings(
+            POSTGRES_PASSWORD="postgres",
+            DATABASE_URL_OVERRIDE="postgresql+asyncpg://db_user:not_a_real_password@db.example.com:5432/app?ssl=require",
+        )
+        validator = ProductionSecurityValidator(settings)
+
+        validator.validate_production_security()
+
+    def test_default_password_in_database_url_raises_error(self):
+        """Test that a default password inside DATABASE_URL is still caught."""
+        settings = self.create_mock_settings(
+            POSTGRES_PASSWORD="secure_db_password",
+            DATABASE_URL_OVERRIDE="postgresql+asyncpg://postgres:postgres@db.example.com:5432/app",
+        )
+        validator = ProductionSecurityValidator(settings)
+
+        with pytest.raises(ProductionSecurityError) as exc_info:
+            validator.validate_production_security()
+
+        assert "default credentials" in str(exc_info.value)
+
+    def test_percent_encoded_password_in_database_url_is_decoded(self):
+        """Test that a percent-encoded default password is decoded before checking."""
+        settings = self.create_mock_settings(
+            DATABASE_URL_OVERRIDE="postgresql+asyncpg://postgres:postgre%73@db.example.com:5432/app",
+        )
+        validator = ProductionSecurityValidator(settings)
+
+        with pytest.raises(ProductionSecurityError) as exc_info:
+            validator.validate_production_security()
+
+        assert "default credentials" in str(exc_info.value)
+
+    def test_database_url_without_password_warns_instead_of_failing(self, caplog):
+        """Test that a passwordless DATABASE_URL warns but still starts.
+
+        Authentication may be handled outside the connection string (IAM,
+        client certificates, a trusted socket), which cannot be verified here.
+        """
+        settings = self.create_mock_settings(
+            POSTGRES_PASSWORD="postgres",
+            DATABASE_URL_OVERRIDE="postgresql+asyncpg://app_user@db.example.com:5432/app",
+        )
+        validator = ProductionSecurityValidator(settings)
+
+        validator.validate_production_security()
+
+        warning_logs = [record for record in caplog.records if record.levelname == "WARNING"]
+        password_warnings = [log for log in warning_logs if "DATABASE_URL is set but contains no password" in log.message]
+        assert len(password_warnings) > 0
 
     def test_multiple_critical_errors_combined(self):
         """Test that multiple critical errors are combined in one message."""

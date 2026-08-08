@@ -5,6 +5,7 @@ checking for common misconfigurations that could lead to security vulnerabilitie
 """
 
 import re
+from urllib.parse import unquote, urlsplit
 
 from ..config.settings import EnvironmentOption, Settings
 from ..logging import get_logger
@@ -187,7 +188,7 @@ class ProductionSecurityValidator:
 
         if self._is_database_using_default_credentials():
             errors.append(
-                "Database is using default credentials (POSTGRES_PASSWORD='postgres'). "
+                "Database is using default credentials (password 'postgres'). "
                 "This is a well-known default that attackers will try first. "
                 "Use a strong, unique password for production."
             )
@@ -231,6 +232,13 @@ class ProductionSecurityValidator:
 
         redis_warnings = self._check_redis_security()
         warnings.extend(redis_warnings)
+
+        if self._is_database_url_without_password():
+            warnings.append(
+                "DATABASE_URL is set but contains no password. This is expected with "
+                "IAM or certificate-based authentication, but is a mistake otherwise — "
+                "confirm the database is not reachable without credentials."
+            )
 
         if self._is_cors_too_permissive():
             warnings.append(
@@ -358,6 +366,42 @@ class ProductionSecurityValidator:
         """
         return False
 
+    @staticmethod
+    def _password_from_url(url: str) -> str | None:
+        """Extract the password component of a database URL.
+
+        Args:
+            url: A database URL, with or without credentials.
+
+        Returns:
+            The decoded password, or None if the URL carries none or cannot be parsed.
+        """
+        try:
+            password = urlsplit(url).password
+        except ValueError:
+            return None
+
+        return unquote(password) if password is not None else None
+
+    def _effective_database_password(self) -> str | None:
+        """Get the password the application will actually connect with.
+
+        A `DATABASE_URL` in the environment overrides every `POSTGRES_*` setting,
+        so a deployment against a managed provider (Neon, RDS, Cloud SQL) carries
+        its real credentials in that URL while `POSTGRES_PASSWORD` keeps its
+        default. Reading `POSTGRES_PASSWORD` alone would flag such a deployment as
+        insecure and refuse to start.
+
+        Returns:
+            The password embedded in `DATABASE_URL` when one is set, otherwise
+            `POSTGRES_PASSWORD`. None means an explicit URL was given but carries
+            no password at all, or could not be parsed.
+        """
+        if not self.settings.DATABASE_URL_OVERRIDE:
+            return self.settings.POSTGRES_PASSWORD
+
+        return self._password_from_url(self.settings.DATABASE_URL_OVERRIDE)
+
     def _is_database_using_default_credentials(self) -> bool:
         """Check if database is using well-known default credentials.
 
@@ -369,7 +413,7 @@ class ProductionSecurityValidator:
             commonly targeted by attackers. Production systems should
             use strong, unique passwords.
         """
-        return self.settings.POSTGRES_PASSWORD == "postgres"
+        return self._effective_database_password() == "postgres"
 
     def _is_database_password_empty(self) -> bool:
         """Check if database password is empty or missing.
@@ -380,8 +424,26 @@ class ProductionSecurityValidator:
         Note:
             Empty database passwords leave the database completely
             unprotected and accessible to anyone who can reach it.
+
+            A `DATABASE_URL` with no password at all is not treated as an error —
+            authentication may be handled outside the connection string (IAM,
+            client certificates, a trusted socket). That case is warned about
+            instead, since it cannot be verified from here.
         """
-        return not self.settings.POSTGRES_PASSWORD or self.settings.POSTGRES_PASSWORD.strip() == ""
+        password = self._effective_database_password()
+        if password is None:
+            return False
+
+        return not password or password.strip() == ""
+
+    def _is_database_url_without_password(self) -> bool:
+        """Check if an explicit DATABASE_URL carries no password.
+
+        Returns:
+            True if `DATABASE_URL` is set but has no password component,
+            False otherwise.
+        """
+        return bool(self.settings.DATABASE_URL_OVERRIDE) and self._effective_database_password() is None
 
     def _check_redis_security(self) -> list[str]:
         """Check Redis security configuration for all Redis instances.

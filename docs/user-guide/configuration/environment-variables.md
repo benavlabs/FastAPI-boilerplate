@@ -40,8 +40,16 @@ CREATE_TABLES_ON_STARTUP=true
 | `CREATE_TABLES_ON_STARTUP` | `true` | Auto-create tables from models on startup |
 | `POSTGRES_POOL_SIZE` | `20` | SQLAlchemy connection pool size |
 | `POSTGRES_MAX_OVERFLOW` | `0` | Pool overflow connections |
+| `POSTGRES_POOL_PRE_PING` | `true` | Test a pooled connection before use, replacing ones the server has dropped |
+| `POSTGRES_POOL_RECYCLE` | `-1` | Discard connections older than N seconds (`-1` disables) |
 
-If you set `DATABASE_URL` directly, it overrides the constructed URL.
+If you set `DATABASE_URL` directly, it overrides the constructed URL — use it whenever the connection needs more than host/port/credentials, such as a managed provider that requires TLS:
+
+```env
+DATABASE_URL=postgresql+asyncpg://user:password@host.example.com/dbname?ssl=require
+```
+
+The URL must use the `postgresql+asyncpg://` prefix, and query parameters are passed to `asyncpg` (which spells TLS `ssl=require`, not libpq's `sslmode=require`). The [production validator](../production.md#the-production-validator) reads the credentials out of the URL, so the `POSTGRES_*` variables can keep their defaults. See [Neon](../database/neon.md) for a full walkthrough with a serverless provider.
 
 ## Cache
 
