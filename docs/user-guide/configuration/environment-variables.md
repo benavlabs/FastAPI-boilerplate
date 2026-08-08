@@ -41,7 +41,16 @@ CREATE_TABLES_ON_STARTUP=true
 | `POSTGRES_POOL_SIZE` | `20` | SQLAlchemy connection pool size |
 | `POSTGRES_MAX_OVERFLOW` | `0` | Pool overflow connections |
 
-If you set `DATABASE_URL` directly, it overrides the constructed URL.
+If you set `DATABASE_URL` directly, it overrides the constructed URL — use it whenever the connection needs more than host/port/credentials, such as a managed provider that requires TLS:
+
+```env
+DATABASE_URL=postgresql+asyncpg://user:password@host.example.com/dbname?ssl=require
+```
+
+The URL must use the `postgresql+asyncpg://` prefix, and query parameters are passed to `asyncpg` (which spells TLS `ssl=require`, not libpq's `sslmode=require`). See [Neon](../database/neon.md) for a full walkthrough with a serverless provider.
+
+!!! note
+    The production validator checks `POSTGRES_PASSWORD` on its own, not the credentials inside `DATABASE_URL`. If you only set `DATABASE_URL`, also set `POSTGRES_PASSWORD` to a non-default value or the app will refuse to boot in production.
 
 ## Cache
 

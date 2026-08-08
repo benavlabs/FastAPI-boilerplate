@@ -315,6 +315,8 @@ Watch `database_pool_size × api_workers + worker_concurrency × taskiq_workers`
 
 Use a connection pooler (PgBouncer, RDS Proxy) at scale. The boilerplate's `DATABASE_URL` accepts a pooler endpoint identically.
 
+Managed Postgres works the same way — point `DATABASE_URL` at the provider and leave the rest of the config alone. [Neon](database/neon.md) (serverless, scale-to-zero, database branching for preview environments) is the setup we document end to end, including the TLS parameter, pooled vs. direct endpoints, and the `pool_pre_ping` setting that idle-suspending computes need.
+
 ### Redis
 
 The defaults use four separate DB numbers (`CACHE_REDIS_DB=0`, `SESSION_REDIS_DB=1`, `RATE_LIMITER_REDIS_DB=1`, `TASKIQ_REDIS_DB=3`) on the **same** Redis instance. Fine for small deployments. At scale, split sessions and the cache onto different Redis clusters — sessions are small and durability-sensitive; the cache is large, eviction-tolerant, and high-traffic. Mixing them puts your sessions at risk during cache memory pressure.

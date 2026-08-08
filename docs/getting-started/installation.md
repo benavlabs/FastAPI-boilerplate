@@ -241,6 +241,16 @@ ADMIN_PASSWORD=your-secure-password
 
 See [Environment Variables](../user-guide/configuration/environment-variables.md) for the complete reference.
 
+### Using a hosted database instead
+
+You don't have to run Postgres yourself. Set `DATABASE_URL` and it overrides every `POSTGRES_*` variable above — the local container (or local install) becomes unnecessary:
+
+```env
+DATABASE_URL=postgresql+asyncpg://user:password@host.example.com/dbname?ssl=require
+```
+
+[Neon](../user-guide/database/neon.md) — serverless Postgres, and a sponsor of this project — is free to start (a permanent free plan, no credit card) and has a step-by-step guide here, including the connection-string conversion asyncpg needs. Any managed Postgres works the same way.
+
 ## Verification
 
 After installing, verify everything works:

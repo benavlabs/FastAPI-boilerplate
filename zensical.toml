@@ -100,6 +100,7 @@ name = "FastAPI on PyPI"
         { "Schemas" = "user-guide/database/schemas.md" },
         { "CRUD Operations" = "user-guide/database/crud.md" },
         { "Migrations" = "user-guide/database/migrations.md" },
+        { "Neon (Serverless Postgres)" = "user-guide/database/neon.md" },
     ] },
     { "API" = [
         { "Overview" = "user-guide/api/index.md" },

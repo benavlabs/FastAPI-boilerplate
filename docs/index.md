@@ -43,6 +43,8 @@ This boilerplate leverages cutting-edge Python technologies:
 - **[Taskiq](https://taskiq-python.github.io/)** - Async-first task queue with Redis/RabbitMQ brokers
 - **[Docker](https://docs.docker.com/compose/)** - Containerization for easy deployment
 
+Postgres is the only hard requirement of those you have to provide — run the bundled container, or skip it entirely and point `DATABASE_URL` at a hosted provider. **[Neon](user-guide/database/neon.md)** (serverless Postgres, permanent free plan, database branching) is documented end to end.
+
 ## Key Features
 
 ### Performance & Scalability
@@ -128,6 +130,10 @@ Fastro is the free **foundation**. **[FastroAI](https://fastro.ai)** builds on t
     <img src="assets/fastroai-card-dark.png#only-dark" alt="FastroAI - the complete SaaS template" width="100%">
   </a>
 </p>
+
+## Sponsors
+
+**[Neon](https://neon.com)** supports this project with database credits for our open-source infrastructure - thank you. Neon is serverless Postgres with a permanent free plan, and a drop-in option for your own build: see the **[Neon guide](user-guide/database/neon.md)**.
 
 ## Community & Support
 

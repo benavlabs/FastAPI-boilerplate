@@ -8,6 +8,7 @@ Learn how to work with the database layer in the FastAPI Boilerplate. This secti
 - **[Schemas](schemas.md)** - Validate and serialize data with Pydantic
 - **[CRUD Operations](crud.md)** - Database access via FastCRUD
 - **[Migrations](migrations.md)** - Manage schema changes with Alembic
+- **[Neon](neon.md)** - Run on serverless Postgres instead of a local container
 
 ## Quick Overview
 
