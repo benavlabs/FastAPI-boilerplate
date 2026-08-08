@@ -2,6 +2,7 @@ import logging
 import os
 from enum import StrEnum
 
+from pydantic import Field
 from pydantic_settings import BaseSettings
 from starlette.config import Config
 
@@ -53,6 +54,15 @@ class DatabaseSettings(BaseSettings):
 
     POSTGRES_POOL_SIZE: int = config("POSTGRES_POOL_SIZE", default=20, cast=int)
     POSTGRES_MAX_OVERFLOW: int = config("POSTGRES_MAX_OVERFLOW", default=0, cast=int)
+    POSTGRES_POOL_PRE_PING: bool = config("POSTGRES_POOL_PRE_PING", default=True, cast=bool)
+    POSTGRES_POOL_RECYCLE: int = config("POSTGRES_POOL_RECYCLE", default=-1, cast=int)
+
+    # A field rather than a lookup inside DATABASE_URL, so callers can tell an
+    # explicit URL apart from one built out of the POSTGRES_* parts.
+    DATABASE_URL_OVERRIDE: str | None = Field(
+        default=config("DATABASE_URL", default=None),
+        validation_alias="DATABASE_URL",
+    )
 
     @property
     def DATABASE_URL(self) -> str:
@@ -61,9 +71,8 @@ class DatabaseSettings(BaseSettings):
         Checks for DATABASE_URL environment variable first (production pattern),
         then falls back to constructing from individual components (development pattern).
         """
-        direct_url = config("DATABASE_URL", default=None)
-        if direct_url:
-            return direct_url
+        if self.DATABASE_URL_OVERRIDE:
+            return self.DATABASE_URL_OVERRIDE
 
         return (
             f"{self.POSTGRES_ASYNC_PREFIX}{self.POSTGRES_USER}:"

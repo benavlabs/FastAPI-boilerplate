@@ -11,8 +11,10 @@ When `ENVIRONMENT=production`, `infrastructure/security/production_validator.py`
 The app **will not start** if any of these is true:
 
 - **`SECRET_KEY` is insecure.** Default placeholder, < 32 chars, contains an obvious string ("password", "secret", "test", "dev", "default", etc.), or has a predictable pattern (repetition, all-same-char).
-- **`POSTGRES_PASSWORD=postgres`** (the well-known default). Attackers try this first.
-- **`POSTGRES_PASSWORD` is empty.** Database is unprotected.
+- **The database password is `postgres`** (the well-known default). Attackers try this first.
+- **The database password is empty.** Database is unprotected.
+
+The password checked is the one actually used to connect: when `DATABASE_URL` is set it's read out of that URL, otherwise it's `POSTGRES_PASSWORD`. A `DATABASE_URL` with no password at all (IAM or certificate authentication) is a warning rather than an error, since it can't be verified from here.
 
 ### Warnings (logged, app starts)
 
@@ -315,7 +317,7 @@ Watch `database_pool_size × api_workers + worker_concurrency × taskiq_workers`
 
 Use a connection pooler (PgBouncer, RDS Proxy) at scale. The boilerplate's `DATABASE_URL` accepts a pooler endpoint identically.
 
-Managed Postgres works the same way — point `DATABASE_URL` at the provider and leave the rest of the config alone. [Neon](database/neon.md) (serverless, scale-to-zero, database branching for preview environments) is the setup we document end to end, including the TLS parameter, pooled vs. direct endpoints, and the `pool_pre_ping` setting that idle-suspending computes need.
+Managed Postgres works the same way — point `DATABASE_URL` at the provider and leave the rest of the config alone. [Neon](database/neon.md) (serverless, scale-to-zero, database branching for preview environments) is the setup we document end to end, including the TLS parameter, pooled vs. direct endpoints, and pool tuning for a compute that suspends when idle.
 
 ### Redis
 

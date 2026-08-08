@@ -53,15 +53,11 @@ The result, in `backend/.env`:
 ```env
 DATABASE_URL=postgresql+asyncpg://neondb_owner:npg_xxxxxxxx@ep-cool-darkness-123456-pooler.us-east-2.aws.neon.tech/neondb?ssl=require
 
-# The production validator reads POSTGRES_PASSWORD directly — keep it in sync
-# with the password in the URL, or set it to any other non-default value.
-POSTGRES_PASSWORD=npg_xxxxxxxx
-
 # Let Alembic own the schema instead of creating tables at boot
 CREATE_TABLES_ON_STARTUP=false
 ```
 
-`DATABASE_URL` takes priority over the individual `POSTGRES_*` variables ([settings reference](../configuration/environment-variables.md#database)), so the rest of them are ignored once it's set — including the `POSTGRES_SERVER: postgres` that Compose injects. Nothing else in your config has to change.
+`DATABASE_URL` takes priority over the individual `POSTGRES_*` variables ([settings reference](../configuration/environment-variables.md#database)), so the rest of them are ignored once it's set — including the `POSTGRES_SERVER: postgres` that Compose injects. You can leave them at their defaults; the [production validator](../production.md#the-production-validator) reads the credentials out of `DATABASE_URL` when it's set, so a default `POSTGRES_PASSWORD` won't be mistaken for an insecure deployment. Nothing else in your config has to change.
 
 !!! warning "Don't drop the `ssl` parameter"
     Over a TCP connection asyncpg defaults to `sslmode=prefer`: it will use TLS if the server offers it, but silently accepts an unencrypted connection otherwise, and never verifies the certificate. Being explicit with `ssl=require` means a downgrade fails loudly instead of quietly.
@@ -100,28 +96,22 @@ DATABASE_URL="postgresql+asyncpg://neondb_owner:npg_xxxxxxxx@ep-cool-darkness-12
 
 ## Handling scale-to-zero
 
-An idle Neon compute suspends. Connections that were sitting in SQLAlchemy's pool are dead when it wakes, and the next request surfaces that as `SSL SYSCALL error: EOF detected` or `connection was closed in the middle of operation`. The fix is standard SQLAlchemy pool hygiene, in `backend/src/infrastructure/database/session.py`:
+An idle Neon compute suspends. Connections that were sitting in SQLAlchemy's pool are dead when it wakes, and the next request surfaces that as `SSL SYSCALL error: EOF detected` or `connection was closed in the middle of operation`.
 
-```python hl_lines="6 7"
-engine = create_async_engine(
-    settings.DATABASE_URL,
-    echo=False,
-    future=True,
-    pool_size=settings.POSTGRES_POOL_SIZE,
-    pool_pre_ping=True,      # check the connection is alive before handing it out
-    pool_recycle=300,        # drop connections idle longer than the suspend timeout
-    max_overflow=settings.POSTGRES_MAX_OVERFLOW,
-)
+`POSTGRES_POOL_PRE_PING` handles this and is **on by default** — every connection is tested before it's handed to a request, so a dead one is quietly replaced instead of failing the request. Pair it with `POSTGRES_POOL_RECYCLE` to retire connections before Neon does:
+
+```env
+POSTGRES_POOL_RECYCLE=300     # seconds; keep it under your scale-to-zero timeout
 ```
 
-Apply the same two arguments to `taskiq_engine` in `backend/src/infrastructure/taskiq/deps.py` if your worker runs against Neon too. `pool_pre_ping` costs one cheap round trip per checkout; on a database that can suspend, it's worth it.
-
-Also trim the pool while you're there. `POSTGRES_POOL_SIZE` defaults to `20` per process, and the real number is `pool_size × workers × replicas` — see [Scaling considerations](../production.md#database). Against a small Neon compute, `5`–`10` is usually plenty:
+Trim the pool while you're there. `POSTGRES_POOL_SIZE` defaults to `20` per process, and the real number is `pool_size × workers × replicas` — see [Scaling considerations](../production.md#database). Against a small Neon compute, `5`–`10` is usually plenty:
 
 ```env
 POSTGRES_POOL_SIZE=10
 POSTGRES_MAX_OVERFLOW=5
 ```
+
+The Taskiq worker needs none of this: it uses a `NullPool` and opens a fresh connection per task, so there's nothing pooled to go stale.
 
 ## Docker Compose without the local database
 
@@ -163,8 +153,8 @@ Feed that string into your preview environment's `DATABASE_URL` (converted as in
 |---|---|---|
 | `TypeError: connect() got an unexpected keyword argument 'sslmode'` | libpq-style parameter left in the URL | Replace `sslmode=require&channel_binding=require` with `ssl=require` |
 | `TypeError: connect() got an unexpected keyword argument 'channel_binding'` | Same | Same |
-| `ProductionSecurityError: Database is using default credentials` | `POSTGRES_PASSWORD` is still `postgres`; the validator checks that variable, not `DATABASE_URL` | Set `POSTGRES_PASSWORD` to your Neon password as well |
-| `SSL SYSCALL error: EOF detected` after an idle period | Compute suspended, pooled connections went stale | Add `pool_pre_ping=True` and `pool_recycle` (see above) |
+| `ProductionSecurityError: Database is using default credentials` | The password inside `DATABASE_URL` really is `postgres` | Rotate it in the Neon console and update the URL |
+| `SSL SYSCALL error: EOF detected` after an idle period | Compute suspended, pooled connections went stale | Keep `POSTGRES_POOL_PRE_PING=true` and set `POSTGRES_POOL_RECYCLE` (see above) |
 | First request after idle takes a few hundred ms | Compute resuming from zero | Expected; disable scale-to-zero on the branch if latency matters more than cost |
 | `prepared statement "__asyncpg_stmt_x__" already exists` | Prepared-statement reuse across a transaction-mode pooler | Add `&prepared_statement_cache_size=0` to the URL, or use the direct endpoint |
 | `password authentication failed` with a correct password | Special characters in the password aren't URL-encoded | Percent-encode them (`@` → `%40`, `#` → `%23`, …) |

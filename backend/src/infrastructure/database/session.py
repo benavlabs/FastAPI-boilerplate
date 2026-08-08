@@ -11,6 +11,8 @@ engine = create_async_engine(
     future=True,
     pool_size=settings.POSTGRES_POOL_SIZE,
     max_overflow=settings.POSTGRES_MAX_OVERFLOW,
+    pool_pre_ping=settings.POSTGRES_POOL_PRE_PING,
+    pool_recycle=settings.POSTGRES_POOL_RECYCLE,
 )
 
 local_session = async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
