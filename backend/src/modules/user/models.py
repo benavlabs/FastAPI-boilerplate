@@ -26,7 +26,10 @@ class User(Base, TimestampMixin, SoftDeleteMixin):
     )
 
     name: Mapped[str] = mapped_column(String(30))
-    username: Mapped[str] = mapped_column(String(20), unique=True, index=True)
+    # 32 = crudauth's OAuth username generator cap (USERNAME_MAX_LENGTH); a narrower
+    # column rejects OAuth signups whose sanitized username exceeds it (e.g. OIDC
+    # preferred_username values shaped like user@org.domain).
+    username: Mapped[str] = mapped_column(String(32), unique=True, index=True)
     email: Mapped[str] = mapped_column(String(50), unique=True, index=True)
     hashed_password: Mapped[str] = mapped_column(String(100))
 

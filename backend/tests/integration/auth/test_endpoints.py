@@ -326,6 +326,55 @@ async def test_oauth_callback_success_creates_user(client: AsyncClient):
 
 
 @pytest.mark.asyncio
+async def test_oauth_callback_handles_long_provider_usernames(client: AsyncClient):
+    """OAuth signup survives providers whose usernames sanitize to >20 chars.
+
+    crudauth's provisioning caps generated usernames at 32 chars
+    (USERNAME_MAX_LENGTH), and OIDC ``preferred_username`` values shaped like
+    ``user@org.domain`` routinely exceed 20 after sanitizing, so the column
+    must fit the generator's cap. The provider's display name is unbounded
+    and gets truncated to ``User.name``'s width by ``new_user_fields``.
+    """
+    valid_state = OAuthState(
+        state="long-name-state",
+        provider="google",
+        redirect_to="/",
+        code_verifier="test-code-verifier",
+    )
+    mock_storage = MagicMock()
+    mock_storage.get = AsyncMock(return_value=valid_state)
+    mock_storage.delete = AsyncMock(return_value=None)
+
+    mock_provider = MagicMock()
+    mock_provider.exchange_code = AsyncMock(return_value={"access_token": "tok"})
+    mock_provider.get_user_info = AsyncMock(return_value={})
+    mock_provider.process_user_info = AsyncMock(
+        return_value=OAuthUserInfo(
+            provider="google",
+            provider_user_id="google-uid-long",
+            email="long_username@example.com",
+            email_verified=True,
+            name="A" * 50,  # unbounded provider display name
+            username="verylongusername@subdomain.example.com",  # sanitizes to >20 chars
+        )
+    )
+
+    with (
+        patch(f"{ROUTES}.oauth_state_storage", mock_storage),
+        patch(f"{ROUTES}.oauth_providers", {"google": mock_provider}),
+    ):
+        response = await client.get(
+            "/api/v1/auth/oauth/callback/google",
+            params={"code": "test-code", "state": "long-name-state", "response_format": "json"},
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["success"] is True
+    assert 20 < len(body["user"]["username"]) <= 32
+
+
+@pytest.mark.asyncio
 async def test_check_auth_user_not_found(client: AsyncClient):
     """A resolved principal whose user row is missing reports authenticated=false."""
     original_deps = app.dependency_overrides.copy()

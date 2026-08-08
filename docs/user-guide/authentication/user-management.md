@@ -160,13 +160,15 @@ If the body changes `username` or `email`, the service also re-checks uniqueness
 The `UserUpdate` schema makes every field optional so clients can send partial updates:
 
 ```python
+# USERNAME_MAX_LENGTH (32) and USERNAME_PATTERN are defined at the top of
+# modules/user/schemas.py and shared by every schema carrying a username
 class UserUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: Annotated[str | None, Field(min_length=2, max_length=30, default=None)]
     username: Annotated[
         str | None,
-        Field(min_length=2, max_length=20, pattern=r"^[a-z0-9]+$", default=None),
+        Field(min_length=2, max_length=USERNAME_MAX_LENGTH, pattern=USERNAME_PATTERN, default=None),
     ]
     email: Annotated[EmailStr | None, Field(default=None)]
     profile_image_url: Annotated[

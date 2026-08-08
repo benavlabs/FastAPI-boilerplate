@@ -41,5 +41,6 @@ oauth_state_storage = get_session_storage(
 
 oauth_account_service = OAuthAccountService(
     repo=auth.repo,
-    new_user_fields=lambda ctx: {"name": ctx.suggested_name},
+    # suggested_name is the provider's full name, unbounded; User.name is String(30).
+    new_user_fields=lambda ctx: {"name": ctx.suggested_name[:30]},
 )

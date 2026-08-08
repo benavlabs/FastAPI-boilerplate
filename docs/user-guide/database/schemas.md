@@ -47,12 +47,18 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field
 from ..common.schemas import PersistentDeletion, TimestampSchema
 
 
+# Declared once, reused by every schema that carries a username: the rule has to
+# match the column (String(32)) and whatever OAuth provisioning generates
+USERNAME_MAX_LENGTH = 32
+USERNAME_PATTERN = r"^[a-z0-9_]+$"
+
+
 # Common fields shared by create/update/full-record
 class UserBase(BaseModel):
     name: Annotated[str, Field(min_length=2, max_length=30, examples=["User Userson"])]
     username: Annotated[
         str,
-        Field(min_length=2, max_length=20, pattern=r"^[a-z0-9]+$", examples=["userson"]),
+        Field(min_length=2, max_length=USERNAME_MAX_LENGTH, pattern=USERNAME_PATTERN, examples=["userson"]),
     ]
     email: Annotated[EmailStr, Field(examples=["user.userson@example.com"])]
 
@@ -75,7 +81,7 @@ class User(TimestampSchema, UserBase, PersistentDeletion):
 class UserRead(BaseModel):
     id: int
     name: Annotated[str, Field(min_length=2, max_length=30)]
-    username: Annotated[str, Field(min_length=2, max_length=20, pattern=r"^[a-z0-9]+$")]
+    username: Annotated[str, Field(min_length=2, max_length=USERNAME_MAX_LENGTH, pattern=USERNAME_PATTERN)]
     email: EmailStr
     profile_image_url: str
     is_deleted: bool = False
@@ -123,7 +129,7 @@ class UserUpdate(BaseModel):
     name: Annotated[str | None, Field(min_length=2, max_length=30, default=None)]
     username: Annotated[
         str | None,
-        Field(min_length=2, max_length=20, pattern=r"^[a-z0-9]+$", default=None),
+        Field(min_length=2, max_length=USERNAME_MAX_LENGTH, pattern=USERNAME_PATTERN, default=None),
     ]
     email: Annotated[EmailStr | None, Field(default=None)]
     profile_image_url: Annotated[
