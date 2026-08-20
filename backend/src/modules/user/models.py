@@ -9,7 +9,7 @@ from ...infrastructure.database.session import Base
 
 if TYPE_CHECKING:
     from ..tier.models import Tier
-
+    from ..role.models import UserRole 
 
 class User(Base, TimestampMixin, SoftDeleteMixin):
     """User model representing application users."""
@@ -37,6 +37,13 @@ class User(Base, TimestampMixin, SoftDeleteMixin):
         ForeignKey("tiers.id"),
         index=True,
         default=None,
+    )
+    user_roles: Mapped[list["UserRole"]] = relationship(
+        "UserRole",
+        back_populates="user",
+        lazy="selectin",
+        default_factory=list,
+        init=False,
     )
 
     is_superuser: Mapped[bool] = mapped_column(default=False)

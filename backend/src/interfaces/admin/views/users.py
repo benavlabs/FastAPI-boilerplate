@@ -6,7 +6,7 @@ from crudauth import get_password_hash
 from sqladmin import ModelView
 from starlette.requests import Request
 from wtforms import SelectField
-
+from ....modules.role.dependencies import user_effective_permissions
 from ....infrastructure.database.session import local_session
 from ....modules.user.enums import OAuthProvider
 from ....modules.user.models import User
@@ -16,6 +16,13 @@ from ..mixins import DataclassModelMixin
 
 OAUTH_PROVIDER_CHOICES = [("", "None")] + [(p.value, p.value.title()) for p in OAuthProvider]
 
+def _format_assigned_roles(model, _attr) -> str:
+    roles = [
+        ur.role.name
+        for ur in getattr(model, "user_roles", []) or []
+        if getattr(ur, "role", None) is not None
+    ]
+    return ", ".join(roles) if roles else "—"
 
 class UserAdmin(DataclassModelMixin, ModelView, model=User):
     """Admin view for User model with password hashing."""
@@ -38,6 +45,7 @@ class UserAdmin(DataclassModelMixin, ModelView, model=User):
     can_export = True
 
     column_labels = {"hashed_password": "Password"}
+    column_formatters_detail = {"user_roles": _format_assigned_roles,}
 
     form_create_rules = ["name", "username", "email", "hashed_password", "tier_id", "is_superuser"]
     form_edit_rules = [*UserUpdate.model_fields.keys(), "tier_id", "is_superuser"]

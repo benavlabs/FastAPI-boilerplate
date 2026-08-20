@@ -65,3 +65,8 @@ class UsageLimitExceededError(DomainError):
     """Raised when a user exceeds their usage limits."""
 
     pass
+
+class RoleNotFoundError(ResourceNotFoundError):
+    """Raised when a role or role assignment cannot be found."""
+
+    pass    
