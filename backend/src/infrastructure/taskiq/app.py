@@ -7,7 +7,7 @@ from taskiq.events import TaskiqEvents
 from taskiq.state import TaskiqState
 
 from .brokers import default_broker
-from .deps import taskiq_engine
+from .deps import dispose_taskiq_engine
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +29,7 @@ async def shutdown_taskiq_worker(state: TaskiqState) -> None:
         state: The taskiq state instance
     """
     logger.info("Shutting down taskiq worker...")
-    await taskiq_engine.dispose()
+    await dispose_taskiq_engine()
     logger.info("Taskiq worker shutdown complete")
 
 
