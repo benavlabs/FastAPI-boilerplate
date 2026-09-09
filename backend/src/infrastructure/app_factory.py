@@ -26,6 +26,7 @@ from .config.settings import (
     Settings,
     get_settings,
 )
+from .database.initialize import close_database
 from .database.session import create_tables
 from .middleware import ClientCacheMiddleware, SecurityHeadersMiddleware
 from .rate_limit.initialize import close_rate_limiter, initialize_rate_limiter
@@ -77,6 +78,9 @@ def lifespan_factory(
 
             if isinstance(settings, RateLimiterSettings) and settings.RATE_LIMITER_ENABLED:
                 await close_rate_limiter()
+
+            if isinstance(settings, DatabaseSettings):
+                await close_database()
 
     return lifespan
 
