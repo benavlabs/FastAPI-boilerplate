@@ -68,7 +68,7 @@ class User(Base, TimestampMixin, SoftDeleteMixin):
     __tablename__ = "user"
 
     id: Mapped[int] = mapped_column(primary_key=True, init=False)
-    username: Mapped[str] = mapped_column(String(20), unique=True, index=True)
+    username: Mapped[str] = mapped_column(String(32), unique=True, index=True)
     email: Mapped[str] = mapped_column(String(50), unique=True, index=True)
     hashed_password: Mapped[str] = mapped_column(String(100))
 ```
@@ -90,7 +90,7 @@ from pydantic import BaseModel, EmailStr, Field
 
 class UserCreate(BaseModel):
     name: str = Field(min_length=2, max_length=30)
-    username: str = Field(min_length=2, max_length=20)
+    username: str = Field(min_length=2, max_length=32)
     email: EmailStr
     password: str = Field(min_length=8)
 

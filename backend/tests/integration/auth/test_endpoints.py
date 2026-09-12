@@ -362,6 +362,48 @@ async def test_oauth_callback_success_creates_user(client: AsyncClient):
 
 
 @pytest.mark.asyncio
+async def test_oauth_callback_handles_long_provider_usernames(client: AsyncClient):
+    """OAuth signup succeeds when the provider's username and display name exceed the old column widths."""
+    valid_state = OAuthState(
+        state="long-name-state",
+        provider="google",
+        redirect_to="/",
+        code_verifier="test-code-verifier",
+    )
+    mock_storage = MagicMock()
+    mock_storage.get = AsyncMock(return_value=valid_state)
+    mock_storage.delete = AsyncMock(return_value=None)
+
+    mock_provider = MagicMock()
+    mock_provider.exchange_code = AsyncMock(return_value={"access_token": "tok"})
+    mock_provider.get_user_info = AsyncMock(return_value={})
+    mock_provider.process_user_info = AsyncMock(
+        return_value=OAuthUserInfo(
+            provider="google",
+            provider_user_id="google-uid-long",
+            email="long_username@example.com",
+            email_verified=True,
+            name="A" * 50,
+            username="verylongusername@subdomain.example.com",
+        )
+    )
+
+    with (
+        patch(f"{ROUTES}.oauth_state_storage", mock_storage),
+        patch(f"{ROUTES}.oauth_providers", {"google": mock_provider}),
+    ):
+        response = await client.get(
+            "/api/v1/auth/oauth/callback/google",
+            params={"code": "test-code", "state": "long-name-state", "response_format": "json"},
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["success"] is True
+    assert body["user"]["username"] == "verylongusername_subdomain_examp"
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("stored_redirect", "expected_location"),
     [

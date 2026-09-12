@@ -63,8 +63,6 @@ class DatabaseSettings(BaseSettings):
     POSTGRES_POOL_PRE_PING: bool = config("POSTGRES_POOL_PRE_PING", default=True, cast=bool)
     POSTGRES_POOL_RECYCLE: int = config("POSTGRES_POOL_RECYCLE", default=-1, cast=int)
 
-    # A field rather than a lookup inside DATABASE_URL, so callers can tell an
-    # explicit URL apart from one built out of the POSTGRES_* parts.
     DATABASE_URL_OVERRIDE: str | None = Field(
         default=config("DATABASE_URL", default=None),
         validation_alias="DATABASE_URL",
