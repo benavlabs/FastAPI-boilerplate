@@ -186,7 +186,9 @@ form_create_rules = [*WidgetCreate.model_fields.keys(), "owner_id"]
 
 ### `lazy="selectin"` Is Required
 
-SQLAdmin runs in async context, so relationships must use `lazy="selectin"` to avoid lazy-loading errors. Symptom of forgetting: `MissingGreenlet` or `greenlet_spawn has not been called`. Both User and Tier models in the boilerplate already use this pattern.
+SQLAdmin runs in async context, so relationships must use `lazy="selectin"` to avoid lazy-loading errors. Symptom of forgetting: `MissingGreenlet` or `greenlet_spawn has not been called`. `User.tier` in the boilerplate already uses this pattern.
+
+The exception is large one-to-many collections such as `Tier.users`, which uses `lazy="select"` so that loading a tier doesn't load every user in it. That's safe in the admin because SQLAdmin explicitly `selectinload`s the relationships in `column_list` and in the form columns (the details page reuses the edit-form query). Keep such collections out of `column_list`.
 
 ### Don't Set `default=None` on Relationships
 

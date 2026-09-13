@@ -371,7 +371,7 @@ The boilerplate uses `import_models("src.modules")` in Alembic to discover model
 
 ### Forgetting `lazy="selectin"` on a relationship
 
-SQLAdmin runs in async context. A relationship without `lazy="selectin"` raises `MissingGreenlet` when the admin tries to render it. Both `User.tier` and other relationships in the boilerplate already use this pattern — copy from those.
+SQLAdmin runs in async context. A relationship without `lazy="selectin"` raises `MissingGreenlet` when the admin tries to render it. `User.tier` and other relationships in the boilerplate already use this pattern — copy from those. (`Tier.users` is a deliberate exception: it uses `lazy="select"` so loading a tier doesn't load every user in it.)
 
 ### Dataclass models without `init=False` on relationships
 
