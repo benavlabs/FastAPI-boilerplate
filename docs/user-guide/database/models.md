@@ -73,7 +73,7 @@ When you add a new module, **add its models here** so Alembic's `--autogenerate`
 
 ## Relationships
 
-The boilerplate uses SQLAlchemy `relationship()` where it makes sense, with `lazy="selectin"` to avoid N+1 problems by fetching related rows in a single follow-up query.
+The boilerplate uses SQLAlchemy `relationship()` where it makes sense. Relationships that are routinely read (like `User.tier`) use `lazy="selectin"` to avoid N+1 problems by fetching related rows in a single follow-up query. Large collections that are rarely read (like `Tier.users`) use `lazy="select"`, so loading a tier doesn't pull in every user assigned to it.
 
 For example, `User.tier` and `Tier.users` are both wired up:
 
@@ -94,7 +94,7 @@ class Tier(Base, TimestampMixin, SoftDeleteMixin):
     __tablename__ = "tiers"
     ...
     users: Mapped[list["User"]] = relationship(
-        "User", back_populates="tier", lazy="selectin",
+        "User", back_populates="tier", lazy="select",
         default_factory=list, init=False,
     )
 ```

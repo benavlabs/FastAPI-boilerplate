@@ -25,7 +25,7 @@ class Tier(Base, TimestampMixin, SoftDeleteMixin):
     name: Mapped[str] = mapped_column(String, nullable=False, unique=True)
     description: Mapped[str | None] = mapped_column(Text, default=None)
 
-    users: Mapped[list["User"]] = relationship("User", back_populates="tier", lazy="selectin", default_factory=list, init=False)
+    users: Mapped[list["User"]] = relationship("User", back_populates="tier", lazy="select", default_factory=list, init=False)
 
     def __repr__(self) -> str:
         return self.name
