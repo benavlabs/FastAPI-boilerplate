@@ -542,10 +542,10 @@ class ProductionSecurityValidator:
             configs.append(
                 {
                     "service": "sessions",
-                    "host": self.settings.CACHE_REDIS_HOST,
-                    "port": self.settings.CACHE_REDIS_PORT,
-                    "db": self.settings.CACHE_REDIS_DB,
-                    "password": self.settings.CACHE_REDIS_PASSWORD,
+                    "host": self.settings.SESSION_REDIS_HOST,
+                    "port": self.settings.SESSION_REDIS_PORT,
+                    "db": self.settings.SESSION_REDIS_DB,
+                    "password": self.settings.SESSION_REDIS_PASSWORD,
                     "ssl": False,
                 }
             )

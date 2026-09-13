@@ -89,6 +89,55 @@ class TestSettings:
             assert ":memory:" in settings.SQLITE_URI
 
 
+class TestSessionSettings:
+    """Test cases for session storage settings."""
+
+    def test_session_redis_settings_defaults(self):
+        """Session Redis settings default to localhost on a DB no other service uses."""
+        settings = Settings()
+
+        assert settings.SESSION_REDIS_HOST == "localhost"
+        assert settings.SESSION_REDIS_PORT == 6379
+        assert settings.SESSION_REDIS_DB == 2
+        assert settings.SESSION_REDIS_PASSWORD is None
+        other_dbs = {settings.CACHE_REDIS_DB, settings.RATE_LIMITER_REDIS_DB, settings.TASKIQ_REDIS_DB}
+        assert settings.SESSION_REDIS_DB not in other_dbs
+
+    @patch.dict(
+        os.environ,
+        {
+            "SESSION_REDIS_HOST": "sessions-redis",
+            "SESSION_REDIS_PORT": "6380",
+            "SESSION_REDIS_DB": "7",
+            "SESSION_REDIS_PASSWORD": "test-password",
+        },
+    )
+    def test_session_redis_settings_from_env(self):
+        """Session Redis settings can be overridden independently of the cache."""
+        settings = Settings()
+
+        assert settings.SESSION_REDIS_HOST == "sessions-redis"
+        assert settings.SESSION_REDIS_PORT == 6380
+        assert settings.SESSION_REDIS_DB == 7
+        assert settings.SESSION_REDIS_PASSWORD == "test-password"
+
+    def test_session_redis_url_without_password(self):
+        """SESSION_REDIS_URL is built from the session settings."""
+        settings = Settings()
+
+        assert settings.SESSION_REDIS_URL == "redis://localhost:6379/2"
+
+    @patch.dict(
+        os.environ,
+        {"SESSION_REDIS_HOST": "redis-host", "SESSION_REDIS_PORT": "6380", "SESSION_REDIS_PASSWORD": "p@ss/word"},
+    )
+    def test_session_redis_url_with_password(self):
+        """The password is URL-encoded so reserved characters don't break the URL."""
+        settings = Settings()
+
+        assert settings.SESSION_REDIS_URL == "redis://:p%40ss%2Fword@redis-host:6380/2"
+
+
 class TestTaskiqSettings:
     """Test cases for Taskiq configuration settings."""
 

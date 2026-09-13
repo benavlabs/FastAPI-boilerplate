@@ -322,7 +322,7 @@ Managed Postgres works the same way — point `DATABASE_URL` at the provider and
 
 ### Redis
 
-The defaults use four separate DB numbers (`CACHE_REDIS_DB=0`, `SESSION_REDIS_DB=1`, `RATE_LIMITER_REDIS_DB=1`, `TASKIQ_REDIS_DB=3`) on the **same** Redis instance. Fine for small deployments. At scale, split sessions and the cache onto different Redis clusters — sessions are small and durability-sensitive; the cache is large, eviction-tolerant, and high-traffic. Mixing them puts your sessions at risk during cache memory pressure.
+The defaults use four separate DB numbers (`CACHE_REDIS_DB=0`, `RATE_LIMITER_REDIS_DB=1`, `SESSION_REDIS_DB=2`, `TASKIQ_REDIS_DB=3`) on the **same** Redis instance. Fine for small deployments. At scale, split sessions and the cache onto different Redis clusters — sessions are small and durability-sensitive; the cache is large, eviction-tolerant, and high-traffic. Mixing them puts your sessions at risk during cache memory pressure.
 
 ### Taskiq workers
 

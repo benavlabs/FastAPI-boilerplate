@@ -75,6 +75,10 @@ SESSION_CLEANUP_INTERVAL_MINUTES=15
 MAX_SESSIONS_PER_USER=5
 SESSION_SECURE_COOKIES=true
 SESSION_BACKEND=redis            # redis | memory
+SESSION_REDIS_HOST=redis         # use "localhost" without Docker
+SESSION_REDIS_PORT=6379
+SESSION_REDIS_DB=2               # keep apart from the cache DB so a cache flush won't log users out
+SESSION_REDIS_PASSWORD=
 
 # CSRF protection (set false to disable in dev/test)
 CSRF_ENABLED=true
