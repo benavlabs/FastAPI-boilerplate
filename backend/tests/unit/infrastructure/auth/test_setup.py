@@ -5,7 +5,7 @@ from src.infrastructure.config.settings import settings
 
 
 class TestSessionRedisWiring:
-    """Session storage must use the SESSION_REDIS_* connection, not the cache's."""
+    """Session storage must use SESSION_REDIS_URL, on a different DB than the cache by default."""
 
     def test_session_redis_url_comes_from_session_settings(self):
         """The URL handed to crudauth is SESSION_REDIS_URL."""

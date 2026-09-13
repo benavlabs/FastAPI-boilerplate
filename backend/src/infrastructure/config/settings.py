@@ -247,18 +247,11 @@ class AuthSettings(BaseSettings):
     SESSION_SECURE_COOKIES: bool = config("SESSION_SECURE_COOKIES", default=True, cast=bool)
     SESSION_BACKEND: str = config("SESSION_BACKEND", default=SessionBackend.REDIS.value)
 
-    # Redis for sessions, CSRF tokens, OAuth state, and login lockout counters (SESSION_BACKEND=redis).
-    # Its own DB by default, so a cache FLUSHDB can't log every user out (cache=0, rate limiter=1, taskiq=3).
-    SESSION_REDIS_HOST: str = config("SESSION_REDIS_HOST", default="localhost")
-    SESSION_REDIS_PORT: int = config("SESSION_REDIS_PORT", default=6379, cast=int)
     SESSION_REDIS_DB: int = config("SESSION_REDIS_DB", default=2, cast=int)
-    SESSION_REDIS_PASSWORD: str | None = config("SESSION_REDIS_PASSWORD", default=None)
-
-    @property
-    def SESSION_REDIS_URL(self) -> str:
-        """Redis URL for session storage."""
-        password_part = f":{quote(self.SESSION_REDIS_PASSWORD, safe='')}@" if self.SESSION_REDIS_PASSWORD else ""
-        return f"redis://{password_part}{self.SESSION_REDIS_HOST}:{self.SESSION_REDIS_PORT}/{self.SESSION_REDIS_DB}"
+    SESSION_REDIS_URL_OVERRIDE: str | None = Field(
+        default=config("SESSION_REDIS_URL", default=None),
+        validation_alias="SESSION_REDIS_URL",
+    )
 
     CSRF_ENABLED: bool = config("CSRF_ENABLED", default=True, cast=bool)
 
@@ -406,7 +399,17 @@ class Settings(
 ):
     """Main settings class that combines all setting categories."""
 
-    pass
+    @property
+    def SESSION_REDIS_URL(self) -> str:
+        """Get the Redis URL for sessions.
+
+        Uses SESSION_REDIS_URL when set, otherwise the cache's Redis connection on SESSION_REDIS_DB.
+        """
+        if self.SESSION_REDIS_URL_OVERRIDE:
+            return self.SESSION_REDIS_URL_OVERRIDE
+
+        password_part = f":{quote(self.CACHE_REDIS_PASSWORD, safe='')}@" if self.CACHE_REDIS_PASSWORD else ""
+        return f"redis://{password_part}{self.CACHE_REDIS_HOST}:{self.CACHE_REDIS_PORT}/{self.SESSION_REDIS_DB}"
 
 
 settings = Settings()
