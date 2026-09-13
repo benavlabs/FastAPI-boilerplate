@@ -188,7 +188,14 @@ form_create_rules = [*WidgetCreate.model_fields.keys(), "owner_id"]
 
 SQLAdmin runs in async context, so relationships must use `lazy="selectin"` to avoid lazy-loading errors. Symptom of forgetting: `MissingGreenlet` or `greenlet_spawn has not been called`. `User.tier` in the boilerplate already uses this pattern.
 
-The exception is large one-to-many collections such as `Tier.users`, which uses `lazy="select"` so that loading a tier doesn't load every user in it. That's safe in the admin because SQLAdmin explicitly `selectinload`s the relationships in `column_list` and in the form columns (the details page reuses the edit-form query). Keep such collections out of `column_list`.
+The exception is large one-to-many collections such as `Tier.users`, which uses `lazy="select"` so that loading a tier doesn't load every user in it. SQLAdmin still loads a relationship whenever a page uses it: it `selectinload`s the relationships in `column_list` and in the form columns (the details page reuses the edit-form query), and a relationship form field lists every row of the related table. So keep large collections out of the list, the form and the details page, as `TierAdmin` does:
+
+```python
+form_excluded_columns = [Tier.users]
+column_details_exclude_list = [Tier.users]
+```
+
+`column_details_exclude_list` replaces `column_details_list = "__all__"`; SQLAdmin doesn't accept both on the same view, and the details page shows every other column by default.
 
 ### Don't Set `default=None` on Relationships
 
