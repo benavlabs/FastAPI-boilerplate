@@ -7,6 +7,7 @@ sys.path.append(str(backend_dir))
 
 from scripts.create_first_superuser import create_first_superuser  # noqa: E402
 from scripts.create_first_tier import create_first_tier  # noqa: E402
+from src.infrastructure.database.initialize import close_database  # noqa: E402
 from src.infrastructure.database.session import create_tables  # noqa: E402
 from src.infrastructure.logging import get_logger  # noqa: E402
 
@@ -39,5 +40,12 @@ async def setup_initial_data() -> None:
     logger.info("Initial data setup complete")
 
 
+async def main() -> None:
+    try:
+        await setup_initial_data()
+    finally:
+        await close_database()
+
+
 if __name__ == "__main__":
-    asyncio.run(setup_initial_data())
+    asyncio.run(main())

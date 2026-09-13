@@ -7,8 +7,8 @@ name: {{ project_name }}
 services:
   api:
     build:
-      context: {{ backend_context }}
-      dockerfile: Dockerfile
+      context: {{ build_context }}
+      dockerfile: {{ backend_dockerfile }}
       target: dev
     env_file:
       - {{ env_file }}
@@ -31,8 +31,8 @@ services:
 
   worker:
     build:
-      context: {{ backend_context }}
-      dockerfile: Dockerfile
+      context: {{ build_context }}
+      dockerfile: {{ backend_dockerfile }}
       target: dev
     env_file:
       - {{ env_file }}

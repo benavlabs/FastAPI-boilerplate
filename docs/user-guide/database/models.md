@@ -148,13 +148,13 @@ class User(Base, TimestampMixin, SoftDeleteMixin):
     __tablename__ = "user"
 
     id: Mapped[int] = mapped_column(
-        "id", autoincrement=True, nullable=False, unique=True,
+        "id", autoincrement=True, nullable=False,
         primary_key=True, init=False,
     )
 
     # Profile
     name: Mapped[str] = mapped_column(String(30))
-    username: Mapped[str] = mapped_column(String(20), unique=True, index=True)
+    username: Mapped[str] = mapped_column(String(32), unique=True, index=True)
     email: Mapped[str] = mapped_column(String(50), unique=True, index=True)
     hashed_password: Mapped[str] = mapped_column(String(100))
     profile_image_url: Mapped[str] = mapped_column(
@@ -205,7 +205,7 @@ class RateLimit(Base, TimestampMixin, SoftDeleteMixin):
     __tablename__ = "rate_limits"
 
     id: Mapped[int] = mapped_column(
-        "id", autoincrement=True, nullable=False, unique=True,
+        "id", autoincrement=True, nullable=False,
         primary_key=True, init=False,
     )
     tier_id: Mapped[int] = mapped_column(ForeignKey("tiers.id"), index=True)
@@ -258,7 +258,7 @@ class Widget(Base, TimestampMixin, SoftDeleteMixin):
     __tablename__ = "widgets"
 
     id: Mapped[int] = mapped_column(
-        "id", autoincrement=True, nullable=False, unique=True,
+        "id", autoincrement=True, nullable=False,
         primary_key=True, init=False,
     )
     name: Mapped[str] = mapped_column(String(100), unique=True, index=True)

@@ -56,12 +56,7 @@ if config.config_file_name is not None:
 
 
 def import_models(package_name):
-    """Automatically import all models from a package and its subpackages.
-
-    Import errors are deliberately not swallowed: a model module that fails
-    to import would silently vanish from the metadata, and autogenerate
-    would emit drop_table statements for it. Fail fast instead.
-    """
+    """Automatically import all models from a package and its subpackages."""
     package = importlib.import_module(package_name)
     for _, module_name, _ in pkgutil.walk_packages(package.__path__, package.__name__ + "."):
         importlib.import_module(module_name)

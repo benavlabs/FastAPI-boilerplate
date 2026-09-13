@@ -93,7 +93,7 @@ If you need `/admin` reachable from the internet:
 - Enable secure cookies if you serve over HTTPS — see [Configuration](configuration.md#session-cookies)
 - Rotate the password periodically (requires a deploy)
 
-The production security validator (`infrastructure/security/`) does **not** check admin credentials specifically — it only catches the placeholder `SECRET_KEY`, `DEBUG=true`, and `CORS_ORIGINS=*`. You're responsible for the strength of `ADMIN_PASSWORD`.
+The production security validator (`infrastructure/security/`) refuses to start the app if the admin panel is enabled without `ADMIN_USERNAME` and `ADMIN_PASSWORD`, and logs warnings for predictable usernames and short or common passwords. It can't tell how strong a password really is, so that part is still on you.
 
 ## Recovering from a Lost Admin Password
 

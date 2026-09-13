@@ -13,6 +13,8 @@ The app **will not start** if any of these is true:
 - **`SECRET_KEY` is insecure.** Default placeholder, < 32 chars, contains an obvious string ("password", "secret", "test", "dev", "default", etc.), or has a predictable pattern (repetition, all-same-char).
 - **The database password is `postgres`** (the well-known default). Attackers try this first.
 - **The database password is empty.** Database is unprotected.
+- **The admin panel is enabled without credentials** (`ADMIN_ENABLED=true` with `ADMIN_USERNAME` or `ADMIN_PASSWORD` unset).
+- **`CORS_ORIGINS` contains `*`.** Any website can call the API from a user's browser, and with `CORS_ALLOW_CREDENTIALS=true` those requests carry the user's session cookie.
 
 The password checked is the one actually used to connect: when `DATABASE_URL` is set it's read out of that URL, otherwise it's `POSTGRES_PASSWORD`. A `DATABASE_URL` with no password at all (IAM or certificate authentication) is a warning rather than an error, since it can't be verified from here.
 
@@ -21,7 +23,6 @@ The password checked is the one actually used to connect: when `DATABASE_URL` is
 These don't block startup but you should fix them before the app sees real traffic:
 
 - **Redis without a password** (`CACHE_REDIS_PASSWORD`, `SESSION_REDIS_PASSWORD`, `RATE_LIMITER_REDIS_PASSWORD`, `TASKIQ_REDIS_PASSWORD` all unset)
-- **`CORS_ORIGINS=*`** — allows any origin to send credentialed requests
 - **`DEBUG=true`** — exposes stack traces in error responses
 - **API docs (`/docs`, `/redoc`) reachable** — see "Documentation" below
 - **Session config too loose** (cookies not marked `Secure`, very long max-age, etc.)

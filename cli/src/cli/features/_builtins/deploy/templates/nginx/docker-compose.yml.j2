@@ -8,8 +8,8 @@ name: {{ project_name }}
 services:
   migrate:
     build:
-      context: {{ backend_context }}
-      dockerfile: Dockerfile
+      context: {{ build_context }}
+      dockerfile: {{ backend_dockerfile }}
       target: migrate
     env_file:
       - {{ env_file }}
@@ -23,8 +23,8 @@ services:
 
   api:
     build:
-      context: {{ backend_context }}
-      dockerfile: Dockerfile
+      context: {{ build_context }}
+      dockerfile: {{ backend_dockerfile }}
       target: prod
     env_file:
       - {{ env_file }}
@@ -48,8 +48,8 @@ services:
 
   worker:
     build:
-      context: {{ backend_context }}
-      dockerfile: Dockerfile
+      context: {{ build_context }}
+      dockerfile: {{ backend_dockerfile }}
       target: base
     env_file:
       - {{ env_file }}

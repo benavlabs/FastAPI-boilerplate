@@ -6,6 +6,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ...infrastructure.database.models import SoftDeleteMixin, TimestampMixin
 from ...infrastructure.database.session import Base
+from .constants import NAME_MAX_LENGTH, USERNAME_MAX_LENGTH
 
 if TYPE_CHECKING:
     from ..tier.models import Tier
@@ -20,13 +21,12 @@ class User(Base, TimestampMixin, SoftDeleteMixin):
         "id",
         autoincrement=True,
         nullable=False,
-        unique=True,
         primary_key=True,
         init=False,
     )
 
-    name: Mapped[str] = mapped_column(String(30))
-    username: Mapped[str] = mapped_column(String(20), unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(NAME_MAX_LENGTH))
+    username: Mapped[str] = mapped_column(String(USERNAME_MAX_LENGTH), unique=True, index=True)
     email: Mapped[str] = mapped_column(String(50), unique=True, index=True)
     hashed_password: Mapped[str] = mapped_column(String(100))
 

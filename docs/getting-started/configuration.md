@@ -157,7 +157,7 @@ TASKIQ_MAX_TASKS_PER_WORKER=1000
 
 ```env
 CORS_ENABLED=true
-CORS_ORIGINS=*                  # comma-separated origins
+CORS_ORIGINS=http://localhost:3000,http://localhost:5173  # comma-separated origins
 CORS_ALLOW_CREDENTIALS=true
 CORS_ALLOW_METHODS=*
 CORS_ALLOW_HEADERS=*

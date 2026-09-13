@@ -253,9 +253,10 @@ See [Authentication → Sessions](authentication/sessions.md) for full details.
 
 When `ENVIRONMENT=production`, `infrastructure/security/` runs validators at startup that fail loudly on:
 
-- Placeholder `SECRET_KEY`
-- `DEBUG=true`
-- Unset `CORS_ORIGINS` or `CORS_ORIGINS=*`
+- Insecure or placeholder `SECRET_KEY`
+- Default or empty database password
+- Admin panel enabled without `ADMIN_USERNAME`/`ADMIN_PASSWORD`
+- `CORS_ORIGINS` empty or containing `*`
 
 If your prod boot is failing with one of those, that's your hint — don't bypass the validator.
 

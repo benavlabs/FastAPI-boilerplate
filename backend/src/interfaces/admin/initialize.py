@@ -3,7 +3,7 @@
 from sqladmin import Admin
 
 from ...infrastructure.config.settings import get_settings
-from ...infrastructure.database.session import engine
+from ...infrastructure.database.session import get_engine
 from .auth import AdminAuth
 from .views import register_admin_views
 
@@ -26,7 +26,7 @@ def create_admin_interface(app) -> Admin | None:
 
     admin = Admin(
         app=app,
-        engine=engine,
+        engine=get_engine(),
         authentication_backend=authentication_backend,
         title="Admin",
     )

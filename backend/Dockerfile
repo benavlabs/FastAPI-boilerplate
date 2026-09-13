@@ -7,17 +7,19 @@ WORKDIR /tmp
 # Use official uv image with pinned version for reproducibility
 COPY --from=ghcr.io/astral-sh/uv:0.9.9 /uv /usr/local/bin/uv
 
-# Copy both pyproject.toml and uv.lock for deterministic export
+# Copy the workspace manifests and uv.lock for deterministic export
 COPY pyproject.toml uv.lock ./
+COPY backend/pyproject.toml backend/pyproject.toml
+COPY cli/pyproject.toml cli/pyproject.toml
 
 # Export from lock file (not re-resolving dependencies!)
 # Filter out the local project line and keep only external dependencies
-RUN uv export --no-dev --no-editable -o /tmp/req-full.txt && \
-    grep -v "^\\.$" /tmp/req-full.txt > requirements-prod.txt
+RUN uv export --package fastapi-boilerplate --no-dev --no-editable -o /tmp/req-full.txt && \
+    grep -vE "^\.(/backend)?$" /tmp/req-full.txt > requirements-prod.txt
 
 # Export dev requirements from lock file
-RUN uv export --no-editable -o /tmp/req-dev-full.txt && \
-    grep -v "^\\.$" /tmp/req-dev-full.txt > requirements-dev.txt
+RUN uv export --package fastapi-boilerplate --extra dev --no-editable -o /tmp/req-dev-full.txt && \
+    grep -vE "^\.(/backend)?$" /tmp/req-dev-full.txt > requirements-dev.txt
 
 # ===================== Production Base Stage =====================
 FROM python:3.11-slim AS base
@@ -40,7 +42,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     rm requirements-prod.txt
 
 # Copy source code
-COPY src ./src
+COPY backend/src ./src
 
 # Set Python path
 ENV PYTHONPATH=/app/src
@@ -57,7 +59,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     rm requirements-dev.txt
 
 # Copy test files for development
-COPY tests ./tests
+COPY backend/tests ./tests
 
 # Create non-root user for security (same as production)
 RUN groupadd -r appuser && useradd -r -m -g appuser appuser
@@ -77,8 +79,8 @@ FROM base AS migrate
 ARG DATABASE_URL=""
 
 # Copy migration files
-COPY migrations ./migrations
-COPY alembic.ini .
+COPY backend/migrations ./migrations
+COPY backend/alembic.ini .
 
 # Create non-root user for security
 RUN groupadd -r appuser && useradd -r -m -g appuser appuser
