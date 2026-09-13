@@ -302,7 +302,7 @@ class User(Base, TimestampMixin, SoftDeleteMixin):
     __tablename__ = "user"
 
     id: Mapped[int] = mapped_column(
-        "id", autoincrement=True, nullable=False, unique=True,
+        "id", autoincrement=True, nullable=False,
         primary_key=True, init=False,
     )
     name: Mapped[str] = mapped_column(String(30))

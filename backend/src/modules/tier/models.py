@@ -19,7 +19,6 @@ class Tier(Base, TimestampMixin, SoftDeleteMixin):
         "id",
         autoincrement=True,
         nullable=False,
-        unique=True,
         primary_key=True,
         init=False,
     )
