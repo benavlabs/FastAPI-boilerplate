@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.modules.api_keys.crud import crud_api_keys, crud_key_permissions
 from src.modules.api_keys.enums import KeyPermissionAction, KeyPermissionResource
+from src.modules.api_keys.models import KeyUsage
 from src.modules.api_keys.schemas import (
     APIKeyCreate,
     APIKeyCreateInternal,
@@ -368,6 +369,130 @@ async def test_get_user_summary(api_key_service, db_session: AsyncSession, test_
     assert summary["total_requests"] >= 1
     assert summary["total_cost_microcents"] >= 2500
     assert len(summary["keys"]) >= 1
+
+
+@pytest.mark.asyncio
+async def test_sum_user_usage_cost_not_page_capped(api_key_service, db_session: AsyncSession, test_user: dict, test_api_key):
+    """Usage cost is summed in SQL, so it is not capped at a page size.
+
+    Regression lock for the old fetch-all + Python-loop sum, which silently
+    capped at FastCRUD's default 100 rows and under-reported cost for any user
+    with many usage records. We seed 150 usage rows of 1_000 microcents each;
+    the sum must report all 150_000, not the 100-row cap.
+    """
+    db_session.add_all(
+        [
+            KeyUsage(
+                api_key_id=test_api_key["id"],
+                user_id=test_user["id"],
+                endpoint="/api/v1/test",
+                method="GET",
+                status_code=200,
+                cost_microcents=1_000,
+            )
+            for _ in range(150)
+        ]
+    )
+    await db_session.commit()
+
+    total = await api_key_service.sum_user_usage_cost(user_id=test_user["id"], db=db_session)
+    summary = await api_key_service.get_user_summary(user_id=test_user["id"], db=db_session)
+
+    assert total == 150_000  # 150 * 1_000, proving no 100-row cap
+    assert summary["total_requests"] == 150
+    assert summary["total_cost_microcents"] == 150_000
+
+
+@pytest.mark.asyncio
+async def test_sum_user_usage_cost_scoped_to_user(
+    api_key_service, db_session: AsyncSession, test_user: dict, test_user_2: dict, test_api_key
+):
+    """The sum is scoped to the given user and never bleeds another user's cost.
+
+    Locks the ``WHERE user_id == user_id`` filter: with rows for two users, each
+    user's sum reflects only their own usage.
+    """
+    db_session.add_all(
+        [
+            KeyUsage(
+                api_key_id=test_api_key["id"],
+                user_id=test_user["id"],
+                endpoint="/api/v1/test",
+                method="GET",
+                status_code=200,
+                cost_microcents=1_000,
+            ),
+            KeyUsage(
+                api_key_id=test_api_key["id"],
+                user_id=test_user_2["id"],
+                endpoint="/api/v1/test",
+                method="GET",
+                status_code=200,
+                cost_microcents=9_999,
+            ),
+        ]
+    )
+    await db_session.commit()
+
+    assert await api_key_service.sum_user_usage_cost(user_id=test_user["id"], db=db_session) == 1_000
+    assert await api_key_service.sum_user_usage_cost(user_id=test_user_2["id"], db=db_session) == 9_999
+
+
+@pytest.mark.asyncio
+async def test_get_usage_analytics_not_page_capped(api_key_service, db_session: AsyncSession, test_user: dict, test_api_key):
+    """Analytics are aggregated in SQL, so no metric is truncated at 100 rows.
+
+    Seeds 150 in-window rows (every third one a 500 on /api/v1/a, the rest 200s on
+    /api/v1/b) plus one row older than the window, which must be excluded.
+    """
+    rows = [
+        KeyUsage(
+            api_key_id=test_api_key["id"],
+            user_id=test_user["id"],
+            endpoint="/api/v1/a" if i % 3 == 0 else "/api/v1/b",
+            method="GET",
+            status_code=500 if i % 3 == 0 else 200,
+            tokens_used=2,
+            cost_microcents=1_000,
+            response_time_ms=100,
+        )
+        for i in range(150)
+    ]
+    stale = KeyUsage(
+        api_key_id=test_api_key["id"],
+        user_id=test_user["id"],
+        endpoint="/api/v1/stale",
+        method="GET",
+        status_code=404,
+        tokens_used=1_000,
+        cost_microcents=1_000_000,
+        response_time_ms=9_999,
+    )
+    stale.created_at = datetime.now(UTC) - timedelta(days=40)
+    db_session.add_all([*rows, stale])
+    await db_session.commit()
+
+    analytics = await api_key_service.get_usage_analytics(key_id=test_api_key["id"], user_id=test_user["id"], db=db_session)
+
+    assert analytics["total_requests"] == 150
+    assert analytics["successful_requests"] == 100
+    assert analytics["failed_requests"] == 50
+    assert analytics["total_tokens"] == 300
+    assert analytics["total_cost_microcents"] == 150_000
+    assert analytics["average_response_time_ms"] == 100.0
+    assert analytics["most_used_endpoints"] == [
+        {"endpoint": "/api/v1/b", "count": 100},
+        {"endpoint": "/api/v1/a", "count": 50},
+    ]
+    assert analytics["error_breakdown"] == {"500": 50}
+
+    usage_by_day = analytics["usage_by_day"]
+    assert sum(d["requests"] for d in usage_by_day) == 150
+    assert sum(d["successful_requests"] for d in usage_by_day) == 100
+    assert sum(d["failed_requests"] for d in usage_by_day) == 50
+    assert sum(d["tokens"] for d in usage_by_day) == 300
+    assert sum(d["cost_microcents"] for d in usage_by_day) == 150_000
+    assert all(len(d["date"]) == 10 for d in usage_by_day)  # YYYY-MM-DD
 
 
 @pytest.mark.asyncio
