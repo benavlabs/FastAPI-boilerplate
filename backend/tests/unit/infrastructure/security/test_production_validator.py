@@ -44,6 +44,7 @@ class TestProductionSecurityValidator:
             "CACHE_REDIS_PORT": 6379,
             "CACHE_REDIS_DB": 0,
             "CACHE_REDIS_PASSWORD": None,
+            "SESSION_REDIS_URL": "redis://localhost:6379/2",
             "RATE_LIMITER_REDIS_HOST": "localhost",
             "RATE_LIMITER_REDIS_PORT": 6379,
             "RATE_LIMITER_REDIS_DB": 1,
@@ -243,6 +244,64 @@ class TestProductionSecurityValidator:
         warning_logs = [record for record in caplog.records if record.levelname == "WARNING"]
         shared_warnings = [log for log in warning_logs if "sharing the same Redis instance" in log.message]
         assert len(shared_warnings) > 0
+
+    def test_sessions_on_own_redis_db_do_not_warn_about_sharing(self, caplog):
+        """Sessions on their own Redis DB are not reported as sharing the cache database."""
+        settings = self.create_mock_settings(
+            CACHE_BACKEND="redis", CACHE_REDIS_DB=0, SESSION_REDIS_URL="redis://localhost:6379/2"
+        )
+        validator = ProductionSecurityValidator(settings)
+
+        validator.validate_production_security()
+
+        shared_warnings = [record for record in caplog.records if "sharing the same Redis instance" in record.message]
+        assert shared_warnings == []
+
+    def test_sessions_sharing_cache_redis_db_logs_warning(self, caplog):
+        """A session URL pointing at the cache database is reported as sharing."""
+        settings = self.create_mock_settings(
+            CACHE_BACKEND="redis", CACHE_REDIS_DB=0, SESSION_REDIS_URL="redis://localhost:6379/0"
+        )
+        validator = ProductionSecurityValidator(settings)
+
+        validator.validate_production_security()
+
+        shared_warnings = [record for record in caplog.records if "sharing the same Redis instance" in record.message]
+        assert len(shared_warnings) == 1
+        assert "cache, sessions" in shared_warnings[0].message
+
+    def test_sessions_on_separate_redis_host_do_not_warn_about_sharing(self, caplog):
+        """Same DB number on a different session Redis host is a different instance, not sharing."""
+        settings = self.create_mock_settings(
+            CACHE_BACKEND="redis", CACHE_REDIS_DB=0, SESSION_REDIS_URL="redis://sessions-redis:6379/0"
+        )
+        validator = ProductionSecurityValidator(settings)
+
+        validator.validate_production_security()
+
+        shared_warnings = [record for record in caplog.records if "sharing the same Redis instance" in record.message]
+        assert shared_warnings == []
+
+    def test_session_redis_url_with_tls_and_password_passes_redis_checks(self, caplog):
+        """A rediss:// session URL with credentials satisfies the password and TLS checks."""
+        settings = self.create_mock_settings(SESSION_REDIS_URL="rediss://default:p%40ss@sessions.example.com:6380/0")
+        validator = ProductionSecurityValidator(settings)
+
+        assert validator._get_redis_configurations() == [
+            {
+                "service": "sessions",
+                "host": "sessions.example.com",
+                "port": 6380,
+                "db": 0,
+                "password": "p@ss",
+                "ssl": True,
+            }
+        ]
+
+        validator.validate_production_security()
+
+        session_warnings = [record for record in caplog.records if "Redis instance for sessions" in record.message]
+        assert session_warnings == []
 
     @pytest.mark.parametrize(("allow_credentials", "expect_note"), [(True, True), (False, False)])
     def test_cors_wildcard_raises_error(self, allow_credentials, expect_note):

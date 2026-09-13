@@ -107,7 +107,7 @@ Postgres 17 (alpine for size). Reads `POSTGRES_USER`, `POSTGRES_PASSWORD`, and `
 
 ### `redis` — Redis 7
 
-Used for cache (`CACHE_REDIS_DB=0`), rate limiting (`RATE_LIMITER_REDIS_DB=1`), sessions, and the Taskiq broker (`TASKIQ_REDIS_DB=3`). The boilerplate uses different DB numbers so they don't interfere.
+Used for cache (`CACHE_REDIS_DB=0`), rate limiting (`RATE_LIMITER_REDIS_DB=1`), sessions (`SESSION_REDIS_DB=2`), and the Taskiq broker (`TASKIQ_REDIS_DB=3`). The boilerplate uses different DB numbers so they don't interfere.
 
 ## Optional Services
 

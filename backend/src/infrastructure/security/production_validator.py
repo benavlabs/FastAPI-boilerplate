@@ -539,18 +539,22 @@ class ProductionSecurityValidator:
             )
 
         if self.settings.SESSION_BACKEND == "redis":
-            configs.append(
-                {
-                    "service": "sessions",
-                    "host": self.settings.CACHE_REDIS_HOST,
-                    "port": self.settings.CACHE_REDIS_PORT,
-                    "db": self.settings.CACHE_REDIS_DB,
-                    "password": self.settings.CACHE_REDIS_PASSWORD,
-                    "ssl": False,
-                }
-            )
+            configs.append(self._redis_configuration_from_url("sessions", self.settings.SESSION_REDIS_URL))
 
         return configs
+
+    def _redis_configuration_from_url(self, service: str, url: str) -> dict:
+        """Describe the Redis connection a service will open from its URL."""
+        parts = urlsplit(url)
+        db = parts.path.lstrip("/")
+        return {
+            "service": service,
+            "host": parts.hostname,
+            "port": parts.port or 6379,
+            "db": int(db) if db.isdigit() else 0,
+            "password": self._password_from_url(url),
+            "ssl": parts.scheme == "rediss",
+        }
 
     def _check_redis_instance_sharing(self) -> str:
         """Check if the same Redis instance is used by multiple services.

@@ -205,6 +205,8 @@ SESSION_CLEANUP_INTERVAL_MINUTES=15
 MAX_SESSIONS_PER_USER=5
 SESSION_SECURE_COOKIES=true
 SESSION_BACKEND=redis            # redis | memory
+SESSION_REDIS_DB=2               # on the cache Redis, apart from the cache DB so a flush won't log users out
+# SESSION_REDIS_URL=             # optional dedicated session Redis, e.g. rediss://user:password@host:6380/0
 
 # Number of trusted reverse proxies in front of the app. crudauth uses this to
 # resolve the real client IP (from X-Forwarded-For) for login lockout.

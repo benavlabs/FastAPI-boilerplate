@@ -231,7 +231,7 @@ docker compose exec redis redis-cli
 > LRANGE default 0 -1                # pending tasks
 ```
 
-Each subsystem uses a different Redis DB number; see `.env.example` for the conventions (`CACHE_REDIS_DB=0`, `SESSION_REDIS_DB=1`, `RATE_LIMITER_REDIS_DB=1` (yes, the rate limiter shares with sessions in defaults — change one if you want isolation), `TASKIQ_REDIS_DB=3`).
+Each subsystem uses a different Redis DB number; see `.env.example` for the conventions (`CACHE_REDIS_DB=0`, `RATE_LIMITER_REDIS_DB=1`, `SESSION_REDIS_DB=2`, `TASKIQ_REDIS_DB=3`).
 
 ### Watch sessions live
 
@@ -239,7 +239,7 @@ Session storage is managed by the `crudauth` library, so there's no boilerplate 
 
 ```bash
 redis-cli
-> SELECT 1                           # session backend DB (SESSION_REDIS_DB)
+> SELECT 2                           # session backend DB (SESSION_REDIS_DB)
 > KEYS 'session:*'
 ```
 

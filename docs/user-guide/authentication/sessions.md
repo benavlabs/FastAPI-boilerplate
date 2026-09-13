@@ -168,6 +168,8 @@ The backends ship inside the `crudauth` library, not the boilerplate — `setup.
 ```env
 # Backend
 SESSION_BACKEND=redis                # redis | memory
+SESSION_REDIS_DB=2                   # on the cache Redis; isolated from cache (0), rate limiter (1), and taskiq (3)
+# SESSION_REDIS_URL=                 # optional dedicated session Redis, e.g. rediss://user:password@host:6380/0
 
 # Lifetime
 SESSION_TIMEOUT_MINUTES=30           # inactive sessions expire

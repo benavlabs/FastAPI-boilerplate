@@ -1,6 +1,7 @@
 import logging
 import os
 from enum import StrEnum
+from urllib.parse import quote
 
 from pydantic import Field
 from pydantic_settings import BaseSettings
@@ -246,6 +247,12 @@ class AuthSettings(BaseSettings):
     SESSION_SECURE_COOKIES: bool = config("SESSION_SECURE_COOKIES", default=True, cast=bool)
     SESSION_BACKEND: str = config("SESSION_BACKEND", default=SessionBackend.REDIS.value)
 
+    SESSION_REDIS_DB: int = config("SESSION_REDIS_DB", default=2, cast=int)
+    SESSION_REDIS_URL_OVERRIDE: str | None = Field(
+        default=config("SESSION_REDIS_URL", default=None),
+        validation_alias="SESSION_REDIS_URL",
+    )
+
     CSRF_ENABLED: bool = config("CSRF_ENABLED", default=True, cast=bool)
 
     # Number of trusted reverse proxies in front of the app. crudauth resolves the
@@ -392,7 +399,17 @@ class Settings(
 ):
     """Main settings class that combines all setting categories."""
 
-    pass
+    @property
+    def SESSION_REDIS_URL(self) -> str:
+        """Get the Redis URL for sessions.
+
+        Uses SESSION_REDIS_URL when set, otherwise the cache's Redis connection on SESSION_REDIS_DB.
+        """
+        if self.SESSION_REDIS_URL_OVERRIDE:
+            return self.SESSION_REDIS_URL_OVERRIDE
+
+        password_part = f":{quote(self.CACHE_REDIS_PASSWORD, safe='')}@" if self.CACHE_REDIS_PASSWORD else ""
+        return f"redis://{password_part}{self.CACHE_REDIS_HOST}:{self.CACHE_REDIS_PORT}/{self.SESSION_REDIS_DB}"
 
 
 settings = Settings()
