@@ -190,6 +190,8 @@ async def async_session() -> AsyncGenerator[AsyncSession, None]:
         yield db
 ```
 
+The engine is created on first use by `get_engine()`, not at import time. `local_session()` opens a session on it, and `close_database()` (in `infrastructure/database/initialize.py`) disposes it. The app lifespan calls `close_database()` on shutdown. Standalone scripts that open sessions should call it before exiting.
+
 Use it in routes via FastAPI's `Depends`:
 
 ```python
@@ -242,7 +244,7 @@ Each feature owns its data stack:
 backend/src/
 ├── infrastructure/
 │   └── database/
-│       ├── session.py        # engine, async_session dep, Base class, create_tables
+│       ├── session.py        # get_engine, local_session, async_session dep, Base class, create_tables
 │       └── models.py         # TimestampMixin, SoftDeleteMixin, UUIDMixin
 └── modules/
     ├── user/

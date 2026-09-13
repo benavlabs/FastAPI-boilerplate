@@ -302,7 +302,7 @@ class WidgetAdmin(DataclassModelMixin, ModelView, model=Widget):
 Notes:
 
 - Selected IDs come from `request.query_params["pks"]` as a comma-separated string
-- `local_session()` is the boilerplate's session-maker — import it from `infrastructure/database/session.py`
+- `local_session()` opens a session on the shared engine — import it from `infrastructure/database/session.py`
 - Always commit before redirecting, otherwise the change reverts when the request ends
 
 ## Icons

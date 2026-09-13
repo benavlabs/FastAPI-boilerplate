@@ -26,6 +26,7 @@ from .config.settings import (
     Settings,
     get_settings,
 )
+from .database.initialize import close_database
 from .database.session import create_tables
 from .middleware import ClientCacheMiddleware, SecurityHeadersMiddleware
 from .rate_limit.initialize import close_rate_limiter, initialize_rate_limiter
@@ -54,8 +55,10 @@ def lifespan_factory(
         await set_threadpool_tokens()
 
         async with AsyncExitStack() as teardown:
-            if isinstance(settings, DatabaseSettings) and create_tables_on_startup:
-                await create_tables()
+            if isinstance(settings, DatabaseSettings):
+                teardown.push_async_callback(close_database)
+                if create_tables_on_startup:
+                    await create_tables()
 
             if isinstance(settings, CacheSettings) and settings.CACHE_ENABLED:
                 await initialize_cache()

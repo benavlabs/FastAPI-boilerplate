@@ -9,6 +9,7 @@ sys.path.append(str(backend_dir))
 from sqlalchemy import select  # noqa: E402
 
 from src.infrastructure.config.settings import settings  # noqa: E402
+from src.infrastructure.database.initialize import close_database  # noqa: E402
 from src.infrastructure.database.session import local_session  # noqa: E402
 from src.infrastructure.logging import get_logger  # noqa: E402
 from src.modules.tier.models import Tier  # noqa: E402
@@ -47,7 +48,10 @@ async def create_first_tier() -> None:
 
 
 async def main() -> None:
-    await create_first_tier()
+    try:
+        await create_first_tier()
+    finally:
+        await close_database()
 
 
 if __name__ == "__main__":
