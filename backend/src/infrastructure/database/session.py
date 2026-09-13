@@ -11,24 +11,7 @@ _session_factory: async_sessionmaker[AsyncSession] | None = None
 
 
 def build_engine(**overrides: Any) -> AsyncEngine:
-    """Create a new engine for the configured database.
-
-    Every engine in the application is built here so that pool defaults and the
-    connection URL are resolved in one place. Callers that need different pooling
-    (the taskiq worker uses ``NullPool``) pass it through ``overrides``.
-
-    Args:
-        **overrides: Keyword arguments forwarded to ``create_async_engine``,
-            overriding the defaults below.
-
-    Returns:
-        AsyncEngine: A new, unshared engine.
-
-    Note:
-        The ``pool_size`` and ``max_overflow`` defaults are only applied when the
-        caller does not choose its own ``poolclass``, because pools that do not
-        queue connections reject those arguments.
-    """
+    """Create an engine for the configured database, passing ``overrides`` to ``create_async_engine``."""
     settings = get_settings()
     options: dict[str, Any] = {
         "echo": False,
@@ -45,15 +28,7 @@ def build_engine(**overrides: Any) -> AsyncEngine:
 
 
 def get_engine() -> AsyncEngine:
-    """Return the engine shared by the application, creating it on first use.
-
-    The engine is created lazily so that importing this module never opens a
-    connection pool. Processes that never touch the database, such as one-off
-    scripts and test collection, therefore pay nothing for the import.
-
-    Returns:
-        AsyncEngine: The process-wide engine.
-    """
+    """Return the application's shared engine, creating it on first use."""
     global _engine
     if _engine is None:
         _engine = build_engine()
@@ -62,12 +37,7 @@ def get_engine() -> AsyncEngine:
 
 
 def get_session_factory() -> async_sessionmaker[AsyncSession]:
-    """Return the session factory bound to the shared engine.
-
-    Returns:
-        async_sessionmaker[AsyncSession]: Factory creating sessions on the
-            process-wide engine.
-    """
+    """Return the session factory bound to the shared engine."""
     global _session_factory
     if _session_factory is None:
         _session_factory = async_sessionmaker(bind=get_engine(), class_=AsyncSession, expire_on_commit=False)
@@ -76,32 +46,12 @@ def get_session_factory() -> async_sessionmaker[AsyncSession]:
 
 
 def local_session() -> AsyncSession:
-    """Open a new session on the shared engine.
-
-    Returns:
-        AsyncSession: A session that has not been entered yet.
-
-    Example:
-        ```python
-        async with local_session() as db:
-            result = await db.execute(select(User))
-        ```
-    """
+    """Open a new session on the shared engine."""
     return get_session_factory()()
 
 
 async def dispose_engine() -> None:
-    """Drain the shared engine's connection pool, if one was ever created.
-
-    Returns without building anything when the engine has not been used, so
-    shutdown paths can call this unconditionally.
-
-    Note:
-        The engine object itself is kept, only its pool is drained. Long-lived
-        holders of the engine, such as the SQLAdmin interface, therefore keep
-        working against the same engine and the process never ends up with two
-        pools open at once.
-    """
+    """Close the shared engine's pooled connections, if the engine was ever created."""
     if _engine is None:
         return
 
@@ -221,21 +171,7 @@ async def create_tables() -> None:
 
 
 def __getattr__(name: str) -> AsyncEngine:
-    """Resolve the legacy module-level ``engine`` attribute.
-
-    Backward compatibility only: ``engine`` used to be a module-level object, so
-    forks still import it directly. New code calls ``get_engine()`` instead.
-    Remove this at the next major version.
-
-    Args:
-        name: Attribute being looked up on this module.
-
-    Returns:
-        AsyncEngine: The shared engine when ``name`` is ``"engine"``.
-
-    Raises:
-        AttributeError: For every other name.
-    """
+    """Keep the deprecated module-level ``engine`` importable; new code calls ``get_engine()``."""
     if name == "engine":
         return get_engine()
 

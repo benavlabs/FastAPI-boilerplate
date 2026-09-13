@@ -198,7 +198,7 @@ LOG_FILE_PATH=/var/log/app/app.log
 ```
 
 !!! danger "Production Security Validator"
-    With `ENVIRONMENT=production` and `PRODUCTION_SECURITY_VALIDATION_ENABLED=true` (both default), the app refuses to start if it finds insecure settings — e.g. the placeholder `SECRET_KEY`, `DEBUG=true`, `CORS_ORIGINS=*`. Set `PRODUCTION_SECURITY_STRICT_MODE=true` to make it stricter still.
+    With `ENVIRONMENT=production` and `PRODUCTION_SECURITY_VALIDATION_ENABLED=true` (both default), the app refuses to start if it finds insecure settings — e.g. the placeholder `SECRET_KEY`, default database credentials, an admin panel without credentials, or `CORS_ORIGINS=*`. Set `PRODUCTION_SECURITY_STRICT_MODE=true` to make it stricter still.
 
 ## Detecting the Environment in Code
 

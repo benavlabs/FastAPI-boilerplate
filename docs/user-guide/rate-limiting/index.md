@@ -218,17 +218,21 @@ Add a one-off in `backend/scripts/`:
 # backend/scripts/setup_rate_limits.py
 import asyncio
 
+from src.infrastructure.database.initialize import close_database
 from src.infrastructure.database.session import local_session
 from src.modules.rate_limit.crud import crud_rate_limits
 
 
 async def main():
-    async with local_session() as db:
-        await crud_rate_limits.create(db=db, object={
-            "tier_id": 1, "name": "free_widgets_create",
-            "path": "api_v1_widgets", "limit": 10, "period": 60,
-        })
-        await db.commit()
+    try:
+        async with local_session() as db:
+            await crud_rate_limits.create(db=db, object={
+                "tier_id": 1, "name": "free_widgets_create",
+                "path": "api_v1_widgets", "limit": 10, "period": 60,
+            })
+            await db.commit()
+    finally:
+        await close_database()
 
 
 if __name__ == "__main__":

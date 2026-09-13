@@ -14,15 +14,7 @@ _session_factory: async_sessionmaker[AsyncSession] | None = None
 
 
 def get_taskiq_engine() -> AsyncEngine:
-    """Return the worker's engine, creating it on first use.
-
-    Workers keep an engine separate from the API's: ``NullPool`` means a task
-    connects when it needs to and hands the connection back when it is done,
-    rather than holding a pool open between tasks.
-
-    Returns:
-        AsyncEngine: The worker-wide engine.
-    """
+    """Return the worker's ``NullPool`` engine, creating it on first use."""
     global _engine
     if _engine is None:
         _engine = build_engine(poolclass=NullPool)
@@ -31,12 +23,7 @@ def get_taskiq_engine() -> AsyncEngine:
 
 
 def get_taskiq_session_factory() -> async_sessionmaker[AsyncSession]:
-    """Return the session factory bound to the worker's engine.
-
-    Returns:
-        async_sessionmaker[AsyncSession]: Factory creating sessions on the
-            worker's engine.
-    """
+    """Return the session factory bound to the worker's engine."""
     global _session_factory
     if _session_factory is None:
         _session_factory = async_sessionmaker(bind=get_taskiq_engine(), class_=AsyncSession, expire_on_commit=False)
@@ -45,12 +32,7 @@ def get_taskiq_session_factory() -> async_sessionmaker[AsyncSession]:
 
 
 async def dispose_taskiq_engine() -> None:
-    """Drain the worker engine's connections, if an engine was ever created.
-
-    Returns without building anything when no task touched the database, so the
-    worker shutdown handler can call this unconditionally. As with the API's
-    engine, the object is kept and only its connections are released.
-    """
+    """Close the worker engine's connections, if the engine was ever created."""
     if _engine is None:
         return
 

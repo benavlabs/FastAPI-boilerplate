@@ -16,20 +16,7 @@ __all__ = [
 
 
 def __getattr__(name: str) -> Any:
-    """Resolve the legacy package-level ``engine`` attribute.
-
-    Backward compatibility only, mirroring the shim in ``session``. New code calls
-    ``get_engine()``. Remove this at the next major version.
-
-    Args:
-        name: Attribute being looked up on this package.
-
-    Returns:
-        Any: The shared engine when ``name`` is ``"engine"``.
-
-    Raises:
-        AttributeError: For every other name.
-    """
+    """Keep the deprecated package-level ``engine`` importable; new code calls ``get_engine()``."""
     if name == "engine":
         return get_engine()
 

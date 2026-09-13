@@ -23,6 +23,9 @@ SECRET_KEY=<used for admin session encryption>
 
 Visit <http://localhost:8000/admin>, enter those credentials, and you're in.
 
+!!! warning "Login is disabled until credentials are configured"
+    `ADMIN_USERNAME` and `ADMIN_PASSWORD` default to empty. With either unset, **every admin login attempt fails** — an empty form submission does not authenticate. Set both before the panel is usable.
+
 ## What You'll Learn
 
 - **[Configuration](configuration.md)** - Environment variables and deployment settings

@@ -1,26 +1,43 @@
-"""Tests for the application lifespan built by lifespan_factory."""
+"""Unit tests for the application factory."""
 
 from contextlib import ExitStack
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from fastapi import FastAPI
+from fastapi import APIRouter, FastAPI
+from httpx import ASGITransport, AsyncClient
 
-from src.infrastructure.app_factory import lifespan_factory
-from src.infrastructure.config.settings import get_settings
+from src.infrastructure import app_factory
+from src.infrastructure.auth.dependencies import get_current_superuser
+from src.infrastructure.config.settings import EnvironmentOption, Settings, settings
 
-pytestmark = pytest.mark.asyncio
-
+DOCS_PATHS = ("/docs", "/redoc", "/openapi.json")
 TEARDOWN_NAMES = ("close_cache", "close_rate_limiter", "close_database")
+
+
+@pytest.mark.asyncio
+async def test_startup_failure_surfaces_the_original_error(monkeypatch):
+    """A failed startup must raise the failing step's exception, not a teardown one."""
+
+    async def failing_create_tables() -> None:
+        raise RuntimeError("db unreachable")
+
+    monkeypatch.setattr(app_factory, "create_tables", failing_create_tables)
+
+    lifespan = app_factory.lifespan_factory(settings, create_tables_on_startup=True)
+
+    with pytest.raises(RuntimeError, match="db unreachable"):
+        async with lifespan(FastAPI()):
+            pass  # pragma: no cover - startup fails before the yield
 
 
 @pytest.fixture
 def lifespan_settings():
     """Settings with cache and rate limiting on, so every teardown branch runs."""
-    settings = get_settings().model_copy()
-    settings.CACHE_ENABLED = True
-    settings.RATE_LIMITER_ENABLED = True
-    return settings
+    lifespan_settings = settings.model_copy()
+    lifespan_settings.CACHE_ENABLED = True
+    lifespan_settings.RATE_LIMITER_ENABLED = True
+    return lifespan_settings
 
 
 @pytest.fixture
@@ -56,27 +73,27 @@ class TestLifespanDatabaseTeardown:
     async def test_disposes_engine_on_clean_shutdown(self, lifespan_settings, patched_lifespan):
         """close_database is awaited once after a normal shutdown."""
         mocks, _ = patched_lifespan
-        lifespan = lifespan_factory(lifespan_settings)
+        lifespan = app_factory.lifespan_factory(lifespan_settings)
 
         async with lifespan(FastAPI()):
             mocks["close_database"].assert_not_awaited()
 
         mocks["close_database"].assert_awaited_once()
 
-    async def test_disposes_after_cache_and_rate_limiter(self, lifespan_settings, patched_lifespan):
+    async def test_teardown_runs_in_reverse_order_with_database_last(self, lifespan_settings, patched_lifespan):
         """Teardown runs in reverse order of setup, with the database last."""
         _, call_order = patched_lifespan
-        lifespan = lifespan_factory(lifespan_settings)
+        lifespan = app_factory.lifespan_factory(lifespan_settings)
 
         async with lifespan(FastAPI()):
             pass
 
-        assert call_order == ["auth_shutdown", "close_cache", "close_rate_limiter", "close_database"]
+        assert call_order == ["auth_shutdown", "close_rate_limiter", "close_cache", "close_database"]
 
     async def test_disposes_when_body_raises(self, lifespan_settings, patched_lifespan):
         """A failure while the app is serving still drains the pool."""
         mocks, _ = patched_lifespan
-        lifespan = lifespan_factory(lifespan_settings)
+        lifespan = app_factory.lifespan_factory(lifespan_settings)
 
         with pytest.raises(RuntimeError, match="boom"):
             async with lifespan(FastAPI()):
@@ -88,7 +105,7 @@ class TestLifespanDatabaseTeardown:
         """A failure partway through startup still drains the pool."""
         mocks, _ = patched_lifespan
         mocks["initialize_cache"].side_effect = RuntimeError("cache down")
-        lifespan = lifespan_factory(lifespan_settings)
+        lifespan = app_factory.lifespan_factory(lifespan_settings)
 
         with pytest.raises(RuntimeError, match="cache down"):
             async with lifespan(FastAPI()):
@@ -99,10 +116,51 @@ class TestLifespanDatabaseTeardown:
     async def test_skips_dispose_without_database_settings(self, patched_lifespan):
         """Settings that carry no database config leave the engine alone."""
         mocks, _ = patched_lifespan
-        lifespan = lifespan_factory(object())  # type: ignore[arg-type]
+        lifespan = app_factory.lifespan_factory(object())  # type: ignore[arg-type]
 
         async with lifespan(FastAPI()):
             pass
 
         mocks["close_database"].assert_not_awaited()
         mocks["create_tables"].assert_not_awaited()
+
+
+def _create_app(environment: EnvironmentOption, enable_docs_in_production: bool = False) -> FastAPI:
+    return app_factory.create_application(
+        router=APIRouter(),
+        settings=Settings(ENVIRONMENT=environment, ENABLE_DOCS_IN_PRODUCTION=enable_docs_in_production),
+    )
+
+
+async def _docs_statuses(app: FastAPI) -> list[int]:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        return [(await client.get(path)).status_code for path in DOCS_PATHS]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("environment", "enable_docs_in_production", "expected_status"),
+    [
+        (EnvironmentOption.LOCAL, False, 200),
+        (EnvironmentOption.DEVELOPMENT, False, 200),
+        (EnvironmentOption.STAGING, False, 401),
+        (EnvironmentOption.PRODUCTION, False, 404),
+        (EnvironmentOption.PRODUCTION, True, 401),
+    ],
+)
+async def test_docs_access_for_anonymous_requests(environment, enable_docs_in_production, expected_status):
+    app = _create_app(environment, enable_docs_in_production)
+
+    assert await _docs_statuses(app) == [expected_status] * len(DOCS_PATHS)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("environment", "enable_docs_in_production"),
+    [(EnvironmentOption.STAGING, False), (EnvironmentOption.PRODUCTION, True)],
+)
+async def test_gated_docs_are_served_to_superusers(environment, enable_docs_in_production):
+    app = _create_app(environment, enable_docs_in_production)
+    app.dependency_overrides[get_current_superuser] = lambda: {"id": 1, "is_superuser": True}
+
+    assert await _docs_statuses(app) == [200] * len(DOCS_PATHS)

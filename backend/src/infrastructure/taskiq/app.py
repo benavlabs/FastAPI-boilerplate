@@ -6,7 +6,6 @@ from taskiq import AsyncBroker
 from taskiq.events import TaskiqEvents
 from taskiq.state import TaskiqState
 
-from .brokers import default_broker
 from .deps import dispose_taskiq_engine
 
 logger = logging.getLogger(__name__)
@@ -42,6 +41,3 @@ def configure_broker_lifecycle(broker: AsyncBroker) -> None:
     broker.add_middlewares()
     broker.add_event_handler(TaskiqEvents.WORKER_STARTUP, startup_taskiq_worker)
     broker.add_event_handler(TaskiqEvents.WORKER_SHUTDOWN, shutdown_taskiq_worker)
-
-
-configure_broker_lifecycle(default_broker)

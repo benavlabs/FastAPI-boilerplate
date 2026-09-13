@@ -4,10 +4,5 @@ from .session import dispose_engine
 
 
 async def close_database() -> None:
-    """Close all database connections.
-
-    This function should be called during application shutdown to clean up resources.
-    It is a no-op when the engine was never created, so no pool is opened just to be
-    disposed.
-    """
+    """Close all database connections, if the engine was ever created."""
     await dispose_engine()

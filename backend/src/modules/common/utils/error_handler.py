@@ -27,9 +27,15 @@ def _generate_support_id() -> str:
 
 
 def map_exception(error: DomainError) -> HTTPException:
-    """Map a domain exception to a corresponding HTTP exception."""
-    for exception_class, mapper in EXCEPTION_MAPPING.items():
-        if isinstance(error, exception_class):
+    """Map a domain exception to a corresponding HTTP exception.
+
+    Walks the exception's MRO and uses the first exact-type match found in
+    EXCEPTION_MAPPING, so the most specific mapping wins regardless of the
+    order entries appear in the mapping.
+    """
+    for exception_class in type(error).__mro__:
+        mapper = EXCEPTION_MAPPING.get(exception_class)
+        if mapper is not None:
             return mapper(str(error))
 
     logger.error(f"Unmapped domain error: {type(error).__name__}: {error}")

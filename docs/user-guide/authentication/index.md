@@ -226,9 +226,10 @@ The route delegates and the service raises `PermissionDeniedError` (which auto-m
 
 When `ENVIRONMENT=production` and `PRODUCTION_SECURITY_VALIDATION_ENABLED=true` (both default), the app refuses to start if it finds insecure settings:
 
-- Default `SECRET_KEY` value
-- `DEBUG=true`
-- `CORS_ORIGINS=*`
+- Insecure or placeholder `SECRET_KEY`
+- Default or empty database password
+- Admin panel enabled without `ADMIN_USERNAME`/`ADMIN_PASSWORD`
+- `CORS_ORIGINS` empty or containing `*`
 
 `PRODUCTION_SECURITY_STRICT_MODE=true` makes the validator stricter still.
 

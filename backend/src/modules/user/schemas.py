@@ -4,13 +4,14 @@ from typing import Annotated
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 from ..common.schemas import PersistentDeletion, TimestampSchema
+from .constants import NAME_MAX_LENGTH, USERNAME_MAX_LENGTH, USERNAME_PATTERN
 
 
 class UserBase(BaseModel):
-    name: Annotated[str, Field(min_length=2, max_length=30, examples=["User Userson"])]
+    name: Annotated[str, Field(min_length=2, max_length=NAME_MAX_LENGTH, examples=["User Userson"])]
     username: Annotated[
         str,
-        Field(min_length=2, max_length=20, pattern=r"^[a-z0-9]+$", examples=["userson"]),
+        Field(min_length=2, max_length=USERNAME_MAX_LENGTH, pattern=USERNAME_PATTERN, examples=["userson"]),
     ]
     email: Annotated[EmailStr, Field(examples=["user.userson@example.com"])]
 
@@ -41,10 +42,10 @@ class UserRead(BaseModel):
     """Schema for reading user data, excludes sensitive information."""
 
     id: int
-    name: Annotated[str, Field(min_length=2, max_length=30, examples=["User Userson"])]
+    name: Annotated[str, Field(min_length=2, max_length=NAME_MAX_LENGTH, examples=["User Userson"])]
     username: Annotated[
         str,
-        Field(min_length=2, max_length=20, pattern=r"^[a-z0-9]+$", examples=["userson"]),
+        Field(min_length=2, max_length=USERNAME_MAX_LENGTH, pattern=USERNAME_PATTERN, examples=["userson"]),
     ]
     email: Annotated[EmailStr, Field(examples=["user.userson@example.com"])]
     profile_image_url: str
@@ -99,14 +100,14 @@ class UserUpdate(BaseModel):
 
     name: Annotated[
         str | None,
-        Field(min_length=2, max_length=30, examples=["User Userberg"], default=None),
+        Field(min_length=2, max_length=NAME_MAX_LENGTH, examples=["User Userberg"], default=None),
     ]
     username: Annotated[
         str | None,
         Field(
             min_length=2,
-            max_length=20,
-            pattern=r"^[a-z0-9]+$",
+            max_length=USERNAME_MAX_LENGTH,
+            pattern=USERNAME_PATTERN,
             examples=["userberg"],
             default=None,
         ),

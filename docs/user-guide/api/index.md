@@ -189,7 +189,7 @@ What ships out of the box (40 total routes):
 | `GET /api/v1/auth/oauth/google`, `oauth/callback/google` | `infrastructure/auth/routes.py` | Google OAuth |
 | `POST/GET/PATCH/DELETE /api/v1/api-keys/*` | `modules/api_keys/routes.py` | Authenticated key management |
 | `GET /admin/*` | `interfaces/admin/initialize.py` | SQLAdmin UI |
-| `GET /docs`, `/redoc`, `/openapi.json` | FastAPI built-ins | Disabled in production unless `ENABLE_DOCS_IN_PRODUCTION=true` |
+| `GET /docs`, `/redoc`, `/openapi.json` | App factory (protected when gated) | Disabled in production unless `ENABLE_DOCS_IN_PRODUCTION=true`; when enabled in production or running in staging, requires superuser authentication |
 | `GET /health` | App factory | Liveness check |
 
 ## What's Next
