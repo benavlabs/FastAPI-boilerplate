@@ -4,7 +4,7 @@ from fastapi import APIRouter
 from fastcrud import PaginatedListResponse, compute_offset, paginated_response
 
 from ...infrastructure.auth.http_exceptions import DuplicateValueException, HTTPException, NotFoundException
-from ...infrastructure.dependencies import AsyncSessionDep, CurrentSuperUserDep
+from ...infrastructure.dependencies import AsyncSessionDep, CurrentSuperUserDep, CurrentUserDep
 from ..common.exceptions import ResourceExistsError, ResourceNotFoundError
 from ..common.utils.error_handler import handle_exception
 from .dependencies import RateLimitServiceDep
@@ -37,6 +37,7 @@ router = APIRouter(tags=["Rate Limits"])
 )
 async def get_rate_limits(
     db: AsyncSessionDep,
+    _: CurrentUserDep,
     rate_limit_service: RateLimitServiceDep,
     page: int = 1,
     items_per_page: int = 10,
@@ -82,6 +83,7 @@ async def get_rate_limits(
 async def get_rate_limit(
     name: str,
     db: AsyncSessionDep,
+    _: CurrentUserDep,
     rate_limit_service: RateLimitServiceDep,
 ) -> dict[str, Any] | None:
     """

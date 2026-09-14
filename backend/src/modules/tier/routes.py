@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException
 from fastcrud import PaginatedListResponse, compute_offset, paginated_response
 
 from ...infrastructure.auth.http_exceptions import NotFoundException
-from ...infrastructure.dependencies import AsyncSessionDep
+from ...infrastructure.dependencies import AsyncSessionDep, CurrentUserDep
 from ..common.exceptions import TierNotFoundError
 from ..common.utils.error_handler import handle_exception
 from .dependencies import TierServiceDep
@@ -16,6 +16,7 @@ router = APIRouter(tags=["Tiers"])
 @router.get("/", response_model=PaginatedListResponse[TierRead], summary="List tiers")
 async def get_tiers(
     db: AsyncSessionDep,
+    _: CurrentUserDep,
     tier_service: TierServiceDep,
     page: int = 1,
     items_per_page: int = 10,
@@ -39,6 +40,7 @@ async def get_tiers(
 async def get_tier_by_name(
     name: str,
     db: AsyncSessionDep,
+    _: CurrentUserDep,
     tier_service: TierServiceDep,
 ) -> dict[str, Any]:
     """Get a tier by name."""

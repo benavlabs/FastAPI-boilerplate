@@ -128,11 +128,12 @@ async def get_current_user_profile(
 
             Note that usernames are case-sensitive in lookup operations.
             """,
-    responses={404: {"description": "User not found"}},
+    responses={401: {"description": "Not authenticated"}, 404: {"description": "User not found"}},
     response_description="The requested user's profile data",
 )
 async def get_user_by_username(
     username: str,
+    _: CurrentUserDep,
     db: AsyncSessionDep,
     user_service: UserServiceDep,
 ) -> dict[str, Any]:
