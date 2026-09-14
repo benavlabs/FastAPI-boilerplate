@@ -4,6 +4,8 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.modules.common.constants import GENERIC_ERROR_MESSAGE
+
 from .test_create import generate_unique_user_data
 
 logging.basicConfig(level=logging.INFO)
@@ -62,19 +64,17 @@ async def test_soft_delete_wrong_user(
 
     assert response.status_code == 403
     data = response.json()
-    assert "permission" in data["detail"].lower()
+    assert data["detail"] == GENERIC_ERROR_MESSAGE
 
 
 async def test_soft_delete_nonexistent_user(
     auth_client: AsyncClient,
     db_session: AsyncSession,
 ):
-    """Test soft deletion of non-existent user."""
+    """Test that deleting a non-existent user returns 403 (permission is checked first)."""
     response = await auth_client.delete("/api/v1/users/nonexistentuser")
 
-    assert response.status_code == 404
-    data = response.json()
-    assert "not found" in data["detail"].lower()
+    assert response.status_code == 403
 
 
 async def test_permanent_delete_success(
@@ -147,7 +147,7 @@ async def test_permanent_delete_nonexistent_user(
 
     assert response.status_code == 404
     data = response.json()
-    assert "not found" in data["detail"].lower()
+    assert data["detail"] == GENERIC_ERROR_MESSAGE
 
 
 async def test_delete_cascade_effects(

@@ -55,22 +55,21 @@ Re-exported from FastCRUD in `backend/src/infrastructure/auth/http_exceptions.py
 | `HTTPException` | base FastAPI class |
 | `CSRFException` | 403 with `X-CSRF-Error: true` header (defined locally) |
 
-Use these from routes when you have an HTTP-shaped failure and no service involvement:
+Use these from routes when you have an HTTP-shaped failure and no service involvement (domain errors raised by services need no route-level handling — see the mapping layer below):
 
 ```python
-from ...infrastructure.auth.http_exceptions import NotFoundException
+from ...infrastructure.auth.http_exceptions import BadRequestException
 
-@router.get("/{name}", response_model=TierRead)
-async def get_tier_by_name(...):
-    try:
-        return await tier_service.get_by_name(name, db)
-    except TierNotFoundError:
-        raise NotFoundException("Tier not found")
+@router.get("/")
+async def search(q: str | None = None):
+    if q is None:
+        raise BadRequestException("Provide ?q=")
+    # ...
 ```
 
-## The Mapping Layer
+## The Mapping Layer (Centralized)
 
-`modules/common/utils/error_handler.py` ships two ways to bridge domain → HTTP errors:
+`modules/common/utils/error_handler.py` bridges domain → HTTP errors globally.
 
 ### Global Handler (Automatic)
 
@@ -80,13 +79,26 @@ async def get_tier_by_name(...):
 - A catch-all `DomainError` handler → maps to the right HTTP status via `EXCEPTION_MAPPING`, returns a **generic** message + `support_id`. The full details are logged server-side.
 - A `CatchAllErrorMiddleware` that converts truly unhandled exceptions into 500s with a `support_id`
 
-This means: **any uncaught `DomainError` raised in a service automatically becomes a properly-shaped HTTP response.** You don't have to wire it up per-route.
-
-### Manual Handler (Explicit)
-
-Inside route handlers, you can use `handle_exception()` to translate explicitly. This is the convention in the existing routes — it's slightly more verbose but it keeps the error path obvious in code review:
+This means: **any uncaught `DomainError` raised in a service automatically becomes a properly-shaped HTTP response.** Routes do *not* wrap service calls in try/except — they just let exceptions propagate:
 
 ```python
+@router.post("/", response_model=UserRead, status_code=201)
+async def create_user(
+    user: UserCreate,
+    db: AsyncSessionDep,
+    user_service: UserServiceDep,
+) -> dict[str, Any]:
+    return await user_service.create(user, db)
+```
+
+If the service raises `UserExistsError`, the client gets a 409 with a generic message and a `support_id`; anything unexpected becomes a 500 the same way.
+
+### Manual Handler (Rare)
+
+For cases where a route genuinely needs to intercept an exception itself (e.g. to add context or recover), `handle_exception()` is still available:
+
+```python
+from ..common.constants import GENERIC_ERROR_MESSAGE
 from ..common.utils.error_handler import handle_exception
 from ...infrastructure.auth.http_exceptions import HTTPException
 
@@ -103,7 +115,7 @@ async def create_user(
         http_exception = handle_exception(e)
         if http_exception:
             raise http_exception
-        raise HTTPException(status_code=500, detail="An unexpected error occurred")
+        raise HTTPException(status_code=500, detail=GENERIC_ERROR_MESSAGE)
 ```
 
 `handle_exception()`:

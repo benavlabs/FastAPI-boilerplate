@@ -4,6 +4,8 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.modules.common.constants import GENERIC_ERROR_MESSAGE
+
 from .test_create import generate_unique_user_data
 
 logging.basicConfig(level=logging.INFO)
@@ -88,7 +90,7 @@ async def test_update_user_profile_wrong_user(
 
     assert response.status_code == 403
     data = response.json()
-    assert "permission" in data["detail"].lower()
+    assert data["detail"] == GENERIC_ERROR_MESSAGE
 
 
 async def test_update_user_profile_duplicate_email(

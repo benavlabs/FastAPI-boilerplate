@@ -3,13 +3,11 @@ from typing import Any
 from fastapi import APIRouter
 from fastcrud import PaginatedListResponse, compute_offset, paginated_response
 
-from ...infrastructure.auth.http_exceptions import HTTPException
 from ...infrastructure.dependencies import (
     AsyncSessionDep,
     CurrentSuperUserDep,
     CurrentUserDep,
 )
-from ..common.utils.error_handler import handle_exception
 from .dependencies import UserServiceDep
 from .schemas import (
     UserCreate,
@@ -50,13 +48,7 @@ async def create_user(
     user_service: UserServiceDep,
 ) -> dict[str, Any]:
     """Create a new user account."""
-    try:
-        return await user_service.create(user, db)
-    except Exception as e:
-        http_exception = handle_exception(e)
-        if http_exception:
-            raise http_exception
-        raise HTTPException(status_code=500, detail="An unexpected error occurred")
+    return await user_service.create(user, db)
 
 
 @router.get(
@@ -137,16 +129,8 @@ async def get_user_by_username(
     user_service: UserServiceDep,
 ) -> dict[str, Any]:
     """Get user profile by username."""
-    try:
-        user = await user_service.get_by_username(username, db)
-        if user is None:
-            raise HTTPException(status_code=404, detail=f"User with username {username} not found")
-        return user
-    except Exception as e:
-        http_exception = handle_exception(e)
-        if http_exception:
-            raise http_exception
-        raise HTTPException(status_code=500, detail="An unexpected error occurred")
+    user = await user_service.get_by_username(username, db)
+    return user
 
 
 @router.get(
@@ -176,16 +160,7 @@ async def get_active_and_inactive_user_by_username(
     user_service: UserServiceDep,
 ) -> dict[str, Any]:
     """Get active and inactive profile by username."""
-    try:
-        user = await user_service.get_active_and_inactive_by_username(username, db)
-        if user is None:
-            raise HTTPException(status_code=404, detail=f"User with username {username} not found")
-        return user
-    except Exception as e:
-        http_exception = handle_exception(e)
-        if http_exception:
-            raise http_exception
-        raise HTTPException(status_code=500, detail="An unexpected error occurred")
+    return await user_service.get_active_and_inactive_by_username(username, db)
 
 
 @router.patch(
@@ -222,19 +197,11 @@ async def update_user_profile(
     user_service: UserServiceDep,
 ) -> dict[str, str]:
     """Update user profile information."""
-    try:
-        await user_service.verify_user_permission(current_user, username, "update profile")
-        user = await user_service.get_by_username(username, db)
-        if user is None:
-            raise HTTPException(status_code=404, detail=f"User with username {username} not found")
+    await user_service.verify_user_permission(current_user, username, "update profile")
+    user = await user_service.get_by_username(username, db)
 
-        await user_service.update(user["id"], values, db)
-        return {"message": "User updated successfully"}
-    except Exception as e:
-        http_exception = handle_exception(e)
-        if http_exception:
-            raise http_exception
-        raise HTTPException(status_code=500, detail="An unexpected error occurred")
+    await user_service.update(user["id"], values, db)
+    return {"message": "User updated successfully"}
 
 
 @router.delete(
@@ -268,19 +235,11 @@ async def delete_user_account(
     user_service: UserServiceDep,
 ) -> dict[str, str]:
     """Soft delete a user account."""
-    try:
-        user = await user_service.get_by_username(username, db)
-        if user is None:
-            raise HTTPException(status_code=404, detail=f"User with username {username} not found")
+    await user_service.verify_user_permission(current_user, username, "delete this account")
+    user = await user_service.get_by_username(username, db)
 
-        await user_service.verify_user_permission(current_user, username, "delete this account")
-        await user_service.delete(user["id"], db)
-        return {"message": "User account deactivated"}
-    except Exception as e:
-        http_exception = handle_exception(e)
-        if http_exception:
-            raise http_exception
-        raise HTTPException(status_code=500, detail="An unexpected error occurred")
+    await user_service.delete(user["id"], db)
+    return {"message": "User account deactivated"}
 
 
 @router.delete(
@@ -325,17 +284,9 @@ async def gdpr_delete_user(
     _: CurrentSuperUserDep,
 ) -> dict[str, str]:
     """GDPR compliant user anonymization (admin only)."""
-    try:
-        user = await user_service.get_active_and_inactive_by_username(username, db)
-        if user is None:
-            raise HTTPException(status_code=404, detail=f"User with username {username} not found")
-        await user_service.anonymize_user(user["id"], db)
-        return {"message": "User data anonymized in compliance with GDPR"}
-    except Exception as e:
-        http_exception = handle_exception(e)
-        if http_exception:
-            raise http_exception
-        raise HTTPException(status_code=500, detail="An unexpected error occurred")
+    user = await user_service.get_active_and_inactive_by_username(username, db)
+    await user_service.anonymize_user(user["id"], db)
+    return {"message": "User data anonymized in compliance with GDPR"}
 
 
 @router.get(
@@ -369,17 +320,9 @@ async def get_user_rate_limits(
     user_service: UserServiceDep,
 ) -> dict[str, Any]:
     """Get rate limits for a user."""
-    try:
-        await user_service.verify_user_permission(current_user, username, "view rate limits")
-        user = await user_service.get_by_username(username, db)
-        if user is None:
-            raise HTTPException(status_code=404, detail=f"User with username {username} not found")
-        return await user_service.get_rate_limits(user["id"], db)
-    except Exception as e:
-        http_exception = handle_exception(e)
-        if http_exception:
-            raise http_exception
-        raise HTTPException(status_code=500, detail="An unexpected error occurred")
+    await user_service.verify_user_permission(current_user, username, "view rate limits")
+    user = await user_service.get_by_username(username, db)
+    return await user_service.get_rate_limits(user["id"], db)
 
 
 @router.get(
@@ -413,18 +356,10 @@ async def get_user_tier(
     user_service: UserServiceDep,
 ) -> dict[str, Any]:
     """Get detailed tier information for a user."""
-    try:
-        await user_service.verify_user_permission(current_user, username, "view tier information")
+    await user_service.verify_user_permission(current_user, username, "view tier information")
 
-        user = await user_service.get_by_username(username, db)
-        if user is None:
-            raise HTTPException(status_code=404, detail=f"User with username {username} not found")
-        return await user_service.get_user_with_tier(user["id"], db)
-    except Exception as e:
-        http_exception = handle_exception(e)
-        if http_exception:
-            raise http_exception
-        raise HTTPException(status_code=500, detail="An unexpected error occurred")
+    user = await user_service.get_by_username(username, db)
+    return await user_service.get_user_with_tier(user["id"], db)
 
 
 @router.patch(
@@ -458,14 +393,6 @@ async def update_user_tier(
     _: CurrentSuperUserDep,
 ) -> dict[str, str]:
     """Update a user's subscription tier (admin only)."""
-    try:
-        user = await user_service.get_by_username(username, db)
-        if user is None:
-            raise HTTPException(status_code=404, detail=f"User with username {username} not found")
-        await user_service.update_tier(user["id"], values, db)
-        return {"message": "User tier updated successfully"}
-    except Exception as e:
-        http_exception = handle_exception(e)
-        if http_exception:
-            raise http_exception
-        raise HTTPException(status_code=500, detail="An unexpected error occurred")
+    user = await user_service.get_by_username(username, db)
+    await user_service.update_tier(user["id"], values, db)
+    return {"message": "User tier updated successfully"}

@@ -3,10 +3,7 @@ from typing import Any
 from fastapi import APIRouter
 from fastcrud import PaginatedListResponse, compute_offset, paginated_response
 
-from ...infrastructure.auth.http_exceptions import DuplicateValueException, HTTPException, NotFoundException
 from ...infrastructure.dependencies import AsyncSessionDep, CurrentSuperUserDep
-from ..common.exceptions import ResourceExistsError, ResourceNotFoundError
-from ..common.utils.error_handler import handle_exception
 from .dependencies import RateLimitServiceDep
 from .schemas import (
     RateLimitRead,
@@ -45,19 +42,13 @@ async def get_rate_limits(
     Get a paginated list of all rate limits.
     This endpoint is available to all authenticated users.
     """
-    try:
-        rate_limits_data = await rate_limit_service.get_all(
-            db=db,
-            skip=compute_offset(page, items_per_page),
-            limit=items_per_page,
-        )
+    rate_limits_data = await rate_limit_service.get_all(
+        db=db,
+        skip=compute_offset(page, items_per_page),
+        limit=items_per_page,
+    )
 
-        return paginated_response(crud_data=rate_limits_data, page=page, items_per_page=items_per_page)
-    except Exception as e:
-        http_exception = handle_exception(e)
-        if http_exception:
-            raise http_exception
-        raise HTTPException(status_code=500, detail="An unexpected error occurred")
+    return paginated_response(crud_data=rate_limits_data, page=page, items_per_page=items_per_page)
 
 
 @router.get(
@@ -88,16 +79,8 @@ async def get_rate_limit(
     Get detailed information about a specific rate limit by name.
     This endpoint is available to all authenticated users.
     """
-    try:
-        rate_limit = await rate_limit_service.get_by_name(name, db)
-        return rate_limit
-    except ResourceNotFoundError:
-        raise NotFoundException("Rate limit not found")
-    except Exception as e:
-        http_exception = handle_exception(e)
-        if http_exception:
-            raise http_exception
-        raise HTTPException(status_code=500, detail="An unexpected error occurred")
+    rate_limit = await rate_limit_service.get_by_name(name, db)
+    return rate_limit
 
 
 @router.patch(
@@ -139,18 +122,8 @@ async def update_rate_limit(
     Update an existing rate limit.
     This endpoint is restricted to superusers only.
     """
-    try:
-        await rate_limit_service.update(name, values, db)
-        return {"message": "Rate limit updated"}
-    except ResourceNotFoundError:
-        raise NotFoundException("Rate limit not found")
-    except ResourceExistsError:
-        raise DuplicateValueException("Rate limit name already exists")
-    except Exception as e:
-        http_exception = handle_exception(e)
-        if http_exception:
-            raise http_exception
-        raise HTTPException(status_code=500, detail="An unexpected error occurred")
+    await rate_limit_service.update(name, values, db)
+    return {"message": "Rate limit updated"}
 
 
 @router.delete(
@@ -188,13 +161,5 @@ async def delete_rate_limit(
     Delete a rate limit.
     This endpoint is restricted to superusers only.
     """
-    try:
-        await rate_limit_service.delete(name, db)
-        return {"message": "Rate limit deleted"}
-    except ResourceNotFoundError:
-        raise NotFoundException("Rate limit not found")
-    except Exception as e:
-        http_exception = handle_exception(e)
-        if http_exception:
-            raise http_exception
-        raise HTTPException(status_code=500, detail="An unexpected error occurred")
+    await rate_limit_service.delete(name, db)
+    return {"message": "Rate limit deleted"}
