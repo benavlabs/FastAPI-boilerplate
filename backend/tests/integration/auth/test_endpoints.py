@@ -15,6 +15,7 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.infrastructure.auth.dependencies import get_optional_principal
+from src.infrastructure.auth.setup import auth as crud_auth
 from src.interfaces.main import app
 from src.modules.user.models import User
 
@@ -275,6 +276,86 @@ async def test_logout_without_csrf_token_rejected(client: AsyncClient, test_user
 
     # POST without the X-CSRF-Token header → crudauth CSRF guard rejects with 403.
     response = await client.post("/api/v1/auth/logout")
+    assert response.status_code == 403
+
+
+async def _clear_sessions(user: dict) -> None:
+    """Drop sessions left for this user id by earlier tests.
+
+    crudauth's in-memory session store lives for the whole test run, while each test's
+    fresh database hands ``test_user`` the same id, so leftovers would skew the counts.
+    """
+    await crud_auth.sessions.revoke_all(user["id"])
+
+
+async def _login(client: AsyncClient, user: dict) -> tuple[str, str]:
+    """Log in and return the new session's ``(session_id, csrf_token)``."""
+    response = await client.post(
+        "/api/v1/auth/login",
+        data={"username": user["username"], "password": user["password"]},
+    )
+    assert response.status_code == 200
+    return response.cookies["session_id"], response.json()["csrf_token"]
+
+
+async def _is_authenticated(client: AsyncClient, session_id: str | None = None) -> bool:
+    """check-auth as the client's current session, or as ``session_id`` when given."""
+    if session_id is not None:
+        client.cookies.clear()
+        client.cookies.set("session_id", session_id)
+    response = await client.get("/api/v1/auth/check-auth")
+    assert response.status_code == 200
+    return response.json()["authenticated"]
+
+
+@pytest.mark.asyncio
+async def test_logout_all_terminates_every_session(client: AsyncClient, test_user: dict):
+    """logout-all revokes every session of the user (not just the caller's) and clears cookies."""
+    await _clear_sessions(test_user)
+    first_session_id, _ = await _login(client, test_user)
+    _, csrf_token = await _login(client, test_user)
+
+    response = await client.post("/api/v1/auth/logout-all", headers={"X-CSRF-Token": csrf_token})
+
+    assert response.status_code == 200
+    assert response.json()["terminated_count"] == 2
+    assert any(c.startswith("session_id=") for c in response.headers.get_list("set-cookie"))
+    assert await _is_authenticated(client, first_session_id) is False
+
+
+@pytest.mark.asyncio
+async def test_logout_all_keep_current_spares_calling_session(client: AsyncClient, test_user: dict):
+    """keep_current=true revokes the other sessions but keeps the caller's session and cookies."""
+    await _clear_sessions(test_user)
+    first_session_id, _ = await _login(client, test_user)
+    _, csrf_token = await _login(client, test_user)
+
+    response = await client.post(
+        "/api/v1/auth/logout-all",
+        params={"keep_current": "true"},
+        headers={"X-CSRF-Token": csrf_token},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["terminated_count"] == 1
+    assert not any(c.startswith("session_id=") for c in response.headers.get_list("set-cookie"))
+    assert await _is_authenticated(client) is True
+    assert await _is_authenticated(client, first_session_id) is False
+
+
+@pytest.mark.asyncio
+async def test_logout_all_unauthenticated_returns_401(client: AsyncClient):
+    """logout-all with no session is rejected."""
+    response = await client.post("/api/v1/auth/logout-all")
+    assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_logout_all_without_csrf_token_rejected(client: AsyncClient, test_user: dict):
+    """A logged-in session can't log out everywhere without the CSRF header (403)."""
+    await _login(client, test_user)
+
+    response = await client.post("/api/v1/auth/logout-all")
     assert response.status_code == 403
 
 
