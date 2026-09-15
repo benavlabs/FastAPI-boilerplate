@@ -1,7 +1,8 @@
+import re
 from datetime import datetime
 from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 from ..common.schemas import PersistentDeletion, TimestampSchema
 from .constants import NAME_MAX_LENGTH, USERNAME_MAX_LENGTH, USERNAME_PATTERN
@@ -68,7 +69,6 @@ class UserCreate(UserBase):
                 "uppercase letter, lowercase letter, and special character"
             ),
             examples=["Str1ngst!"],
-            pattern=r"^.{8,}|[0-9]+|[A-Z]+|[a-z]+|[^a-zA-Z0-9]+$",
         ),
     ]
     google_id: str | None = None
@@ -77,6 +77,23 @@ class UserCreate(UserBase):
     email_verified: bool = False
     oauth_created_at: datetime | None = None
     oauth_updated_at: datetime | None = None
+
+    @field_validator("password")
+    def validate_password_strength(cls, v: str) -> str:
+        """Validate the password includes every character class in the description."""
+        if not re.search(r"[a-z]", v):
+            raise ValueError("Password must include at least one lowercase letter")
+
+        if not re.search(r"[A-Z]", v):
+            raise ValueError("Password must include at least one uppercase letter")
+
+        if not re.search(r"[0-9]", v):
+            raise ValueError("Password must include at least one number")
+
+        if not re.search(r"[^a-zA-Z0-9]", v):
+            raise ValueError("Password must include at least one special character")
+
+        return v
 
     model_config = ConfigDict(extra="forbid")
 
