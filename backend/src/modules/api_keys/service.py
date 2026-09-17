@@ -450,8 +450,6 @@ class APIKeyService:
 
         since_date = datetime.now(UTC) - timedelta(days=days)
 
-        # Aggregated in SQL rather than fetched and looped in Python: get_multi caps at
-        # FastCRUD's default page size (100 rows), which silently truncated every metric.
         in_window = (KeyUsage.api_key_id == key_id, KeyUsage.created_at >= since_date)
         successful = func.count().filter(KeyUsage.status_code.between(200, 299))
         tokens = func.coalesce(func.sum(KeyUsage.tokens_used), 0)
@@ -529,26 +527,43 @@ class APIKeyService:
         total_requests = total_requests_result if isinstance(total_requests_result, int) else 0
 
         total_cost = await self.sum_user_usage_cost(user_id=user_id, db=db)
+        total_keys, active_keys = await self.count_user_api_keys(user_id=user_id, db=db)
 
         return {
             "user_id": user_id,
-            "total_keys": len(keys_data),
-            "active_keys": len([k for k in keys_data if isinstance(k, dict) and k.get("is_active")]),
+            "total_keys": total_keys,
+            "active_keys": active_keys,
             "total_requests": total_requests,
             "total_cost_microcents": total_cost,
             "keys": keys_data,
         }
 
     async def sum_user_usage_cost(self, user_id: int, db: AsyncSession) -> int:
-        """Return total ``cost_microcents`` across all of a user's key-usage records.
+        """Total ``cost_microcents`` across every key-usage record of a user.
 
-        Replaces a fetch-all + Python-loop sum that silently capped at FastCRUD's
-        default page size (100 rows), under-reporting cost for any active user.
-        Single query, single round-trip. coalesce(..., 0) covers the no-usage
-        case (SUM returns NULL otherwise).
+        Args:
+            user_id: User ID
+            db: Database session
+
+        Returns:
+            The summed cost, ``0`` when the user has no usage.
         """
         stmt = select(func.coalesce(func.sum(KeyUsage.cost_microcents), 0)).where(KeyUsage.user_id == user_id)
         return int((await db.execute(stmt)).scalar_one() or 0)
+
+    async def count_user_api_keys(self, user_id: int, db: AsyncSession) -> tuple[int, int]:
+        """Count a user's API keys, in total and active only.
+
+        Args:
+            user_id: User ID
+            db: Database session
+
+        Returns:
+            ``(total_keys, active_keys)``.
+        """
+        stmt = select(func.count(), func.count().filter(APIKey.is_active)).where(APIKey.user_id == user_id)
+        total, active = (await db.execute(stmt)).one()
+        return int(total), int(active)
 
     async def _check_permission(
         self,

@@ -496,6 +496,28 @@ async def test_get_usage_analytics_not_page_capped(api_key_service, db_session: 
 
 
 @pytest.mark.asyncio
+async def test_user_summary_key_counts_not_page_capped(api_key_service, db_session: AsyncSession, test_user: dict):
+    """Key counts are SQL counts, so they are not capped at the key page size.
+
+    ``get_user_api_keys`` returns at most 50 keys, which used to be counted in
+    Python: a user with more keys saw exactly 50 for both totals. The ``keys``
+    list stays a page; the counts describe everything the user has.
+    """
+    for index in range(55):
+        await api_key_service.create_api_key(
+            user_id=test_user["id"], key_data=APIKeyCreate(name=f"Key {index}"), db=db_session
+        )
+    created = await api_key_service.get_user_api_keys(user_id=test_user["id"], db=db_session, active_only=False)
+    await api_key_service.delete_api_key(key_id=created["data"][0]["id"], user_id=test_user["id"], db=db_session)
+
+    summary = await api_key_service.get_user_summary(user_id=test_user["id"], db=db_session)
+
+    assert summary["total_keys"] == 55
+    assert summary["active_keys"] == 54
+    assert len(summary["keys"]) == 50
+
+
+@pytest.mark.asyncio
 async def test_api_key_hash_roundtrip(api_key_service):
     """Hashing produces a fresh salt each call; verifying must still succeed."""
     test_key = "fai_test_key_12345"
