@@ -185,7 +185,7 @@ What ships out of the box (40 total routes):
 | `POST/GET/PATCH/DELETE /api/v1/users/*` | `modules/user/routes.py` | Open create, session/superuser-gated reads/updates |
 | `GET /api/v1/tiers/*` | `modules/tier/routes.py` | Public list + lookup by name |
 | `GET/PATCH/DELETE /api/v1/rate-limits/*` | `modules/rate_limit/routes.py` | List/get public; PATCH/DELETE require superuser |
-| `POST /api/v1/auth/login`, `logout`, `refresh-csrf`, `check-auth` | `infrastructure/auth/routes.py` | Session auth |
+| `POST /api/v1/auth/login`, `logout`, `logout-all`, `refresh-csrf`, `check-auth` | `infrastructure/auth/routes.py` | Session auth |
 | `GET /api/v1/auth/oauth/google`, `oauth/callback/google` | `infrastructure/auth/routes.py` | Google OAuth |
 | `POST/GET/PATCH/DELETE /api/v1/api-keys/*` | `modules/api_keys/routes.py` | Authenticated key management |
 | `GET /admin/*` | `interfaces/admin/initialize.py` | SQLAdmin UI |

@@ -4,6 +4,7 @@ from urllib.parse import urlsplit
 from crudauth import Principal
 from crudauth.exceptions import UnauthorizedException
 from crudauth.oauth import OAuthState
+from crudauth.ratelimit import KeyBy
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import RedirectResponse
 
@@ -107,6 +108,43 @@ async def logout(
     crud_auth.sessions.clear_session_cookies(response)
 
     return {"message": "Logged out successfully"}
+
+
+@router.post(
+    "/logout-all",
+    summary="Logout All Sessions",
+    description="""
+            Terminates every active session for the current user, across all devices.
+
+            Use this to "log out everywhere" after a suspected compromise. By default it
+            invalidates every session the user holds, including the one making the
+            request, and clears the current client's cookies.
+
+            Pass keep_current=true to keep the calling session and sign out only the
+            other devices.
+            """,
+    responses={
+        200: {"description": "Sessions terminated"},
+        401: {"description": "Not authenticated"},
+        429: {"description": "Too many requests, try again later"},
+    },
+    response_description="Confirmation with the number of sessions terminated",
+    dependencies=[Depends(crud_auth.rate_limit("logout_all", key=KeyBy.USER))],
+)
+async def logout_all(
+    response: Response,
+    principal: Annotated[Principal, Depends(get_current_principal)],
+    keep_current: bool = Query(False, description="Keep the calling session and sign out every other device"),
+) -> dict[str, Any]:
+    """Terminate the current user's sessions (CSRF-protected); ``keep_current`` spares the calling one."""
+    spared_session_id = principal.metadata.get("session_id") if keep_current else None
+    terminated = await crud_auth.sessions.revoke_all(principal.user_id, exclude=spared_session_id)
+    if spared_session_id:
+        return {"message": "All other sessions terminated.", "terminated_count": terminated}
+
+    crud_auth.sessions.clear_session_cookies(response)
+
+    return {"message": "All sessions terminated. Please log in again.", "terminated_count": terminated}
 
 
 @router.post(
