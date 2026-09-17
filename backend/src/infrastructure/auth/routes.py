@@ -137,9 +137,9 @@ async def logout_all(
     keep_current: bool = Query(False, description="Keep the calling session and sign out every other device"),
 ) -> dict[str, Any]:
     """Terminate the current user's sessions (CSRF-protected); ``keep_current`` spares the calling one."""
-    current_session_id = principal.metadata.get("session_id")
-    terminated = await crud_auth.sessions.revoke_all(principal.user_id, exclude=current_session_id if keep_current else None)
-    if keep_current:
+    spared_session_id = principal.metadata.get("session_id") if keep_current else None
+    terminated = await crud_auth.sessions.revoke_all(principal.user_id, exclude=spared_session_id)
+    if spared_session_id:
         return {"message": "All other sessions terminated.", "terminated_count": terminated}
 
     crud_auth.sessions.clear_session_cookies(response)
