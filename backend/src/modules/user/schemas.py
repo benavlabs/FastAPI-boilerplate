@@ -43,6 +43,24 @@ class User(TimestampSchema, UserBase, PersistentDeletion):
     oauth_updated_at: datetime | None = None
 
 
+class UserProfileRead(BaseModel):
+    """Another user's profile: the fields any signed-in user may see.
+
+    No email address, so looking someone up by username can't be used to collect
+    addresses. The owner reads their own record through ``/users/me``, and a
+    superuser through the list and active-and-inactive endpoints.
+    """
+
+    id: int
+    name: Annotated[str, Field(min_length=2, max_length=30, examples=["User Userson"])]
+    username: Annotated[
+        str,
+        Field(min_length=2, max_length=20, pattern=r"^[a-z0-9]+$", examples=["userson"]),
+    ]
+    profile_image_url: str
+    tier_id: int | None = None
+
+
 class UserRead(BaseModel):
     """Schema for reading user data, excludes sensitive information."""
 

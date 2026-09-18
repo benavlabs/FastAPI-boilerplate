@@ -32,11 +32,15 @@ router = APIRouter(tags=["Rate Limits"])
 
            Results are paginated to handle systems with many rate limit configurations.
            """,
-    responses={401: {"description": "Not authenticated"}},
+    responses={
+        401: {"description": "Not authenticated"},
+        403: {"description": "Not a superuser"},
+    },
     response_description="A paginated list of rate limits with their configuration details",
 )
 async def get_rate_limits(
     db: AsyncSessionDep,
+    _: CurrentSuperUserDep,
     rate_limit_service: RateLimitServiceDep,
     page: int = 1,
     items_per_page: int = 10,
@@ -76,12 +80,17 @@ async def get_rate_limits(
 
            Rate limit names are typically in the format of `path:limit:period`.
            """,
-    responses={401: {"description": "Not authenticated"}, 404: {"description": "Rate limit not found"}},
+    responses={
+        401: {"description": "Not authenticated"},
+        403: {"description": "Not a superuser"},
+        404: {"description": "Rate limit not found"},
+    },
     response_description="Detailed configuration of the requested rate limit",
 )
 async def get_rate_limit(
     name: str,
     db: AsyncSessionDep,
+    _: CurrentSuperUserDep,
     rate_limit_service: RateLimitServiceDep,
 ) -> dict[str, Any] | None:
     """

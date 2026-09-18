@@ -182,9 +182,9 @@ What ships out of the box (40 total routes):
 
 | Prefix | Source | Notes |
 |--------|--------|-------|
-| `POST/GET/PATCH/DELETE /api/v1/users/*` | `modules/user/routes.py` | Open create, session/superuser-gated reads/updates |
-| `GET /api/v1/tiers/*` | `modules/tier/routes.py` | Public list + lookup by name |
-| `GET/PATCH/DELETE /api/v1/rate-limits/*` | `modules/rate_limit/routes.py` | List/get public; PATCH/DELETE require superuser |
+| `POST/GET/PATCH/DELETE /api/v1/users/*` | `modules/user/routes.py` | Open create; reads/updates need a session, and a lookup by username returns no email |
+| `GET /api/v1/tiers/*` | `modules/tier/routes.py` | Authenticated list + lookup by name |
+| `GET/PATCH/DELETE /api/v1/rate-limits/*` | `modules/rate_limit/routes.py` | Superuser only |
 | `POST /api/v1/auth/login`, `logout`, `logout-all`, `refresh-csrf`, `check-auth` | `infrastructure/auth/routes.py` | Session auth |
 | `GET /api/v1/auth/oauth/google`, `oauth/callback/google` | `infrastructure/auth/routes.py` | Google OAuth |
 | `POST/GET/PATCH/DELETE /api/v1/api-keys/*` | `modules/api_keys/routes.py` | Authenticated key management |

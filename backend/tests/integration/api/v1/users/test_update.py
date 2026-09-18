@@ -4,6 +4,8 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.modules.user.models import User
+
 from .test_create import generate_unique_user_data
 
 logging.basicConfig(level=logging.INFO)
@@ -35,11 +37,10 @@ async def test_update_user_profile_success(
     assert "message" in data
     assert data["message"] == "User updated successfully"
 
-    get_response = await auth_client.get(f"/api/v1/users/{username}")
-    assert get_response.status_code == 200
-    user_data = get_response.json()
-    assert user_data["name"] == update_data["name"]
-    assert user_data["email"] == update_data["email"]
+    stored = await db_session.get(User, test_user["id"])
+    await db_session.refresh(stored)
+    assert stored.name == update_data["name"]
+    assert stored.email == update_data["email"]
 
 
 async def test_update_user_profile_invalid_email(
