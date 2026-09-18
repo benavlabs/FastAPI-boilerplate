@@ -151,14 +151,14 @@ TASKIQ_MAX_TASKS_PER_WORKER=1000
 
 ```env
 CORS_ENABLED=true
-CORS_ORIGINS=*                  # comma-separated list of origins
+CORS_ORIGINS=http://localhost:3000,http://localhost:5173  # comma-separated list of origins
 CORS_ALLOW_CREDENTIALS=true
 CORS_ALLOW_METHODS=*
 CORS_ALLOW_HEADERS=*
 ```
 
 !!! danger "CORS in Production"
-    Never use `*` for `CORS_ORIGINS` in production. Specify exact domains:
+    Never use `*` for `CORS_ORIGINS` in production: any website could call the API from your users' browsers, and with `CORS_ALLOW_CREDENTIALS=true` those requests carry their session cookie. The production security validator refuses to start with it. Specify exact domains:
     ```env
     CORS_ORIGINS=https://yourapp.com,https://www.yourapp.com
     CORS_ALLOW_METHODS=GET,POST,PUT,DELETE,PATCH
@@ -175,9 +175,11 @@ GZIP_MINIMUM_SIZE=1000
 ### API Docs
 
 ```env
-ENABLE_DOCS_IN_PRODUCTION=false  # serve /docs even when ENVIRONMENT=production
+ENABLE_DOCS_IN_PRODUCTION=false  # serve /docs even when ENVIRONMENT=production (superuser-only)
 OPENAPI_PREFIX=                   # path prefix for the OpenAPI schema
 ```
+
+When docs are served outside development (staging, or production with `ENABLE_DOCS_IN_PRODUCTION=true`), the built-in FastAPI docs routes are not registered — `/docs`, `/redoc`, and `/openapi.json` are only reachable through the app's own routes, which require superuser authentication.
 
 ## Authentication & Security
 
@@ -203,6 +205,8 @@ SESSION_CLEANUP_INTERVAL_MINUTES=15
 MAX_SESSIONS_PER_USER=5
 SESSION_SECURE_COOKIES=true
 SESSION_BACKEND=redis            # redis | memory
+SESSION_REDIS_DB=2               # on the cache Redis, apart from the cache DB so a flush won't log users out
+# SESSION_REDIS_URL=             # optional dedicated session Redis, e.g. rediss://user:password@host:6380/0
 
 # Number of trusted reverse proxies in front of the app. crudauth uses this to
 # resolve the real client IP (from X-Forwarded-For) for login lockout.

@@ -3,22 +3,40 @@
 from collections.abc import AsyncGenerator
 from typing import Annotated
 
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from sqlalchemy.pool import NullPool
 from taskiq import TaskiqDepends
 
-from ..config import get_settings
+from ..database.session import build_engine
 
-settings = get_settings()
+_engine: AsyncEngine | None = None
+_session_factory: async_sessionmaker[AsyncSession] | None = None
 
-taskiq_engine = create_async_engine(
-    settings.DATABASE_URL,
-    echo=False,
-    future=True,
-    poolclass=NullPool,
-)
 
-taskiq_session_factory = async_sessionmaker(bind=taskiq_engine, class_=AsyncSession, expire_on_commit=False)
+def get_taskiq_engine() -> AsyncEngine:
+    """Return the worker's ``NullPool`` engine, creating it on first use."""
+    global _engine
+    if _engine is None:
+        _engine = build_engine(poolclass=NullPool)
+
+    return _engine
+
+
+def get_taskiq_session_factory() -> async_sessionmaker[AsyncSession]:
+    """Return the session factory bound to the worker's engine."""
+    global _session_factory
+    if _session_factory is None:
+        _session_factory = async_sessionmaker(bind=get_taskiq_engine(), class_=AsyncSession, expire_on_commit=False)
+
+    return _session_factory
+
+
+async def dispose_taskiq_engine() -> None:
+    """Close the worker engine's connections, if the engine was ever created."""
+    if _engine is None:
+        return
+
+    await _engine.dispose()
 
 
 async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
@@ -30,7 +48,7 @@ async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
     Yields:
         AsyncSession: Database session configured for taskiq usage.
     """
-    async with taskiq_session_factory() as session:
+    async with get_taskiq_session_factory()() as session:
         try:
             yield session
         finally:

@@ -24,10 +24,10 @@ Don't reach for a task when the operation needs to surface a result to the user 
 backend/src/infrastructure/taskiq/
 ├── __init__.py        Exports default_broker, DBSession, register_task, task_registry
 ├── brokers.py         Builds the Redis or RabbitMQ broker from settings
-├── app.py             Wires WORKER_STARTUP / WORKER_SHUTDOWN logging hooks
+├── app.py             WORKER_STARTUP / WORKER_SHUTDOWN handlers (logging, engine disposal)
 ├── deps.py            DBSession dependency (TaskiqDepends-wrapped AsyncSession)
 ├── registry.py        Tiny in-process registry for monitoring
-└── worker.py          Worker entry point: `default_broker`
+└── worker.py          Worker entry point: registers the handlers on `default_broker`
 ```
 
 Importantly: **no example task ships in the boilerplate.** The infrastructure is wired up; the modules are yours to add. `register_task` and `task_registry` are available for your own bookkeeping but are optional.
@@ -59,7 +59,7 @@ TASKIQ_WORKER_CONCURRENCY=2
 TASKIQ_MAX_TASKS_PER_WORKER=1000
 ```
 
-The default `TASKIQ_REDIS_DB=3` keeps Taskiq isolated from Cache and Session (DB 0, shared) and the Rate Limiter (DB 1) — so `redis-cli FLUSHDB` on one doesn't trash the others.
+The default `TASKIQ_REDIS_DB=3` keeps Taskiq isolated from the Cache (DB 0), the Rate Limiter (DB 1), and Sessions (DB 2) — so `redis-cli FLUSHDB` on one doesn't trash the others.
 
 If you pick `TASKIQ_BROKER_TYPE=rabbitmq`, install the optional broker:
 
@@ -186,14 +186,19 @@ Helpful in development. Don't run with `--reload` in production.
 
 ## Worker Lifecycle Hooks
 
-The boilerplate already wires Taskiq's `WORKER_STARTUP` and `WORKER_SHUTDOWN` events for logging in `infrastructure/taskiq/app.py`:
+The worker entry point registers Taskiq's `WORKER_STARTUP` and `WORKER_SHUTDOWN` handlers from `infrastructure/taskiq/app.py`:
 
 ```python
-broker.add_event_handler(TaskiqEvents.WORKER_STARTUP, startup_taskiq_worker)
-broker.add_event_handler(TaskiqEvents.WORKER_SHUTDOWN, shutdown_taskiq_worker)
+# backend/src/infrastructure/taskiq/worker.py
+from .app import configure_broker_lifecycle
+from .brokers import default_broker
+
+configure_broker_lifecycle(default_broker)
 ```
 
-You can register additional handlers in your own setup — initialize a third-party SDK, prime an in-memory cache, push a metrics counter on shutdown, etc.
+The shutdown handler disposes the worker's `NullPool` engine. Registration happens only in `worker.py`, so the API process, which imports `default_broker` just to enqueue tasks, never runs worker handlers.
+
+Register additional handlers in `worker.py` or in a module it imports: initialize a third-party SDK, prime an in-memory cache, push a metrics counter on shutdown, etc.
 
 ```python
 from taskiq import TaskiqEvents
@@ -224,7 +229,7 @@ from infrastructure.taskiq import default_broker
 default_broker.add_middlewares(SimpleRetryMiddleware(default_retry_count=3))
 ```
 
-Add this in your bootstrap (alongside the existing `configure_broker_lifecycle` call). With the middleware loaded, you can mark individual tasks for retry:
+Add this in `infrastructure/taskiq/worker.py`, next to the `configure_broker_lifecycle` call. With the middleware loaded, you can mark individual tasks for retry:
 
 ```python
 @default_broker.task(retry_on_error=True, max_retries=3)

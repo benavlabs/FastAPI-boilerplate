@@ -1,16 +1,22 @@
 from datetime import datetime
 from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 from ..common.schemas import PersistentDeletion, TimestampSchema
+from .constants import (
+    NAME_MAX_LENGTH,
+    PASSWORD_CHARACTER_CLASSES,
+    USERNAME_MAX_LENGTH,
+    USERNAME_PATTERN,
+)
 
 
 class UserBase(BaseModel):
-    name: Annotated[str, Field(min_length=2, max_length=30, examples=["User Userson"])]
+    name: Annotated[str, Field(min_length=2, max_length=NAME_MAX_LENGTH, examples=["User Userson"])]
     username: Annotated[
         str,
-        Field(min_length=2, max_length=20, pattern=r"^[a-z0-9]+$", examples=["userson"]),
+        Field(min_length=2, max_length=USERNAME_MAX_LENGTH, pattern=USERNAME_PATTERN, examples=["userson"]),
     ]
     email: Annotated[EmailStr, Field(examples=["user.userson@example.com"])]
 
@@ -59,10 +65,10 @@ class UserRead(BaseModel):
     """Schema for reading user data, excludes sensitive information."""
 
     id: int
-    name: Annotated[str, Field(min_length=2, max_length=30, examples=["User Userson"])]
+    name: Annotated[str, Field(min_length=2, max_length=NAME_MAX_LENGTH, examples=["User Userson"])]
     username: Annotated[
         str,
-        Field(min_length=2, max_length=20, pattern=r"^[a-z0-9]+$", examples=["userson"]),
+        Field(min_length=2, max_length=USERNAME_MAX_LENGTH, pattern=USERNAME_PATTERN, examples=["userson"]),
     ]
     email: Annotated[EmailStr, Field(examples=["user.userson@example.com"])]
     profile_image_url: str
@@ -85,7 +91,6 @@ class UserCreate(UserBase):
                 "uppercase letter, lowercase letter, and special character"
             ),
             examples=["Str1ngst!"],
-            pattern=r"^.{8,}|[0-9]+|[A-Z]+|[a-z]+|[^a-zA-Z0-9]+$",
         ),
     ]
     google_id: str | None = None
@@ -94,6 +99,20 @@ class UserCreate(UserBase):
     email_verified: bool = False
     oauth_created_at: datetime | None = None
     oauth_updated_at: datetime | None = None
+
+    @field_validator("password")
+    def validate_password_strength(cls, v: str) -> str:
+        """Require a lowercase letter, an uppercase letter, a number and a special character.
+
+        Classification is Unicode-aware: a Cyrillic password has lowercase
+        letters, and an accented letter counts as a letter, not as a special
+        character.
+        """
+        for label, has_class in PASSWORD_CHARACTER_CLASSES:
+            if not any(has_class(character) for character in v):
+                raise ValueError(f"Password must include at least one {label}")
+
+        return v
 
     model_config = ConfigDict(extra="forbid")
 
@@ -117,14 +136,14 @@ class UserUpdate(BaseModel):
 
     name: Annotated[
         str | None,
-        Field(min_length=2, max_length=30, examples=["User Userberg"], default=None),
+        Field(min_length=2, max_length=NAME_MAX_LENGTH, examples=["User Userberg"], default=None),
     ]
     username: Annotated[
         str | None,
         Field(
             min_length=2,
-            max_length=20,
-            pattern=r"^[a-z0-9]+$",
+            max_length=USERNAME_MAX_LENGTH,
+            pattern=USERNAME_PATTERN,
             examples=["userberg"],
             default=None,
         ),

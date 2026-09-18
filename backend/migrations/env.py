@@ -59,11 +59,7 @@ def import_models(package_name):
     """Automatically import all models from a package and its subpackages."""
     package = importlib.import_module(package_name)
     for _, module_name, _ in pkgutil.walk_packages(package.__path__, package.__name__ + "."):
-        try:
-            importlib.import_module(module_name)
-        except ImportError:
-            # Skip modules that can't be imported (e.g., due to missing dependencies)
-            pass
+        importlib.import_module(module_name)
 
 
 # Import all models to ensure they're registered with SQLAlchemy

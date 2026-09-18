@@ -89,6 +89,46 @@ class TestSettings:
             assert ":memory:" in settings.SQLITE_URI
 
 
+class TestSessionSettings:
+    """Test cases for session storage settings."""
+
+    def test_session_redis_db_defaults_apart_from_other_services(self):
+        """Sessions default to a Redis DB no other service uses."""
+        settings = Settings()
+
+        assert settings.SESSION_REDIS_DB == 2
+        other_dbs = {settings.CACHE_REDIS_DB, settings.RATE_LIMITER_REDIS_DB, settings.TASKIQ_REDIS_DB}
+        assert settings.SESSION_REDIS_DB not in other_dbs
+
+    def test_session_redis_url_defaults_to_cache_connection(self):
+        """Without SESSION_REDIS_URL, sessions use the cache Redis connection on SESSION_REDIS_DB."""
+        settings = Settings()
+
+        assert settings.SESSION_REDIS_URL == "redis://localhost:6379/2"
+
+    @patch.dict(
+        os.environ,
+        {
+            "CACHE_REDIS_HOST": "redis-host",
+            "CACHE_REDIS_PORT": "6380",
+            "CACHE_REDIS_PASSWORD": "p@ss/word",
+            "SESSION_REDIS_DB": "7",
+        },
+    )
+    def test_session_redis_url_follows_cache_connection_with_encoded_password(self):
+        """The cache password is URL-encoded so reserved characters don't break the session URL."""
+        settings = Settings()
+
+        assert settings.SESSION_REDIS_URL == "redis://:p%40ss%2Fword@redis-host:6380/7"
+
+    @patch.dict(os.environ, {"SESSION_REDIS_URL": "rediss://default:secret@sessions.example.com:6380/0"})
+    def test_session_redis_url_override_takes_precedence(self):
+        """SESSION_REDIS_URL replaces the cache connection, for TLS or a dedicated instance."""
+        settings = Settings()
+
+        assert settings.SESSION_REDIS_URL == "rediss://default:secret@sessions.example.com:6380/0"
+
+
 class TestTaskiqSettings:
     """Test cases for Taskiq configuration settings."""
 

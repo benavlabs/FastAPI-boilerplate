@@ -68,7 +68,7 @@ class User(Base, TimestampMixin, SoftDeleteMixin):
     __tablename__ = "user"
 
     id: Mapped[int] = mapped_column(primary_key=True, init=False)
-    username: Mapped[str] = mapped_column(String(20), unique=True, index=True)
+    username: Mapped[str] = mapped_column(String(32), unique=True, index=True)
     email: Mapped[str] = mapped_column(String(50), unique=True, index=True)
     hashed_password: Mapped[str] = mapped_column(String(100))
 ```
@@ -90,7 +90,7 @@ from pydantic import BaseModel, EmailStr, Field
 
 class UserCreate(BaseModel):
     name: str = Field(min_length=2, max_length=30)
-    username: str = Field(min_length=2, max_length=20)
+    username: str = Field(min_length=2, max_length=32)
     email: EmailStr
     password: str = Field(min_length=8)
 
@@ -190,6 +190,8 @@ async def async_session() -> AsyncGenerator[AsyncSession, None]:
         yield db
 ```
 
+The engine is created on first use by `get_engine()`, not at import time. `local_session()` opens a session on it, and `close_database()` (in `infrastructure/database/initialize.py`) disposes it. The app lifespan calls `close_database()` on shutdown. Standalone scripts that open sessions should call it before exiting.
+
 Use it in routes via FastAPI's `Depends`:
 
 ```python
@@ -242,7 +244,7 @@ Each feature owns its data stack:
 backend/src/
 ├── infrastructure/
 │   └── database/
-│       ├── session.py        # engine, async_session dep, Base class, create_tables
+│       ├── session.py        # get_engine, local_session, async_session dep, Base class, create_tables
 │       └── models.py         # TimestampMixin, SoftDeleteMixin, UUIDMixin
 └── modules/
     ├── user/

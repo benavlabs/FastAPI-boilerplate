@@ -45,6 +45,7 @@ from typing import Annotated
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 from ..common.schemas import PersistentDeletion, TimestampSchema
+from .constants import USERNAME_MAX_LENGTH, USERNAME_PATTERN
 
 
 # Common fields shared by create/update/full-record
@@ -52,7 +53,7 @@ class UserBase(BaseModel):
     name: Annotated[str, Field(min_length=2, max_length=30, examples=["User Userson"])]
     username: Annotated[
         str,
-        Field(min_length=2, max_length=20, pattern=r"^[a-z0-9]+$", examples=["userson"]),
+        Field(min_length=2, max_length=USERNAME_MAX_LENGTH, pattern=USERNAME_PATTERN, examples=["userson"]),
     ]
     email: Annotated[EmailStr, Field(examples=["user.userson@example.com"])]
 
@@ -75,7 +76,7 @@ class User(TimestampSchema, UserBase, PersistentDeletion):
 class UserRead(BaseModel):
     id: int
     name: Annotated[str, Field(min_length=2, max_length=30)]
-    username: Annotated[str, Field(min_length=2, max_length=20, pattern=r"^[a-z0-9]+$")]
+    username: Annotated[str, Field(min_length=2, max_length=USERNAME_MAX_LENGTH, pattern=USERNAME_PATTERN)]
     email: EmailStr
     profile_image_url: str
     is_deleted: bool = False
@@ -98,9 +99,15 @@ class UserCreate(UserBase):
                 "uppercase letter, lowercase letter, and special character"
             ),
             examples=["Str1ngst!"],
-            pattern=r"^.{8,}|[0-9]+|[A-Z]+|[a-z]+|[^a-zA-Z0-9]+$",
         ),
     ]
+
+    @field_validator("password")
+    def validate_password_strength(cls, v: str) -> str:
+        for label, has_class in PASSWORD_CHARACTER_CLASSES:
+            if not any(has_class(character) for character in v):
+                raise ValueError(f"Password must include at least one {label}")
+        return v
     # OAuth fields — populated when user signs up via Google/GitHub
     google_id: str | None = None
     github_id: str | None = None
@@ -123,7 +130,7 @@ class UserUpdate(BaseModel):
     name: Annotated[str | None, Field(min_length=2, max_length=30, default=None)]
     username: Annotated[
         str | None,
-        Field(min_length=2, max_length=20, pattern=r"^[a-z0-9]+$", default=None),
+        Field(min_length=2, max_length=USERNAME_MAX_LENGTH, pattern=USERNAME_PATTERN, default=None),
     ]
     email: Annotated[EmailStr | None, Field(default=None)]
     profile_image_url: Annotated[

@@ -1,11 +1,14 @@
 from typing import Annotated, Any
+from urllib.parse import urlsplit
 
 from crudauth import Principal
 from crudauth.exceptions import UnauthorizedException
 from crudauth.oauth import OAuthState
+from crudauth.ratelimit import KeyBy
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import RedirectResponse
 
+from ...modules.common.constants import GENERIC_ERROR_MESSAGE
 from ...modules.user.crud import crud_users
 from ...modules.user.enums import OAuthProvider
 from ..dependencies import AsyncSessionDep, OAuth2FormDep
@@ -17,6 +20,18 @@ from .setup import auth as crud_auth
 logger = get_logger()
 
 router = APIRouter(tags=["Authentication"])
+
+
+def _safe_redirect_path(redirect_uri: str | None) -> str | None:
+    """Allow only same-origin relative paths as post-auth redirect targets."""
+    if not redirect_uri or not redirect_uri.startswith("/") or redirect_uri.startswith("//"):
+        return None
+    if "\\" in redirect_uri or any(ord(char) < 0x20 for char in redirect_uri):
+        return None
+    parts = urlsplit(redirect_uri)
+    if parts.scheme or parts.netloc:
+        return None
+    return redirect_uri
 
 
 @router.post(
@@ -96,6 +111,43 @@ async def logout(
 
 
 @router.post(
+    "/logout-all",
+    summary="Logout All Sessions",
+    description="""
+            Terminates every active session for the current user, across all devices.
+
+            Use this to "log out everywhere" after a suspected compromise. By default it
+            invalidates every session the user holds, including the one making the
+            request, and clears the current client's cookies.
+
+            Pass keep_current=true to keep the calling session and sign out only the
+            other devices.
+            """,
+    responses={
+        200: {"description": "Sessions terminated"},
+        401: {"description": "Not authenticated"},
+        429: {"description": "Too many requests, try again later"},
+    },
+    response_description="Confirmation with the number of sessions terminated",
+    dependencies=[Depends(crud_auth.rate_limit("logout_all", key=KeyBy.USER))],
+)
+async def logout_all(
+    response: Response,
+    principal: Annotated[Principal, Depends(get_current_principal)],
+    keep_current: bool = Query(False, description="Keep the calling session and sign out every other device"),
+) -> dict[str, Any]:
+    """Terminate the current user's sessions (CSRF-protected); ``keep_current`` spares the calling one."""
+    spared_session_id = principal.metadata.get("session_id") if keep_current else None
+    terminated = await crud_auth.sessions.revoke_all(principal.user_id, exclude=spared_session_id)
+    if spared_session_id:
+        return {"message": "All other sessions terminated.", "terminated_count": terminated}
+
+    crud_auth.sessions.clear_session_cookies(response)
+
+    return {"message": "All sessions terminated. Please log in again.", "terminated_count": terminated}
+
+
+@router.post(
     "/refresh-csrf",
     summary="Refresh CSRF Token",
     description="""
@@ -153,7 +205,8 @@ async def refresh_csrf_token(
             back to this application's callback endpoint.
 
             An optional redirect_uri can be specified to control where the user
-            is sent after the entire authentication process completes.
+            is sent after the entire authentication process completes. Only
+            relative paths (starting with "/") are accepted.
             """,
     responses={
         200: {"description": "Authorization URL generated successfully"},
@@ -171,7 +224,7 @@ async def oauth_google_login(
         state_obj = OAuthState(
             state=auth_data["state"],
             provider=OAuthProvider.GOOGLE.value,
-            redirect_to=redirect_uri,
+            redirect_to=_safe_redirect_path(redirect_uri),
             code_verifier=auth_data.get("code_verifier"),
         )
         await oauth_state_storage.create(state_obj, session_id=auth_data["state"], expiration=OAUTH_STATE_TTL_SECONDS)
@@ -276,16 +329,16 @@ async def oauth_google_callback(
                 "csrf_token": csrf_token,
             }
 
-        redirect_to = str(state_data.redirect_to) if state_data.redirect_to else "/"
-        return RedirectResponse(url=redirect_to, status_code=status.HTTP_302_FOUND)
+        redirect_to = _safe_redirect_path(state_data.redirect_to) or "/"
+        redirect = RedirectResponse(url=redirect_to, status_code=status.HTTP_302_FOUND)
+        crud_auth.sessions.set_session_cookies(redirect, session_id, csrf_token)
+        return redirect
 
     except Exception as e:
         logger.error(f"Error in Google OAuth callback: {str(e)}", exc_info=True)
 
         if response_format == "json":
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"OAuth authentication failed: {str(e)}"
-            )
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=GENERIC_ERROR_MESSAGE)
 
         return RedirectResponse(
             url=f"/login?error=oauth_error&provider={OAuthProvider.GOOGLE.value}",
