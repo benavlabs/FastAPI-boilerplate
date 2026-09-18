@@ -1,11 +1,15 @@
-import re
 from datetime import datetime
 from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 from ..common.schemas import PersistentDeletion, TimestampSchema
-from .constants import NAME_MAX_LENGTH, USERNAME_MAX_LENGTH, USERNAME_PATTERN
+from .constants import (
+    NAME_MAX_LENGTH,
+    PASSWORD_CHARACTER_CLASSES,
+    USERNAME_MAX_LENGTH,
+    USERNAME_PATTERN,
+)
 
 
 class UserBase(BaseModel):
@@ -80,18 +84,15 @@ class UserCreate(UserBase):
 
     @field_validator("password")
     def validate_password_strength(cls, v: str) -> str:
-        """Validate the password includes every character class in the description."""
-        if not re.search(r"[a-z]", v):
-            raise ValueError("Password must include at least one lowercase letter")
+        """Require a lowercase letter, an uppercase letter, a number and a special character.
 
-        if not re.search(r"[A-Z]", v):
-            raise ValueError("Password must include at least one uppercase letter")
-
-        if not re.search(r"[0-9]", v):
-            raise ValueError("Password must include at least one number")
-
-        if not re.search(r"[^a-zA-Z0-9]", v):
-            raise ValueError("Password must include at least one special character")
+        Classification is Unicode-aware: a Cyrillic password has lowercase
+        letters, and an accented letter counts as a letter, not as a special
+        character.
+        """
+        for label, has_class in PASSWORD_CHARACTER_CLASSES:
+            if not any(has_class(character) for character in v):
+                raise ValueError(f"Password must include at least one {label}")
 
         return v
 

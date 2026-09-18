@@ -70,10 +70,14 @@ class UserCreate(UserBase):
         str,
         Field(
             min_length=8,
-            pattern=r"^.{8,}|[0-9]+|[A-Z]+|[a-z]+|[^a-zA-Z0-9]+$",
             examples=["Str1ngst!"],
         ),
     ]
+
+    @field_validator("password")
+    def validate_password_strength(cls, v: str) -> str:
+        """Reject a password missing any of the four character classes."""
+        ...
     # OAuth fields (filled when user signs up via Google)
     google_id: str | None = None
     github_id: str | None = None

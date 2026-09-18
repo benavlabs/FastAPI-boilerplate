@@ -40,6 +40,19 @@ def test_password_missing_a_character_class_is_rejected(password: str, missing: 
         UserCreate(**_user_data(password))
 
 
+def test_a_non_latin_password_is_accepted():
+    """Character classes are Unicode-aware, so a Cyrillic password has lowercase letters."""
+    user = UserCreate(**_user_data("Пароль1!"))
+
+    assert user.password == "Пароль1!"
+
+
+def test_an_accented_letter_is_not_a_special_character():
+    """``é`` is a letter, so it doesn't satisfy the special-character requirement."""
+    with pytest.raises(ValidationError, match="special character"):
+        UserCreate(**_user_data("Senhaé123"))
+
+
 @pytest.mark.parametrize("password", ["Str1ng!", "Ab1!cde"])
 def test_password_shorter_than_eight_characters_is_rejected(password: str):
     """Length stays enforced separately from the character classes."""
