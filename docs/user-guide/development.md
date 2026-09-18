@@ -36,10 +36,11 @@ If your app uses Taskiq tasks, run a worker alongside the API in a second termin
 
 ```bash
 cd backend
-uv run taskiq worker infrastructure.taskiq.worker:default_broker --reload
+uv run --extra dev taskiq worker infrastructure.taskiq.worker:default_broker --reload
 ```
 
-`--reload` is dev-only; drop it in production. See [Background Tasks](background-tasks/index.md) for details.
+`--reload` needs `taskiq[reload]`, which ships in the `dev` extra - hence `--extra dev`, since
+`uv run` syncs the environment without extras otherwise. Drop both in production. See [Background Tasks](background-tasks/index.md) for details.
 
 ## The Dev Toolchain
 
