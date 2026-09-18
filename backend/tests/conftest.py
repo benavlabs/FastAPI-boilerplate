@@ -19,7 +19,6 @@ os.environ.setdefault("TESTCONTAINERS_RYUK_DISABLED", "true")
 
 import sys  # noqa: E402
 from pathlib import Path  # noqa: E402
-from unittest.mock import MagicMock  # noqa: E402
 
 import pytest  # noqa: E402
 import pytest_asyncio  # noqa: E402
@@ -36,7 +35,7 @@ from testcontainers.core.docker_client import DockerClient  # noqa: E402
 from testcontainers.postgres import PostgresContainer  # noqa: E402
 
 from src.infrastructure.auth.dependencies import get_current_superuser, get_current_user  # noqa: E402
-from src.infrastructure.config.settings import Settings, get_settings  # noqa: E402
+from src.infrastructure.config.settings import get_settings  # noqa: E402
 from src.infrastructure.database.session import Base, async_session  # noqa: E402
 from src.interfaces.main import app  # noqa: E402
 from src.modules.tier.models import Tier  # noqa: E402
@@ -302,28 +301,6 @@ def patch_redis_pipeline_for_tests(monkeypatch):
 
     monkeypatch.setattr(aioredis.Redis, "pipeline", MockPipeline)
     monkeypatch.setattr(syncredis.Redis, "pipeline", MockPipeline)
-
-
-@pytest.fixture
-def mock_rate_limit_settings_fail_open():
-    """Mock settings with fail_open=True for rate limiter tests."""
-    settings = MagicMock(spec=Settings)
-    settings.RATE_LIMITER_ENABLED = True
-    settings.RATE_LIMITER_FAIL_OPEN = True
-    settings.DEFAULT_RATE_LIMIT_LIMIT = 100
-    settings.DEFAULT_RATE_LIMIT_PERIOD = 60
-    return settings
-
-
-@pytest.fixture
-def mock_rate_limit_settings_fail_closed():
-    """Mock settings with fail_open=False for rate limiter tests."""
-    settings = MagicMock(spec=Settings)
-    settings.RATE_LIMITER_ENABLED = True
-    settings.RATE_LIMITER_FAIL_OPEN = False
-    settings.DEFAULT_RATE_LIMIT_LIMIT = 100
-    settings.DEFAULT_RATE_LIMIT_PERIOD = 60
-    return settings
 
 
 @pytest.fixture(autouse=True)

@@ -88,10 +88,12 @@ curl http://localhost:8000/api/v1/auth/oauth/google
 
 # After the user signs in at Google, they hit the callback:
 # GET /api/v1/auth/oauth/callback/google?code=...&state=...
-# The server creates a session and either redirects or returns JSON.
+# The server creates a session and returns JSON with the CSRF token.
 ```
 
-Only Google is wired (in the `oauth_providers` dict in `infrastructure/auth/oauth.py`), and the `User` model keeps `github_id` and `oauth_provider` columns. crudauth's `OAuthProviderFactory` already ships both `google` and `github` providers, so enabling **GitHub** is just adding a `"github"` entry to the `oauth_providers` dict and its two routes in `infrastructure/auth/routes.py` — no provider implementation needed. For a provider crudauth doesn't ship, register it with `OAuthProviderFactory` first, then wire the dict entry and routes the same way.
+Only Google is wired when its credentials are configured. The router is supplied by crudauth and
+uses PKCE, browser-bound single-use state, session cookies, JSON responses, and safe same-origin
+redirects. Add another provider in `infrastructure/auth/setup.py` using `OAuthCredentials`.
 
 ### 3. API Keys (Machine-to-Machine)
 

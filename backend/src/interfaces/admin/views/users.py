@@ -7,6 +7,7 @@ from sqladmin import ModelView
 from starlette.requests import Request
 from wtforms import SelectField
 
+from ....infrastructure.auth.setup import auth
 from ....infrastructure.database.session import local_session
 from ....modules.user.enums import OAuthProvider
 from ....modules.user.models import User
@@ -48,6 +49,7 @@ class UserAdmin(DataclassModelMixin, ModelView, model=User):
     async def on_model_change(self, data: dict[str, Any], model: Any, is_created: bool, request: Request) -> None:
         """Hash the password before saving."""
         if is_created and "hashed_password" in data and data["hashed_password"]:
+            await auth.validate_password(data["hashed_password"])
             data["hashed_password"] = get_password_hash(data["hashed_password"])
         if "oauth_provider" in data and data["oauth_provider"] == "":
             data["oauth_provider"] = None

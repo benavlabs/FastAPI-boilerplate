@@ -12,7 +12,7 @@ from src.infrastructure.auth.dependencies import get_current_superuser
 from src.infrastructure.config.settings import EnvironmentOption, Settings, settings
 
 DOCS_PATHS = ("/docs", "/redoc", "/openapi.json")
-TEARDOWN_NAMES = ("close_cache", "close_rate_limiter", "close_database")
+TEARDOWN_NAMES = ("close_cache", "close_database")
 
 
 @pytest.mark.asyncio
@@ -52,10 +52,17 @@ def patched_lifespan():
     auth.initialize = AsyncMock()
     auth.shutdown = recorder("auth_shutdown")
 
+    cache_redis_client = MagicMock()
+    cache_redis_client.aclose = recorder("cache_redis_client_aclose")
+
+    rate_limiter_redis_client = MagicMock()
+    rate_limiter_redis_client.aclose = recorder("rate_limiter_redis_client_aclose")
+
     mocks = {
         "create_tables": AsyncMock(),
         "initialize_cache": AsyncMock(),
-        "initialize_rate_limiter": AsyncMock(),
+        "cache_redis_client": cache_redis_client,
+        "rate_limiter_redis_client": rate_limiter_redis_client,
         "auth": auth,
     }
     for name in TEARDOWN_NAMES:
@@ -88,7 +95,13 @@ class TestLifespanDatabaseTeardown:
         async with lifespan(FastAPI()):
             pass
 
-        assert call_order == ["auth_shutdown", "close_rate_limiter", "close_cache", "close_database"]
+        assert call_order == [
+            "auth_shutdown",
+            "cache_redis_client_aclose",
+            "rate_limiter_redis_client_aclose",
+            "close_cache",
+            "close_database",
+        ]
 
     async def test_disposes_when_body_raises(self, lifespan_settings, patched_lifespan):
         """A failure while the app is serving still drains the pool."""

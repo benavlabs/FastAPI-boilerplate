@@ -2,6 +2,7 @@
 
 from ..config import CacheBackend
 from ..config.settings import get_settings
+from ..redis import cache_redis_client
 from . import MEMCACHED_INSTALLED, REDIS_INSTALLED
 from .provider import cache_provider
 
@@ -48,7 +49,7 @@ async def initialize_cache() -> None:
             connect_timeout=settings.CACHE_REDIS_CONNECT_TIMEOUT,
             pool_size=settings.CACHE_REDIS_POOL_SIZE,
         )
-        redis_backend = RedisBackend(settings=redis_settings)
+        redis_backend = RedisBackend(settings=redis_settings, client=cache_redis_client)
         cache_provider.register_backend(CacheBackend.REDIS.value, redis_backend, default=True)
 
 
@@ -68,6 +69,4 @@ async def close_cache() -> None:
             await backend.client.close()
 
     elif settings.CACHE_BACKEND == CacheBackend.REDIS.value and REDIS_INSTALLED:
-        backend = cache_provider.get_backend(CacheBackend.REDIS.value)
-        if hasattr(backend, "client") and hasattr(backend.client, "close"):
-            await backend.client.close()
+        await cache_redis_client.aclose()

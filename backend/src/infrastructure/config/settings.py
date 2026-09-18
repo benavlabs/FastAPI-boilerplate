@@ -140,22 +140,16 @@ class CacheSettings(BaseSettings):
 class RateLimiterSettings(BaseSettings):
     """Rate limiter settings.
 
-    This class defines settings for rate limiting connections and behavior across
-    the application.
+    Rate limiting is provided by crudauth, which is Redis-backed. These settings
+    configure the enable flag, the default per-path limits, and the Redis
+    connection the shared limiter client uses.
 
     Attributes:
         RATE_LIMITER_ENABLED: Whether to enable rate limiting. Default is True.
-        RATE_LIMITER_BACKEND: The rate limiter backend to use. Default is "memcached".
-        RATE_LIMITER_FAIL_OPEN: Whether to fail open (allow requests) when errors occur. Default is True.
 
         # Default rate limit settings
         DEFAULT_RATE_LIMIT_LIMIT: Default number of requests allowed. Default is 100.
         DEFAULT_RATE_LIMIT_PERIOD: Default period in seconds. Default is 60.
-
-        # Memcached settings
-        RATE_LIMITER_MEMCACHED_HOST: Memcached server hostname. Default is "localhost".
-        RATE_LIMITER_MEMCACHED_PORT: Memcached server port. Default is 11211.
-        RATE_LIMITER_MEMCACHED_POOL_SIZE: Maximum number of connections in the pool. Default is 10.
 
         # Redis settings
         RATE_LIMITER_REDIS_HOST: Redis server hostname. Default is "localhost".
@@ -167,15 +161,9 @@ class RateLimiterSettings(BaseSettings):
     """
 
     RATE_LIMITER_ENABLED: bool = config("RATE_LIMITER_ENABLED", default=True, cast=bool)
-    RATE_LIMITER_BACKEND: str = config("RATE_LIMITER_BACKEND", default=CacheBackend.MEMCACHED.value)
-    RATE_LIMITER_FAIL_OPEN: bool = config("RATE_LIMITER_FAIL_OPEN", default=True, cast=bool)
 
     DEFAULT_RATE_LIMIT_LIMIT: int = config("DEFAULT_RATE_LIMIT_LIMIT", default=100, cast=int)
     DEFAULT_RATE_LIMIT_PERIOD: int = config("DEFAULT_RATE_LIMIT_PERIOD", default=60, cast=int)
-
-    RATE_LIMITER_MEMCACHED_HOST: str = config("RATE_LIMITER_MEMCACHED_HOST", default="localhost")
-    RATE_LIMITER_MEMCACHED_PORT: int = config("RATE_LIMITER_MEMCACHED_PORT", default=11211, cast=int)
-    RATE_LIMITER_MEMCACHED_POOL_SIZE: int = config("RATE_LIMITER_MEMCACHED_POOL_SIZE", default=10, cast=int)
 
     RATE_LIMITER_REDIS_HOST: str = config("RATE_LIMITER_REDIS_HOST", default="localhost")
     RATE_LIMITER_REDIS_PORT: int = config("RATE_LIMITER_REDIS_PORT", default=6379, cast=int)
@@ -259,6 +247,12 @@ class AuthSettings(BaseSettings):
     # client IP for login lockout from the last hop of X-Forwarded-For; 0 = the socket
     # peer (no proxy). Set to 1 behind a single nginx/Caddy, 2 if Cloudflare is also in front.
     TRUSTED_PROXY_HOPS: int = config("TRUSTED_PROXY_HOPS", default=0, cast=int)
+
+    PASSWORD_MIN_LENGTH: int = config("PASSWORD_MIN_LENGTH", default=8, cast=int)
+    PASSWORD_REQUIRE_UPPERCASE: bool = config("PASSWORD_REQUIRE_UPPERCASE", default=True, cast=bool)
+    PASSWORD_REQUIRE_LOWERCASE: bool = config("PASSWORD_REQUIRE_LOWERCASE", default=True, cast=bool)
+    PASSWORD_REQUIRE_DIGIT: bool = config("PASSWORD_REQUIRE_DIGIT", default=True, cast=bool)
+    PASSWORD_REQUIRE_SPECIAL: bool = config("PASSWORD_REQUIRE_SPECIAL", default=True, cast=bool)
 
     OAUTH_GOOGLE_CLIENT_ID: str = config("OAUTH_GOOGLE_CLIENT_ID", default="")
     OAUTH_GOOGLE_CLIENT_SECRET: str = config("OAUTH_GOOGLE_CLIENT_SECRET", default="")

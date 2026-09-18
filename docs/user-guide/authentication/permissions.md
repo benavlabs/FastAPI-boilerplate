@@ -168,7 +168,7 @@ This works for "binary" features. For more complex models (per-feature quotas, m
 
 ### Tier-Based Rate Limits
 
-Rate limiting *is* built-in: each `RateLimit` row binds a tier to a path with a `limit` and `period`. The middleware in `infrastructure/rate_limit/middleware.py` enforces these per request. See [Rate Limiting](../rate-limiting/index.md).
+Rate limiting *is* built-in: each `RateLimit` row binds a tier to a path with a `limit` and `period`. crudauth's limiter, wired in `infrastructure/auth/setup.py`, enforces these per request. See [Rate Limiting](../rate-limiting/index.md).
 
 To configure rate limits for a tier:
 

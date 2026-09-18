@@ -85,10 +85,11 @@ CACHE_MEMCACHED_CONNECT_TIMEOUT=5
 
 ## Rate Limiting
 
+Provided by `crudauth` (Redis-backed). Limits are resolved per request from
+the user's tier and path, falling back to the defaults below.
+
 ```env
 RATE_LIMITER_ENABLED=true
-RATE_LIMITER_BACKEND=redis     # or "memcached"
-RATE_LIMITER_FAIL_OPEN=true    # allow requests when backend is unreachable
 DEFAULT_RATE_LIMIT_LIMIT=100
 DEFAULT_RATE_LIMIT_PERIOD=60
 ```
@@ -102,14 +103,6 @@ RATE_LIMITER_REDIS_DB=1        # separate DB from cache (DB 0)
 RATE_LIMITER_REDIS_PASSWORD=
 RATE_LIMITER_REDIS_CONNECT_TIMEOUT=5
 RATE_LIMITER_REDIS_POOL_SIZE=10
-```
-
-### Memcached backend
-
-```env
-RATE_LIMITER_MEMCACHED_HOST=localhost
-RATE_LIMITER_MEMCACHED_PORT=11211
-RATE_LIMITER_MEMCACHED_POOL_SIZE=10
 ```
 
 ## Background Tasks (Taskiq)

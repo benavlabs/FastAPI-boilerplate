@@ -1,37 +1,19 @@
 from typing import Annotated, Any
-from urllib.parse import urlsplit
 
 from crudauth import Principal
 from crudauth.exceptions import UnauthorizedException
-from crudauth.oauth import OAuthState
 from crudauth.ratelimit import KeyBy
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
-from fastapi.responses import RedirectResponse
+from fastapi import APIRouter, Depends, Query, Request, Response
 
-from ...modules.common.constants import GENERIC_ERROR_MESSAGE
 from ...modules.user.crud import crud_users
-from ...modules.user.enums import OAuthProvider
 from ..dependencies import AsyncSessionDep, OAuth2FormDep
 from ..logging import get_logger
 from .dependencies import get_current_principal, get_optional_principal
-from .oauth import OAUTH_STATE_TTL_SECONDS, oauth_account_service, oauth_providers, oauth_state_storage
 from .setup import auth as crud_auth
 
 logger = get_logger()
 
 router = APIRouter(tags=["Authentication"])
-
-
-def _safe_redirect_path(redirect_uri: str | None) -> str | None:
-    """Allow only same-origin relative paths as post-auth redirect targets."""
-    if not redirect_uri or not redirect_uri.startswith("/") or redirect_uri.startswith("//"):
-        return None
-    if "\\" in redirect_uri or any(ord(char) < 0x20 for char in redirect_uri):
-        return None
-    parts = urlsplit(redirect_uri)
-    if parts.scheme or parts.netloc:
-        return None
-    return redirect_uri
 
 
 @router.post(
@@ -181,169 +163,14 @@ async def refresh_csrf_token(
         raise UnauthorizedException("Not authenticated")
 
     ttl_seconds = sessions.timeout_seconds_for(session.metadata)
-    csrf_token = await sessions.regenerate_csrf_token(
-        user_id=session.user_id, session_id=session_id, expiration_seconds=ttl_seconds
-    )
+    csrf_token = await sessions.regenerate_csrf_token(session_id, expiration_seconds=ttl_seconds)
     sessions.set_csrf_cookie(response, csrf_token, max_age=ttl_seconds)
 
     return {"csrf_token": csrf_token}
 
 
-@router.get(
-    "/oauth/google",
-    summary="Initiate Google OAuth Login",
-    description="""
-            Starts the OAuth 2.0 authentication flow with Google.
-
-            This endpoint generates the authorization URL that the user should be
-            redirected to in order to authenticate with Google. The flow includes:
-            - Creation of a state parameter for CSRF protection
-            - Generation of PKCE code challenge (for enhanced security)
-            - Setting appropriate OAuth scopes for profile access
-
-            After successful authentication with Google, the user will be redirected
-            back to this application's callback endpoint.
-
-            An optional redirect_uri can be specified to control where the user
-            is sent after the entire authentication process completes. Only
-            relative paths (starting with "/") are accepted.
-            """,
-    responses={
-        200: {"description": "Authorization URL generated successfully"},
-        500: {"description": "Failed to initiate Google login"},
-    },
-    response_description="The Google authorization URL to redirect the user to",
-)
-async def oauth_google_login(
-    request: Request,
-    redirect_uri: str | None = Query(None),
-) -> dict[str, str]:
-    """Initiate the Google OAuth flow: build the authorization URL and stash state + PKCE."""
-    try:
-        auth_data = oauth_providers["google"].get_authorization_url()
-        state_obj = OAuthState(
-            state=auth_data["state"],
-            provider=OAuthProvider.GOOGLE.value,
-            redirect_to=_safe_redirect_path(redirect_uri),
-            code_verifier=auth_data.get("code_verifier"),
-        )
-        await oauth_state_storage.create(state_obj, session_id=auth_data["state"], expiration=OAUTH_STATE_TTL_SECONDS)
-        return {"url": auth_data["url"]}
-    except Exception as e:
-        logger.error(f"Error initiating Google OAuth: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to initiate Google login")
-
-
-@router.get(
-    "/oauth/callback/google",
-    summary="Google OAuth Callback Handler",
-    description="""
-            Processes the authentication callback from Google OAuth.
-
-            This endpoint handles the authorization code returned by Google after
-            the user has successfully authenticated. The process includes:
-            - Validating the state parameter to prevent CSRF attacks
-            - Exchanging the authorization code for access/refresh tokens
-            - Fetching the user profile from Google
-            - Creating or updating the user account in the system
-            - Establishing a new session for the authenticated user
-
-            Two response formats are supported:
-            - redirect: Redirects to the frontend with success/error parameters (default)
-            - json: Returns user information and tokens as a JSON response
-
-            The json format is useful for mobile apps or single-page applications that
-            handle the OAuth flow programmatically.
-            """,
-    responses={
-        200: {"description": "Authentication successful (JSON response)"},
-        302: {"description": "Authentication successful (redirect response)"},
-        400: {"description": "Invalid OAuth state or other parameter"},
-        401: {"description": "Authentication failed"},
-        500: {"description": "Server error during authentication"},
-    },
-    response_description="Authentication result with session cookies set",
-)
-async def oauth_google_callback(
-    request: Request,
-    response: Response,
-    db: AsyncSessionDep,
-    code: str = Query(...),
-    state: str = Query(...),
-    response_format: str = Query("redirect", description="Response format, either 'redirect' or 'json'"),
-):
-    """Handle the Google OAuth callback: verify state, link/create the user, start a session."""
-    state_data = await oauth_state_storage.get(state, OAuthState)
-
-    if not state_data:
-        logger.warning(f"Invalid OAuth state in callback: {state}")
-        if response_format == "json":
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid OAuth state")
-        return RedirectResponse(
-            url=f"/login?error=oauth_error&provider={OAuthProvider.GOOGLE.value}&reason=invalid_state",
-            status_code=status.HTTP_302_FOUND,
-        )
-
-    if state_data.provider != OAuthProvider.GOOGLE.value:
-        logger.warning(f"Provider mismatch in OAuth callback: expected google, got {state_data.provider}")
-        if response_format == "json":
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Provider mismatch")
-        return RedirectResponse(
-            url=f"/login?error=oauth_error&provider={OAuthProvider.GOOGLE.value}&reason=provider_mismatch",
-            status_code=status.HTTP_302_FOUND,
-        )
-
-    try:
-        provider = oauth_providers["google"]
-        token_data = await provider.exchange_code(code, code_verifier=state_data.code_verifier)
-        user_info_raw = await provider.get_user_info(token_data["access_token"])
-        user_info = await provider.process_user_info(user_info_raw)
-
-        user, is_new_user = await oauth_account_service.get_or_create_user(user_info, db)
-        user_id = crud_auth.repo.user_id(user)
-        username = crud_auth.repo.get(user, "username")
-
-        session_id, csrf_token = await crud_auth.sessions.create_session(
-            request,
-            user_id=user_id,
-            metadata={
-                "login_type": "oauth",
-                "oauth_provider": OAuthProvider.GOOGLE.value,
-                "username": username,
-                "is_new_user": is_new_user,
-            },
-        )
-        crud_auth.sessions.set_session_cookies(response, session_id, csrf_token)
-
-        await oauth_state_storage.delete(state)
-
-        if response_format == "json":
-            return {
-                "success": True,
-                "user": {
-                    "id": user_id,
-                    "username": username,
-                    "email": crud_auth.repo.get(user, "email"),
-                    "is_new_user": is_new_user,
-                },
-                "csrf_token": csrf_token,
-            }
-
-        redirect_to = _safe_redirect_path(state_data.redirect_to) or "/"
-        redirect = RedirectResponse(url=redirect_to, status_code=status.HTTP_302_FOUND)
-        crud_auth.sessions.set_session_cookies(redirect, session_id, csrf_token)
-        return redirect
-
-    except Exception as e:
-        logger.error(f"Error in Google OAuth callback: {str(e)}", exc_info=True)
-
-        if response_format == "json":
-            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=GENERIC_ERROR_MESSAGE)
-
-        return RedirectResponse(
-            url=f"/login?error=oauth_error&provider={OAuthProvider.GOOGLE.value}",
-            status_code=status.HTTP_302_FOUND,
-        )
+if crud_auth.oauth is not None:
+    router.include_router(crud_auth.oauth_router)
 
 
 @router.get("/check-auth")

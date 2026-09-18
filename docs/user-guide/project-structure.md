@@ -95,13 +95,11 @@ infrastructure/
 ├── auth/                     # crudauth wiring: deps, OAuth, route handlers
 │   ├── setup.py              # The `auth = CRUDAuth(...)` singleton (composition root)
 │   ├── dependencies.py       # get_current_user / _superuser / _optional_user + Principal deps
-│   ├── oauth.py              # crudauth OAuth building blocks (Google wired)
-│   ├── routes.py             # /auth/login, /logout, /logout-all, /oauth/google, /check-auth
+│   ├── routes.py             # /auth/login, /logout, /oauth, /check-auth
 │   └── http_exceptions.py    # fastcrud HTTP exception re-export
 ├── cache/                    # Redis/Memcached cache + decorator
 │   └── backends/
-├── rate_limit/               # Rate limiter middleware + Redis/Memcached backends
-│   └── backends/
+├── redis.py                  # Shared Redis clients injected into crudauth and the cache
 ├── taskiq/                   # Async task queue (broker, worker entry point, registry)
 ├── security/                 # Production security validator
 └── logging/                  # Centralized logging configuration

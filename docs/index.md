@@ -55,7 +55,7 @@ Postgres is the only hard requirement of those you have to provide — run the b
 
 ### Security & Authentication
 - Server-side session authentication with secure HTTP-only cookies
-- OAuth 2.0 sign-in (Google wired; add others via crudauth's `OAuthProviderFactory`) using PKCE
+- OAuth 2.0 sign-in (Google wired; add others via crudauth's `OAuthCredentials`) using PKCE
 - API keys with per-key permissions and usage tracking
 - CSRF protection and login rate limiting
 - Role-based access control with user tiers

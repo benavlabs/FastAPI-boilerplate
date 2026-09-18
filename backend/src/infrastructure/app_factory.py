@@ -29,8 +29,7 @@ from .config.settings import (
 from .database.initialize import close_database
 from .database.session import create_tables
 from .middleware import ClientCacheMiddleware, SecurityHeadersMiddleware
-from .rate_limit.initialize import close_rate_limiter, initialize_rate_limiter
-from .rate_limit.middleware import RateLimiterMiddleware
+from .redis import cache_redis_client, rate_limiter_redis_client
 
 logger = logging.getLogger(__name__)
 
@@ -65,8 +64,16 @@ def lifespan_factory(
                 teardown.push_async_callback(close_cache)
 
             if isinstance(settings, RateLimiterSettings) and settings.RATE_LIMITER_ENABLED:
-                await initialize_rate_limiter()
-                teardown.push_async_callback(close_rate_limiter)
+                teardown.push_async_callback(rate_limiter_redis_client.aclose)
+
+            # The cache backend owns ``cache_redis_client`` when it's redis-backed;
+            # otherwise the module-level client still needs releasing.
+            if not (
+                isinstance(settings, CacheSettings)
+                and settings.CACHE_ENABLED
+                and settings.CACHE_BACKEND == "redis"
+            ):
+                teardown.push_async_callback(cache_redis_client.aclose)
 
             teardown.push_async_callback(auth.shutdown)
             await auth.initialize()
@@ -269,9 +276,6 @@ def create_application(
     register_exception_handlers(application)
 
     application.include_router(router)
-
-    if isinstance(settings, RateLimiterSettings) and settings.RATE_LIMITER_ENABLED:
-        application.add_middleware(RateLimiterMiddleware)
 
     if isinstance(settings, CacheSettings) and settings.CACHE_ENABLED and hasattr(settings, "CLIENT_CACHE_ENABLED"):
         if settings.CLIENT_CACHE_ENABLED:

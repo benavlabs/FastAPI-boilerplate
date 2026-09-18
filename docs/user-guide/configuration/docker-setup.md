@@ -210,10 +210,10 @@ And in `.env`:
 
 ```env
 CACHE_BACKEND=memcached
-RATE_LIMITER_BACKEND=memcached
 CACHE_MEMCACHED_HOST=memcached
-RATE_LIMITER_MEMCACHED_HOST=memcached
 ```
+
+The rate limiter is always Redis-backed, so it still needs the `redis` service.
 
 ### RabbitMQ (alternative Taskiq broker)
 

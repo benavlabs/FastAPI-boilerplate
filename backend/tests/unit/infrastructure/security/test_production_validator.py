@@ -24,7 +24,7 @@ class TestProductionSecurityValidator:
             "DATABASE_URL_OVERRIDE": None,
             "REDIS_PASSWORD": "secure_redis_password",
             "CACHE_BACKEND": "memcached",
-            "RATE_LIMITER_BACKEND": "memcached",
+            "RATE_LIMITER_ENABLED": False,
             "SESSION_BACKEND": "redis",
             "CORS_ENABLED": True,
             "CORS_ORIGINS": "https://example.com",
@@ -227,7 +227,7 @@ class TestProductionSecurityValidator:
         """Test that shared Redis instances log warning."""
         settings = self.create_mock_settings(
             CACHE_BACKEND="redis",
-            RATE_LIMITER_BACKEND="redis",
+            RATE_LIMITER_ENABLED=True,
             # Both using same Redis instance
             CACHE_REDIS_HOST="localhost",
             CACHE_REDIS_PORT=6379,

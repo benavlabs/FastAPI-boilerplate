@@ -269,7 +269,7 @@ No re-authentication step is required, because this is the action a user needs w
 |-----------|----------|
 | `auth = CRUDAuth(...)` singleton | `backend/src/infrastructure/auth/setup.py` |
 | Dependencies | `backend/src/infrastructure/auth/dependencies.py` |
-| OAuth building blocks | `backend/src/infrastructure/auth/oauth.py` |
+| OAuth configuration | `backend/src/infrastructure/auth/setup.py` |
 | Login/logout/logout-all/OAuth routes | `backend/src/infrastructure/auth/routes.py` |
 | HTTP exceptions (fastcrud re-export) | `backend/src/infrastructure/auth/http_exceptions.py` |
 | Auth settings | `backend/src/infrastructure/config/settings.py` (`AuthSettings`) |
