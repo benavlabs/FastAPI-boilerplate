@@ -14,6 +14,7 @@ from .exceptions import (
     DomainError,
     InsufficientCreditsError,
     PermissionDeniedError,
+    PersistenceError,
     RateLimitNotFoundError,
     ResourceExistsError,
     ResourceNotFoundError,
@@ -38,11 +39,10 @@ EXCEPTION_MAPPING: dict[type[DomainError], Callable[[str], HTTPException]] = {
     TierNotFoundError: lambda message: NotFoundException(detail="The requested tier was not found."),
     RateLimitNotFoundError: lambda message: NotFoundException(detail="Rate limit configuration not found."),
     ResourceNotFoundError: lambda message: NotFoundException(detail="The requested resource was not found."),
-    UserExistsError: lambda message: DuplicateValueException(
-        detail="A user with this email or username already exists."
-    ),
+    UserExistsError: lambda message: DuplicateValueException(detail="A user with this email or username already exists."),
     ResourceExistsError: lambda message: DuplicateValueException(detail="This resource already exists."),
     UsageLimitExceededError: lambda message: RateLimitException(detail="Usage limit exceeded."),
     ValidationError: lambda message: UnprocessableEntityException(detail="The request could not be processed."),
     PermissionDeniedError: lambda message: ForbiddenException(detail="You don't have permission for this action."),
+    PersistenceError: lambda message: HTTPException(status_code=500, detail=GENERIC_ERROR_MESSAGE),
 }

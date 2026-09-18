@@ -7,9 +7,11 @@ from httpx import ASGITransport, AsyncClient
 from src.modules.common.constants import GENERIC_ERROR_MESSAGE
 from src.modules.common.exceptions import (
     InsufficientCreditsError,
+    PersistenceError,
     RateLimitNotFoundError,
     ResourceNotFoundError,
     TierNotFoundError,
+    UsageLimitExceededError,
     UserExistsError,
     UserNotFoundError,
     ValidationError,
@@ -143,6 +145,22 @@ def test_map_exception_user_exists_uses_specific_mapping():
     http_exc = map_exception(UserExistsError(""))
     assert http_exc.status_code == 422
     assert http_exc.detail == "A user with this email or username already exists."
+
+
+def test_map_exception_persistence_failure_is_a_500():
+    """A write that didn't come back is a server fault, not a duplicate."""
+    http_exc = map_exception(PersistenceError("User row was not returned after insert"))
+
+    assert http_exc.status_code == 500
+    assert http_exc.detail == GENERIC_ERROR_MESSAGE
+    assert "row was not returned" not in http_exc.detail
+
+
+def test_map_exception_usage_limit_is_a_429():
+    http_exc = map_exception(UsageLimitExceededError("500 of 500 calls used"))
+
+    assert http_exc.status_code == 429
+    assert "500 of 500" not in http_exc.detail
 
 
 def test_handle_exception_returns_generic_for_domain_errors():

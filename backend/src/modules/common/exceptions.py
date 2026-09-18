@@ -65,3 +65,9 @@ class UsageLimitExceededError(DomainError):
     """Raised when a user exceeds their usage limits."""
 
     pass
+
+
+class PersistenceError(DomainError):
+    """Raised when a write the caller is entitled to make doesn't come back from the database."""
+
+    pass

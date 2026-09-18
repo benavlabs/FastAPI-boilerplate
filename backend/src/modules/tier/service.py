@@ -3,7 +3,13 @@ from typing import Any
 from fastcrud.types import GetMultiResponseDict
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..common.exceptions import PermissionDeniedError, ResourceExistsError, TierNotFoundError, ValidationError
+from ..common.exceptions import (
+    PermissionDeniedError,
+    PersistenceError,
+    ResourceExistsError,
+    TierNotFoundError,
+    ValidationError,
+)
 from ..rate_limit.crud import crud_rate_limits
 from ..user.crud import crud_users
 from .crud import crud_tiers
@@ -31,7 +37,7 @@ class TierService:
         tier_internal = TierCreateInternal(**tier_dict)
         created_tier = await crud_tiers.create(db=db, object=tier_internal, schema_to_select=TierRead)
         if not created_tier:
-            raise ResourceExistsError("Failed to create tier")
+            raise PersistenceError("Tier row was not returned after insert")
         return created_tier
 
     async def get_all(self, db: AsyncSession, skip: int = 0, limit: int = 100) -> GetMultiResponseDict:

@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..common.exceptions import (
     PermissionDeniedError,
+    PersistenceError,
     RateLimitNotFoundError,
     ResourceExistsError,
     TierNotFoundError,
@@ -45,7 +46,7 @@ class RateLimitService:
         created_rate_limit = await crud_rate_limits.create(db=db, object=rate_limit_internal, schema_to_select=RateLimitRead)
 
         if not created_rate_limit:
-            raise ResourceExistsError("Failed to create rate limit")
+            raise PersistenceError("Rate limit row was not returned after insert")
         return created_rate_limit
 
     async def get_all(self, db: AsyncSession, skip: int = 0, limit: int = 100) -> GetMultiResponseDict:
