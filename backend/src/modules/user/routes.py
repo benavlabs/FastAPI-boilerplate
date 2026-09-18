@@ -13,6 +13,7 @@ from ..common.utils.error_handler import handle_exception
 from .dependencies import UserServiceDep
 from .schemas import (
     UserCreate,
+    UserProfileRead,
     UserRead,
     UserTierUpdate,
     UserUpdate,
@@ -117,14 +118,14 @@ async def get_current_user_profile(
 
 @router.get(
     "/{username}",
-    response_model=UserRead,
+    response_model=UserProfileRead,
     summary="Get User Profile by Username",
     description="""
-            Retrieves a user's profile information by their unique username.
+            Retrieves a user's public profile by their unique username.
 
-            This endpoint can be used to look up any active user in the system by their
-            username. It returns the same profile data structure as other user
-            endpoints but does not include sensitive information.
+            Any signed-in user can look up any other active user. The response carries
+            the display fields only - no email address - so the lookup can't be used to
+            collect addresses. Read your own full record from `/users/me`.
 
             Note that usernames are case-sensitive in lookup operations.
             """,

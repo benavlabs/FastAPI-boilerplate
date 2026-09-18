@@ -4,7 +4,7 @@ from fastapi import APIRouter
 from fastcrud import PaginatedListResponse, compute_offset, paginated_response
 
 from ...infrastructure.auth.http_exceptions import DuplicateValueException, HTTPException, NotFoundException
-from ...infrastructure.dependencies import AsyncSessionDep, CurrentSuperUserDep, CurrentUserDep
+from ...infrastructure.dependencies import AsyncSessionDep, CurrentSuperUserDep
 from ..common.exceptions import ResourceExistsError, ResourceNotFoundError
 from ..common.utils.error_handler import handle_exception
 from .dependencies import RateLimitServiceDep
@@ -32,12 +32,15 @@ router = APIRouter(tags=["Rate Limits"])
 
            Results are paginated to handle systems with many rate limit configurations.
            """,
-    responses={401: {"description": "Not authenticated"}},
+    responses={
+        401: {"description": "Not authenticated"},
+        403: {"description": "Not a superuser"},
+    },
     response_description="A paginated list of rate limits with their configuration details",
 )
 async def get_rate_limits(
     db: AsyncSessionDep,
-    _: CurrentUserDep,
+    _: CurrentSuperUserDep,
     rate_limit_service: RateLimitServiceDep,
     page: int = 1,
     items_per_page: int = 10,
@@ -77,13 +80,17 @@ async def get_rate_limits(
 
            Rate limit names are typically in the format of `path:limit:period`.
            """,
-    responses={401: {"description": "Not authenticated"}, 404: {"description": "Rate limit not found"}},
+    responses={
+        401: {"description": "Not authenticated"},
+        403: {"description": "Not a superuser"},
+        404: {"description": "Rate limit not found"},
+    },
     response_description="Detailed configuration of the requested rate limit",
 )
 async def get_rate_limit(
     name: str,
     db: AsyncSessionDep,
-    _: CurrentUserDep,
+    _: CurrentSuperUserDep,
     rate_limit_service: RateLimitServiceDep,
 ) -> dict[str, Any] | None:
     """

@@ -11,7 +11,7 @@ All under `/api/v1/users/` (defined in `modules/user/routes.py`):
 | `POST` | `/api/v1/users/` | Create a new user | Open |
 | `GET` | `/api/v1/users/` | Paginated list of users | Superuser |
 | `GET` | `/api/v1/users/me` | Current user's profile | Session |
-| `GET` | `/api/v1/users/{username}` | Get a user by username (active only) | Open |
+| `GET` | `/api/v1/users/{username}` | Public profile by username (no email) | Session |
 | `GET` | `/api/v1/users/active-and-inactive/{username}` | Same as above, includes soft-deleted | Superuser |
 | `PATCH` | `/api/v1/users/{username}` | Update profile (own or admin) | Session |
 | `DELETE` | `/api/v1/users/{username}` | Soft-delete a user (own or admin) | Session |

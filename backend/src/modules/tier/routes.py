@@ -13,7 +13,12 @@ from .schemas import TierRead
 router = APIRouter(tags=["Tiers"])
 
 
-@router.get("/", response_model=PaginatedListResponse[TierRead], summary="List tiers")
+@router.get(
+    "/",
+    response_model=PaginatedListResponse[TierRead],
+    summary="List tiers",
+    responses={401: {"description": "Not authenticated"}},
+)
 async def get_tiers(
     db: AsyncSessionDep,
     _: CurrentUserDep,
@@ -21,7 +26,7 @@ async def get_tiers(
     page: int = 1,
     items_per_page: int = 10,
 ) -> dict:
-    """Paginated list of tiers."""
+    """Paginated list of tiers (authenticated)."""
     try:
         tiers_data = await tier_service.get_all(
             db=db,
@@ -36,14 +41,22 @@ async def get_tiers(
         raise HTTPException(status_code=500, detail="An unexpected error occurred")
 
 
-@router.get("/{name}", response_model=TierRead, summary="Get a tier by name")
+@router.get(
+    "/{name}",
+    response_model=TierRead,
+    summary="Get a tier by name",
+    responses={
+        401: {"description": "Not authenticated"},
+        404: {"description": "Tier not found"},
+    },
+)
 async def get_tier_by_name(
     name: str,
     db: AsyncSessionDep,
     _: CurrentUserDep,
     tier_service: TierServiceDep,
 ) -> dict[str, Any]:
-    """Get a tier by name."""
+    """Get a tier by name (authenticated)."""
     try:
         return await tier_service.get_by_name(name, db)
     except TierNotFoundError:
