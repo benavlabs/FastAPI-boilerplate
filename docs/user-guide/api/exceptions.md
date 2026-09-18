@@ -55,55 +55,67 @@ Re-exported from FastCRUD in `backend/src/infrastructure/auth/http_exceptions.py
 | `HTTPException` | base FastAPI class |
 | `CSRFException` | 403 with `X-CSRF-Error: true` header (defined locally) |
 
-Use these from routes when you have an HTTP-shaped failure and no service involvement:
+Use these from routes when you have an HTTP-shaped failure and no service involvement (domain errors raised by services need no route-level handling — see the mapping layer below):
 
 ```python
-from ...infrastructure.auth.http_exceptions import NotFoundException
+from ...infrastructure.auth.http_exceptions import BadRequestException
 
-@router.get("/{name}", response_model=TierRead)
-async def get_tier_by_name(...):
-    try:
-        return await tier_service.get_by_name(name, db)
-    except TierNotFoundError:
-        raise NotFoundException("Tier not found")
+@router.get("/")
+async def search(q: str | None = None):
+    if q is None:
+        raise BadRequestException("Provide ?q=")
+    # ...
 ```
 
-## The Mapping Layer
+## The Mapping Layer (Centralized)
 
-`modules/common/utils/error_handler.py` ships two ways to bridge domain → HTTP errors:
+`modules/common/utils/error_handler.py` bridges domain → HTTP errors globally.
 
 ### Global Handler (Automatic)
 
 `register_exception_handlers(app)` is called in `infrastructure/app_factory.py` at startup. It installs:
 
 - A `RequestValidationError` handler (Pydantic 422s) → returns a generic `Invalid request` message + a `support_id`
-- A catch-all `DomainError` handler → maps to the right HTTP status via `EXCEPTION_MAPPING`, returns a **generic** message + `support_id`. The full details are logged server-side.
+- A catch-all `DomainError` handler → maps to the right HTTP status **and message** via `EXCEPTION_MAPPING`, and returns that message + a `support_id`. The raw exception message is logged server-side, never sent.
 - A `CatchAllErrorMiddleware` that converts truly unhandled exceptions into 500s with a `support_id`
 
-This means: **any uncaught `DomainError` raised in a service automatically becomes a properly-shaped HTTP response.** You don't have to wire it up per-route.
-
-### Manual Handler (Explicit)
-
-Inside route handlers, you can use `handle_exception()` to translate explicitly. This is the convention in the existing routes — it's slightly more verbose but it keeps the error path obvious in code review:
+This means: **any uncaught `DomainError` raised in a service automatically becomes a properly-shaped HTTP response.** Routes do *not* wrap service calls in try/except — they just let exceptions propagate:
 
 ```python
-from ..common.utils.error_handler import handle_exception
-from ...infrastructure.auth.http_exceptions import HTTPException
-
-
 @router.post("/", response_model=UserRead, status_code=201)
 async def create_user(
     user: UserCreate,
-    db: Annotated[AsyncSession, Depends(async_session)],
-    user_service: Annotated[UserService, Depends(get_user_service)],
+    db: AsyncSessionDep,
+    user_service: UserServiceDep,
 ) -> dict[str, Any]:
+    return await user_service.create(user, db)
+```
+
+If the service raises `UserExistsError`, the client gets a 422 with `"A user with this email or username already exists."` and a `support_id`; anything unexpected becomes a 500 with the generic message the same way.
+
+### Manual Handler (Rare)
+
+For a route that genuinely needs to intercept an exception itself - to recover, or to answer
+something other than the mapping would - `handle_exception()` is still available:
+
+```python
+from ..common.exceptions import TierNotFoundError
+from ..common.utils.error_handler import handle_exception
+
+
+@router.get("/{name}/limits")
+async def get_tier_limits(name: str, db: AsyncSessionDep, tier_service: TierServiceDep) -> dict[str, Any]:
     try:
-        return await user_service.create(user, db)
+        tier = await tier_service.get_by_name(name, db)
+    except TierNotFoundError:
+        return DEFAULT_LIMITS          # an unknown tier falls back instead of failing
     except Exception as e:
         http_exception = handle_exception(e)
         if http_exception:
             raise http_exception
-        raise HTTPException(status_code=500, detail="An unexpected error occurred")
+        raise
+
+    return tier["limits"]
 ```
 
 `handle_exception()`:
@@ -119,18 +131,19 @@ The mapping in `modules/common/constants.py`:
 ```python
 EXCEPTION_MAPPING: dict[type[DomainError], Callable[[str], HTTPException]] = {
     InsufficientCreditsError:  lambda m: HTTPException(status_code=402, detail=m or "Insufficient credits."),
-    ResourceNotFoundError:     lambda m: NotFoundException("The requested resource was not found."),
-    ResourceExistsError:       lambda m: DuplicateValueException("This resource already exists."),
-    ValidationError:           lambda m: UnprocessableEntityException(detail=m),
-    PermissionDeniedError:     lambda m: ForbiddenException("You don't have permission for this action."),
     UserNotFoundError:         lambda m: NotFoundException("User not found."),
-    UserExistsError:           lambda m: DuplicateValueException(m or "A user with this email or username already exists."),
     TierNotFoundError:         lambda m: NotFoundException("The requested tier was not found."),
     RateLimitNotFoundError:    lambda m: NotFoundException("Rate limit configuration not found."),
+    ResourceNotFoundError:     lambda m: NotFoundException("The requested resource was not found."),
+    UserExistsError:           lambda m: DuplicateValueException("A user with this email or username already exists."),
+    ResourceExistsError:       lambda m: DuplicateValueException("This resource already exists."),
+    UsageLimitExceededError:   lambda m: RateLimitException("Usage limit exceeded."),
+    ValidationError:           lambda m: UnprocessableEntityException("The request could not be processed."),
+    PermissionDeniedError:     lambda m: ForbiddenException("You don't have permission for this action."),
 }
 ```
 
-Notice the default messages **don't echo the raised exception's message** — most map to generic strings to avoid leaking internal details. The full message goes to logs, with a `support_id` returned to the client so you can correlate.
+Notice the messages **don't echo the raised exception's message** — every entry but `InsufficientCreditsError` answers with a fixed string, so a message naming a row the caller isn't entitled to know about can't reach them. The raised message goes to the logs, with the `support_id` from the response to correlate on. `map_exception` walks the exception's MRO, so a subclass gets its own message rather than its base's.
 
 ## Response Format
 

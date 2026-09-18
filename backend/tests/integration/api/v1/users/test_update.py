@@ -89,7 +89,7 @@ async def test_update_user_profile_wrong_user(
 
     assert response.status_code == 403
     data = response.json()
-    assert "permission" in data["detail"].lower()
+    assert data["detail"] == "You don't have permission for this action."
 
 
 async def test_update_user_profile_duplicate_email(

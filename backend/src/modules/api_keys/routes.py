@@ -2,15 +2,10 @@
 
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Path, Query, status
+from fastapi import APIRouter, Path, Query
 from fastcrud import PaginatedListResponse, compute_offset, paginated_response
 
 from ...infrastructure.dependencies import AsyncSessionDep, CurrentUserDep
-from ..common.exceptions import (
-    PermissionDeniedError,
-    ResourceNotFoundError,
-)
-from ..common.utils.error_handler import handle_exception
 from .dependencies import APIKeyServiceDep
 from .schemas import (
     APIKeyCreate,
@@ -54,17 +49,11 @@ async def create_api_key(
     db: AsyncSessionDep,
 ) -> dict[str, Any]:
     """Create a new API key for the authenticated user."""
-    try:
-        return await api_key_service.create_api_key(
-            user_id=current_user["id"] if isinstance(current_user, dict) else current_user.id,
-            key_data=key_data,
-            db=db,
-        )
-    except Exception as e:
-        http_exc = handle_exception(e)
-        if http_exc:
-            raise http_exc
-        raise HTTPException(status_code=500, detail="Internal server error")
+    return await api_key_service.create_api_key(
+        user_id=current_user["id"] if isinstance(current_user, dict) else current_user.id,
+        key_data=key_data,
+        db=db,
+    )
 
 
 @router.get(
@@ -96,25 +85,19 @@ async def get_user_api_keys(
     items_per_page: int = Query(50, ge=1, le=100, description="Items per page"),
 ) -> dict[str, Any]:
     """Get all API keys for the authenticated user."""
-    try:
-        result = await api_key_service.get_user_api_keys(
-            user_id=current_user["id"] if isinstance(current_user, dict) else current_user.id,
-            active_only=active_only,
-            limit=items_per_page,
-            offset=compute_offset(page, items_per_page),
-            db=db,
-        )
+    result = await api_key_service.get_user_api_keys(
+        user_id=current_user["id"] if isinstance(current_user, dict) else current_user.id,
+        active_only=active_only,
+        limit=items_per_page,
+        offset=compute_offset(page, items_per_page),
+        db=db,
+    )
 
-        return paginated_response(
-            crud_data=result,
-            page=page,
-            items_per_page=items_per_page,
-        )
-    except Exception as e:
-        http_exc = handle_exception(e)
-        if http_exc:
-            raise http_exc
-        raise HTTPException(status_code=500, detail="Internal server error")
+    return paginated_response(
+        crud_data=result,
+        page=page,
+        items_per_page=items_per_page,
+    )
 
 
 @router.get(
@@ -143,21 +126,11 @@ async def get_api_key(
     key_id: int = Path(..., description="API key ID"),
 ) -> dict[str, Any]:
     """Get details for a specific API key."""
-    try:
-        return await api_key_service.get_api_key(
-            key_id=key_id,
-            user_id=current_user["id"] if isinstance(current_user, dict) else current_user.id,
-            db=db,
-        )
-    except ResourceNotFoundError as e:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
-    except PermissionDeniedError as e:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e))
-    except Exception as e:
-        http_exc = handle_exception(e)
-        if http_exc:
-            raise http_exc
-        raise HTTPException(status_code=500, detail="Internal server error")
+    return await api_key_service.get_api_key(
+        key_id=key_id,
+        user_id=current_user["id"] if isinstance(current_user, dict) else current_user.id,
+        db=db,
+    )
 
 
 @router.patch(
@@ -188,22 +161,12 @@ async def update_api_key(
     key_id: int = Path(..., description="API key ID"),
 ) -> dict[str, Any]:
     """Update an existing API key."""
-    try:
-        return await api_key_service.update_api_key(
-            key_id=key_id,
-            user_id=current_user["id"] if isinstance(current_user, dict) else current_user.id,
-            update_data=update_data,
-            db=db,
-        )
-    except ResourceNotFoundError as e:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
-    except PermissionDeniedError as e:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e))
-    except Exception as e:
-        http_exc = handle_exception(e)
-        if http_exc:
-            raise http_exc
-        raise HTTPException(status_code=500, detail="Internal server error")
+    return await api_key_service.update_api_key(
+        key_id=key_id,
+        user_id=current_user["id"] if isinstance(current_user, dict) else current_user.id,
+        update_data=update_data,
+        db=db,
+    )
 
 
 @router.delete(
@@ -234,21 +197,11 @@ async def delete_api_key(
     key_id: int = Path(..., description="API key ID"),
 ) -> None:
     """Delete (deactivate) an API key."""
-    try:
-        await api_key_service.delete_api_key(
-            key_id=key_id,
-            user_id=current_user["id"] if isinstance(current_user, dict) else current_user.id,
-            db=db,
-        )
-    except ResourceNotFoundError as e:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
-    except PermissionDeniedError as e:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e))
-    except Exception as e:
-        http_exc = handle_exception(e)
-        if http_exc:
-            raise http_exc
-        raise HTTPException(status_code=500, detail="Internal server error")
+    await api_key_service.delete_api_key(
+        key_id=key_id,
+        user_id=current_user["id"] if isinstance(current_user, dict) else current_user.id,
+        db=db,
+    )
 
 
 @router.get(
@@ -282,29 +235,19 @@ async def get_key_usage(
     items_per_page: int = Query(100, ge=1, le=1000, description="Items per page"),
 ) -> dict[str, Any]:
     """Get usage history for an API key."""
-    try:
-        result = await api_key_service.get_key_usage(
-            key_id=key_id,
-            user_id=current_user["id"] if isinstance(current_user, dict) else current_user.id,
-            limit=items_per_page,
-            offset=compute_offset(page, items_per_page),
-            db=db,
-        )
+    result = await api_key_service.get_key_usage(
+        key_id=key_id,
+        user_id=current_user["id"] if isinstance(current_user, dict) else current_user.id,
+        limit=items_per_page,
+        offset=compute_offset(page, items_per_page),
+        db=db,
+    )
 
-        return paginated_response(
-            crud_data=result,
-            page=page,
-            items_per_page=items_per_page,
-        )
-    except ResourceNotFoundError as e:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
-    except PermissionDeniedError as e:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e))
-    except Exception as e:
-        http_exc = handle_exception(e)
-        if http_exc:
-            raise http_exc
-        raise HTTPException(status_code=500, detail="Internal server error")
+    return paginated_response(
+        crud_data=result,
+        page=page,
+        items_per_page=items_per_page,
+    )
 
 
 @router.get(
@@ -339,22 +282,12 @@ async def get_key_analytics(
     days: int = Query(30, ge=1, le=365, description="Number of days to analyze"),
 ) -> dict[str, Any]:
     """Get usage analytics for an API key."""
-    try:
-        return await api_key_service.get_usage_analytics(
-            key_id=key_id,
-            user_id=current_user["id"] if isinstance(current_user, dict) else current_user.id,
-            days=days,
-            db=db,
-        )
-    except ResourceNotFoundError as e:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
-    except PermissionDeniedError as e:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e))
-    except Exception as e:
-        http_exc = handle_exception(e)
-        if http_exc:
-            raise http_exc
-        raise HTTPException(status_code=500, detail="Internal server error")
+    return await api_key_service.get_usage_analytics(
+        key_id=key_id,
+        user_id=current_user["id"] if isinstance(current_user, dict) else current_user.id,
+        days=days,
+        db=db,
+    )
 
 
 @router.get(
@@ -383,13 +316,7 @@ async def get_user_summary(
     db: AsyncSessionDep,
 ) -> dict[str, Any]:
     """Get comprehensive API key summary for the authenticated user."""
-    try:
-        return await api_key_service.get_user_summary(
-            user_id=current_user["id"] if isinstance(current_user, dict) else current_user.id,
-            db=db,
-        )
-    except Exception as e:
-        http_exc = handle_exception(e)
-        if http_exc:
-            raise http_exc
-        raise HTTPException(status_code=500, detail="Internal server error")
+    return await api_key_service.get_user_summary(
+        user_id=current_user["id"] if isinstance(current_user, dict) else current_user.id,
+        db=db,
+    )

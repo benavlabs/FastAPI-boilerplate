@@ -66,3 +66,14 @@ async def test_openapi_advertises_the_gate(client: AsyncClient, path: str, metho
     operation = schema["paths"][path][method]
 
     assert expected <= set(operation["responses"])
+
+
+async def test_a_missing_rate_limit_says_so(superuser_auth_client: AsyncClient):
+    """The 404 names what wasn't found, without echoing the requested name back."""
+    response = await superuser_auth_client.get("/api/v1/rate-limits/no-such-limit")
+
+    assert response.status_code == 404
+    body = response.json()
+    assert body["detail"] == "Rate limit configuration not found."
+    assert "no-such-limit" not in response.text
+    assert body["support_id"]

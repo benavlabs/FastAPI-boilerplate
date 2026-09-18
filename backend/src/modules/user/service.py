@@ -8,7 +8,14 @@ from sqlalchemy.exc import MultipleResultsFound, NoResultFound
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...infrastructure.logging import get_logger
-from ..common.exceptions import PermissionDeniedError, TierNotFoundError, UserExistsError, UserNotFoundError, ValidationError
+from ..common.exceptions import (
+    PermissionDeniedError,
+    PersistenceError,
+    TierNotFoundError,
+    UserExistsError,
+    UserNotFoundError,
+    ValidationError,
+)
 from ..rate_limit.models import RateLimit
 from ..rate_limit.schemas import RateLimitRead
 from ..tier.crud import crud_tiers
@@ -85,7 +92,7 @@ class UserService:
         user_internal = UserCreateInternal(**user_internal_dict)
         created_user = await crud_users.create(db=db, object=user_internal, schema_to_select=UserRead)
         if not created_user:
-            raise UserExistsError("Failed to create user")
+            raise PersistenceError("User row was not returned after insert")
         return created_user
 
     async def get_paginated(self, db: AsyncSession, skip: int = 0, limit: int = 100) -> GetMultiResponseDict:

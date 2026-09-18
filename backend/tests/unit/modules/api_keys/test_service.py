@@ -504,9 +504,7 @@ async def test_user_summary_key_counts_not_page_capped(api_key_service, db_sessi
     list stays a page; the counts describe everything the user has.
     """
     for index in range(55):
-        await api_key_service.create_api_key(
-            user_id=test_user["id"], key_data=APIKeyCreate(name=f"Key {index}"), db=db_session
-        )
+        await api_key_service.create_api_key(user_id=test_user["id"], key_data=APIKeyCreate(name=f"Key {index}"), db=db_session)
     created = await api_key_service.get_user_api_keys(user_id=test_user["id"], db=db_session, active_only=False)
     await api_key_service.delete_api_key(key_id=created["data"][0]["id"], user_id=test_user["id"], db=db_session)
 

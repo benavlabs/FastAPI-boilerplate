@@ -7,8 +7,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..common.exceptions import (
     PermissionDeniedError,
+    PersistenceError,
+    RateLimitNotFoundError,
     ResourceExistsError,
-    ResourceNotFoundError,
     TierNotFoundError,
 )
 from ..tier.crud import crud_tiers
@@ -45,7 +46,7 @@ class RateLimitService:
         created_rate_limit = await crud_rate_limits.create(db=db, object=rate_limit_internal, schema_to_select=RateLimitRead)
 
         if not created_rate_limit:
-            raise ResourceExistsError("Failed to create rate limit")
+            raise PersistenceError("Rate limit row was not returned after insert")
         return created_rate_limit
 
     async def get_all(self, db: AsyncSession, skip: int = 0, limit: int = 100) -> GetMultiResponseDict:
@@ -63,7 +64,7 @@ class RateLimitService:
             is_deleted=False,
         )
         if not rate_limit:
-            raise ResourceNotFoundError(f"Rate limit with ID {rate_limit_id} not found")
+            raise RateLimitNotFoundError(f"Rate limit with ID {rate_limit_id} not found")
         return rate_limit
 
     async def get_by_name(self, name: str, db: AsyncSession) -> dict[str, Any]:
@@ -75,21 +76,21 @@ class RateLimitService:
             is_deleted=False,
         )
         if not rate_limit:
-            raise ResourceNotFoundError(f"Rate limit with name '{name}' not found")
+            raise RateLimitNotFoundError(f"Rate limit with name '{name}' not found")
         return rate_limit
 
     async def get_active_and_inactive_by_name(self, name: str, db: AsyncSession) -> dict[str, Any]:
         """Get an active or inactive rate limit by name."""
         rate_limit = await crud_rate_limits.get(db=db, name=name, schema_to_select=RateLimitRead)
         if not rate_limit:
-            raise ResourceNotFoundError(f"Rate limit with name '{name}' not found")
+            raise RateLimitNotFoundError(f"Rate limit with name '{name}' not found")
         return rate_limit
 
     async def update(self, name: str, rate_limit_update: RateLimitUpdate, db: AsyncSession) -> None:
         """Update a rate limit by name."""
         existing_rate_limit = await crud_rate_limits.get(db=db, name=name, schema_to_select=RateLimitRead)
         if not existing_rate_limit:
-            raise ResourceNotFoundError(f"Rate limit with name '{name}' not found")
+            raise RateLimitNotFoundError(f"Rate limit with name '{name}' not found")
 
         update_data = rate_limit_update.model_dump(exclude_unset=True)
         if "name" in update_data and update_data["name"] != name:
@@ -105,7 +106,7 @@ class RateLimitService:
         """Permanently delete a rate limit by name."""
         existing_rate_limit = await crud_rate_limits.get(db=db, name=name, schema_to_select=RateLimitRead)
         if not existing_rate_limit:
-            raise ResourceNotFoundError(f"Rate limit with name '{name}' not found")
+            raise RateLimitNotFoundError(f"Rate limit with name '{name}' not found")
 
         await crud_rate_limits.db_delete(db=db, name=name)
 
