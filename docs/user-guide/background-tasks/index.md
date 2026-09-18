@@ -179,10 +179,11 @@ The `TASKIQ_WORKER_CONCURRENCY` env var configures the per-process concurrency; 
 ### Reloading on Code Changes
 
 ```bash
-uv run taskiq worker infrastructure.taskiq.worker:default_broker --reload
+uv run --extra dev taskiq worker infrastructure.taskiq.worker:default_broker --reload
 ```
 
-Helpful in development. Don't run with `--reload` in production.
+Helpful in development. `--reload` needs `taskiq[reload]` from the `dev` extra, which is why the
+command asks for it. Don't run with `--reload` in production.
 
 ## Worker Lifecycle Hooks
 
