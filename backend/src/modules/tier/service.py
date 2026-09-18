@@ -3,7 +3,9 @@ from typing import Any
 from fastcrud.types import GetMultiResponseDict
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..common.exceptions import PermissionDeniedError, ResourceExistsError, TierNotFoundError
+from ..common.exceptions import PermissionDeniedError, ResourceExistsError, TierNotFoundError, ValidationError
+from ..rate_limit.crud import crud_rate_limits
+from ..user.crud import crud_users
 from .crud import crud_tiers
 from .schemas import (
     TierCreate,
@@ -64,18 +66,33 @@ class TierService:
         await crud_tiers.update(db=db, object=tier_update, name=name)
 
     async def delete(self, name: str, db: AsyncSession) -> None:
-        """Soft delete a tier."""
+        """Soft delete a tier that no users or rate limits reference."""
         existing_tier = await crud_tiers.get(db=db, name=name, schema_to_select=TierRead, is_deleted=False)
         if not existing_tier:
             raise TierNotFoundError(f"Tier with name '{name}' not found")
+
+        await self._ensure_unreferenced(existing_tier, db)
         await crud_tiers.delete(db=db, name=name)
 
     async def permanent_delete(self, name: str, db: AsyncSession) -> None:
-        """Permanently delete a tier."""
+        """Permanently delete a tier that no users or rate limits reference."""
         existing_tier = await crud_tiers.get(db=db, name=name, schema_to_select=TierRead)
         if not existing_tier:
             raise TierNotFoundError(f"Tier with name '{name}' not found")
+
+        await self._ensure_unreferenced(existing_tier, db)
         await crud_tiers.db_delete(db=db, name=name)
+
+    async def _ensure_unreferenced(self, tier: dict[str, Any], db: AsyncSession) -> None:
+        if await crud_users.exists(db=db, tier_id=tier["id"]):
+            raise ValidationError(
+                f"Cannot delete tier '{tier['name']}' because it is assigned to users. Reassign users to another tier first."
+            )
+
+        if await crud_rate_limits.exists(db=db, tier_id=tier["id"]):
+            raise ValidationError(
+                f"Cannot delete tier '{tier['name']}' because it has rate limits. Delete the rate limits first."
+            )
 
     async def verify_superuser(self, user: dict[str, Any], action: str = "manage tiers") -> None:
         """Verify that a user has superuser privileges."""

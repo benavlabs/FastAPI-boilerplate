@@ -1,21 +1,71 @@
 from collections.abc import AsyncGenerator
+from typing import Any
 
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy import MetaData
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, MappedAsDataclass
 
-from ..config.settings import settings
+from ..config.settings import get_settings
 
-engine = create_async_engine(
-    settings.DATABASE_URL,
-    echo=False,
-    future=True,
-    pool_size=settings.POSTGRES_POOL_SIZE,
-    max_overflow=settings.POSTGRES_MAX_OVERFLOW,
-    pool_pre_ping=settings.POSTGRES_POOL_PRE_PING,
-    pool_recycle=settings.POSTGRES_POOL_RECYCLE,
-)
+_engine: AsyncEngine | None = None
+_session_factory: async_sessionmaker[AsyncSession] | None = None
 
-local_session = async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
+
+def build_engine(**overrides: Any) -> AsyncEngine:
+    """Create an engine for the configured database, passing ``overrides`` to ``create_async_engine``."""
+    settings = get_settings()
+    options: dict[str, Any] = {
+        "echo": False,
+        "future": True,
+        "pool_pre_ping": settings.POSTGRES_POOL_PRE_PING,
+        "pool_recycle": settings.POSTGRES_POOL_RECYCLE,
+    }
+    if "poolclass" not in overrides:
+        options["pool_size"] = settings.POSTGRES_POOL_SIZE
+        options["max_overflow"] = settings.POSTGRES_MAX_OVERFLOW
+    options.update(overrides)
+
+    return create_async_engine(settings.DATABASE_URL, **options)
+
+
+def get_engine() -> AsyncEngine:
+    """Return the application's shared engine, creating it on first use."""
+    global _engine
+    if _engine is None:
+        _engine = build_engine()
+
+    return _engine
+
+
+def get_session_factory() -> async_sessionmaker[AsyncSession]:
+    """Return the session factory bound to the shared engine."""
+    global _session_factory
+    if _session_factory is None:
+        _session_factory = async_sessionmaker(bind=get_engine(), class_=AsyncSession, expire_on_commit=False)
+
+    return _session_factory
+
+
+def local_session() -> AsyncSession:
+    """Open a new session on the shared engine."""
+    return get_session_factory()()
+
+
+async def dispose_engine() -> None:
+    """Close the shared engine's pooled connections, if the engine was ever created."""
+    if _engine is None:
+        return
+
+    await _engine.dispose()
+
+
+NAMING_CONVENTION = {
+    "ix": "ix_%(column_0_label)s",
+    "uq": "uq_%(table_name)s_%(column_0_name)s",
+    "ck": "ck_%(table_name)s_%(constraint_name)s",
+    "fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s",
+    "pk": "pk_%(table_name)s",
+}
 
 
 class Base(DeclarativeBase, MappedAsDataclass):
@@ -56,7 +106,7 @@ class Base(DeclarativeBase, MappedAsDataclass):
         ```
     """
 
-    pass
+    metadata = MetaData(naming_convention=NAMING_CONVENTION)
 
 
 async def async_session() -> AsyncGenerator[AsyncSession, None]:
@@ -126,5 +176,13 @@ async def create_tables() -> None:
             asyncio.run(create_tables())
         ```
     """
-    async with engine.begin() as conn:
+    async with get_engine().begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
+
+def __getattr__(name: str) -> AsyncEngine:
+    """Keep the deprecated module-level ``engine`` importable; new code calls ``get_engine()``."""
+    if name == "engine":
+        return get_engine()
+
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

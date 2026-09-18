@@ -1,6 +1,7 @@
 import logging
 import os
 from enum import StrEnum
+from urllib.parse import quote
 
 from pydantic import Field
 from pydantic_settings import BaseSettings
@@ -11,18 +12,24 @@ from .enums import CacheBackend, LogFormat, LogLevel, SessionBackend, TaskiqBrok
 logger = logging.getLogger(__name__)
 
 current_file_dir = os.path.dirname(os.path.realpath(__file__))
+backend_root = os.path.abspath(os.path.join(current_file_dir, "..", "..", ".."))
 project_root = os.path.abspath(os.path.join(current_file_dir, "..", "..", "..", ".."))
 
 env_paths = [
     "/app/.env",
+    os.path.join(backend_root, ".env"),
     os.path.join(project_root, ".env"),
     "/.env",
 ]
 
 env_path = next((path for path in env_paths if os.path.isfile(path)), env_paths[0])
-logger.info(f"Using environment file at: {env_path}")
 
-config = Config(env_path)
+running_under_pytest = os.environ.get("ENVIRONMENT") == "pytest" or "PYTEST_VERSION" in os.environ
+if running_under_pytest:
+    config = Config()
+else:
+    logger.info(f"Using environment file at: {env_path}")
+    config = Config(env_path)
 
 
 class EnvironmentOption(StrEnum):
@@ -57,8 +64,6 @@ class DatabaseSettings(BaseSettings):
     POSTGRES_POOL_PRE_PING: bool = config("POSTGRES_POOL_PRE_PING", default=True, cast=bool)
     POSTGRES_POOL_RECYCLE: int = config("POSTGRES_POOL_RECYCLE", default=-1, cast=int)
 
-    # A field rather than a lookup inside DATABASE_URL, so callers can tell an
-    # explicit URL apart from one built out of the POSTGRES_* parts.
     DATABASE_URL_OVERRIDE: str | None = Field(
         default=config("DATABASE_URL", default=None),
         validation_alias="DATABASE_URL",
@@ -184,7 +189,7 @@ class CORSSettings(BaseSettings):
     """CORS-related settings."""
 
     CORS_ENABLED: bool = config("CORS_ENABLED", default=True, cast=bool)
-    CORS_ORIGINS: str = config("CORS_ORIGINS", default="*")
+    CORS_ORIGINS: str = config("CORS_ORIGINS", default="http://localhost:3000,http://localhost:5173")
     CORS_ALLOW_CREDENTIALS: bool = config("CORS_ALLOW_CREDENTIALS", default=True, cast=bool)
 
     @property
@@ -241,6 +246,12 @@ class AuthSettings(BaseSettings):
     MAX_SESSIONS_PER_USER: int = config("MAX_SESSIONS_PER_USER", default=5, cast=int)
     SESSION_SECURE_COOKIES: bool = config("SESSION_SECURE_COOKIES", default=True, cast=bool)
     SESSION_BACKEND: str = config("SESSION_BACKEND", default=SessionBackend.REDIS.value)
+
+    SESSION_REDIS_DB: int = config("SESSION_REDIS_DB", default=2, cast=int)
+    SESSION_REDIS_URL_OVERRIDE: str | None = Field(
+        default=config("SESSION_REDIS_URL", default=None),
+        validation_alias="SESSION_REDIS_URL",
+    )
 
     CSRF_ENABLED: bool = config("CSRF_ENABLED", default=True, cast=bool)
 
@@ -388,7 +399,17 @@ class Settings(
 ):
     """Main settings class that combines all setting categories."""
 
-    pass
+    @property
+    def SESSION_REDIS_URL(self) -> str:
+        """Get the Redis URL for sessions.
+
+        Uses SESSION_REDIS_URL when set, otherwise the cache's Redis connection on SESSION_REDIS_DB.
+        """
+        if self.SESSION_REDIS_URL_OVERRIDE:
+            return self.SESSION_REDIS_URL_OVERRIDE
+
+        password_part = f":{quote(self.CACHE_REDIS_PASSWORD, safe='')}@" if self.CACHE_REDIS_PASSWORD else ""
+        return f"redis://{password_part}{self.CACHE_REDIS_HOST}:{self.CACHE_REDIS_PORT}/{self.SESSION_REDIS_DB}"
 
 
 settings = Settings()

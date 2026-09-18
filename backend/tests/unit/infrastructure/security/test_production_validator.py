@@ -28,6 +28,7 @@ class TestProductionSecurityValidator:
             "SESSION_BACKEND": "redis",
             "CORS_ENABLED": True,
             "CORS_ORIGINS": "https://example.com",
+            "CORS_ALLOW_CREDENTIALS": False,
             "DEBUG": False,
             "ENABLE_DOCS_IN_PRODUCTION": False,
             "SESSION_SECURE_COOKIES": True,
@@ -43,6 +44,7 @@ class TestProductionSecurityValidator:
             "CACHE_REDIS_PORT": 6379,
             "CACHE_REDIS_DB": 0,
             "CACHE_REDIS_PASSWORD": None,
+            "SESSION_REDIS_URL": "redis://localhost:6379/2",
             "RATE_LIMITER_REDIS_HOST": "localhost",
             "RATE_LIMITER_REDIS_PORT": 6379,
             "RATE_LIMITER_REDIS_DB": 1,
@@ -243,17 +245,76 @@ class TestProductionSecurityValidator:
         shared_warnings = [log for log in warning_logs if "sharing the same Redis instance" in log.message]
         assert len(shared_warnings) > 0
 
-    def test_permissive_cors_logs_warning(self, caplog):
-        """Test that permissive CORS logs warning."""
-        settings = self.create_mock_settings(CORS_ORIGINS="*")
+    def test_sessions_on_own_redis_db_do_not_warn_about_sharing(self, caplog):
+        """Sessions on their own Redis DB are not reported as sharing the cache database."""
+        settings = self.create_mock_settings(
+            CACHE_BACKEND="redis", CACHE_REDIS_DB=0, SESSION_REDIS_URL="redis://localhost:6379/2"
+        )
         validator = ProductionSecurityValidator(settings)
 
         validator.validate_production_security()
 
-        # Check for CORS warning
-        warning_logs = [record for record in caplog.records if record.levelname == "WARNING"]
-        cors_warnings = [log for log in warning_logs if "CORS_ORIGINS" in log.message and "allow all origins" in log.message]
-        assert len(cors_warnings) > 0
+        shared_warnings = [record for record in caplog.records if "sharing the same Redis instance" in record.message]
+        assert shared_warnings == []
+
+    def test_sessions_sharing_cache_redis_db_logs_warning(self, caplog):
+        """A session URL pointing at the cache database is reported as sharing."""
+        settings = self.create_mock_settings(
+            CACHE_BACKEND="redis", CACHE_REDIS_DB=0, SESSION_REDIS_URL="redis://localhost:6379/0"
+        )
+        validator = ProductionSecurityValidator(settings)
+
+        validator.validate_production_security()
+
+        shared_warnings = [record for record in caplog.records if "sharing the same Redis instance" in record.message]
+        assert len(shared_warnings) == 1
+        assert "cache, sessions" in shared_warnings[0].message
+
+    def test_sessions_on_separate_redis_host_do_not_warn_about_sharing(self, caplog):
+        """Same DB number on a different session Redis host is a different instance, not sharing."""
+        settings = self.create_mock_settings(
+            CACHE_BACKEND="redis", CACHE_REDIS_DB=0, SESSION_REDIS_URL="redis://sessions-redis:6379/0"
+        )
+        validator = ProductionSecurityValidator(settings)
+
+        validator.validate_production_security()
+
+        shared_warnings = [record for record in caplog.records if "sharing the same Redis instance" in record.message]
+        assert shared_warnings == []
+
+    def test_session_redis_url_with_tls_and_password_passes_redis_checks(self, caplog):
+        """A rediss:// session URL with credentials satisfies the password and TLS checks."""
+        settings = self.create_mock_settings(SESSION_REDIS_URL="rediss://default:p%40ss@sessions.example.com:6380/0")
+        validator = ProductionSecurityValidator(settings)
+
+        assert validator._get_redis_configurations() == [
+            {
+                "service": "sessions",
+                "host": "sessions.example.com",
+                "port": 6380,
+                "db": 0,
+                "password": "p@ss",
+                "ssl": True,
+            }
+        ]
+
+        validator.validate_production_security()
+
+        session_warnings = [record for record in caplog.records if "Redis instance for sessions" in record.message]
+        assert session_warnings == []
+
+    @pytest.mark.parametrize(("allow_credentials", "expect_note"), [(True, True), (False, False)])
+    def test_cors_wildcard_raises_error(self, allow_credentials, expect_note):
+        """Test that CORS_ORIGINS='*' is a critical error, noting credentials when they are allowed."""
+        settings = self.create_mock_settings(CORS_ORIGINS="*", CORS_ALLOW_CREDENTIALS=allow_credentials)
+        validator = ProductionSecurityValidator(settings)
+
+        with pytest.raises(ProductionSecurityError) as exc_info:
+            validator.validate_production_security()
+
+        message = str(exc_info.value)
+        assert "CORS_ORIGINS contains '*'" in message
+        assert ("CORS_ALLOW_CREDENTIALS=true" in message) is expect_note
 
     def test_debug_enabled_logs_warning(self, caplog):
         """Test that debug mode enabled logs warning."""
@@ -324,17 +385,16 @@ class TestProductionSecurityValidator:
         with pytest.raises(ProductionSecurityError):
             validate_production_security(settings)
 
-    def test_no_admin_credentials_skips_admin_checks(self, caplog):
-        """Test that missing admin credentials skip admin checks."""
+    def test_empty_admin_credentials_raises_error(self):
+        """Test that an enabled admin interface without credentials is a critical issue."""
         settings = self.create_mock_settings(ADMIN_USERNAME="", ADMIN_PASSWORD="")
         validator = ProductionSecurityValidator(settings)
 
-        validator.validate_production_security()
+        with pytest.raises(ProductionSecurityError) as exc_info:
+            validator.validate_production_security()
 
-        # Should not have admin credential warnings
-        warning_logs = [record for record in caplog.records if record.levelname == "WARNING"]
-        admin_warnings = [log for log in warning_logs if "Admin username" in log.message or "Admin password" in log.message]
-        assert len(admin_warnings) == 0
+        assert "ADMIN_USERNAME" in str(exc_info.value)
+        assert "ADMIN_PASSWORD" in str(exc_info.value)
 
     def test_redis_ssl_with_external_host(self, caplog):
         """Test that external Redis without SSL logs warning."""

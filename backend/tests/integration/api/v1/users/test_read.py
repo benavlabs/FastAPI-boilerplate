@@ -20,8 +20,8 @@ async def test_get_user_by_username_success(auth_client: AsyncClient, db_session
     data = response.json()
     assert data["username"] == username
     assert "id" in data
-    assert "email" in data
     assert "name" in data
+    assert "email" not in data
 
 
 async def test_get_user_by_username_not_found(auth_client: AsyncClient, db_session: AsyncSession):
@@ -99,3 +99,25 @@ async def test_get_user_rate_limits(auth_client: AsyncClient, db_session: AsyncS
     assert response.status_code == 200
     data = response.json()
     assert "rate_limits" in data
+
+
+async def test_get_user_by_username_requires_authentication(client: AsyncClient, test_user: dict):
+    """An anonymous caller can't look anyone up by username."""
+    response = await client.get(f"/api/v1/users/{test_user['username']}")
+
+    assert response.status_code == 401
+
+
+async def test_profile_lookup_never_carries_an_email(auth_client: AsyncClient, test_user_2: dict, db_session: AsyncSession):
+    """Looking someone else up returns display fields, never their address.
+
+    Registration is open, so anything this endpoint returns is readable by anyone
+    willing to sign up; an email address here would be a directory of addresses.
+    """
+    response = await auth_client.get(f"/api/v1/users/{test_user_2['username']}")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["username"] == test_user_2["username"]
+    assert "email" not in data
+    assert "is_superuser" not in data

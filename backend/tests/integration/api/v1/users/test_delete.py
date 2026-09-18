@@ -4,8 +4,6 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.modules.common.constants import GENERIC_ERROR_MESSAGE
-
 from .test_create import generate_unique_user_data
 
 logging.basicConfig(level=logging.INFO)
@@ -64,7 +62,7 @@ async def test_soft_delete_wrong_user(
 
     assert response.status_code == 403
     data = response.json()
-    assert data["detail"] == GENERIC_ERROR_MESSAGE
+    assert data["detail"] == "You don't have permission for this action."
 
 
 async def test_soft_delete_nonexistent_user(
@@ -147,7 +145,7 @@ async def test_permanent_delete_nonexistent_user(
 
     assert response.status_code == 404
     data = response.json()
-    assert data["detail"] == GENERIC_ERROR_MESSAGE
+    assert data["detail"] == "User not found."
 
 
 async def test_delete_cascade_effects(

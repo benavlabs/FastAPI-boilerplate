@@ -186,7 +186,16 @@ form_create_rules = [*WidgetCreate.model_fields.keys(), "owner_id"]
 
 ### `lazy="selectin"` Is Required
 
-SQLAdmin runs in async context, so relationships must use `lazy="selectin"` to avoid lazy-loading errors. Symptom of forgetting: `MissingGreenlet` or `greenlet_spawn has not been called`. Both User and Tier models in the boilerplate already use this pattern.
+SQLAdmin runs in async context, so relationships must use `lazy="selectin"` to avoid lazy-loading errors. Symptom of forgetting: `MissingGreenlet` or `greenlet_spawn has not been called`. `User.tier` in the boilerplate already uses this pattern.
+
+The exception is large one-to-many collections such as `Tier.users`, which uses `lazy="select"` so that loading a tier doesn't load every user in it. SQLAdmin still loads a relationship whenever a page uses it: it `selectinload`s the relationships in `column_list` and in the form columns (the details page reuses the edit-form query), and a relationship form field lists every row of the related table. So keep large collections out of the list, the form and the details page, as `TierAdmin` does:
+
+```python
+form_excluded_columns = [Tier.users]
+column_details_exclude_list = [Tier.users]
+```
+
+`column_details_exclude_list` replaces `column_details_list = "__all__"`; SQLAdmin doesn't accept both on the same view, and the details page shows every other column by default.
 
 ### Don't Set `default=None` on Relationships
 
@@ -302,7 +311,7 @@ class WidgetAdmin(DataclassModelMixin, ModelView, model=Widget):
 Notes:
 
 - Selected IDs come from `request.query_params["pks"]` as a comma-separated string
-- `local_session()` is the boilerplate's session-maker — import it from `infrastructure/database/session.py`
+- `local_session()` opens a session on the shared engine — import it from `infrastructure/database/session.py`
 - Always commit before redirecting, otherwise the change reverts when the request ends
 
 ## Icons

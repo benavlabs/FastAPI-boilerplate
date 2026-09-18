@@ -113,7 +113,7 @@ On every subsequent request, the auth dependency (via crudauth):
 3. For mutating requests (POST/PUT/DELETE/PATCH), validates the CSRF token if `CSRF_ENABLED=true`
 4. Hands back a `Principal`; `get_current_user` then re-loads the full user row (joined with the `Tier` relationship via `lazy="selectin"`)
 
-Logout (`POST /api/v1/auth/logout`) terminates the session record and clears the cookies.
+Logout (`POST /api/v1/auth/logout`) terminates the session record and clears the cookies. To end every session the user holds on all devices (e.g. after a suspected compromise), use `POST /api/v1/auth/logout-all`. See [Logout All Sessions](#logout-all-sessions).
 
 ## CSRF Protection
 
@@ -168,6 +168,8 @@ The backends ship inside the `crudauth` library, not the boilerplate — `setup.
 ```env
 # Backend
 SESSION_BACKEND=redis                # redis | memory
+SESSION_REDIS_DB=2                   # on the cache Redis; isolated from cache (0), rate limiter (1), and taskiq (3)
+# SESSION_REDIS_URL=                 # optional dedicated session Redis, e.g. rediss://user:password@host:6380/0
 
 # Lifetime
 SESSION_TIMEOUT_MINUTES=30           # inactive sessions expire
@@ -237,6 +239,30 @@ curl -X POST http://localhost:8000/api/v1/auth/logout -b cookies.txt
 
 Terminates the session and clears the cookies.
 
+### Logout All Sessions
+
+```bash
+curl -X POST http://localhost:8000/api/v1/auth/logout-all \
+  -b cookies.txt \
+  -H "X-CSRF-Token: <token-from-login-response>"
+```
+
+Terminates **every** session for the current user across all devices, including this one, and clears the cookies:
+
+```json
+{ "message": "All sessions terminated. Please log in again.", "terminated_count": 3 }
+```
+
+To sign out only the *other* devices and stay logged in here, pass `keep_current=true`:
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/auth/logout-all?keep_current=true" \
+  -b cookies.txt \
+  -H "X-CSRF-Token: <token-from-login-response>"
+```
+
+No re-authentication step is required, because this is the action a user needs when they can't trust their current session. It's rate limited per user (crudauth's `logout_all` default: 10 per hour).
+
 ## Key Files
 
 | Component | Location |
@@ -244,7 +270,7 @@ Terminates the session and clears the cookies.
 | `auth = CRUDAuth(...)` singleton | `backend/src/infrastructure/auth/setup.py` |
 | Dependencies | `backend/src/infrastructure/auth/dependencies.py` |
 | OAuth building blocks | `backend/src/infrastructure/auth/oauth.py` |
-| Login/logout/OAuth routes | `backend/src/infrastructure/auth/routes.py` |
+| Login/logout/logout-all/OAuth routes | `backend/src/infrastructure/auth/routes.py` |
 | HTTP exceptions (fastcrud re-export) | `backend/src/infrastructure/auth/http_exceptions.py` |
 | Auth settings | `backend/src/infrastructure/config/settings.py` (`AuthSettings`) |
 

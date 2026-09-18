@@ -231,7 +231,7 @@ docker compose exec redis redis-cli
 > LRANGE default 0 -1                # pending tasks
 ```
 
-Each subsystem uses a different Redis DB number; see `.env.example` for the conventions (`CACHE_REDIS_DB=0`, `SESSION_REDIS_DB=1`, `RATE_LIMITER_REDIS_DB=1` (yes, the rate limiter shares with sessions in defaults — change one if you want isolation), `TASKIQ_REDIS_DB=3`).
+Each subsystem uses a different Redis DB number; see `.env.example` for the conventions (`CACHE_REDIS_DB=0`, `RATE_LIMITER_REDIS_DB=1`, `SESSION_REDIS_DB=2`, `TASKIQ_REDIS_DB=3`).
 
 ### Watch sessions live
 
@@ -239,7 +239,7 @@ Session storage is managed by the `crudauth` library, so there's no boilerplate 
 
 ```bash
 redis-cli
-> SELECT 1                           # session backend DB (SESSION_REDIS_DB)
+> SELECT 2                           # session backend DB (SESSION_REDIS_DB)
 > KEYS 'session:*'
 ```
 
@@ -253,9 +253,10 @@ See [Authentication → Sessions](authentication/sessions.md) for full details.
 
 When `ENVIRONMENT=production`, `infrastructure/security/` runs validators at startup that fail loudly on:
 
-- Placeholder `SECRET_KEY`
-- `DEBUG=true`
-- Unset `CORS_ORIGINS` or `CORS_ORIGINS=*`
+- Insecure or placeholder `SECRET_KEY`
+- Default or empty database password
+- Admin panel enabled without `ADMIN_USERNAME`/`ADMIN_PASSWORD`
+- `CORS_ORIGINS` empty or containing `*`
 
 If your prod boot is failing with one of those, that's your hint — don't bypass the validator.
 
@@ -370,7 +371,7 @@ The boilerplate uses `import_models("src.modules")` in Alembic to discover model
 
 ### Forgetting `lazy="selectin"` on a relationship
 
-SQLAdmin runs in async context. A relationship without `lazy="selectin"` raises `MissingGreenlet` when the admin tries to render it. Both `User.tier` and other relationships in the boilerplate already use this pattern — copy from those.
+SQLAdmin runs in async context. A relationship without `lazy="selectin"` raises `MissingGreenlet` when the admin tries to render it. `User.tier` and other relationships in the boilerplate already use this pattern — copy from those. (`Tier.users` is a deliberate exception: it uses `lazy="select"` so loading a tier doesn't load every user in it.)
 
 ### Dataclass models without `init=False` on relationships
 

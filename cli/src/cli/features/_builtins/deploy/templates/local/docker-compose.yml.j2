@@ -7,15 +7,14 @@ name: {{ project_name }}
 services:
   api:
     build:
-      context: {{ backend_context }}
-      dockerfile: Dockerfile
+      context: {{ build_context }}
+      dockerfile: {{ backend_dockerfile }}
       target: dev
     env_file:
       - {{ env_file }}
     environment:
       POSTGRES_SERVER: postgres
       CACHE_REDIS_HOST: redis
-      SESSION_REDIS_HOST: redis
       RATE_LIMITER_REDIS_HOST: redis
       TASKIQ_REDIS_HOST: redis
     volumes:
@@ -31,15 +30,14 @@ services:
 
   worker:
     build:
-      context: {{ backend_context }}
-      dockerfile: Dockerfile
+      context: {{ build_context }}
+      dockerfile: {{ backend_dockerfile }}
       target: dev
     env_file:
       - {{ env_file }}
     environment:
       POSTGRES_SERVER: postgres
       CACHE_REDIS_HOST: redis
-      SESSION_REDIS_HOST: redis
       RATE_LIMITER_REDIS_HOST: redis
       TASKIQ_REDIS_HOST: redis
     working_dir: /app/src

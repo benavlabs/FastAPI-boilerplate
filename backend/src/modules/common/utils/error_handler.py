@@ -27,9 +27,15 @@ def _generate_support_id() -> str:
 
 
 def map_exception(error: DomainError) -> HTTPException:
-    """Map a domain exception to a corresponding HTTP exception."""
-    for exception_class, mapper in EXCEPTION_MAPPING.items():
-        if isinstance(error, exception_class):
+    """Map a domain exception to a corresponding HTTP exception.
+
+    Walks the exception's MRO and uses the first exact-type match found in
+    EXCEPTION_MAPPING, so the most specific mapping wins regardless of the
+    order entries appear in the mapping.
+    """
+    for exception_class in type(error).__mro__:
+        mapper = EXCEPTION_MAPPING.get(exception_class)
+        if mapper is not None:
             return mapper(str(error))
 
     logger.error(f"Unmapped domain error: {type(error).__name__}: {error}")
@@ -54,9 +60,12 @@ class CatchAllErrorMiddleware(BaseHTTPMiddleware):
 def register_exception_handlers(app: FastAPI) -> None:
     """Register global exception handlers for domain and validation exceptions.
 
-    All handlers log full details server-side and return only a generic message
-    + support_id to the client. Exception: InsufficientCreditsError (402) keeps
-    its message since the frontend needs the credit info for upgrade prompts.
+    All handlers log full details server-side and answer the client with the
+    message ``EXCEPTION_MAPPING`` defines for that failure plus a support_id -
+    enough to say what went wrong, never the raw domain message, which can name
+    rows the caller isn't entitled to know about. InsufficientCreditsError (402)
+    is the exception: it passes its own message, since the frontend needs the
+    credit info for upgrade prompts.
     """
     app.add_middleware(CatchAllErrorMiddleware)
 
@@ -84,7 +93,7 @@ def register_exception_handlers(app: FastAPI) -> None:
         logger.warning(f"Domain error [{support_id}] on {request.method} {request.url.path}: {type(exc).__name__}: {exc}")
         return JSONResponse(
             status_code=http_exception.status_code,
-            content={"detail": GENERIC_ERROR_MESSAGE, "support_id": support_id},
+            content={"detail": http_exception.detail, "support_id": support_id},
         )
 
 

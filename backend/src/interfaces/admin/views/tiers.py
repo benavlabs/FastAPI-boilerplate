@@ -20,7 +20,7 @@ class TierAdmin(DataclassModelMixin, ModelView, model=Tier):
     category = "Users & Access"
 
     column_list = [Tier.id, Tier.name, Tier.description]
-    column_details_list = "__all__"
+    column_details_exclude_list = [Tier.users]
     column_searchable_list = [Tier.name]
     column_sortable_list = [Tier.id, Tier.name]
 
@@ -32,6 +32,7 @@ class TierAdmin(DataclassModelMixin, ModelView, model=Tier):
 
     form_create_rules = list(TierCreate.model_fields.keys())
     form_edit_rules = list(TierUpdate.model_fields.keys())
+    form_excluded_columns = [Tier.users]
 
     async def delete_model(self, request: Request, pk: str) -> None:
         """Override delete to permanently remove tier from database.

@@ -13,6 +13,8 @@ The app **will not start** if any of these is true:
 - **`SECRET_KEY` is insecure.** Default placeholder, < 32 chars, contains an obvious string ("password", "secret", "test", "dev", "default", etc.), or has a predictable pattern (repetition, all-same-char).
 - **The database password is `postgres`** (the well-known default). Attackers try this first.
 - **The database password is empty.** Database is unprotected.
+- **The admin panel is enabled without credentials** (`ADMIN_ENABLED=true` with `ADMIN_USERNAME` or `ADMIN_PASSWORD` unset).
+- **`CORS_ORIGINS` contains `*`.** Any website can call the API from a user's browser, and with `CORS_ALLOW_CREDENTIALS=true` those requests carry the user's session cookie.
 
 The password checked is the one actually used to connect: when `DATABASE_URL` is set it's read out of that URL, otherwise it's `POSTGRES_PASSWORD`. A `DATABASE_URL` with no password at all (IAM or certificate authentication) is a warning rather than an error, since it can't be verified from here.
 
@@ -20,8 +22,7 @@ The password checked is the one actually used to connect: when `DATABASE_URL` is
 
 These don't block startup but you should fix them before the app sees real traffic:
 
-- **Redis without a password** (`CACHE_REDIS_PASSWORD`, `SESSION_REDIS_PASSWORD`, `RATE_LIMITER_REDIS_PASSWORD`, `TASKIQ_REDIS_PASSWORD` all unset)
-- **`CORS_ORIGINS=*`** — allows any origin to send credentialed requests
+- **Redis without a password** (`CACHE_REDIS_PASSWORD` or `RATE_LIMITER_REDIS_PASSWORD` unset, or a `SESSION_REDIS_URL` without one)
 - **`DEBUG=true`** — exposes stack traces in error responses
 - **API docs (`/docs`, `/redoc`) reachable** — see "Documentation" below
 - **Session config too loose** (cookies not marked `Secure`, very long max-age, etc.)
@@ -68,9 +69,7 @@ CACHE_REDIS_HOST=<redis-host>
 CACHE_REDIS_PASSWORD=<redis-password>
 
 # Sessions
-SESSION_BACKEND=redis                  # redis | memory
-SESSION_REDIS_HOST=<redis-host>
-SESSION_REDIS_PASSWORD=<redis-password>
+SESSION_BACKEND=redis                  # redis | memory, on the cache Redis unless SESSION_REDIS_URL is set
 SESSION_SECURE_COOKIES=true            # required when serving over HTTPS
 CSRF_ENABLED=true
 TRUSTED_PROXY_HOPS=1                    # set to the number of proxies in front of the app
@@ -321,7 +320,7 @@ Managed Postgres works the same way — point `DATABASE_URL` at the provider and
 
 ### Redis
 
-The defaults use four separate DB numbers (`CACHE_REDIS_DB=0`, `SESSION_REDIS_DB=1`, `RATE_LIMITER_REDIS_DB=1`, `TASKIQ_REDIS_DB=3`) on the **same** Redis instance. Fine for small deployments. At scale, split sessions and the cache onto different Redis clusters — sessions are small and durability-sensitive; the cache is large, eviction-tolerant, and high-traffic. Mixing them puts your sessions at risk during cache memory pressure.
+The defaults use four separate DB numbers (`CACHE_REDIS_DB=0`, `RATE_LIMITER_REDIS_DB=1`, `SESSION_REDIS_DB=2`, `TASKIQ_REDIS_DB=3`) on the **same** Redis instance. Fine for small deployments. At scale, split sessions and the cache onto different Redis clusters — sessions are small and durability-sensitive; the cache is large, eviction-tolerant, and high-traffic. Mixing them puts your sessions at risk during cache memory pressure. Sessions follow the cache's Redis connection by default; set `SESSION_REDIS_URL` (e.g. `rediss://user:password@sessions-redis:6380/0`) to give them their own instance.
 
 ### Taskiq workers
 
@@ -335,7 +334,7 @@ Read the message — it tells you which check failed. Don't bypass it; fix the u
 
 ### "Sessions invalidate after every deploy"
 
-You're on `SESSION_BACKEND=memory`. Switch to `redis` and add the relevant `SESSION_REDIS_*` env vars. (Sessions support only `redis` and `memory`; memcached is not a session backend.)
+You're on `SESSION_BACKEND=memory`. Switch to `redis`; sessions use the cache's Redis connection, or `SESSION_REDIS_URL` when set. (Sessions support only `redis` and `memory`; memcached is not a session backend.)
 
 ### "Sudden burst of 429s after a config change"
 

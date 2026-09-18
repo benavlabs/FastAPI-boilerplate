@@ -8,7 +8,7 @@ The admin panel has a deliberately small surface area: it's a [SQLAdmin](https:/
 # Toggle the admin panel (default: true)
 ADMIN_ENABLED=true
 
-# Admin login credentials
+# Admin login credentials — must BOTH be set, otherwise login always fails
 ADMIN_USERNAME=admin
 ADMIN_PASSWORD=your-secure-password
 
@@ -46,15 +46,16 @@ class AdminAuth(AuthenticationBackend):
         password = form.get("password")
 
         settings = get_settings()
-        if username == settings.ADMIN_USERNAME and password == settings.ADMIN_PASSWORD:
-            request.session.update({"admin_authenticated": True})
-            return True
-        return False
+        if not settings.ADMIN_USERNAME or not settings.ADMIN_PASSWORD:
+            return False
+        # constant-time comparison of username and password
+        ...
 ```
 
 Notes:
 
 - Credentials come from environment variables, **not the database**. Restart the app to change them.
+- **Admin login is disabled until both `ADMIN_USERNAME` and `ADMIN_PASSWORD` are set.** With the empty defaults, every login attempt fails — an empty form submission does not authenticate.
 - Only one admin login is supported. There's no multi-admin user table.
 - The session is encrypted with `SECRET_KEY` via Starlette's `SessionMiddleware`.
 - Logout clears the session: `request.session.clear()`.
@@ -134,9 +135,9 @@ Three options, ordered by aggressiveness:
     If you can't restrict at the network layer, treat `ADMIN_PASSWORD` like a production secret:
     - Pull from a secrets manager at deploy time, never commit
     - Rotate periodically
-    - Use a long, high-entropy password (the production security validator will refuse to start the app if `SECRET_KEY` is the placeholder, but it doesn't validate `ADMIN_PASSWORD`)
+    - Use a long, high-entropy password (the production security validator refuses to start the app if `SECRET_KEY` is the placeholder, or if the admin panel is enabled with empty credentials; weak admin passwords are logged as warnings)
 
-The Production Security Validator (`infrastructure/security/`) checks several things at startup when `ENVIRONMENT=production`, but admin credentials aren't currently in the validation list. Be deliberate about what you set.
+The Production Security Validator (`infrastructure/security/`) checks several things at startup when `ENVIRONMENT=production`, including that `ADMIN_USERNAME`/`ADMIN_PASSWORD` are set whenever `ADMIN_ENABLED=true`. Be deliberate about what you set.
 
 ## Environment Detection
 

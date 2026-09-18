@@ -23,6 +23,9 @@ SECRET_KEY=<used for admin session encryption>
 
 Visit <http://localhost:8000/admin>, enter those credentials, and you're in.
 
+!!! warning "Login is disabled until credentials are configured"
+    `ADMIN_USERNAME` and `ADMIN_PASSWORD` default to empty. With either unset, **every admin login attempt fails** — an empty form submission does not authenticate. Set both before the panel is usable.
+
 ## What You'll Learn
 
 - **[Configuration](configuration.md)** - Environment variables and deployment settings
@@ -75,7 +78,7 @@ The admin app is created in `src/interfaces/admin/initialize.py` and mounted in 
 from sqladmin import Admin
 
 from ...infrastructure.config.settings import get_settings
-from ...infrastructure.database.session import engine
+from ...infrastructure.database.session import get_engine
 from .auth import AdminAuth
 from .views import register_admin_views
 
@@ -87,7 +90,7 @@ def create_admin_interface(app) -> Admin | None:
 
     admin = Admin(
         app=app,
-        engine=engine,
+        engine=get_engine(),
         authentication_backend=AdminAuth(secret_key=settings.SECRET_KEY),
         title="Admin",
     )

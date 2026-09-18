@@ -2,7 +2,7 @@ import json
 import logging
 from asyncio import Event
 from collections.abc import AsyncGenerator, Callable
-from contextlib import AbstractAsyncContextManager, asynccontextmanager
+from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontextmanager
 from typing import Any
 
 import anyio
@@ -26,6 +26,7 @@ from .config.settings import (
     Settings,
     get_settings,
 )
+from .database.initialize import close_database
 from .database.session import create_tables
 from .middleware import ClientCacheMiddleware, SecurityHeadersMiddleware
 from .rate_limit.initialize import close_rate_limiter, initialize_rate_limiter
@@ -53,30 +54,26 @@ def lifespan_factory(
 
         await set_threadpool_tokens()
 
-        try:
-            if isinstance(settings, DatabaseSettings) and create_tables_on_startup:
-                await create_tables()
+        async with AsyncExitStack() as teardown:
+            if isinstance(settings, DatabaseSettings):
+                teardown.push_async_callback(close_database)
+                if create_tables_on_startup:
+                    await create_tables()
 
             if isinstance(settings, CacheSettings) and settings.CACHE_ENABLED:
                 await initialize_cache()
+                teardown.push_async_callback(close_cache)
 
             if isinstance(settings, RateLimiterSettings) and settings.RATE_LIMITER_ENABLED:
                 await initialize_rate_limiter()
+                teardown.push_async_callback(close_rate_limiter)
 
+            teardown.push_async_callback(auth.shutdown)
             await auth.initialize()
 
             initialization_complete.set()
 
             yield
-
-        finally:
-            await auth.shutdown()
-
-            if isinstance(settings, CacheSettings) and settings.CACHE_ENABLED:
-                await close_cache()
-
-            if isinstance(settings, RateLimiterSettings) and settings.RATE_LIMITER_ENABLED:
-                await close_rate_limiter()
 
     return lifespan
 
@@ -242,12 +239,26 @@ def create_application(
 
     kwargs.update(metadata)
 
+    show_docs = isinstance(settings, EnvironmentSettings) and (
+        settings.ENVIRONMENT != EnvironmentOption.PRODUCTION or _enable_docs_in_production
+    )
+
+    is_production = isinstance(settings, EnvironmentSettings) and settings.ENVIRONMENT == EnvironmentOption.PRODUCTION
+
+    docs_dependency = None
+    if show_docs:
+        if is_production and _enable_docs_in_production:
+            docs_dependency = docs_production_dependency if docs_production_dependency is not None else get_current_superuser
+        elif settings.ENVIRONMENT == EnvironmentOption.STAGING:
+            docs_dependency = get_current_superuser
+
     hide_docs = (
         isinstance(settings, EnvironmentSettings)
         and settings.ENVIRONMENT == EnvironmentOption.PRODUCTION
         and not _enable_docs_in_production
     )
-    if hide_docs:
+    serve_builtin_docs = not hide_docs and docs_dependency is None
+    if not serve_builtin_docs:
         kwargs.update({"docs_url": None, "redoc_url": None, "openapi_url": None})
 
     if lifespan is None:
@@ -293,40 +304,21 @@ def create_application(
         _environment = settings.ENVIRONMENT.value if hasattr(settings, "ENVIRONMENT") else EnvironmentOption.DEVELOPMENT.value
         application.add_middleware(SecurityHeadersMiddleware, environment=_environment)
 
-    show_docs = isinstance(settings, EnvironmentSettings) and (
-        settings.ENVIRONMENT != EnvironmentOption.PRODUCTION or _enable_docs_in_production
-    )
-
     if show_docs:
         docs_router = APIRouter()
 
-        is_production = isinstance(settings, EnvironmentSettings) and settings.ENVIRONMENT == EnvironmentOption.PRODUCTION
-        is_local = isinstance(settings, EnvironmentSettings) and settings.ENVIRONMENT == EnvironmentOption.LOCAL
+        if docs_dependency is not None:
+            docs_router = APIRouter(dependencies=[Depends(docs_dependency)])
 
-        apply_dependency = False
-        dependency_to_apply = None
-
-        if is_production and _enable_docs_in_production:
-            apply_dependency = True
-            dependency_to_apply = (
-                docs_production_dependency if docs_production_dependency is not None else get_current_superuser
-            )
-        elif not is_local and not is_production:
-            apply_dependency = True
-            dependency_to_apply = get_current_superuser
-
-        if apply_dependency and dependency_to_apply is not None:
-            docs_router = APIRouter(dependencies=[Depends(dependency_to_apply)])
-
-        @docs_router.get("/docs", include_in_schema=False)
+        @docs_router.get(_docs_url, include_in_schema=False)
         async def get_swagger_documentation() -> fastapi.responses.HTMLResponse:
-            return get_swagger_ui_html(openapi_url="/openapi.json", title="docs")
+            return get_swagger_ui_html(openapi_url=_openapi_url, title="docs")
 
-        @docs_router.get("/redoc", include_in_schema=False)
+        @docs_router.get(_redoc_url, include_in_schema=False)
         async def get_redoc_documentation() -> fastapi.responses.HTMLResponse:
-            return get_redoc_html(openapi_url="/openapi.json", title="redoc")
+            return get_redoc_html(openapi_url=_openapi_url, title="redoc")
 
-        @docs_router.get("/openapi.json", include_in_schema=False)
+        @docs_router.get(_openapi_url, include_in_schema=False)
         async def openapi() -> dict[str, Any]:
             return get_openapi(
                 title=metadata.get("title", "API"),

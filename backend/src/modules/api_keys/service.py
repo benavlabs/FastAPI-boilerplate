@@ -9,14 +9,14 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from fastcrud.types import GetMultiResponseDict
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...infrastructure.logging import get_logger
 from ..common.exceptions import PermissionDeniedError, ResourceNotFoundError
 from .crud import crud_api_keys, crud_key_permissions, crud_key_usage
 from .enums import KeyPermissionAction, KeyPermissionResource
-from .models import APIKey
+from .models import APIKey, KeyUsage
 from .schemas import (
     APIKeyCreate,
     APIKeyCreateInternal,
@@ -25,14 +25,6 @@ from .schemas import (
     APIKeyValidationResponse,
     KeyUsageCreate,
     KeyUsageRead,
-)
-from .utils import (
-    calculate_basic_metrics,
-    calculate_daily_usage,
-    calculate_endpoint_usage,
-    calculate_error_breakdown,
-    calculate_response_time_metrics,
-    parse_usage_records,
 )
 
 logger = get_logger()
@@ -458,31 +450,60 @@ class APIKeyService:
 
         since_date = datetime.now(UTC) - timedelta(days=days)
 
-        result = await crud_key_usage.get_multi(
-            db=db,
-            api_key_id=key_id,
-            created_at__gte=since_date,
-            schema_to_select=KeyUsageRead,
+        in_window = (KeyUsage.api_key_id == key_id, KeyUsage.created_at >= since_date)
+        successful = func.count().filter(KeyUsage.status_code.between(200, 299))
+        tokens = func.coalesce(func.sum(KeyUsage.tokens_used), 0)
+        cost = func.coalesce(func.sum(KeyUsage.cost_microcents), 0)
+
+        totals = (
+            await db.execute(
+                select(func.count(), successful, tokens, cost, func.avg(KeyUsage.response_time_ms)).where(*in_window)
+            )
+        ).one()
+        total_requests, successful_requests, total_tokens, total_cost, avg_response_time = totals
+
+        endpoint_count = func.count().label("count")
+        endpoint_rows = await db.execute(
+            select(KeyUsage.endpoint, endpoint_count)
+            .where(*in_window)
+            .group_by(KeyUsage.endpoint)
+            .order_by(endpoint_count.desc(), KeyUsage.endpoint)
+            .limit(10)
         )
 
-        usage_records = parse_usage_records(result)
-        basic_metrics = calculate_basic_metrics(usage_records)
-        avg_response_time = calculate_response_time_metrics(usage_records)
-        most_used_endpoints = calculate_endpoint_usage(usage_records)
-        error_breakdown = calculate_error_breakdown(usage_records)
-        usage_by_day = calculate_daily_usage(usage_records)
+        error_rows = await db.execute(
+            select(KeyUsage.status_code, func.count())
+            .where(*in_window, KeyUsage.status_code >= 400)
+            .group_by(KeyUsage.status_code)
+            .order_by(KeyUsage.status_code)
+        )
+
+        day = func.date(func.timezone("UTC", KeyUsage.created_at)).label("day")
+        daily_rows = await db.execute(
+            select(day, func.count(), successful, tokens, cost).where(*in_window).group_by(day).order_by(day)
+        )
 
         return {
             "api_key_id": key_id,
-            "total_requests": basic_metrics["total_requests"],
-            "successful_requests": basic_metrics["successful_requests"],
-            "failed_requests": basic_metrics["failed_requests"],
-            "total_tokens": basic_metrics["total_tokens"],
-            "total_cost_microcents": basic_metrics["total_cost"],
-            "average_response_time_ms": avg_response_time,
-            "most_used_endpoints": most_used_endpoints,
-            "error_breakdown": error_breakdown,
-            "usage_by_day": usage_by_day,
+            "total_requests": total_requests,
+            "successful_requests": successful_requests,
+            "failed_requests": total_requests - successful_requests,
+            "total_tokens": int(total_tokens),
+            "total_cost_microcents": int(total_cost),
+            "average_response_time_ms": float(avg_response_time) if avg_response_time is not None else None,
+            "most_used_endpoints": [{"endpoint": endpoint, "count": count} for endpoint, count in endpoint_rows],
+            "error_breakdown": {str(status_code): count for status_code, count in error_rows},
+            "usage_by_day": [
+                {
+                    "date": row_day.isoformat(),
+                    "requests": requests,
+                    "successful_requests": day_successful,
+                    "failed_requests": requests - day_successful,
+                    "tokens": int(day_tokens),
+                    "cost_microcents": int(day_cost),
+                }
+                for row_day, requests, day_successful, day_tokens, day_cost in daily_rows
+            ],
         }
 
     async def get_user_summary(
@@ -505,23 +526,44 @@ class APIKeyService:
         total_requests_result = await crud_key_usage.count(db=db, user_id=user_id)
         total_requests = total_requests_result if isinstance(total_requests_result, int) else 0
 
-        usage_result = await crud_key_usage.get_multi(db=db, user_id=user_id, schema_to_select=KeyUsageRead)
-        total_cost = 0
-        if isinstance(usage_result, dict) and usage_result.get("data"):
-            usage_data = usage_result["data"]
-            if isinstance(usage_data, list):
-                for u in usage_data:
-                    if isinstance(u, dict) and u.get("cost_microcents"):
-                        total_cost += u["cost_microcents"]
+        total_cost = await self.sum_user_usage_cost(user_id=user_id, db=db)
+        total_keys, active_keys = await self.count_user_api_keys(user_id=user_id, db=db)
 
         return {
             "user_id": user_id,
-            "total_keys": len(keys_data),
-            "active_keys": len([k for k in keys_data if isinstance(k, dict) and k.get("is_active")]),
+            "total_keys": total_keys,
+            "active_keys": active_keys,
             "total_requests": total_requests,
             "total_cost_microcents": total_cost,
             "keys": keys_data,
         }
+
+    async def sum_user_usage_cost(self, user_id: int, db: AsyncSession) -> int:
+        """Total ``cost_microcents`` across every key-usage record of a user.
+
+        Args:
+            user_id: User ID
+            db: Database session
+
+        Returns:
+            The summed cost, ``0`` when the user has no usage.
+        """
+        stmt = select(func.coalesce(func.sum(KeyUsage.cost_microcents), 0)).where(KeyUsage.user_id == user_id)
+        return int((await db.execute(stmt)).scalar_one() or 0)
+
+    async def count_user_api_keys(self, user_id: int, db: AsyncSession) -> tuple[int, int]:
+        """Count a user's API keys, in total and active only.
+
+        Args:
+            user_id: User ID
+            db: Database session
+
+        Returns:
+            ``(total_keys, active_keys)``.
+        """
+        stmt = select(func.count(), func.count().filter(APIKey.is_active)).where(APIKey.user_id == user_id)
+        total, active = (await db.execute(stmt)).one()
+        return int(total), int(active)
 
     async def _check_permission(
         self,
