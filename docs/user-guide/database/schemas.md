@@ -99,9 +99,15 @@ class UserCreate(UserBase):
                 "uppercase letter, lowercase letter, and special character"
             ),
             examples=["Str1ngst!"],
-            pattern=r"^.{8,}|[0-9]+|[A-Z]+|[a-z]+|[^a-zA-Z0-9]+$",
         ),
     ]
+
+    @field_validator("password")
+    def validate_password_strength(cls, v: str) -> str:
+        for label, has_class in PASSWORD_CHARACTER_CLASSES:
+            if not any(has_class(character) for character in v):
+                raise ValueError(f"Password must include at least one {label}")
+        return v
     # OAuth fields — populated when user signs up via Google/GitHub
     google_id: str | None = None
     github_id: str | None = None
