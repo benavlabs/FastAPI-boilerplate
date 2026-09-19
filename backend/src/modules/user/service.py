@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 from typing import Any, cast
 
-from crudauth import get_password_hash
+from crudauth import get_password_hash_async
 from fastcrud import JoinConfig
 from fastcrud.types import GetMultiResponseDict
 from sqlalchemy.exc import MultipleResultsFound, NoResultFound
@@ -88,7 +88,7 @@ class UserService:
             raise UserExistsError("Username already taken")
 
         user_internal_dict = user.model_dump()
-        user_internal_dict["hashed_password"] = get_password_hash(password=user_internal_dict["password"])
+        user_internal_dict["hashed_password"] = await get_password_hash_async(user_internal_dict["password"])
         del user_internal_dict["password"]
 
         user_internal = UserCreateInternal(**user_internal_dict)

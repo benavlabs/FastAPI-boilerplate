@@ -76,12 +76,14 @@ def _oauth_providers() -> dict[str, OAuthCredentials]:
     return {}
 
 
+session_transport = _session_transport()
+
 auth = CRUDAuth(
     session=async_session,
     user_model=User,
     SECRET_KEY=settings.SECRET_KEY,
     cookies=CookieConfig(secure=settings.SESSION_SECURE_COOKIES),
-    transports=[_session_transport()],
+    transports=[session_transport],
     rate_limiter=_rate_limiter(),
     trusted_proxy_hops=settings.TRUSTED_PROXY_HOPS,
     password_policy=password_policy,

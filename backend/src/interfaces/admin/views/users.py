@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from crudauth import get_password_hash
+from crudauth import get_password_hash_async
 from sqladmin import ModelView
 from starlette.requests import Request
 from wtforms import SelectField
@@ -50,7 +50,7 @@ class UserAdmin(DataclassModelMixin, ModelView, model=User):
         """Hash the password before saving."""
         if is_created and "hashed_password" in data and data["hashed_password"]:
             await auth.validate_password(data["hashed_password"])
-            data["hashed_password"] = get_password_hash(data["hashed_password"])
+            data["hashed_password"] = await get_password_hash_async(data["hashed_password"])
         if "oauth_provider" in data and data["oauth_provider"] == "":
             data["oauth_provider"] = None
 

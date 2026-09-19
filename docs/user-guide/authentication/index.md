@@ -66,7 +66,7 @@ curl -X POST "http://localhost:8000/api/v1/auth/login" \
   -H "Content-Type: application/x-www-form-urlencoded" \
   -d "username=admin&password=your_admin_password" \
   -c cookies.txt
-# → { "csrf_token": "..." }
+# → { "id": 1, "username": "admin", "csrf_token": "..." }
 
 # Subsequent requests — send the cookie back
 curl http://localhost:8000/api/v1/users/me -b cookies.txt

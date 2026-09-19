@@ -1,15 +1,17 @@
 from typing import Annotated, Any
 
 from crudauth import Principal
-from crudauth.exceptions import UnauthorizedException
+from crudauth.exceptions import ForbiddenException, UnauthorizedException
 from crudauth.ratelimit import KeyBy
-from fastapi import APIRouter, Depends, Query, Request, Response
+from crudauth.utils import is_cross_site
+from fastapi import APIRouter, Depends, Form, Query, Request, Response
 
 from ...modules.user.crud import crud_users
 from ..dependencies import AsyncSessionDep, OAuth2FormDep
 from ..logging import get_logger
 from .dependencies import get_current_principal, get_optional_principal
 from .setup import auth as crud_auth
+from .setup import session_transport
 
 logger = get_logger()
 
@@ -28,39 +30,49 @@ router = APIRouter(tags=["Authentication"])
             - A session ID is set as an HTTP-only cookie
             - A CSRF token is generated for protection against CSRF attacks
 
+            With remember_me=true the session cookie persists across browser
+            restarts; otherwise it ends with the browser session.
+
             The endpoint is protected by rate limiting to prevent brute force attacks.
             After multiple failed attempts, further login attempts will be temporarily blocked.
+            A request the browser marks as sent from another site is refused, so a
+            third-party page can't sign a visitor into an account it controls.
             """,
     responses={
         200: {"description": "Login successful, session created"},
         401: {"description": "Authentication failed"},
+        403: {"description": "Cross-site login request"},
         429: {"description": "Too many login attempts, try again later"},
     },
-    response_description="CSRF token for use in subsequent requests",
+    response_description="The signed-in user's id and username, and the CSRF token for subsequent requests",
 )
 async def login(
     request: Request,
     response: Response,
     form_data: OAuth2FormDep,
     db: AsyncSessionDep,
-) -> dict[str, str]:
+    remember_me: Annotated[bool, Form()] = False,
+) -> dict[str, Any]:
     """Login endpoint to get session cookies.
 
-    The session ID is set as an HTTP-only cookie. The CSRF token is set as a
-    regular cookie and returned in the response. Credentials are verified by
-    crudauth's hardened ``authenticate_password`` (timing-equalized check,
-    disabled-account guard, escalating lockout that returns 429 + Retry-After).
+    Credentials go through crudauth's ``authenticate_password`` (timing-equalized
+    check, disabled-account guard, escalating lockout that answers 429 +
+    Retry-After), and the session is completed by the session transport, which
+    sets the cookies and fires the ``on_after_login`` hook.
     """
+    if is_cross_site(request):
+        raise ForbiddenException("Cross-site login requests are not allowed.")
+
     user = await crud_auth.authenticate_password(db, form_data.username, form_data.password, request=request)
-
-    session_id, csrf_token = await crud_auth.sessions.create_session(
+    return await session_transport.complete_login(
         request,
-        user_id=crud_auth.repo.user_id(user),
-        metadata={"login_type": "password", "username": crud_auth.repo.get(user, "username")},
+        response,
+        user,
+        {
+            "remember_me": remember_me,
+            "metadata": {"login_type": "password", "username": crud_auth.repo.get(user, "username")},
+        },
     )
-    crud_auth.sessions.set_session_cookies(response, session_id, csrf_token)
-
-    return {"csrf_token": csrf_token}
 
 
 @router.post(

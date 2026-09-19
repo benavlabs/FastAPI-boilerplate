@@ -111,7 +111,7 @@ curl -X POST "http://localhost:8000/api/v1/auth/login" \
 Response sets an HTTP-only `session_id` cookie and returns a CSRF token:
 
 ```json
-{ "csrf_token": "..." }
+{ "id": 1, "username": "admin", "csrf_token": "..." }
 ```
 
 `cookies.txt` now holds your session — pass it back with `-b cookies.txt` on subsequent requests.

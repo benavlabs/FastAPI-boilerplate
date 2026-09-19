@@ -4,8 +4,10 @@ The check-auth route depends on ``get_optional_principal``, so we override that
 FastAPI dependency to simulate authenticated / anonymous callers.
 """
 
+import threading
 from unittest.mock import patch
 
+import bcrypt
 import pytest
 from crudauth import Principal, get_password_hash
 from httpx import AsyncClient
@@ -283,3 +285,68 @@ async def test_check_auth_user_not_found(client: AsyncClient):
         assert response.json()["message"] == "User not found"
     finally:
         app.dependency_overrides = original_deps
+
+
+def _credentials(user: dict) -> dict:
+    return {"username": user["username"], "password": user["password"]}
+
+
+@pytest.mark.asyncio
+async def test_login_returns_the_user_and_the_csrf_token(client: AsyncClient, test_user: dict):
+    response = await client.post("/api/v1/auth/login", data=_credentials(test_user))
+
+    body = response.json()
+    assert body["id"] == test_user["id"]
+    assert body["username"] == test_user["username"]
+    assert body["csrf_token"]
+
+
+@pytest.mark.asyncio
+async def test_a_cross_site_login_is_refused(client: AsyncClient, test_user: dict):
+    """Another site can't sign the visitor into an account it controls (login CSRF)."""
+    response = await client.post("/api/v1/auth/login", data=_credentials(test_user), headers={"Sec-Fetch-Site": "cross-site"})
+
+    assert response.status_code == 403
+    assert "session_id" not in response.cookies
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("fetch_site", ["same-origin", "same-site", "none"])
+async def test_a_first_party_login_is_accepted(client: AsyncClient, test_user: dict, fetch_site: str):
+    response = await client.post("/api/v1/auth/login", data=_credentials(test_user), headers={"Sec-Fetch-Site": fetch_site})
+
+    assert response.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_remember_me_makes_the_session_cookie_persistent(client: AsyncClient, test_user: dict):
+    remembered = await client.post("/api/v1/auth/login", data={**_credentials(test_user), "remember_me": "true"})
+    client.cookies.clear()
+    forgotten = await client.post("/api/v1/auth/login", data=_credentials(test_user))
+
+    def session_cookie(response) -> str:
+        return next(c for c in response.headers.get_list("set-cookie") if c.startswith("session_id="))
+
+    assert "max-age" in session_cookie(remembered).lower()
+    assert "max-age" not in session_cookie(forgotten).lower()
+
+
+@pytest.mark.asyncio
+async def test_signup_hashes_the_password_off_the_event_loop(client: AsyncClient, db_session: AsyncSession):
+    """bcrypt is deliberately slow; on the loop thread it would stall every other request."""
+    real_hashpw = bcrypt.hashpw
+    threads: list[str] = []
+
+    def recording_hashpw(password, salt):
+        threads.append(threading.current_thread().name)
+        return real_hashpw(password, salt)
+
+    with patch.object(bcrypt, "hashpw", recording_hashpw):
+        response = await client.post(
+            "/api/v1/users/",
+            json={"name": "Off Loop", "username": "offloop", "email": "off.loop@example.com", "password": "Str1ngst!"},
+        )
+
+    assert response.status_code == 201
+    assert threads
+    assert threading.main_thread().name not in threads
