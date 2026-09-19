@@ -97,7 +97,9 @@ Google console; `OAUTH_REDIRECT_BASE_URL` is the public origin of the API, witho
 
 A failed sign-in - the user declined, or their address is longer than the `email` column - sends
 the browser to `OAUTH_REDIRECT_BASE_URL?error=<code>`. A callback whose `state` doesn't match the
-cookie set when the flow started gets a plain 400 instead, since it may be a login-CSRF attempt.
+cookie set when the flow started, or whose state was already used or has expired, lands there too
+with `error=invalid_state` and no session, since it may be a login-CSRF attempt; the usual cause is
+a sign-in that took too long or finished in another browser, so offer to start again.
 New accounts take their display name from the Google profile.
 
 Only Google is wired when its credentials are configured. The router is supplied by crudauth: PKCE,

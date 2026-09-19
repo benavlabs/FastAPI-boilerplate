@@ -28,7 +28,7 @@ The configured crudauth backend is initialized with the auth singleton in the ap
 2. **`resolve_api_rate_limit`** looks up the user's tier and matching path row from the database.
 3. **`api_rate_limit_key`** names the budget: the caller (user ID when signed in, client IP otherwise) plus the request path, so every path has its own counter.
 4. **crudauth's limiter** atomically increments the counter for the current window and returns `(count, is_limited)`. Windows are `period` seconds long and aligned to the clock, and each window's key expires on its own.
-5. **If `is_limited`**, raises a 429 with `Retry-After`. Otherwise the limiter attaches `X-RateLimit-Limit` and `X-RateLimit-Remaining` to the response. A request that fails authentication afterwards still counts, but its 401 doesn't carry the headers.
+5. **If `is_limited`**, raises a 429 with `Retry-After`. Otherwise the limiter attaches `X-RateLimit-Limit` and `X-RateLimit-Remaining` to the response. A request refused afterwards (a 401, a 404, a 422) still counts, and its response carries the headers too.
 
 The key shape in Redis, ending in the start of the current window:
 
@@ -184,15 +184,16 @@ Mirror `UserAdmin` and `TierAdmin` to add a `RateLimitAdmin` view — see [Admin
 
 ## Response Headers
 
-Responses the route answers carry:
+Every response to a counted request carries these, errors included:
 
 | Header                  | Meaning                                          |
 |-------------------------|--------------------------------------------------|
 | `X-RateLimit-Limit`     | The configured limit for this caller × path      |
 | `X-RateLimit-Remaining` | How many requests are left in the current window |
 
-A 429 also carries `Retry-After`, the seconds until the window resets. A request that fails
-authentication after the limiter counted it answers 401 without these headers.
+A 429 also carries `Retry-After`, the seconds until the window resets. A request refused after
+the limiter counted it - a 401 from authentication, a 404, a 422 - still reports the budget it
+spent, through crudauth's `RateLimitHeadersMiddleware`, which the app factory installs.
 
 These are standard-ish (formatted like the GitHub / Stripe convention, not RFC 6585). Frontends can read them to surface graceful "you're approaching your limit" UI.
 

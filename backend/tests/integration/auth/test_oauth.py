@@ -158,7 +158,8 @@ async def test_a_state_this_browser_never_started_is_refused(client: AsyncClient
         follow_redirects=False,
     )
 
-    assert response.status_code == 400
+    assert response.status_code == 307
+    assert response.headers["location"] == f"{BASE}?error=invalid_state"
     assert "session_id" not in response.cookies
 
 
