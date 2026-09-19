@@ -3,13 +3,14 @@
 from types import SimpleNamespace
 
 import pytest
-from crudauth import Principal
+from crudauth import NewUserContext, Principal
 from starlette.requests import Request
 
 from src.infrastructure.auth import setup
 from src.infrastructure.config.settings import settings
 from src.infrastructure.database.session import async_session
 from src.modules.rate_limit.crud import crud_rate_limits
+from src.modules.user.constants import NAME_MAX_LENGTH
 
 
 def _request(path: str, client_host: str = "203.0.113.7") -> Request:
@@ -88,6 +89,14 @@ class TestApiRateLimitKey:
             _request("/api/v1/rate-limits/"), principal
         )
 
+    def test_ipv6_callers_are_keyed_by_their_network(self, monkeypatch):
+        """Rotating addresses inside one /64 must not mint fresh budgets."""
+        monkeypatch.setattr(settings, "TRUSTED_PROXY_HOPS", 0)
+
+        key = setup.api_rate_limit_key(_request("/api/v1/tiers/", "2001:db8:1:2:3:4:5:6"), None)
+
+        assert key == "ip:2001:db8:1:2::/64:/api/v1/tiers/"
+
 
 class TestOAuthWiring:
     """The callback URI crudauth sends to the provider matches the route that serves it."""
@@ -158,3 +167,99 @@ class TestResolveApiRateLimit:
         monkeypatch.setattr(settings, "RATE_LIMITER_ENABLED", False)
 
         assert await setup.resolve_api_rate_limit(SimpleNamespace(url=None, app=None), None) is None
+
+    async def test_a_tier_without_a_row_for_the_path_gets_the_default_limit(self, monkeypatch):
+        monkeypatch.setattr(settings, "RATE_LIMITER_ENABLED", True)
+        monkeypatch.setattr(settings, "DEFAULT_RATE_LIMIT_LIMIT", 11)
+        monkeypatch.setattr(settings, "DEFAULT_RATE_LIMIT_PERIOD", 99)
+
+        async def override_session():
+            yield _SENTINEL_DB
+
+        request = SimpleNamespace(
+            url=SimpleNamespace(path="/api/v1/tiers/"),
+            app=SimpleNamespace(dependency_overrides={async_session: override_session}),
+        )
+        principal = Principal(user_id=1, user=SimpleNamespace(tier_id=7), transport="session")
+
+        async def fake_get(db, **kwargs):
+            return None
+
+        monkeypatch.setattr(crud_rate_limits, "get", fake_get)
+
+        result = await setup.resolve_api_rate_limit(request, principal)
+
+        assert (result.times, result.seconds) == (11, 99)
+
+    async def test_a_principal_without_a_loaded_user_gets_the_default_limit(self, monkeypatch):
+        monkeypatch.setattr(settings, "RATE_LIMITER_ENABLED", True)
+        monkeypatch.setattr(settings, "DEFAULT_RATE_LIMIT_LIMIT", 11)
+        monkeypatch.setattr(settings, "DEFAULT_RATE_LIMIT_PERIOD", 99)
+
+        principal = Principal(user_id=1, user=None, transport="session")
+
+        result = await setup.resolve_api_rate_limit(SimpleNamespace(url=None, app=None), principal)
+
+        assert (result.times, result.seconds) == (11, 99)
+
+
+class TestOAuthProviderSelection:
+    """Only a fully configured Google is wired; the boilerplate has no other provider route."""
+
+    def test_google_is_wired_when_both_credentials_are_set(self, monkeypatch):
+        monkeypatch.setattr(settings, "OAUTH_GOOGLE_CLIENT_ID", "client-id")
+        monkeypatch.setattr(settings, "OAUTH_GOOGLE_CLIENT_SECRET", "client-secret")
+
+        providers = setup._oauth_providers()
+
+        assert set(providers) == {"google"}
+        assert providers["google"].client_id == "client-id"
+
+    def test_google_is_dropped_when_a_credential_is_missing(self, monkeypatch):
+        monkeypatch.setattr(settings, "OAUTH_GOOGLE_CLIENT_ID", "client-id")
+        monkeypatch.setattr(settings, "OAUTH_GOOGLE_CLIENT_SECRET", "")
+
+        assert setup._oauth_providers() == {}
+
+    def test_github_credentials_do_not_add_an_unrouted_provider(self, monkeypatch):
+        monkeypatch.setattr(settings, "OAUTH_GOOGLE_CLIENT_ID", "")
+        monkeypatch.setattr(settings, "OAUTH_GOOGLE_CLIENT_SECRET", "")
+        monkeypatch.setattr(settings, "OAUTH_GITHUB_CLIENT_ID", "gh-id")
+        monkeypatch.setattr(settings, "OAUTH_GITHUB_CLIENT_SECRET", "gh-secret")
+
+        assert setup._oauth_providers() == {}
+
+
+class TestNewUserFields:
+    """crudauth creates the account; the boilerplate supplies the required display name."""
+
+    def test_the_display_name_is_filled_and_bounded(self):
+        context = NewUserContext(
+            email="a" * 40 + "@example.com",
+            username="auser",
+            source="register",
+            db=None,  # type: ignore[arg-type]
+        )
+
+        fields = setup._new_user_fields(context)
+
+        assert fields["name"] == "a" * NAME_MAX_LENGTH
+        assert len(fields["name"]) == NAME_MAX_LENGTH
+
+
+class TestSessionTransportWiring:
+    """The session settings reach the transport instead of the library defaults."""
+
+    def test_the_session_settings_reach_the_transport(self, monkeypatch):
+        monkeypatch.setattr(settings, "SESSION_BACKEND", "memory")
+        monkeypatch.setattr(settings, "CSRF_ENABLED", False)
+        monkeypatch.setattr(settings, "MAX_SESSIONS_PER_USER", 2)
+        monkeypatch.setattr(settings, "SESSION_TIMEOUT_MINUTES", 7)
+        monkeypatch.setattr(settings, "SESSION_CLEANUP_INTERVAL_MINUTES", 3)
+
+        transport = setup._session_transport()
+
+        assert transport.csrf_enabled is False
+        assert transport.max_sessions_per_user == 2
+        assert transport.session_timeout_minutes == 7
+        assert transport.cleanup_interval_minutes == 3

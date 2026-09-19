@@ -21,6 +21,7 @@ class TestClientSettings:
         assert kwargs["port"] == settings.CACHE_REDIS_PORT
         assert kwargs["db"] == settings.CACHE_REDIS_DB
         assert kwargs["socket_timeout"] == settings.CACHE_REDIS_CONNECT_TIMEOUT
+        assert kwargs["decode_responses"] is False
         assert pool.max_connections == settings.CACHE_REDIS_POOL_SIZE
 
     def test_rate_limiter_client_uses_the_rate_limiter_settings(self):
@@ -31,6 +32,7 @@ class TestClientSettings:
         assert kwargs["port"] == settings.RATE_LIMITER_REDIS_PORT
         assert kwargs["db"] == settings.RATE_LIMITER_REDIS_DB
         assert kwargs["socket_timeout"] == settings.RATE_LIMITER_REDIS_CONNECT_TIMEOUT
+        assert kwargs["decode_responses"] is False
         assert pool.max_connections == settings.RATE_LIMITER_REDIS_POOL_SIZE
 
 

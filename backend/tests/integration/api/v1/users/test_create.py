@@ -135,3 +135,12 @@ async def test_signup_accepts_a_non_latin_password(client: AsyncClient, db_sessi
     response = await client.post("/api/v1/users/", json={**generate_unique_user_data(), "password": "Пароль1!"})
 
     assert response.status_code == 201
+
+
+async def test_signup_names_every_missing_class_at_once(client: AsyncClient, db_session: AsyncSession):
+    """A password missing several classes reports all of them, not just the first."""
+    response = await client.post("/api/v1/users/", json={**generate_unique_user_data(), "password": "password"})
+
+    assert response.status_code == 422
+    requirements = {error["ctx"]["requirement"] for error in response.json()["detail"]}
+    assert {"uppercase", "digit", "special"} <= requirements

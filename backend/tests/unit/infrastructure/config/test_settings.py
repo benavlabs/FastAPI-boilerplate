@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 import pytest
 
+from src.infrastructure.config.enums import RateLimiterBackend, SessionBackend
 from src.infrastructure.config.settings import Settings, get_settings
 
 
@@ -267,3 +268,43 @@ class TestTaskiqSettings:
 
         for attr in required_attrs:
             assert hasattr(settings, attr), f"Missing required Taskiq setting: {attr}"
+
+
+class TestRateLimiterSettings:
+    """The limiter moved to crudauth; the memcached and fail-open knobs went with it."""
+
+    def test_the_removed_memcached_and_fail_open_settings_are_gone(self):
+        settings = get_settings()
+
+        for name in (
+            "RATE_LIMITER_FAIL_OPEN",
+            "RATE_LIMITER_MEMCACHED_HOST",
+            "RATE_LIMITER_MEMCACHED_PORT",
+            "RATE_LIMITER_MEMCACHED_POOL_SIZE",
+            "RATE_LIMITER_MEMCACHED_CONNECT_TIMEOUT",
+        ):
+            assert not hasattr(settings, name), name
+
+    def test_the_rate_limiter_backend_names_a_supported_backend(self):
+        assert RateLimiterBackend(get_settings().RATE_LIMITER_BACKEND)
+
+    def test_the_backend_enums_accept_only_redis_and_memory(self):
+        with pytest.raises(ValueError):
+            SessionBackend("memcached")
+        with pytest.raises(ValueError):
+            RateLimiterBackend("memcached")
+
+
+class TestCORSSettings:
+    """Credentialed requests reject a wildcard origin, so the default must not be one."""
+
+    def test_the_default_origins_are_explicit_not_a_wildcard(self):
+        origins = Settings().CORS_ORIGINS_LIST
+
+        assert origins
+        assert "*" not in origins
+        assert all(origin.startswith("http") for origin in origins)
+
+    @patch.dict(os.environ, {"CORS_ORIGINS": "http://a.test, http://b.test ,"})
+    def test_the_origin_list_strips_whitespace_and_drops_empties(self):
+        assert Settings().CORS_ORIGINS_LIST == ["http://a.test", "http://b.test"]
