@@ -7,6 +7,7 @@ from typing import Any
 
 import anyio
 import fastapi
+from crudauth.ratelimit import RateLimitHeadersMiddleware
 from fastapi import APIRouter, Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
@@ -270,6 +271,7 @@ def create_application(
     register_exception_handlers(application)
 
     application.include_router(router)
+    application.add_middleware(RateLimitHeadersMiddleware)
 
     if isinstance(settings, CacheSettings) and settings.CACHE_ENABLED and hasattr(settings, "CLIENT_CACHE_ENABLED"):
         if settings.CLIENT_CACHE_ENABLED:

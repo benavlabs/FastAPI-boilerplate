@@ -32,6 +32,15 @@ async def test_the_default_limit_is_enforced(client: AsyncClient, limits: dict):
     assert statuses[3] == 429
 
 
+async def test_a_refused_request_still_reports_the_budget_it_spent(client: AsyncClient, limits: dict):
+    """A 401 after the limiter counted the request tells the client what it has left."""
+    responses = [await client.get("/api/v1/tiers/", headers=limits) for _ in range(4)]
+
+    assert [response.status_code for response in responses] == [401, 401, 401, 429]
+    assert [response.headers.get("X-RateLimit-Remaining") for response in responses] == ["2", "1", "0", "0"]
+    assert all(response.headers.get("X-RateLimit-Limit") == "3" for response in responses)
+
+
 async def test_each_path_keeps_its_own_budget(client: AsyncClient, limits: dict):
     """Spending the budget on one route never throttles another."""
     for _ in range(3):
