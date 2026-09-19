@@ -186,7 +186,7 @@ What ships out of the box (40 total routes):
 | `GET /api/v1/tiers/*` | `modules/tier/routes.py` | Authenticated list + lookup by name |
 | `GET/PATCH/DELETE /api/v1/rate-limits/*` | `modules/rate_limit/routes.py` | Superuser only |
 | `POST /api/v1/auth/login`, `logout`, `logout-all`, `refresh-csrf`, `check-auth` | `infrastructure/auth/routes.py` | Session auth |
-| `GET /api/v1/auth/oauth/google`, `oauth/callback/google` | `infrastructure/auth/routes.py` | Google OAuth |
+| `GET /api/v1/auth/oauth/{provider}`, `oauth/callback/{provider}` | crudauth router mounted in `infrastructure/auth/routes.py` | Google OAuth (configured in `infrastructure/auth/setup.py`) |
 | `POST/GET/PATCH/DELETE /api/v1/api-keys/*` | `modules/api_keys/routes.py` | Authenticated key management |
 | `GET /admin/*` | `interfaces/admin/initialize.py` | SQLAdmin UI |
 | `GET /docs`, `/redoc`, `/openapi.json` | App factory (protected when gated) | Disabled in production unless `ENABLE_DOCS_IN_PRODUCTION=true`; when enabled in production or running in staging, requires superuser authentication |

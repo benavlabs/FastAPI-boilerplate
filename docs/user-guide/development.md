@@ -156,7 +156,7 @@ Register in `infrastructure/app_factory.py` (or your overridden `create_applicat
 application.add_middleware(TimingMiddleware)
 ```
 
-Order matters — middleware added later runs **earlier** in the request path. The boilerplate's own middlewares (`SecurityHeadersMiddleware`, `ClientCacheMiddleware`, `RateLimiterMiddleware`, `SessionMiddleware`, etc.) are added in a deliberate order; see `app_factory.py:create_application`.
+Order matters — middleware added later runs **earlier** in the request path. The boilerplate's own middlewares (`SecurityHeadersMiddleware`, `ClientCacheMiddleware`, `SessionMiddleware`, etc.) are added in a deliberate order; see `app_factory.py:create_application`.
 
 ## Adding a Custom Dependency
 
@@ -357,7 +357,7 @@ Most major subsystems toggle via env vars rather than code changes:
 |------------------|---------------------------------------|---------------------------------------------|
 | Cache            | `CACHE_ENABLED=false`                 | `@cache` becomes a no-op                    |
 | Client cache     | `CLIENT_CACHE_ENABLED=false`          | Middleware doesn't mount                    |
-| Rate limiter     | `RATE_LIMITER_ENABLED=false`          | `check_rate_limit` returns immediately      |
+| Rate limiter     | `RATE_LIMITER_ENABLED=false`          | crudauth API limiter returns immediately   |
 | Background tasks | Don't run the worker                  | The broker is created but no consumer       |
 | Admin panel      | `ADMIN_ENABLED=false`                 | `/admin` is unmounted                       |
 | Documentation    | `OPENAPI_URL=`                        | Disables `/docs` and `/redoc`               |

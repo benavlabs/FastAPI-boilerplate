@@ -204,10 +204,15 @@ curl -X POST http://localhost:8000/api/v1/auth/login \
 Response:
 
 ```json
-{ "csrf_token": "..." }
+{ "id": 1, "username": "admin", "csrf_token": "..." }
 ```
 
 The HTTP-only `session_id` cookie is now in `cookies.txt`. The CSRF token is also set as a cookie *and* returned in the body so JS clients can store it (browsers can't read HTTP-only cookies).
+
+Add `remember_me=true` to the form to make the session cookie persistent; without it the cookie ends
+with the browser session. A login the browser marks `Sec-Fetch-Site: cross-site` is refused with
+`403`, so another site can't sign a visitor into an account it controls. Clients that don't send the
+header, such as `curl` or a mobile app, are unaffected.
 
 ### Authenticated Request
 
@@ -269,7 +274,7 @@ No re-authentication step is required, because this is the action a user needs w
 |-----------|----------|
 | `auth = CRUDAuth(...)` singleton | `backend/src/infrastructure/auth/setup.py` |
 | Dependencies | `backend/src/infrastructure/auth/dependencies.py` |
-| OAuth building blocks | `backend/src/infrastructure/auth/oauth.py` |
+| OAuth configuration | `backend/src/infrastructure/auth/setup.py` |
 | Login/logout/logout-all/OAuth routes | `backend/src/infrastructure/auth/routes.py` |
 | HTTP exceptions (fastcrud re-export) | `backend/src/infrastructure/auth/http_exceptions.py` |
 | Auth settings | `backend/src/infrastructure/config/settings.py` (`AuthSettings`) |

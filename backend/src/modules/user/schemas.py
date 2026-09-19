@@ -1,12 +1,12 @@
 from datetime import datetime
 from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
+from ...infrastructure.auth.password_policy import password_policy
 from ..common.schemas import PersistentDeletion, TimestampSchema
 from .constants import (
     NAME_MAX_LENGTH,
-    PASSWORD_CHARACTER_CLASSES,
     USERNAME_MAX_LENGTH,
     USERNAME_PATTERN,
 )
@@ -82,37 +82,13 @@ class UserRead(BaseModel):
 class UserCreate(UserBase):
     """Schema for creating a new user."""
 
-    password: Annotated[
-        str,
-        Field(
-            min_length=8,
-            description=(
-                "Password must be at least 8 characters long and include a number,"
-                "uppercase letter, lowercase letter, and special character"
-            ),
-            examples=["Str1ngst!"],
-        ),
-    ]
+    password: password_policy.body_field()  # type: ignore[valid-type]
     google_id: str | None = None
     github_id: str | None = None
     oauth_provider: str | None = None
     email_verified: bool = False
     oauth_created_at: datetime | None = None
     oauth_updated_at: datetime | None = None
-
-    @field_validator("password")
-    def validate_password_strength(cls, v: str) -> str:
-        """Require a lowercase letter, an uppercase letter, a number and a special character.
-
-        Classification is Unicode-aware: a Cyrillic password has lowercase
-        letters, and an accented letter counts as a letter, not as a special
-        character.
-        """
-        for label, has_class in PASSWORD_CHARACTER_CLASSES:
-            if not any(has_class(character) for character in v):
-                raise ValueError(f"Password must include at least one {label}")
-
-        return v
 
     model_config = ConfigDict(extra="forbid")
 

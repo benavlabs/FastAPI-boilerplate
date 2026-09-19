@@ -242,7 +242,7 @@ class AuditLogFeature(Feature):
 feature = AuditLogFeature()
 ```
 
-A feature plugin writes into a directory that still exists in the layout — that's why this example targets `src/modules/<name>/` rather than the old `auth/oauth/providers/` path. OAuth providers are no longer separate files: they're registered with crudauth's `OAuthProviderFactory` in `infrastructure/auth/oauth.py`, so an "add an OAuth provider" plugin would edit that file (e.g. via an idempotent patch op) instead of dropping in a new module.
+A feature plugin writes into a directory that still exists in the layout — that's why this example targets `src/modules/<name>/` rather than the old `auth/oauth/providers/` path. OAuth providers are no longer separate files: they're configured with crudauth's `OAuthCredentials` in `infrastructure/auth/setup.py`, so an "add an OAuth provider" plugin would edit that file (e.g. via an idempotent patch op) instead of dropping in a new module.
 
 #### 3. `pyproject.toml` — declare the entry point
 

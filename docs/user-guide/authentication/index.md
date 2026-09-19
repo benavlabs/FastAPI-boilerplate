@@ -66,7 +66,7 @@ curl -X POST "http://localhost:8000/api/v1/auth/login" \
   -H "Content-Type: application/x-www-form-urlencoded" \
   -d "username=admin&password=your_admin_password" \
   -c cookies.txt
-# → { "csrf_token": "..." }
+# → { "id": 1, "username": "admin", "csrf_token": "..." }
 
 # Subsequent requests — send the cookie back
 curl http://localhost:8000/api/v1/users/me -b cookies.txt
@@ -79,19 +79,30 @@ Routes use `Depends(get_current_user)` to require an authenticated session.
 
 ### 2. OAuth (Google)
 
-For social sign-in — Google OAuth 2.0 with PKCE is wired up. The user is redirected to Google, signs in, and is bounced back to a callback that creates a session.
+For social sign-in — Google OAuth 2.0 with PKCE is wired up. The browser goes to Google, signs
+in, and comes back to a callback that creates the session and sends it on to your app.
 
-```bash
-# Start the flow
-curl http://localhost:8000/api/v1/auth/oauth/google
-# → { "url": "https://accounts.google.com/...?state=..." }
+```text
+# Link or redirect the browser to (redirect_to is optional, same-origin paths only):
+GET /api/v1/auth/oauth/google?redirect_to=/dashboard
+# → 307 to https://accounts.google.com/...
 
-# After the user signs in at Google, they hit the callback:
-# GET /api/v1/auth/oauth/callback/google?code=...&state=...
-# The server creates a session and either redirects or returns JSON.
+# Google sends the browser back to:
+GET /api/v1/auth/oauth/callback/google?code=...&state=...
+# → session + CSRF cookies set, 307 to /dashboard (or to OAUTH_REDIRECT_BASE_URL)
 ```
 
-Only Google is wired (in the `oauth_providers` dict in `infrastructure/auth/oauth.py`), and the `User` model keeps `github_id` and `oauth_provider` columns. crudauth's `OAuthProviderFactory` already ships both `google` and `github` providers, so enabling **GitHub** is just adding a `"github"` entry to the `oauth_providers` dict and its two routes in `infrastructure/auth/routes.py` — no provider implementation needed. For a provider crudauth doesn't ship, register it with `OAuthProviderFactory` first, then wire the dict entry and routes the same way.
+Register `{OAUTH_REDIRECT_BASE_URL}/api/v1/auth/oauth/callback/google` as the redirect URI in the
+Google console; `OAUTH_REDIRECT_BASE_URL` is the public origin of the API, without a path.
+
+A failed sign-in - the user declined, or their address is longer than the `email` column - sends
+the browser to `OAUTH_REDIRECT_BASE_URL?error=<code>`. A callback whose `state` doesn't match the
+cookie set when the flow started gets a plain 400 instead, since it may be a login-CSRF attempt.
+New accounts take their display name from the Google profile.
+
+Only Google is wired when its credentials are configured. The router is supplied by crudauth: PKCE,
+browser-bound single-use state, and safe same-origin redirects. Add another provider in
+`infrastructure/auth/setup.py` using `OAuthCredentials`.
 
 ### 3. API Keys (Machine-to-Machine)
 

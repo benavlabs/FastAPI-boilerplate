@@ -98,3 +98,40 @@ async def test_create_superuser(superuser_auth_client: AsyncClient, db_session: 
     await db_session.refresh(user_in_db)
 
     assert user_in_db.is_superuser is True
+
+
+@pytest.mark.parametrize(
+    ("password", "requirement"),
+    [
+        ("password123!", "uppercase"),
+        ("PASSWORD123!", "lowercase"),
+        ("Password!!!!", "digit"),
+        ("Password1234", "special"),
+        ("Senhaé123", "special"),
+    ],
+)
+async def test_signup_rejects_a_password_missing_a_required_class(
+    client: AsyncClient, db_session: AsyncSession, password: str, requirement: str
+):
+    """The policy names every class a password lacks; an accented letter is a letter, not a special."""
+    user_data = {**generate_unique_user_data(), "password": password}
+
+    response = await client.post("/api/v1/users/", json=user_data)
+
+    assert response.status_code == 422
+    requirements = [error["ctx"]["requirement"] for error in response.json()["detail"]]
+    assert requirement in requirements
+    assert password not in response.text
+
+
+async def test_signup_rejects_a_short_password(client: AsyncClient, db_session: AsyncSession):
+    response = await client.post("/api/v1/users/", json={**generate_unique_user_data(), "password": "Pa1!"})
+
+    assert response.status_code == 422
+
+
+async def test_signup_accepts_a_non_latin_password(client: AsyncClient, db_session: AsyncSession):
+    """Character classes are Unicode-aware, so a Cyrillic password has letters of both cases."""
+    response = await client.post("/api/v1/users/", json={**generate_unique_user_data(), "password": "Пароль1!"})
+
+    assert response.status_code == 201

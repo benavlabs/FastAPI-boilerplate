@@ -34,7 +34,7 @@ This is a **breaking** change for anyone importing from the old auth modules or 
 - Auth dependencies now import from `infrastructure.auth.dependencies` (was `infrastructure.auth.session.dependencies`).
 - `get_password_hash` / `verify_password` now come `from crudauth` (was `infrastructure.auth.utils`).
 - Login lockout now returns **`429 Too Many Requests` with a `Retry-After` header** (was a generic `401`). It is throttled internally by crudauth (escalating per-IP / per-identifier), not via env vars.
-- OAuth providers are now registered via crudauth's `OAuthProviderFactory` in `infrastructure/auth/oauth.py` rather than as separate `oauth/providers/<name>.py` files. Google remains wired.
+- OAuth providers are now configured through crudauth's built-in OAuth router in `infrastructure/auth/setup.py` rather than hand-rolled callback wiring. Google remains wired.
 - `APP_NAME`, `APP_DESCRIPTION`, and `VERSION` are now environment-configurable (read via `config(...)`; previously hardcoded).
 - `/check-auth` now answers anonymous callers with `{"authenticated": false}` instead of raising `401` ([#261](https://github.com/benavlabs/FastAPI-boilerplate/pull/261)).
 

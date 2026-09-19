@@ -1,12 +1,13 @@
 from datetime import UTC, datetime
 from typing import Any, cast
 
-from crudauth import get_password_hash
+from crudauth import get_password_hash_async
 from fastcrud import JoinConfig
 from fastcrud.types import GetMultiResponseDict
 from sqlalchemy.exc import MultipleResultsFound, NoResultFound
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ...infrastructure.auth.setup import auth
 from ...infrastructure.logging import get_logger
 from ..common.exceptions import (
     PermissionDeniedError,
@@ -77,6 +78,7 @@ class UserService:
             created_user = await service.create(user_data, db)
             ```
         """
+        await auth.validate_password(user.password, source="register")
         email_exists = await crud_users.exists(db=db, email=user.email)
         if email_exists:
             raise UserExistsError("Email already registered")
@@ -86,7 +88,7 @@ class UserService:
             raise UserExistsError("Username already taken")
 
         user_internal_dict = user.model_dump()
-        user_internal_dict["hashed_password"] = get_password_hash(password=user_internal_dict["password"])
+        user_internal_dict["hashed_password"] = await get_password_hash_async(user_internal_dict["password"])
         del user_internal_dict["password"]
 
         user_internal = UserCreateInternal(**user_internal_dict)

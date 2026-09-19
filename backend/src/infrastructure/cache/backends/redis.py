@@ -41,14 +41,14 @@ class RedisSettings(BaseModel):
 class RedisBackend(CacheBackend):
     """Redis implementation of the cache backend."""
 
-    def __init__(self, settings: RedisSettings | None = None):
+    def __init__(self, settings: RedisSettings | None = None, client: Redis | None = None):
         """Initialize the Redis backend.
 
         Args:
             settings: Custom settings for Redis connection. If None, default settings are used.
         """
         self.settings = settings or RedisSettings()
-        self.client = Redis(
+        self.client = client or Redis(
             host=self.settings.host,
             port=self.settings.port,
             db=self.settings.db,
@@ -56,6 +56,7 @@ class RedisBackend(CacheBackend):
             socket_timeout=self.settings.connect_timeout,
             max_connections=self.settings.pool_size,
         )
+        self._owns_client = client is None
 
     async def get(self, key: str) -> Any | None:
         """Get a value from the cache.

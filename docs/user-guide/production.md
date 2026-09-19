@@ -74,12 +74,10 @@ SESSION_SECURE_COOKIES=true            # required when serving over HTTPS
 CSRF_ENABLED=true
 TRUSTED_PROXY_HOPS=1                    # set to the number of proxies in front of the app
 
-# Rate limiting
+# Rate limiting (Redis-backed, provided by crudauth)
 RATE_LIMITER_ENABLED=true
-RATE_LIMITER_BACKEND=redis
 RATE_LIMITER_REDIS_HOST=<redis-host>
 RATE_LIMITER_REDIS_PASSWORD=<redis-password>
-RATE_LIMITER_FAIL_OPEN=true            # let traffic through when Redis errors
 
 # Taskiq
 TASKIQ_ENABLED=true
