@@ -1,11 +1,15 @@
 """Tests for the crudauth composition root wiring."""
 
+from types import SimpleNamespace
+
 import pytest
 from crudauth import Principal
 from starlette.requests import Request
 
 from src.infrastructure.auth import setup
 from src.infrastructure.config.settings import settings
+from src.infrastructure.database.session import async_session
+from src.modules.rate_limit.crud import crud_rate_limits
 
 
 def _request(path: str, client_host: str = "203.0.113.7") -> Request:
@@ -90,3 +94,67 @@ class TestOAuthWiring:
 
     def test_the_callback_lives_under_the_api_prefix(self):
         assert setup.OAUTH_PREFIX == "/api/v1/auth/oauth"
+
+
+class TestRateLimiterBackendIndependence:
+    """RATE_LIMITER_BACKEND and SESSION_BACKEND are chosen independently."""
+
+    def test_rate_limiter_does_not_follow_the_session_backend(self, monkeypatch):
+        monkeypatch.setattr(settings, "SESSION_BACKEND", "memory")
+        monkeypatch.setattr(settings, "RATE_LIMITER_BACKEND", "redis")
+
+        assert setup._rate_limiter() is not None
+
+    def test_sessions_do_not_follow_the_rate_limiter_backend(self, monkeypatch):
+        monkeypatch.setattr(settings, "RATE_LIMITER_BACKEND", "redis")
+        monkeypatch.setattr(settings, "SESSION_BACKEND", "memory")
+
+        assert setup._session_transport().redis_url is None
+
+
+_SENTINEL_DB = object()
+
+
+class TestResolveApiRateLimit:
+    """The tier row is read through the request's own database dependency."""
+
+    async def test_the_tier_row_comes_from_the_session_override(self, monkeypatch):
+        monkeypatch.setattr(settings, "RATE_LIMITER_ENABLED", True)
+        entered: list[bool] = []
+
+        async def override_session():
+            entered.append(True)
+            yield _SENTINEL_DB
+
+        request = SimpleNamespace(
+            url=SimpleNamespace(path="/api/v1/tiers/"),
+            app=SimpleNamespace(dependency_overrides={async_session: override_session}),
+        )
+        principal = Principal(user_id=1, user=SimpleNamespace(tier_id=7), transport="session")
+        seen: dict[str, object] = {}
+
+        async def fake_get(db, **kwargs):
+            seen["db"] = db
+            return {"limit": 2, "period": 3600}
+
+        monkeypatch.setattr(crud_rate_limits, "get", fake_get)
+
+        result = await setup.resolve_api_rate_limit(request, principal)
+
+        assert entered == [True]
+        assert seen["db"] is _SENTINEL_DB
+        assert (result.times, result.seconds) == (2, 3600)
+
+    async def test_a_caller_without_a_tier_gets_the_default_limit(self, monkeypatch):
+        monkeypatch.setattr(settings, "RATE_LIMITER_ENABLED", True)
+        monkeypatch.setattr(settings, "DEFAULT_RATE_LIMIT_LIMIT", 11)
+        monkeypatch.setattr(settings, "DEFAULT_RATE_LIMIT_PERIOD", 99)
+
+        result = await setup.resolve_api_rate_limit(SimpleNamespace(url=None, app=None), None)
+
+        assert (result.times, result.seconds) == (11, 99)
+
+    async def test_a_disabled_limiter_returns_no_limit(self, monkeypatch):
+        monkeypatch.setattr(settings, "RATE_LIMITER_ENABLED", False)
+
+        assert await setup.resolve_api_rate_limit(SimpleNamespace(url=None, app=None), None) is None

@@ -170,3 +170,19 @@ async def test_a_provider_error_sends_the_browser_back_with_an_error(client: Asy
     location = urlparse(response.headers["location"])
     assert f"{location.scheme}://{location.netloc}" == BASE
     assert parse_qs(location.query)["error"]
+
+
+async def test_the_auth_paths_keep_their_existing_contract():
+    """The migration to crudauth must not move the URLs clients already call."""
+    paths = {route.path for route in app.routes}
+
+    for path in (
+        "/api/v1/auth/login",
+        "/api/v1/auth/logout",
+        "/api/v1/auth/logout-all",
+        "/api/v1/auth/refresh-csrf",
+        "/api/v1/auth/check-auth",
+        "/api/v1/auth/oauth/{provider}",
+        "/api/v1/auth/oauth/callback/{provider}",
+    ):
+        assert path in paths
