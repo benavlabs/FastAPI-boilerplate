@@ -169,10 +169,6 @@ async def refresh_csrf_token(
     return {"csrf_token": csrf_token}
 
 
-if crud_auth.oauth is not None:
-    router.include_router(crud_auth.oauth_router)
-
-
 @router.get("/check-auth")
 async def check_auth(
     principal: Annotated[Principal | None, Depends(get_optional_principal)],

@@ -1,25 +1,15 @@
 from datetime import datetime
 from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
-from ...infrastructure.config.settings import settings
+from ...infrastructure.auth.password_policy import password_policy
 from ..common.schemas import PersistentDeletion, TimestampSchema
 from .constants import (
     NAME_MAX_LENGTH,
-    PASSWORD_CHARACTER_CLASSES,
     USERNAME_MAX_LENGTH,
     USERNAME_PATTERN,
 )
-
-
-def _password_description() -> str:
-    """Describe the configured policy for the OpenAPI password field."""
-    required = [label for label, flag, _ in PASSWORD_CHARACTER_CLASSES if getattr(settings, flag)]
-    text = f"Password must be at least {settings.PASSWORD_MIN_LENGTH} characters"
-    if required:
-        text += " and include " + ", ".join(required)
-    return text + "."
 
 
 class UserBase(BaseModel):
@@ -92,35 +82,13 @@ class UserRead(BaseModel):
 class UserCreate(UserBase):
     """Schema for creating a new user."""
 
-    password: Annotated[
-        str,
-        Field(
-            min_length=settings.PASSWORD_MIN_LENGTH,
-            description=_password_description(),
-            examples=["Str1ngst!"],
-        ),
-    ]
+    password: password_policy.body_field()  # type: ignore[valid-type]
     google_id: str | None = None
     github_id: str | None = None
     oauth_provider: str | None = None
     email_verified: bool = False
     oauth_created_at: datetime | None = None
     oauth_updated_at: datetime | None = None
-
-    @field_validator("password")
-    def validate_password_strength(cls, v: str) -> str:
-        """Enforce the configured character-class rules, mirroring crudauth's PasswordPolicy.
-
-        Classification is Unicode-aware: a Cyrillic password has lowercase
-        letters, and an accented letter counts as a letter, not as a special
-        character. Only the classes enabled through ``PASSWORD_REQUIRE_*`` are
-        checked, so this stays in step with the policy crudauth applies.
-        """
-        for label, flag, has_class in PASSWORD_CHARACTER_CLASSES:
-            if getattr(settings, flag) and not any(has_class(character) for character in v):
-                raise ValueError(f"Password must include at least one {label}")
-
-        return v
 
     model_config = ConfigDict(extra="forbid")
 

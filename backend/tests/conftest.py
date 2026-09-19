@@ -1,9 +1,12 @@
 import os
 
 # Configure the environment BEFORE importing anything from ``src``: the crudauth
-# ``auth`` singleton is constructed at import time and reads ``SESSION_BACKEND``,
-# so it must be set to the in-memory backend (no Redis) before that import runs.
+# ``auth`` singleton is constructed at import time and reads the session and rate
+# limiter backends, so both must be in-memory (no Redis) before that import runs.
 os.environ.setdefault("SESSION_BACKEND", "memory")
+os.environ.setdefault("RATE_LIMITER_BACKEND", "memory")
+os.environ.setdefault("OAUTH_GOOGLE_CLIENT_ID", "test-google-client-id")
+os.environ.setdefault("OAUTH_GOOGLE_CLIENT_SECRET", "test-google-client-secret")
 # Tests run over http (base_url http://test), so the session/CSRF cookies must not be
 # Secure-only or httpx won't send them back on follow-up requests.
 os.environ.setdefault("SESSION_SECURE_COOKIES", "false")

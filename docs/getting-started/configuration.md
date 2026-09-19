@@ -134,6 +134,7 @@ CACHE_REDIS_PASSWORD=
 
 ```env
 RATE_LIMITER_ENABLED=true
+RATE_LIMITER_BACKEND=redis        # or memory (per process, single worker only)
 DEFAULT_RATE_LIMIT_LIMIT=100
 DEFAULT_RATE_LIMIT_PERIOD=60
 

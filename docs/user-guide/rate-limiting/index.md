@@ -26,14 +26,15 @@ The configured crudauth backend is initialized with the auth singleton in the ap
 
 1. **The router-level crudauth dependency runs** for each API request.
 2. **`resolve_api_rate_limit`** looks up the user's tier and matching path row from the database.
-3. **crudauth resolves the principal** and keys authenticated requests by user ID or anonymous requests by client IP.
-4. **crudauth's limiter** atomically increments the counter and returns `(count, is_limited)`. The TTL on the key is set on first increment to `period` seconds.
-5. **If `is_limited`**, raises a 429. Otherwise, the limiter attaches the `X-RateLimit-*` headers to the response.
+3. **`api_rate_limit_key`** names the budget: the caller (user ID when signed in, client IP otherwise) plus the request path, so every path has its own counter.
+4. **crudauth's limiter** atomically increments the counter for the current window and returns `(count, is_limited)`. Windows are `period` seconds long and aligned to the clock, and each window's key expires on its own.
+5. **If `is_limited`**, raises a 429 with `Retry-After`. Otherwise the limiter attaches `X-RateLimit-Limit` and `X-RateLimit-Remaining` to the response. A request that fails authentication afterwards still counts, but its 401 doesn't carry the headers.
 
-The key shape (no window suffix — the TTL handles the window):
+The key shape in Redis, ending in the start of the current window:
 
 ```text
-ratelimit:{user_id_or_ip}:{action}
+crudauth:rl:ratelimit:api:user:{user_id}:{path}:{window_start}
+crudauth:rl:ratelimit:api:ip:{client_ip}:{path}:{window_start}
 ```
 
 ## Custom Enforcement
@@ -64,8 +65,12 @@ That's all that's required. The limiter is enabled with `RATE_LIMITER_ENABLED=tr
 ## Configuration
 
 ```env
-# Master toggle
+# Master toggle for the API limits (the login lockout runs either way)
 RATE_LIMITER_ENABLED=true
+
+# Where counters live: redis (default) or memory. Memory is per process, so it only
+# holds for a single worker. The memcached limiter was removed; that value fails at startup.
+RATE_LIMITER_BACKEND=redis
 
 # Defaults applied when the user has no tier or no matching rate-limit row
 DEFAULT_RATE_LIMIT_LIMIT=100
@@ -81,12 +86,13 @@ RATE_LIMITER_REDIS_POOL_SIZE=10
 ```
 
 When `RATE_LIMITER_ENABLED=false`, the router-level dependency is a no-op. This is useful in tests
-and for isolating performance issues.
+and for isolating performance issues. The login lockout still counts on `RATE_LIMITER_BACKEND`, and
+fails closed: with that backend unreachable, logins are refused rather than left unthrottled.
 
 ## User-Tier vs IP-Based Limits
 
-`KeyBy.USER_OR_IP` uses the request principal when authentication is present and falls back to
-the client IP using `TRUSTED_PROXY_HOPS`. The resolver checks the current path against the user's
+`api_rate_limit_key` uses the request principal when authentication is present and falls back to
+the client IP using `TRUSTED_PROXY_HOPS`, adding the path either way. The resolver checks the current path against the user's
 tier and falls back to the configured default.
 
 ## Path Matching
@@ -100,9 +106,8 @@ including its `/api/v1` prefix:
 ```
 
 Note: paths with path parameters (`/users/42`) mean **each individual resource ID gets its own
-counter**. That's almost always what you want (otherwise a single hot resource could rate-limit
-unrelated reads). If you specifically want a single counter for a parameterized route, match on
-the route template instead.
+counter**, and a limit row must name the concrete path to apply to it. That's almost always what
+you want: a single hot resource can't rate-limit unrelated reads.
 
 ## Managing Rate-Limit Rules
 
@@ -179,13 +184,15 @@ Mirror `UserAdmin` and `TierAdmin` to add a `RateLimitAdmin` view — see [Admin
 
 ## Response Headers
 
-When the crudauth limiter runs successfully, it attaches:
+Responses the route answers carry:
 
-| Header                | Meaning                                          |
-|-----------------------|--------------------------------------------------|
-| `X-RateLimit-Limit`   | The configured limit for this user × path        |
+| Header                  | Meaning                                          |
+|-------------------------|--------------------------------------------------|
+| `X-RateLimit-Limit`     | The configured limit for this caller × path      |
 | `X-RateLimit-Remaining` | How many requests are left in the current window |
-| `X-RateLimit-Reset`   | Period (seconds) for the window                  |
+
+A 429 also carries `Retry-After`, the seconds until the window resets. A request that fails
+authentication after the limiter counted it answers 401 without these headers.
 
 These are standard-ish (formatted like the GitHub / Stripe convention, not RFC 6585). Frontends can read them to surface graceful "you're approaching your limit" UI.
 
@@ -203,7 +210,7 @@ closed, so a locked-out account can't slip through while Redis is down.
 
 ### Window behavior
 
-The implementation uses a fixed-window counter (TTL on first increment). At the boundary between windows, a user can technically make `2 × limit` requests in a short span. For most use cases this is fine; if you need stricter sliding-window semantics, build that on top of the limiter yourself.
+The implementation uses a fixed-window counter, with windows aligned to the clock. At the boundary between windows, a user can technically make `2 × limit` requests in a short span. For most use cases this is fine; if you need stricter sliding-window semantics, build that on top of the limiter yourself.
 
 ### Anonymous-user limits
 

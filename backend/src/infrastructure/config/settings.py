@@ -7,7 +7,7 @@ from pydantic import Field
 from pydantic_settings import BaseSettings
 from starlette.config import Config
 
-from .enums import CacheBackend, LogFormat, LogLevel, SessionBackend, TaskiqBrokerType
+from .enums import CacheBackend, LogFormat, LogLevel, RateLimiterBackend, SessionBackend, TaskiqBrokerType
 
 logger = logging.getLogger(__name__)
 
@@ -140,12 +140,15 @@ class CacheSettings(BaseSettings):
 class RateLimiterSettings(BaseSettings):
     """Rate limiter settings.
 
-    Rate limiting is provided by crudauth, which is Redis-backed. These settings
-    configure the enable flag, the default per-path limits, and the Redis
-    connection the shared limiter client uses.
+    Rate limiting is provided by crudauth. These settings configure the enable
+    flag, the backend, the default per-path limits, and the Redis connection the
+    shared limiter client uses.
 
     Attributes:
-        RATE_LIMITER_ENABLED: Whether to enable rate limiting. Default is True.
+        RATE_LIMITER_ENABLED: Whether to rate limit API routes. Default is True.
+            The login lockout runs on the same backend either way.
+        RATE_LIMITER_BACKEND: "redis" (default) or "memory". Memory counters are
+            per process, so they only hold for a single worker.
 
         # Default rate limit settings
         DEFAULT_RATE_LIMIT_LIMIT: Default number of requests allowed. Default is 100.
@@ -161,6 +164,7 @@ class RateLimiterSettings(BaseSettings):
     """
 
     RATE_LIMITER_ENABLED: bool = config("RATE_LIMITER_ENABLED", default=True, cast=bool)
+    RATE_LIMITER_BACKEND: str = config("RATE_LIMITER_BACKEND", default=RateLimiterBackend.REDIS.value)
 
     DEFAULT_RATE_LIMIT_LIMIT: int = config("DEFAULT_RATE_LIMIT_LIMIT", default=100, cast=int)
     DEFAULT_RATE_LIMIT_PERIOD: int = config("DEFAULT_RATE_LIMIT_PERIOD", default=60, cast=int)

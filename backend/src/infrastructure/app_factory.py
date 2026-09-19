@@ -66,13 +66,7 @@ def lifespan_factory(
             if isinstance(settings, RateLimiterSettings) and settings.RATE_LIMITER_ENABLED:
                 teardown.push_async_callback(rate_limiter_redis_client.aclose)
 
-            # The cache backend owns ``cache_redis_client`` when it's redis-backed;
-            # otherwise the module-level client still needs releasing.
-            if not (
-                isinstance(settings, CacheSettings)
-                and settings.CACHE_ENABLED
-                and settings.CACHE_BACKEND == "redis"
-            ):
+            if not (isinstance(settings, CacheSettings) and settings.CACHE_ENABLED and settings.CACHE_BACKEND == "redis"):
                 teardown.push_async_callback(cache_redis_client.aclose)
 
             teardown.push_async_callback(auth.shutdown)
