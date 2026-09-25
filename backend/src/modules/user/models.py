@@ -53,7 +53,7 @@ class User(Base, TimestampMixin, SoftDeleteMixin):
     user_roles: Mapped[list["UserRole"]] = relationship(
         "UserRole",
         back_populates="user",
-        lazy="selectin",
+        lazy="select",
         default_factory=list,
         init=False,
     )

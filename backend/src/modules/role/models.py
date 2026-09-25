@@ -27,14 +27,18 @@ class Role(Base, TimestampMixin, SoftDeleteMixin):
     permissions: Mapped[list["RolePermission"]] = relationship(
         "RolePermission",
         back_populates="role",
-        lazy="selectin",
+        lazy="select",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
         default_factory=list,
         init=False,
     )
     user_roles: Mapped[list["UserRole"]] = relationship(
         "UserRole",
         back_populates="role",
-        lazy="selectin",
+        lazy="select",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
         default_factory=list,
         init=False,
     )
@@ -59,7 +63,7 @@ class RolePermission(Base, TimestampMixin):
     )
     role_id: Mapped[int] = mapped_column(
         Integer,
-        ForeignKey("roles.id"),
+        ForeignKey("roles.id", ondelete="CASCADE"),
         index=True,
     )
     permission_name: Mapped[str] = mapped_column(String(100), index=True)
@@ -67,7 +71,7 @@ class RolePermission(Base, TimestampMixin):
     role: Mapped["Role"] = relationship(
         "Role",
         back_populates="permissions",
-        lazy="selectin",
+        lazy="select",
         init=False,
     )
 
@@ -91,25 +95,25 @@ class UserRole(Base, TimestampMixin):
     )
     user_id: Mapped[int] = mapped_column(
         Integer,
-        ForeignKey("user.id"),
+        ForeignKey("user.id", ondelete="CASCADE"),
         index=True,
     )
     role_id: Mapped[int] = mapped_column(
         Integer,
-        ForeignKey("roles.id"),
+        ForeignKey("roles.id", ondelete="CASCADE"),
         index=True,
     )
 
     user: Mapped["User"] = relationship(
         "User",
         back_populates="user_roles",
-        lazy="selectin",
+        lazy="select",
         init=False,
     )
     role: Mapped["Role"] = relationship(
         "Role",
         back_populates="user_roles",
-        lazy="selectin",
+        lazy="select",
         init=False,
     )
 
