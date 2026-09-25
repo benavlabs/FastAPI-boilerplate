@@ -54,6 +54,8 @@ class User(Base, TimestampMixin, SoftDeleteMixin):
         "UserRole",
         back_populates="user",
         lazy="select",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
         default_factory=list,
         init=False,
     )

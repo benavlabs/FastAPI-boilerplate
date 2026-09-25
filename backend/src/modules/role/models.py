@@ -1,10 +1,11 @@
 from typing import TYPE_CHECKING
 
-from sqlalchemy import ForeignKey, Integer, String, UniqueConstraint
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy import ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy.orm import Mapped, mapped_column, relationship, validates
 
 from ...infrastructure.database.models import SoftDeleteMixin, TimestampMixin
 from ...infrastructure.database.session import Base
+from .permissions import is_known_permission
 
 if TYPE_CHECKING:
     from ..user.models import User
@@ -22,7 +23,7 @@ class Role(Base, TimestampMixin, SoftDeleteMixin):
         init=False,
     )
     name: Mapped[str] = mapped_column(String(50), nullable=False, unique=True, index=True)
-    description: Mapped[str | None] = mapped_column(String(255), default=None)
+    description: Mapped[str | None] = mapped_column(Text, default=None)
 
     permissions: Mapped[list["RolePermission"]] = relationship(
         "RolePermission",
@@ -74,6 +75,14 @@ class RolePermission(Base, TimestampMixin):
         lazy="select",
         init=False,
     )
+
+    @validates("permission_name")
+    def validate_permission_name(self, key: str, value: str) -> str:
+        """Reject permission names that are not defined by PermissionNames."""
+        if not is_known_permission(value):
+            raise ValueError(f"Unknown permission name: {value}")
+
+        return value
 
     def __repr__(self) -> str:
         return f"{self.role_id}:{self.permission_name}"

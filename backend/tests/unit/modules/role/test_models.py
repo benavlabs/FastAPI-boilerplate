@@ -1,6 +1,8 @@
 """Unit tests for the RBAC ORM models and permission configuration."""
 
-from sqlalchemy import inspect
+import pytest
+from sqlalchemy import func, inspect, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.modules.role.models import Role, RolePermission, UserRole
 from src.modules.role.permissions import (
@@ -8,6 +10,9 @@ from src.modules.role.permissions import (
     PermissionNames,
     is_known_permission,
 )
+from src.modules.user.models import User
+
+pytestmark = pytest.mark.asyncio
 
 
 def test_role_relationships_are_lazy_select():
@@ -17,21 +22,23 @@ def test_role_relationships_are_lazy_select():
     assert inspect(RolePermission).relationships["role"].lazy == "select"
     assert inspect(UserRole).relationships["user"].lazy == "select"
     assert inspect(UserRole).relationships["role"].lazy == "select"
+    assert inspect(User).relationships["user_roles"].lazy == "select"
 
 
 def test_permission_tree_matches_permission_names():
-    """Every permission in the tree must be a PermissionNames value."""
+    """Every PermissionNames value must appear in the permission tree."""
     permission_values = {
         value
         for name, value in vars(PermissionNames).items()
         if not name.startswith("_") and isinstance(value, str)
     }
 
-    for parent in PERMISSION_TREE:
-        assert parent.name in permission_values
+    tree_values = {parent.name for parent in PERMISSION_TREE}
 
-        for child in parent.children:
-            assert child.name in permission_values
+    for parent in PERMISSION_TREE:
+        tree_values.update(child.name for child in parent.children)
+
+    assert tree_values == permission_values
 
 
 def test_permission_tree_contains_expected_children():
@@ -76,27 +83,45 @@ def test_permission_name_validation():
     assert not is_known_permission("unknown.permission")
 
 
-def test_role_permission_and_user_role_can_be_created():
-    """Role, RolePermission, and UserRole can be constructed together."""
+async def test_role_delete_cascades_to_permissions_and_user_roles(
+    db_session: AsyncSession,
+    test_user: dict,
+):
+    """Deleting a role must remove its permission and user-role assignments."""
     role = Role(
         name="test-role",
         description="Test role",
     )
-    role.id = 1
+    db_session.add(role)
+    await db_session.flush()
 
     role_permission = RolePermission(
         role_id=role.id,
         permission_name=PermissionNames.user_read,
     )
     user_role = UserRole(
-        user_id=1,
+        user_id=test_user["id"],
         role_id=role.id,
     )
 
-    role.permissions.append(role_permission)
-    role.user_roles.append(user_role)
+    db_session.add_all([role_permission, user_role])
+    await db_session.commit()
 
-    assert role.name == "test-role"
-    assert role_permission.role_id == role.id
-    assert role_permission.permission_name == PermissionNames.user_read
-    assert user_role.role_id == role.id
+    role_id = role.id
+
+    await db_session.delete(role)
+    await db_session.commit()
+
+    role_permission_count = await db_session.scalar(
+        select(func.count())
+        .select_from(RolePermission)
+        .where(RolePermission.role_id == role_id)
+    )
+    user_role_count = await db_session.scalar(
+        select(func.count())
+        .select_from(UserRole)
+        .where(UserRole.role_id == role_id)
+    )
+
+    assert role_permission_count == 0
+    assert user_role_count == 0

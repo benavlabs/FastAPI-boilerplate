@@ -66,10 +66,13 @@ PERMISSION_TREE: tuple[PermissionNode, ...] = (
 )
 
 
+KNOWN_PERMISSIONS = frozenset(
+    value
+    for name, value in vars(PermissionNames).items()
+    if not name.startswith("_") and isinstance(value, str)
+)
+
+
 def is_known_permission(permission_name: str) -> bool:
     """Return whether a permission name is defined by PermissionNames."""
-    return permission_name in {
-        value
-        for name, value in vars(PermissionNames).items()
-        if not name.startswith("_") and isinstance(value, str)
-    }
+    return permission_name in KNOWN_PERMISSIONS
