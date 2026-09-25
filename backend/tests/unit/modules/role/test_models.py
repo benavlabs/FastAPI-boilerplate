@@ -6,13 +6,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.modules.role.models import Role, RolePermission, UserRole
 from src.modules.role.permissions import (
+    KNOWN_PERMISSIONS,
     PERMISSION_TREE,
     PermissionNames,
     is_known_permission,
 )
 from src.modules.user.models import User
-
-pytestmark = pytest.mark.asyncio
 
 
 def test_role_relationships_are_lazy_select():
@@ -25,20 +24,15 @@ def test_role_relationships_are_lazy_select():
     assert inspect(User).relationships["user_roles"].lazy == "select"
 
 
-def test_permission_tree_matches_permission_names():
-    """Every PermissionNames value must appear in the permission tree."""
-    permission_values = {
-        value
-        for name, value in vars(PermissionNames).items()
-        if not name.startswith("_") and isinstance(value, str)
+def test_permission_tree_matches_known_permissions():
+    """Every known leaf permission must appear in the permission tree."""
+    tree_values = {
+        child.name
+        for parent in PERMISSION_TREE
+        for child in parent.children
     }
 
-    tree_values = {parent.name for parent in PERMISSION_TREE}
-
-    for parent in PERMISSION_TREE:
-        tree_values.update(child.name for child in parent.children)
-
-    assert tree_values == permission_values
+    assert tree_values == KNOWN_PERMISSIONS
 
 
 def test_permission_tree_contains_expected_children():
@@ -74,13 +68,34 @@ def test_permission_tree_contains_expected_children():
 
 
 def test_permission_name_validation():
-    """Only permission names defined by PermissionNames are accepted."""
+    """Only known leaf permission names are accepted."""
     assert is_known_permission(PermissionNames.user_read)
     assert is_known_permission(PermissionNames.role_assign)
     assert is_known_permission(PermissionNames.tier_delete)
 
     assert not is_known_permission("user.reed")
     assert not is_known_permission("unknown.permission")
+    assert not is_known_permission(PermissionNames.user)
+    assert not is_known_permission(PermissionNames.role)
+    assert not is_known_permission(PermissionNames.tier)
+
+
+def test_role_permission_rejects_unknown_permission():
+    """RolePermission must reject permission names outside the known leaves."""
+    with pytest.raises(ValueError, match="Unknown permission name"):
+        RolePermission(
+            role_id=1,
+            permission_name="user.reed",
+        )
+
+
+def test_role_permission_rejects_parent_permission():
+    """RolePermission must reject permission-tree grouping nodes."""
+    with pytest.raises(ValueError, match="Unknown permission name"):
+        RolePermission(
+            role_id=1,
+            permission_name=PermissionNames.user,
+        )
 
 
 async def test_role_delete_cascades_to_permissions_and_user_roles(
