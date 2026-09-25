@@ -6,7 +6,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.modules.role.models import Role, RolePermission, UserRole
 from src.modules.role.permissions import (
-    KNOWN_PERMISSIONS,
     PERMISSION_TREE,
     PermissionNames,
     is_known_permission,
@@ -24,15 +23,23 @@ def test_role_relationships_are_lazy_select():
     assert inspect(User).relationships["user_roles"].lazy == "select"
 
 
-def test_permission_tree_matches_known_permissions():
-    """Every known leaf permission must appear in the permission tree."""
+def test_permission_tree_matches_permission_names():
+    """Every leaf PermissionNames value must appear in the permission tree."""
+    defined = {
+        value
+        for name, value in vars(PermissionNames).items()
+        if not name.startswith("_") and isinstance(value, str)
+    }
+
+    parents = {parent.name for parent in PERMISSION_TREE}
+
     tree_values = {
         child.name
         for parent in PERMISSION_TREE
         for child in parent.children
     }
 
-    assert tree_values == KNOWN_PERMISSIONS
+    assert tree_values == defined - parents
 
 
 def test_permission_tree_contains_expected_children():
