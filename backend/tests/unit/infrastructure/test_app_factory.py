@@ -145,9 +145,13 @@ def _create_app(environment: EnvironmentOption, enable_docs_in_production: bool 
     )
 
 
-async def _docs_statuses(app: FastAPI) -> list[int]:
+async def _statuses(app: FastAPI, paths: tuple[str, ...]) -> list[int]:
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        return [(await client.get(path)).status_code for path in DOCS_PATHS]
+        return [(await client.get(path)).status_code for path in paths]
+
+
+async def _docs_statuses(app: FastAPI) -> list[int]:
+    return await _statuses(app, DOCS_PATHS)
 
 
 @pytest.mark.asyncio
@@ -177,3 +181,34 @@ async def test_gated_docs_are_served_to_superusers(environment, enable_docs_in_p
     app.dependency_overrides[get_current_superuser] = lambda: {"id": 1, "is_superuser": True}
 
     assert await _docs_statuses(app) == [200] * len(DOCS_PATHS)
+
+
+@pytest.mark.asyncio
+async def test_gated_docs_use_the_configured_paths():
+    """The protected docs router must serve at the configured URLs, not hardcoded ones."""
+    custom_paths = ("/internal/docs", "/internal/redoc", "/internal/openapi.json")
+    custom = Settings(
+        ENVIRONMENT=EnvironmentOption.STAGING,
+        DOCS_URL=custom_paths[0],
+        REDOC_URL=custom_paths[1],
+        OPENAPI_URL=custom_paths[2],
+    )
+    app = app_factory.create_application(router=APIRouter(), settings=custom)
+
+    assert await _statuses(app, custom_paths) == [401, 401, 401]
+    assert await _docs_statuses(app) == [404, 404, 404]
+
+    app.dependency_overrides[get_current_superuser] = lambda: {"id": 1, "is_superuser": True}
+
+    assert await _statuses(app, custom_paths) == [200, 200, 200]
+
+
+class TestLifespanAuth:
+    """crudauth is initialized on startup, after every connection is ready."""
+
+    async def test_initializes_crudauth_on_startup(self, lifespan_settings, patched_lifespan):
+        mocks, _ = patched_lifespan
+        lifespan = app_factory.lifespan_factory(lifespan_settings)
+
+        async with lifespan(FastAPI()):
+            mocks["auth"].initialize.assert_awaited_once()

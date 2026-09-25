@@ -13,6 +13,7 @@ from crudauth import Principal, get_password_hash
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.infrastructure.auth import routes
 from src.infrastructure.auth.dependencies import get_optional_principal
 from src.infrastructure.auth.setup import auth as crud_auth
 from src.interfaces.main import app
@@ -350,3 +351,24 @@ async def test_signup_hashes_the_password_off_the_event_loop(client: AsyncClient
     assert response.status_code == 201
     assert threads
     assert threading.main_thread().name not in threads
+
+
+@pytest.mark.asyncio
+async def test_login_finishes_through_the_session_transport(client: AsyncClient, test_user: dict):
+    """The route must create the session through SessionTransport.complete_login (cookies + hooks)."""
+    captured: dict = {}
+    original = routes.session_transport.complete_login
+
+    async def spy(request, response, user, options):
+        captured["options"] = options
+        return await original(request, response, user, options)
+
+    with patch.object(routes.session_transport, "complete_login", spy):
+        response = await client.post(
+            "/api/v1/auth/login",
+            data={**_credentials(test_user), "remember_me": "true"},
+        )
+
+    assert response.status_code == 200
+    assert captured["options"]["remember_me"] is True
+    assert captured["options"]["metadata"]["login_type"] == "password"

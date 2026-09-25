@@ -150,6 +150,22 @@ async def test_an_offsite_redirect_target_falls_back_to_the_app(client: AsyncCli
     assert response.headers["location"] == BASE
 
 
+async def test_an_absolute_same_origin_redirect_is_refused(client: AsyncClient, monkeypatch):
+    """Only relative paths are safe to hand back, even when the host is the app's own."""
+    _stub_google(
+        monkeypatch,
+        {"sub": "google-321", "email": "absolute@example.com", "email_verified": True, "name": "Absolute Target"},
+    )
+    state = await _start(client, redirect_to=f"{BASE}/dashboard")
+
+    response = await client.get(
+        "/api/v1/auth/oauth/callback/google", params={"code": "the-code", "state": state}, follow_redirects=False
+    )
+
+    assert response.status_code == 307
+    assert response.headers["location"] == BASE
+
+
 async def test_a_state_this_browser_never_started_is_refused(client: AsyncClient):
     """A state without its browser-bound cookie may be a login-CSRF attempt, so no session."""
     response = await client.get(
@@ -171,3 +187,19 @@ async def test_a_provider_error_sends_the_browser_back_with_an_error(client: Asy
     location = urlparse(response.headers["location"])
     assert f"{location.scheme}://{location.netloc}" == BASE
     assert parse_qs(location.query)["error"]
+
+
+async def test_the_auth_paths_keep_their_existing_contract():
+    """The migration to crudauth must not move the URLs clients already call."""
+    paths = {route.path for route in app.routes}
+
+    for path in (
+        "/api/v1/auth/login",
+        "/api/v1/auth/logout",
+        "/api/v1/auth/logout-all",
+        "/api/v1/auth/refresh-csrf",
+        "/api/v1/auth/check-auth",
+        "/api/v1/auth/oauth/{provider}",
+        "/api/v1/auth/oauth/callback/{provider}",
+    ):
+        assert path in paths
