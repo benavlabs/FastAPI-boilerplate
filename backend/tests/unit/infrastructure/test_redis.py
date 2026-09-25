@@ -1,7 +1,6 @@
 """The shared Redis clients, and where they are injected."""
 
 from src.infrastructure import redis
-from src.infrastructure.auth import setup
 from src.infrastructure.cache import initialize
 from src.infrastructure.config.settings import settings
 
@@ -37,15 +36,7 @@ class TestClientSettings:
 
 
 class TestInjection:
-    """The shared clients are the ones crudauth and the cache actually use."""
-
-    def test_the_rate_limiter_reuses_the_shared_client(self, monkeypatch):
-        monkeypatch.setattr(settings, "RATE_LIMITER_BACKEND", "redis")
-
-        backend = setup._rate_limiter()
-
-        assert backend.client is redis.rate_limiter_redis_client
-        assert backend._owns_client is False
+    """The cache backend is handed the shared client instead of opening its own."""
 
     async def test_the_cache_backend_reuses_the_shared_client(self, monkeypatch):
         monkeypatch.setattr(settings, "CACHE_BACKEND", "redis")

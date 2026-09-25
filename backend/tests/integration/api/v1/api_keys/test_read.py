@@ -20,12 +20,9 @@ async def test_a_missing_api_key_returns_the_generic_not_found(auth_client: Asyn
     body = response.json()
     assert body["detail"] == "The requested resource was not found."
     assert body["support_id"]
-    assert "999999" not in body["detail"]
 
 
-async def test_another_users_api_key_is_forbidden_generically(
-    auth_client: AsyncClient, test_user: dict, test_user_2: dict
-):
+async def test_another_users_api_key_is_forbidden_generically(auth_client: AsyncClient, test_user_2: dict):
     created = await auth_client.post("/api/v1/api-keys/", json={"name": "Cross User Key"})
     assert created.status_code == 201
     key_id = created.json()["id"]

@@ -9,6 +9,7 @@ from starlette.requests import Request
 from src.infrastructure.auth import setup
 from src.infrastructure.config.settings import settings
 from src.infrastructure.database.session import async_session
+from src.infrastructure.redis import rate_limiter_redis_client
 from src.modules.rate_limit.crud import crud_rate_limits
 from src.modules.user.constants import NAME_MAX_LENGTH
 
@@ -46,6 +47,7 @@ class TestSessionRedisWiring:
 
     def test_memory_sessions_carry_no_redis_url(self, monkeypatch):
         monkeypatch.setattr(settings, "SESSION_BACKEND", "memory")
+        monkeypatch.setattr(settings, "RATE_LIMITER_BACKEND", "redis")
 
         assert setup._session_transport().redis_url is None
 
@@ -55,8 +57,12 @@ class TestRateLimiterBackend:
 
     def test_redis_uses_the_shared_limiter_client(self, monkeypatch):
         monkeypatch.setattr(settings, "RATE_LIMITER_BACKEND", "redis")
+        monkeypatch.setattr(settings, "SESSION_BACKEND", "memory")
 
-        assert setup._rate_limiter() is not None
+        backend = setup._rate_limiter()
+
+        assert backend is not None
+        assert backend.client is rate_limiter_redis_client
 
     def test_memory_leaves_crudauth_its_in_process_limiter(self, monkeypatch):
         monkeypatch.setattr(settings, "RATE_LIMITER_BACKEND", "memory")
@@ -103,22 +109,6 @@ class TestOAuthWiring:
 
     def test_the_callback_lives_under_the_api_prefix(self):
         assert setup.OAUTH_PREFIX == "/api/v1/auth/oauth"
-
-
-class TestRateLimiterBackendIndependence:
-    """RATE_LIMITER_BACKEND and SESSION_BACKEND are chosen independently."""
-
-    def test_rate_limiter_does_not_follow_the_session_backend(self, monkeypatch):
-        monkeypatch.setattr(settings, "SESSION_BACKEND", "memory")
-        monkeypatch.setattr(settings, "RATE_LIMITER_BACKEND", "redis")
-
-        assert setup._rate_limiter() is not None
-
-    def test_sessions_do_not_follow_the_rate_limiter_backend(self, monkeypatch):
-        monkeypatch.setattr(settings, "RATE_LIMITER_BACKEND", "redis")
-        monkeypatch.setattr(settings, "SESSION_BACKEND", "memory")
-
-        assert setup._session_transport().redis_url is None
 
 
 _SENTINEL_DB = object()
@@ -235,7 +225,7 @@ class TestNewUserFields:
 
     def test_the_display_name_is_filled_and_bounded(self):
         context = NewUserContext(
-            email="a" * 40 + "@example.com",
+            email="a" * (NAME_MAX_LENGTH + 10) + "@example.com",
             username="auser",
             source="register",
             db=None,  # type: ignore[arg-type]
