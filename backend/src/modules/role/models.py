@@ -1,17 +1,17 @@
 from typing import TYPE_CHECKING
 
-from sqlalchemy import ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship, validates
 
-from ...infrastructure.database.models import SoftDeleteMixin, TimestampMixin
+from ...infrastructure.database.models import TimestampMixin
 from ...infrastructure.database.session import Base
-from .permissions import is_known_permission
+from .permission_registry import all_permissions
 
 if TYPE_CHECKING:
     from ..user.models import User
 
 
-class Role(Base, TimestampMixin, SoftDeleteMixin):
+class Role(Base, TimestampMixin):
     """Reusable named role that holds a set of permission strings."""
 
     __tablename__ = "roles"
@@ -22,7 +22,11 @@ class Role(Base, TimestampMixin, SoftDeleteMixin):
         autoincrement=True,
         init=False,
     )
-    name: Mapped[str] = mapped_column(String(50), nullable=False, unique=True, index=True)
+    name: Mapped[str] = mapped_column(
+        String(50),
+        nullable=False,
+        unique=True,
+    )
     description: Mapped[str | None] = mapped_column(Text, default=None)
 
     permissions: Mapped[list["RolePermission"]] = relationship(
@@ -49,25 +53,20 @@ class Role(Base, TimestampMixin, SoftDeleteMixin):
 
 
 class RolePermission(Base, TimestampMixin):
-    """Maps a role to a permission name constant."""
+    """Maps a role to a permission name."""
 
-    __tablename__ = "role_permission"
-    __table_args__ = (
-        UniqueConstraint("role_id", "permission_name", name="uq_role_permission"),
-    )
+    __tablename__ = "role_permissions"
 
-    id: Mapped[int] = mapped_column(
-        Integer,
-        primary_key=True,
-        autoincrement=True,
-        init=False,
-    )
     role_id: Mapped[int] = mapped_column(
         Integer,
         ForeignKey("roles.id", ondelete="CASCADE"),
-        index=True,
+        primary_key=True,
+        init=False,
     )
-    permission_name: Mapped[str] = mapped_column(String(100), index=True)
+    permission_name: Mapped[str] = mapped_column(
+        String(100),
+        primary_key=True,
+    )
 
     role: Mapped["Role"] = relationship(
         "Role",
@@ -78,8 +77,9 @@ class RolePermission(Base, TimestampMixin):
 
     @validates("permission_name")
     def validate_permission_name(self, key: str, value: str) -> str:
-        """Reject permission names that are not defined by PermissionNames."""
-        if not is_known_permission(value):
+        """Reject permission names that are not registered."""
+
+        if value not in all_permissions():
             raise ValueError(f"Unknown permission name: {value}")
 
         return value
@@ -91,26 +91,19 @@ class RolePermission(Base, TimestampMixin):
 class UserRole(Base, TimestampMixin):
     """Maps a user to a role."""
 
-    __tablename__ = "user_role"
-    __table_args__ = (
-        UniqueConstraint("user_id", "role_id", name="uq_user_role"),
-    )
+    __tablename__ = "user_roles"
 
-    id: Mapped[int] = mapped_column(
-        Integer,
-        primary_key=True,
-        autoincrement=True,
-        init=False,
-    )
     user_id: Mapped[int] = mapped_column(
         Integer,
         ForeignKey("user.id", ondelete="CASCADE"),
-        index=True,
+        primary_key=True,
+        init=False,
     )
     role_id: Mapped[int] = mapped_column(
         Integer,
         ForeignKey("roles.id", ondelete="CASCADE"),
-        index=True,
+        primary_key=True,
+        init=False,
     )
 
     user: Mapped["User"] = relationship(
