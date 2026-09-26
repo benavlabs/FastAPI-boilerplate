@@ -43,10 +43,13 @@ async def test_get_current_user_returns_dict_and_filters_soft_deleted():
 
 @pytest.mark.asyncio
 async def test_get_optional_user_none_principal_returns_none():
-    assert await deps.get_optional_user(
-        principal=None,
-        db=MagicMock(),
-    ) is None
+    assert (
+        await deps.get_optional_user(
+            principal=None,
+            db=MagicMock(),
+        )
+        is None
+    )
 
 
 @pytest.mark.asyncio
@@ -116,6 +119,22 @@ async def test_load_permissions_superuser_bypasses_database():
     local_session.assert_not_called()
 
 
+@pytest.mark.asyncio
+async def test_load_permissions_uses_request_cache():
+    principal = Principal(user_id=1)
+    request = MagicMock()
+    request.state = MagicMock()
+
+    cached = frozenset({"user.read"})
+    setattr(request.state, deps.PERMISSIONS_STATE_KEY, cached)
+
+    with patch.object(deps, "local_session") as local_session:
+        permissions = await deps.load_permissions(principal, request)
+
+    assert permissions == cached
+    local_session.assert_not_called()
+
+
 def _get_permission_check(*permissions: str):
     """Capture the check callback passed to crudauth.current_user()."""
     with patch.object(deps.auth, "current_user") as current_user:
@@ -134,7 +153,9 @@ async def test_require_permissions_allows_principal_with_required_permissions():
         "load_permissions",
         new=AsyncMock(return_value=frozenset({"user.read", "user.update"})),
     ):
-        allowed = await check(Principal(user_id=1))
+        allowed = await check(
+            Principal(user_id=1),
+        )
 
     assert allowed is True
 
@@ -148,7 +169,9 @@ async def test_require_permissions_requires_all_permissions():
         "load_permissions",
         new=AsyncMock(return_value=frozenset({"user.read"})),
     ):
-        allowed = await check(Principal(user_id=1))
+        allowed = await check(
+            Principal(user_id=1),
+        )
 
     assert allowed is False
 
@@ -162,7 +185,9 @@ async def test_require_permissions_superuser_bypasses_permission_lookup():
         "load_permissions",
         new=AsyncMock(),
     ) as load_permissions:
-        allowed = await check(Principal(user_id=1, is_superuser=True))
+        allowed = await check(
+            Principal(user_id=1, is_superuser=True),
+        )
 
     assert allowed is True
     load_permissions.assert_not_awaited()
@@ -171,3 +196,95 @@ async def test_require_permissions_superuser_bypasses_permission_lookup():
 def test_require_permissions_rejects_unknown_permission():
     with pytest.raises(ValueError, match="Unknown permission name"):
         deps.require_permissions("user.reed")
+
+
+@pytest.fixture
+def principal() -> Principal:
+    """Return a regular authenticated principal."""
+
+    return Principal(
+        user_id=1,
+        is_superuser=False,
+    )
+
+
+@pytest.mark.asyncio
+async def test_can_delegate_permissions_when_all_permissions_are_held(
+    principal: Principal,
+) -> None:
+    """A principal can delegate permissions they already hold."""
+
+    with patch(
+        "src.infrastructure.auth.dependencies.load_permissions",
+        new=AsyncMock(
+            return_value=frozenset(
+                {
+                    "role.read",
+                    "role.assign",
+                    "user.update",
+                }
+            )
+        ),
+    ):
+        result = await deps.can_delegate_permissions(
+            principal,
+            {"role.read", "role.assign"},
+        )
+
+    assert result is True
+
+
+@pytest.mark.asyncio
+async def test_can_delegate_permissions_when_permission_is_missing(
+    principal: Principal,
+) -> None:
+    """A principal cannot delegate a permission they do not hold."""
+
+    with patch(
+        "src.infrastructure.auth.dependencies.load_permissions",
+        new=AsyncMock(return_value=frozenset({"role.read"})),
+    ):
+        result = await deps.can_delegate_permissions(
+            principal,
+            {"role.read", "role.assign"},
+        )
+
+    assert result is False
+
+
+@pytest.mark.asyncio
+async def test_superuser_can_delegate_permissions() -> None:
+    """Superusers can delegate permissions without loading permissions."""
+
+    superuser = Principal(
+        user_id=1,
+        is_superuser=True,
+    )
+
+    with patch(
+        "src.infrastructure.auth.dependencies.load_permissions",
+        new=AsyncMock(),
+    ) as load_permissions:
+        result = await deps.can_delegate_permissions(
+            superuser,
+            {"role.assign", "user.update"},
+        )
+
+    assert result is True
+    load_permissions.assert_not_awaited()
+
+
+def test_can_delegate_permissions_rejects_unknown_permission(
+    principal: Principal,
+) -> None:
+    """Unknown permissions are rejected."""
+
+    with pytest.raises(ValueError, match="Unknown permission name"):
+        import asyncio
+
+        asyncio.run(
+            deps.can_delegate_permissions(
+                principal,
+                {"role.does_not_exist"},
+            )
+        )

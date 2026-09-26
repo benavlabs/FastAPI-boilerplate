@@ -24,6 +24,7 @@ from ..tier.models import Tier
 from ..tier.schemas import TierRead
 from .crud import crud_users
 from .models import User
+from .permissions import UserPermission
 from .schemas import (
     User as UserSchema,
 )
@@ -287,57 +288,59 @@ class UserService:
             raise UserNotFoundError(f"User with ID {user_id} not found")
         return updated_user
 
-    async def check_update_permission(self, requester_user: dict[str, Any], target_username: str) -> bool:
+    async def check_update_permission(
+        self,
+        requester_user: dict[str, Any],
+        target_username: str,
+        permissions: set[str] | frozenset[str] | None = None,
+    ) -> bool:
         """Check if user has permission to update another user.
 
-        Determines if the requesting user has permission to update the target user.
-        Superusers can update any user, regular users can only update themselves.
+        Superusers and users holding ``user.update`` can update any user.
+        Other regular users can only update their own profile.
 
         Args:
             requester_user: User data of the user making the request.
             target_username: Username of the user to be updated.
+            permissions: Effective permissions held by the requester.
 
         Returns:
             True if the user has permission, False otherwise.
-
-        Note:
-            Permission rules:
-            - Superusers can update any user
-            - Regular users can only update their own profile
         """
         if requester_user.get("is_superuser", False):
+            return True
+
+        if permissions is not None and UserPermission.UPDATE.value in permissions:
             return True
 
         return requester_user.get("username") == target_username
 
     async def verify_user_permission(
-        self, requester_user: dict[str, Any], target_username: str, action_description: str = "perform this action"
+        self,
+        requester_user: dict[str, Any],
+        target_username: str,
+        action_description: str = "perform this action",
+        permissions: set[str] | frozenset[str] | None = None,
     ) -> None:
         """Verify user has permission to perform an action on another user.
 
-        Checks permissions and raises an exception if the user doesn't have
-        the required permissions for the specified action.
+        Superusers and users holding ``user.update`` may update any user.
+        Otherwise, the existing self-profile ownership rule is preserved.
 
         Args:
             requester_user: User data of the user making the request.
             target_username: Username of the user to perform action on.
             action_description: Description of the action for error messages.
+            permissions: Effective permissions held by the requester.
 
         Raises:
             PermissionDeniedError: If the user doesn't have permission.
-
-        Note:
-            This method combines permission checking with error handling
-            for convenient use in API endpoints and business logic.
-
-        Example:
-            ```python
-            await service.verify_user_permission(
-                current_user, "johndoe", "update profile"
-            )
-            ```
         """
-        has_permission = await self.check_update_permission(requester_user, target_username)
+        has_permission = await self.check_update_permission(
+            requester_user,
+            target_username,
+            permissions,
+        )
         if not has_permission:
             raise PermissionDeniedError(f"You don't have permission to {action_description} on this user")
 

@@ -3,9 +3,10 @@ from typing import Any
 from fastapi import APIRouter
 from fastcrud import PaginatedListResponse, compute_offset, paginated_response
 
-from ...infrastructure.auth.dependencies import require_permissions
+from ...infrastructure.auth.dependencies import load_permissions, require_permissions
 from ...infrastructure.dependencies import (
     AsyncSessionDep,
+    CurrentPrincipalDep,
     CurrentSuperUserDep,
     CurrentUserDep,
 )
@@ -184,13 +185,14 @@ async def get_active_and_inactive_user_by_username(
     description="""
             Updates a user's profile information.
 
-            This endpoint allows users to modify their own profile data or administrators
-            to modify any user's data. Only the fields provided in the request will be
-            updated, and all fields are optional.
+            This endpoint allows users to modify their own profile data or users
+            with the `user.update` permission to modify any user's data. Only the
+            fields provided in the request will be updated, and all fields are optional.
 
             Permission rules:
             - Regular users can only update their own profiles
-            - Administrators can update any user's profile
+            - Users with the `user.update` permission can update any user's profile
+            - Superusers can update any user's profile
             - Note: Tier updates are handled by a separate endpoint (/users/{username}/tier)
 
             Username and email changes are validated to ensure uniqueness.
@@ -208,15 +210,20 @@ async def update_user_profile(
     username: str,
     values: UserUpdate,
     current_user: CurrentUserDep,
+    current_principal: CurrentPrincipalDep,
     db: AsyncSessionDep,
     user_service: UserServiceDep,
 ) -> dict[str, str]:
     """Update user profile information."""
+    permissions = await load_permissions(current_principal)
+
     await user_service.verify_user_permission(
         current_user,
         username,
         "update profile",
+        permissions,
     )
+
     user = await user_service.get_by_username(username, db)
 
     await user_service.update(user["id"], values, db)
