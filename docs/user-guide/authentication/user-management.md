@@ -138,7 +138,7 @@ Returns 404 if not found or soft-deleted. The admin-only `/active-and-inactive/{
 
 ### Update Profile
 
-Users can update their own profile; superusers can update anyone's. Tier updates are gated on a separate endpoint (see [Permissions](permissions.md)).
+Users can always update their own profile. Updating someone else's needs superuser, or the `user.update` permission. Tier updates are gated on a separate endpoint (see [Permissions](permissions.md)).
 
 ```bash
 curl -X PATCH http://localhost:8000/api/v1/users/johndoe \
@@ -148,20 +148,30 @@ curl -X PATCH http://localhost:8000/api/v1/users/johndoe \
   -d '{"name": "John Updated"}'
 ```
 
-The service enforces the ownership rule:
+The service enforces the rules:
 
 ```python
 # modules/user/service.py
-async def verify_user_permission(
-    self, current_user: dict[str, Any], target_username: str, action: str,
+async def verify_update_permission(
+    self,
+    requester_user: dict[str, Any],
+    target_username: str,
+    permissions: Collection[str],
 ) -> None:
-    if current_user["username"] != target_username and not current_user["is_superuser"]:
-        raise PermissionDeniedError(f"Cannot {action} for another user")
+    if self.is_self_or_superuser(requester_user, target_username):
+        return
+
+    if UserPermission.UPDATE.value in permissions:
+        return
+
+    raise PermissionDeniedError("You don't have permission to update profile on this user")
 ```
+
+A `user.update` holder who isn't a superuser is then held to `verify_no_privilege_escalation`: the target must not be a superuser, must hold no permission the requester lacks, and its email address can't be changed — a verified provider email is how an OAuth login is matched to an account, so only a superuser may change someone else's. See [Permissions](permissions.md#resource-ownership).
 
 If the body changes `username` or `email`, the service also re-checks uniqueness.
 
-The `UserUpdate` schema makes every field optional so clients can send partial updates:
+The `UserUpdate` schema makes every field optional so clients can send partial updates. The OAuth identifiers and the verification flag are not part of it — they live on `UserAdminUpdate`, which the admin panel uses, so sending them here returns 422:
 
 ```python
 from .constants import NAME_MAX_LENGTH, USERNAME_MAX_LENGTH, USERNAME_PATTERN
@@ -244,11 +254,11 @@ Email is intentionally retained for legal compliance purposes (audit trail, "rig
 
 ### List All Users
 
-`GET /api/v1/users/` — superuser only, paginated.
+`GET /api/v1/users/` — paginated, gated on the `user.read` permission (`dependencies=[require_permissions("user.read")]`). A role grants it; superusers always pass. See [Permissions](permissions.md#role-based-permissions).
 
 ```bash
 curl "http://localhost:8000/api/v1/users/?page=1&items_per_page=10" \
-  -b superuser_cookies.txt
+  -b cookies.txt
 ```
 
 Response shape (via `paginated_response`):

@@ -175,5 +175,5 @@ For richer auditing, write to a dedicated log stream or push events to a SIEM.
 
 - **[Configuration](configuration.md)** — Environment variables and cookie behavior
 - **[Adding Models](adding-models.md)** — Register your own admin views
-- **[Permissions](../authentication/permissions.md)** — Application-level superuser checks
+- **[Permissions](../authentication/permissions.md)** — Role permissions and application-level superuser checks
 - **[Production](../production.md)** — Production hardening checklist

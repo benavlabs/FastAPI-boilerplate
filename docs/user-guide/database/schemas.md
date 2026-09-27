@@ -139,7 +139,17 @@ class UserUpdate(BaseModel):
     ]
 
 
-class UserUpdateInternal(UserUpdate):
+# Fields only an administrator may set — the OAuth identifiers decide who a
+# provider login resolves to, so they stay out of the public update schema
+class UserAdminUpdate(UserUpdate):
+    google_id: str | None = None
+    github_id: str | None = None
+    oauth_provider: str | None = None
+    email_verified: bool | None = None
+    oauth_updated_at: datetime | None = None
+
+
+class UserUpdateInternal(UserAdminUpdate):
     updated_at: datetime  # service stamps this before persisting
 
 
@@ -174,6 +184,7 @@ The schemas follow a consistent vocabulary across modules:
 | `Create` | API request body for POST |
 | `CreateInternal` | What the service stores (raw password → hashed_password) |
 | `Update` | Partial update body for PATCH (all fields optional) |
+| `AdminUpdate` | Update body extended with the fields only an administrator may set |
 | `UpdateInternal` | What the service stores on update (e.g. with stamped `updated_at`) |
 | `TierUpdate`, `Anonymize`, `Delete`, … | Operation-specific narrow schemas |
 

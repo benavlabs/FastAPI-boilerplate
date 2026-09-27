@@ -75,6 +75,31 @@ async def list_products(
 
 **`get_current_principal`** — Returns the crudauth `Principal` (session-validated, CSRF-enforced). Use it when you need the session id (`principal.metadata["session_id"]`) or the `user_id` directly rather than the full user dict. `get_optional_principal` is the never-raises variant.
 
+**`get_current_permissions`** — Returns the permissions the caller effectively holds through the roles assigned to them, as a `frozenset[str]`. FastAPI caches it for the length of the request, so the lookup runs once however many guards ask for it. Superusers hold every registered permission.
+
+```python
+@router.patch("/{username}")
+async def update_user_profile(
+    username: str,
+    permissions: Annotated[frozenset[str], Depends(get_current_permissions)],
+) -> dict[str, str]:
+    if "user.update" in permissions:
+        ...
+```
+
+**`require_permissions(*names)`** — Returns a dependency that raises 403 unless the caller holds every named permission. Superusers pass. It injects nothing, so it goes in the route's `dependencies`:
+
+```python
+from ...infrastructure.auth.dependencies import require_permissions
+
+
+@router.get("/", dependencies=[require_permissions("user.read")])
+async def get_users(...) -> dict[str, Any]:
+    ...
+```
+
+See [Permissions](permissions.md#role-based-permissions) for declaring the names these take.
+
 ### Protecting Entire Routers
 
 Apply auth to every route in a router:

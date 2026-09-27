@@ -69,7 +69,16 @@ async def get_profile(
     return current_user
 ```
 
-For superuser-only endpoints, swap in `get_current_superuser`. See [Authentication](../authentication/index.md) for the full picture.
+For superuser-only endpoints, swap in `get_current_superuser`. For endpoints gated on a permission a role grants, add `require_permissions(...)` to the route's `dependencies`:
+
+```python
+from ...infrastructure.auth.dependencies import require_permissions
+
+@router.get("/", dependencies=[require_permissions("user.read")])
+async def list_users(...): ...
+```
+
+`infrastructure/dependencies.py` also exports `CurrentPrincipalDep` (the crudauth `Principal`) and `CurrentPermissionsDep` (the caller's effective permissions) for handlers that need them. See [Authentication](../authentication/index.md) for the full picture.
 
 ### Easy Pagination
 
@@ -182,7 +191,7 @@ What ships out of the box (40 total routes):
 
 | Prefix | Source | Notes |
 |--------|--------|-------|
-| `POST/GET/PATCH/DELETE /api/v1/users/*` | `modules/user/routes.py` | Open create; reads/updates need a session, and a lookup by username returns no email |
+| `POST/GET/PATCH/DELETE /api/v1/users/*` | `modules/user/routes.py` | Open create; reads/updates need a session, and a lookup by username returns no email. Listing every user needs the `user.read` permission |
 | `GET /api/v1/tiers/*` | `modules/tier/routes.py` | Authenticated list + lookup by name |
 | `GET/PATCH/DELETE /api/v1/rate-limits/*` | `modules/rate_limit/routes.py` | Superuser only |
 | `POST /api/v1/auth/login`, `logout`, `logout-all`, `refresh-csrf`, `check-auth` | `infrastructure/auth/routes.py` | Session auth |

@@ -9,6 +9,7 @@ Models live in **`backend/src/modules/<feature>/models.py`** — colocated with 
 ```text
 backend/src/modules/
 ├── user/models.py          # User
+├── role/models.py          # Role, RolePermission, UserRole
 ├── tier/models.py          # Tier
 ├── rate_limit/models.py    # RateLimit
 └── api_keys/models.py      # APIKey, KeyUsage, KeyPermission
@@ -65,11 +66,15 @@ Each module's models are imported in `backend/src/modules/__init__.py`:
 ```python
 from .api_keys.models import APIKey, KeyPermission, KeyUsage
 from .rate_limit.models import RateLimit
+from .role.models import Role, RolePermission, UserRole
+from .role.permission_registry import discover_permissions
 from .tier.models import Tier
 from .user.models import User
+
+discover_permissions()
 ```
 
-When you add a new module, **add its models here** so Alembic's `--autogenerate` sees them.
+When you add a new module, **add its models here** so Alembic's `--autogenerate` sees them. The same import is what triggers `discover_permissions()`, which imports every module's `permissions.py` — see [Permissions](../authentication/permissions.md#role-based-permissions).
 
 ## Relationships
 

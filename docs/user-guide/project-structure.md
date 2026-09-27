@@ -122,7 +122,9 @@ modules/
 │   ├── crud.py               # FastCRUD wrapper (crud_users)
 │   ├── service.py            # Business logic (UserService)
 │   ├── routes.py             # APIRouter with /users endpoints
+│   ├── permissions.py        # UserPermission StrEnum (user.read, user.update, ...)
 │   └── enums.py              # OAuthProvider, etc.
+├── role/                     # RBAC: Role, RolePermission, UserRole + the permission registry
 ├── tier/                     # Subscription tiers (model + simple CRUD)
 ├── rate_limit/               # Per-tier rate limit definitions
 └── api_keys/                 # API keys, key usage, key permissions
@@ -139,6 +141,7 @@ Each module is **self-contained**: drop it in, drop it out, with minimal blast r
 | `crud.py` | FastCRUD instances for the model |
 | `service.py` | Business logic — orchestrates CRUD calls, applies rules |
 | `routes.py` | `APIRouter` with the module's endpoints |
+| `permissions.py` | `StrEnum` of the module's permissions, registered with `@register_permissions` (optional) |
 | `enums.py` | StrEnum types if the module needs them (optional) |
 
 ## Migrations (`backend/migrations/`)
@@ -213,7 +216,10 @@ FastAPI's `Depends` is used throughout:
 - **Database session** — `Depends(async_session)` from `infrastructure.database.session`
 - **Current user** — `Depends(get_current_user)` from `infrastructure.auth.dependencies`
 - **Superuser only** — `Depends(get_current_superuser)`
+- **Permission required** — `require_permissions("user.read")` in the route's `dependencies` list
 - **Service instances** — Each module's `routes.py` defines its own `get_<feature>_service()` factory
+
+`infrastructure/dependencies.py` collects `Annotated` aliases for the shared ones — including `CurrentPrincipalDep` (the crudauth `Principal`) and `CurrentPermissionsDep` (the caller's effective permissions, resolved once per request).
 
 ### Configuration
 

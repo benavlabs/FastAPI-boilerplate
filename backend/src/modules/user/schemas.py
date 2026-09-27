@@ -133,6 +133,15 @@ class UserUpdate(BaseModel):
             default=None,
         ),
     ]
+
+
+class UserAdminUpdate(UserUpdate):
+    """Schema for updates only an administrator may make.
+
+    The OAuth identifiers and the verification flag decide who a provider login
+    resolves to, so they are not part of the public profile update.
+    """
+
     google_id: str | None = None
     github_id: str | None = None
     oauth_provider: str | None = None
@@ -140,7 +149,7 @@ class UserUpdate(BaseModel):
     oauth_updated_at: datetime | None = None
 
 
-class UserUpdateInternal(UserUpdate):
+class UserUpdateInternal(UserAdminUpdate):
     """Internal schema for user updates."""
 
     updated_at: datetime
