@@ -1,3 +1,5 @@
+"""RBAC models: roles, their permissions, and the users assigned to them."""
+
 from typing import TYPE_CHECKING
 
 from sqlalchemy import ForeignKey, Integer, String, Text
@@ -5,7 +7,8 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship, validates
 
 from ...infrastructure.database.models import TimestampMixin
 from ...infrastructure.database.session import Base
-from .permission_registry import all_permissions
+from .constants import PERMISSION_NAME_MAX_LENGTH, ROLE_NAME_MAX_LENGTH
+from .permission_registry import is_known_permission
 
 if TYPE_CHECKING:
     from ..user.models import User
@@ -23,7 +26,7 @@ class Role(Base, TimestampMixin):
         init=False,
     )
     name: Mapped[str] = mapped_column(
-        String(50),
+        String(ROLE_NAME_MAX_LENGTH),
         nullable=False,
         unique=True,
     )
@@ -61,10 +64,9 @@ class RolePermission(Base, TimestampMixin):
         Integer,
         ForeignKey("roles.id", ondelete="CASCADE"),
         primary_key=True,
-        init=False,
     )
     permission_name: Mapped[str] = mapped_column(
-        String(100),
+        String(PERMISSION_NAME_MAX_LENGTH),
         primary_key=True,
     )
 
@@ -79,7 +81,7 @@ class RolePermission(Base, TimestampMixin):
     def validate_permission_name(self, key: str, value: str) -> str:
         """Reject permission names that are not registered."""
 
-        if value not in all_permissions():
+        if not is_known_permission(value):
             raise ValueError(f"Unknown permission name: {value}")
 
         return value
@@ -97,13 +99,11 @@ class UserRole(Base, TimestampMixin):
         Integer,
         ForeignKey("user.id", ondelete="CASCADE"),
         primary_key=True,
-        init=False,
     )
     role_id: Mapped[int] = mapped_column(
         Integer,
         ForeignKey("roles.id", ondelete="CASCADE"),
         primary_key=True,
-        init=False,
     )
 
     user: Mapped["User"] = relationship(

@@ -6,6 +6,7 @@ from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .auth.dependencies import (
+    get_current_permissions,
     get_current_principal,
     get_current_superuser,
     get_current_user,
@@ -18,6 +19,9 @@ AsyncSessionDep = Annotated[AsyncSession, Depends(async_session)]
 
 # Authentication
 CurrentPrincipalDep = Annotated[Principal, Depends(get_current_principal)]
+
+# Authorization (effective permissions, resolved once per request)
+CurrentPermissionsDep = Annotated[frozenset[str], Depends(get_current_permissions)]
 
 # Users (dict-compat, resolved by crudauth)
 CurrentUserDep = Annotated[dict[str, Any], Depends(get_current_user)]

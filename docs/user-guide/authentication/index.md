@@ -142,6 +142,7 @@ The full key is returned only on creation. Each key has its own permissions, usa
 
 ### Permission System
 
+- **Roles** carrying `resource.action` permissions (`modules/role/`) — `require_permissions("user.read")` gates a route, superusers bypass it
 - **Superuser flag** on `User.is_superuser` for admin-only routes
 - **Tier-based** access via the `Tier` model — every user belongs to a tier, and rate limits are configured per tier path
 - **Resource ownership** checks live in services (the route doesn't decide who owns what)
@@ -199,6 +200,21 @@ async def gdpr_delete_user(
 ```
 
 The leading underscore is the codebase's convention for dependency-only parameters.
+
+### Permission Required
+
+```python
+from ...infrastructure.auth.dependencies import require_permissions
+
+@router.get("/", dependencies=[require_permissions("user.read")])
+async def get_users(
+    db: AsyncSessionDep,
+    user_service: UserServiceDep,
+) -> dict[str, Any]:
+    ...
+```
+
+Returns 403 unless the caller holds every named permission through one of their roles; superusers always pass. `infrastructure/dependencies.py` exports `CurrentPermissionsDep` for handlers that need the permission set itself, and `CurrentPrincipalDep` for the crudauth `Principal`. See [Permissions](permissions.md#role-based-permissions).
 
 ### Resource Ownership
 

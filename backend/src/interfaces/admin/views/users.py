@@ -11,7 +11,7 @@ from ....infrastructure.auth.setup import auth
 from ....infrastructure.database.session import local_session
 from ....modules.user.enums import OAuthProvider
 from ....modules.user.models import User
-from ....modules.user.schemas import UserUpdate
+from ....modules.user.schemas import UserAdminUpdate
 from ....modules.user.service import UserService
 from ..mixins import DataclassModelMixin
 
@@ -41,7 +41,7 @@ class UserAdmin(DataclassModelMixin, ModelView, model=User):
     column_labels = {"hashed_password": "Password"}
 
     form_create_rules = ["name", "username", "email", "hashed_password", "tier_id", "is_superuser"]
-    form_edit_rules = [*UserUpdate.model_fields.keys(), "tier_id", "is_superuser"]
+    form_edit_rules = [*UserAdminUpdate.model_fields.keys(), "tier_id", "is_superuser"]
 
     form_overrides = {"oauth_provider": SelectField}
     form_args = {"oauth_provider": {"choices": OAUTH_PROVIDER_CHOICES}}

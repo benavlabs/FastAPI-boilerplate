@@ -27,7 +27,7 @@ import pytest  # noqa: E402
 import pytest_asyncio  # noqa: E402
 import redis as syncredis  # noqa: E402
 import redis.asyncio as aioredis  # noqa: E402
-from crudauth import get_password_hash  # noqa: E402
+from crudauth import Principal, get_password_hash  # noqa: E402
 from faker import Faker  # noqa: E402
 from httpx import ASGITransport, AsyncClient  # noqa: E402
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine  # noqa: E402
@@ -37,7 +37,11 @@ from testcontainers.core.docker_client import DockerClient  # noqa: E402
 # mypy: disable-error-code="import-untyped"
 from testcontainers.postgres import PostgresContainer  # noqa: E402
 
-from src.infrastructure.auth.dependencies import get_current_superuser, get_current_user  # noqa: E402
+from src.infrastructure.auth.dependencies import (  # noqa: E402
+    get_current_principal,
+    get_current_superuser,
+    get_current_user,
+)
 from src.infrastructure.config.settings import get_settings  # noqa: E402
 from src.infrastructure.database.session import Base, async_session  # noqa: E402
 from src.interfaces.main import app  # noqa: E402
@@ -231,6 +235,20 @@ async def test_superuser(db_session: AsyncSession, test_tier: dict):
     }
 
 
+def _principal_for(user: dict) -> Principal:
+    """The crudauth principal the session transport would resolve for this user.
+
+    The auth fixtures override the dict-compat dependencies, so anything reading
+    the principal directly (permission checks, session routes) needs it too.
+    """
+    return Principal(
+        user_id=user["id"],
+        transport="session",
+        is_superuser=user.get("is_superuser", False),
+        email_verified=True,
+    )
+
+
 @pytest_asyncio.fixture
 async def auth_client(client: AsyncClient, test_user: dict):
     """Authenticated test client (regular user) — overrides get_current_user dependency."""
@@ -238,7 +256,11 @@ async def auth_client(client: AsyncClient, test_user: dict):
     async def override_get_current_user():
         return test_user
 
+    async def override_get_current_principal():
+        return _principal_for(test_user)
+
     app.dependency_overrides[get_current_user] = override_get_current_user
+    app.dependency_overrides[get_current_principal] = override_get_current_principal
     return client
 
 
@@ -249,7 +271,11 @@ async def auth_client_2(client: AsyncClient, test_user_2: dict):
     async def override_get_current_user():
         return test_user_2
 
+    async def override_get_current_principal():
+        return _principal_for(test_user_2)
+
     app.dependency_overrides[get_current_user] = override_get_current_user
+    app.dependency_overrides[get_current_principal] = override_get_current_principal
     return client
 
 
@@ -260,10 +286,14 @@ async def superuser_auth_client(client: AsyncClient, test_superuser: dict):
     async def override_get_current_user():
         return test_superuser
 
+    async def override_get_current_principal():
+        return _principal_for(test_superuser)
+
     async def override_get_current_superuser():
         return test_superuser
 
     app.dependency_overrides[get_current_user] = override_get_current_user
+    app.dependency_overrides[get_current_principal] = override_get_current_principal
     app.dependency_overrides[get_current_superuser] = override_get_current_superuser
     return client
 

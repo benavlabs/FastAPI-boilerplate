@@ -43,6 +43,8 @@ The boilerplate pre-defines aliases for every shared dependency in `infrastructu
 | `CurrentUserDep` | `Annotated[dict[str, Any], Depends(get_current_user)]` |
 | `CurrentSuperUserDep` | `Annotated[dict[str, Any], Depends(get_current_superuser)]` |
 | `OptionalUserDep` | `Annotated[dict[str, Any] \| None, Depends(get_optional_user)]` |
+| `CurrentPrincipalDep` | `Annotated[Principal, Depends(get_current_principal)]` |
+| `CurrentPermissionsDep` | `Annotated[frozenset[str], Depends(get_current_permissions)]` |
 | `OAuth2FormDep` | `Annotated[OAuth2PasswordRequestForm, Depends()]` |
 
 Per-module service aliases live in `modules/<name>/dependencies.py`:
@@ -285,6 +287,47 @@ async def hard_delete_widget(
 
 The leading underscore on the dependency-only parameter is the convention used across the boilerplate.
 
+### Permission Required
+
+`require_permissions` returns a dependency that answers 403 unless the caller holds every permission named. Superusers always pass. Because it injects nothing into the handler, it belongs in the decorator's `dependencies` list:
+
+```python
+from ...infrastructure.auth.dependencies import require_permissions
+
+
+@router.get(
+    "/",
+    response_model=list[WidgetRead],
+    dependencies=[require_permissions("widget.read")],
+)
+async def list_widgets(
+    db: AsyncSessionDep,
+    widget_service: WidgetServiceDep,
+) -> list[dict[str, Any]]:
+    return await widget_service.get_all(db)
+```
+
+When a handler needs the permission set itself — to branch, or to compare it against another user's — take `CurrentPermissionsDep`:
+
+```python
+from ...infrastructure.dependencies import CurrentPermissionsDep
+
+
+@router.patch("/{widget_id}")
+async def update_widget(
+    widget_id: int,
+    values: WidgetUpdate,
+    current_user: CurrentUserDep,
+    permissions: CurrentPermissionsDep,
+    db: AsyncSessionDep,
+    widget_service: WidgetServiceDep,
+) -> dict[str, str]:
+    await widget_service.verify_update_permission(current_user, widget_id, permissions, db)
+    ...
+```
+
+The permission names must be registered in the `role` module's registry, or `require_permissions` raises at import time. See [Permissions](../authentication/permissions.md#role-based-permissions) for declaring them.
+
 ### API Key Authentication
 
 For machine-to-machine clients, see [Authentication](../authentication/index.md). API keys are managed via the `/api/v1/api-keys/*` endpoints in `modules/api_keys/routes.py`.
@@ -440,6 +483,7 @@ touch backend/src/modules/widgets/__init__.py
 | `crud.py` | `crud_widgets: FastCRUD = FastCRUD(Widget)` |
 | `service.py` | `WidgetService` with `create`, `get_by_id`, `update`, `delete` methods |
 | `routes.py` | `APIRouter` with the endpoints |
+| `permissions.py` | `StrEnum` of the module's permissions, if its routes are permission-gated (see [Permissions](../authentication/permissions.md#role-based-permissions)) |
 
 ### 3. Register the Model
 

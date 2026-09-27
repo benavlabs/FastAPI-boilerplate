@@ -1,12 +1,24 @@
-"""Unit tests for the crudauth-backed auth dependencies."""
+"""Unit tests for the crudauth-backed auth dependencies.
 
+The auth fixtures in ``tests/conftest.py`` override ``get_current_user`` and
+``get_current_principal`` rather than carrying a real session, so a route that
+reads the principal or the caller's permissions keeps working under them. Tests
+for the permission rules themselves sign in for real; see
+``tests/integration/api/v1/users/test_permissions.py``.
+"""
+
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from crudauth import Principal
 from crudauth.exceptions import ForbiddenException, UnauthorizedException
+from sqlalchemy import insert
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.infrastructure.auth import dependencies as deps
+from src.modules.role.models import Role, RolePermission, UserRole
+from src.modules.role.permission_registry import all_permissions
 
 
 @pytest.mark.asyncio
@@ -84,113 +96,52 @@ async def test_get_current_superuser_allows_superuser():
     assert await deps.get_current_superuser(current_user=user) == user
 
 
-@pytest.mark.asyncio
-async def test_load_permissions_returns_registered_permissions():
-    principal = Principal(user_id=1)
-
-    result_mock = MagicMock()
-    result_mock.scalars.return_value.all.return_value = [
-        "user.read",
-        "user.update",
-    ]
-
-    session = MagicMock()
-    session.execute = AsyncMock(return_value=result_mock)
-
-    session_context = MagicMock()
-    session_context.__aenter__ = AsyncMock(return_value=session)
-    session_context.__aexit__ = AsyncMock(return_value=None)
-
-    with patch.object(deps, "local_session", return_value=session_context):
-        permissions = await deps.load_permissions(principal)
-
-    assert permissions == frozenset({"user.read", "user.update"})
-    session.execute.assert_awaited_once()
+# =============================================================================
+# Permission loading and the require_permissions gate, against a real database
+# =============================================================================
+async def _role_with(db: AsyncSession, name: str, *permissions: str) -> Role:
+    role = Role(name=name)
+    db.add(role)
+    await db.flush()
+    db.add_all([RolePermission(role_id=role.id, permission_name=p) for p in permissions])
+    await db.commit()
+    return role
 
 
-@pytest.mark.asyncio
-async def test_load_permissions_superuser_bypasses_database():
-    principal = Principal(user_id=1, is_superuser=True)
+async def test_load_permissions_reads_the_roles_assigned_to_the_user(db_session: AsyncSession, test_user: dict):
+    role = await _role_with(db_session, "reader", "user.read", "tier.read")
+    db_session.add(UserRole(user_id=test_user["id"], role_id=role.id))
+    await db_session.commit()
 
-    with patch.object(deps, "local_session") as local_session:
-        permissions = await deps.load_permissions(principal)
+    permissions = await deps.load_permissions(db_session, test_user["id"])
 
-    assert permissions == frozenset(deps.all_permissions())
-    local_session.assert_not_called()
-
-
-@pytest.mark.asyncio
-async def test_load_permissions_uses_request_cache():
-    principal = Principal(user_id=1)
-    request = MagicMock()
-    request.state = MagicMock()
-
-    cached = frozenset({"user.read"})
-    setattr(request.state, deps.PERMISSIONS_STATE_KEY, cached)
-
-    with patch.object(deps, "local_session") as local_session:
-        permissions = await deps.load_permissions(principal, request)
-
-    assert permissions == cached
-    local_session.assert_not_called()
+    assert permissions == {"user.read", "tier.read"}
 
 
-def _get_permission_check(*permissions: str):
-    """Capture the check callback passed to crudauth.current_user()."""
-    with patch.object(deps.auth, "current_user") as current_user:
-        current_user.return_value = MagicMock()
-        deps.require_permissions(*permissions)
-
-        return current_user.call_args.kwargs["check"]
+async def test_load_permissions_is_empty_without_a_role(db_session: AsyncSession, test_user: dict):
+    assert await deps.load_permissions(db_session, test_user["id"]) == frozenset()
 
 
-@pytest.mark.asyncio
-async def test_require_permissions_allows_principal_with_required_permissions():
-    check = _get_permission_check("user.read")
+async def test_load_permissions_grants_a_superuser_everything_without_a_query(db_session: AsyncSession):
+    permissions = await deps.load_permissions(db_session, 999999, is_superuser=True)
 
-    with patch.object(
-        deps,
-        "load_permissions",
-        new=AsyncMock(return_value=frozenset({"user.read", "user.update"})),
-    ):
-        allowed = await check(
-            Principal(user_id=1),
+    assert permissions == all_permissions()
+
+
+async def test_load_permissions_ignores_a_stored_name_that_is_no_longer_registered(db_session: AsyncSession, test_user: dict):
+    """A permission removed from the code must not keep granting anything."""
+    role = await _role_with(db_session, "stale", "user.read")
+    await db_session.execute(
+        insert(RolePermission).values(
+            role_id=role.id,
+            permission_name="user.retired",
+            created_at=datetime.now(UTC),
         )
+    )
+    db_session.add(UserRole(user_id=test_user["id"], role_id=role.id))
+    await db_session.commit()
 
-    assert allowed is True
-
-
-@pytest.mark.asyncio
-async def test_require_permissions_requires_all_permissions():
-    check = _get_permission_check("user.read", "user.update")
-
-    with patch.object(
-        deps,
-        "load_permissions",
-        new=AsyncMock(return_value=frozenset({"user.read"})),
-    ):
-        allowed = await check(
-            Principal(user_id=1),
-        )
-
-    assert allowed is False
-
-
-@pytest.mark.asyncio
-async def test_require_permissions_superuser_bypasses_permission_lookup():
-    check = _get_permission_check("user.read")
-
-    with patch.object(
-        deps,
-        "load_permissions",
-        new=AsyncMock(),
-    ) as load_permissions:
-        allowed = await check(
-            Principal(user_id=1, is_superuser=True),
-        )
-
-    assert allowed is True
-    load_permissions.assert_not_awaited()
+    assert await deps.load_permissions(db_session, test_user["id"]) == {"user.read"}
 
 
 def test_require_permissions_rejects_unknown_permission():
@@ -198,93 +149,52 @@ def test_require_permissions_rejects_unknown_permission():
         deps.require_permissions("user.reed")
 
 
-@pytest.fixture
-def principal() -> Principal:
-    """Return a regular authenticated principal."""
+# =============================================================================
+# Escalation helpers
+# =============================================================================
+async def test_a_principal_can_delegate_what_it_holds(db_session: AsyncSession, test_user: dict):
+    role = await _role_with(db_session, "editor", "user.read", "user.update")
+    db_session.add(UserRole(user_id=test_user["id"], role_id=role.id))
+    await db_session.commit()
+    principal = Principal(user_id=test_user["id"])
 
-    return Principal(
-        user_id=1,
-        is_superuser=False,
-    )
-
-
-@pytest.mark.asyncio
-async def test_can_delegate_permissions_when_all_permissions_are_held(
-    principal: Principal,
-) -> None:
-    """A principal can delegate permissions they already hold."""
-
-    with patch(
-        "src.infrastructure.auth.dependencies.load_permissions",
-        new=AsyncMock(
-            return_value=frozenset(
-                {
-                    "role.read",
-                    "role.assign",
-                    "user.update",
-                }
-            )
-        ),
-    ):
-        result = await deps.can_delegate_permissions(
-            principal,
-            {"role.read", "role.assign"},
-        )
-
-    assert result is True
+    assert await deps.can_delegate_permissions(db_session, principal, ["user.read"])
+    assert not await deps.can_delegate_permissions(db_session, principal, ["user.read", "user.delete"])
 
 
-@pytest.mark.asyncio
-async def test_can_delegate_permissions_when_permission_is_missing(
-    principal: Principal,
-) -> None:
-    """A principal cannot delegate a permission they do not hold."""
+async def test_a_superuser_can_delegate_anything_registered(db_session: AsyncSession):
+    principal = Principal(user_id=1, is_superuser=True)
 
-    with patch(
-        "src.infrastructure.auth.dependencies.load_permissions",
-        new=AsyncMock(return_value=frozenset({"role.read"})),
-    ):
-        result = await deps.can_delegate_permissions(
-            principal,
-            {"role.read", "role.assign"},
-        )
-
-    assert result is False
+    assert await deps.can_delegate_permissions(db_session, principal, sorted(all_permissions()))
 
 
-@pytest.mark.asyncio
-async def test_superuser_can_delegate_permissions() -> None:
-    """Superusers can delegate permissions without loading permissions."""
+async def test_an_unregistered_permission_is_never_delegable(db_session: AsyncSession):
+    """A typo or a removed permission is refused rather than raising into the route."""
+    superuser = Principal(user_id=1, is_superuser=True)
 
-    superuser = Principal(
-        user_id=1,
-        is_superuser=True,
-    )
-
-    with patch(
-        "src.infrastructure.auth.dependencies.load_permissions",
-        new=AsyncMock(),
-    ) as load_permissions:
-        result = await deps.can_delegate_permissions(
-            superuser,
-            {"role.assign", "user.update"},
-        )
-
-    assert result is True
-    load_permissions.assert_not_awaited()
+    assert not await deps.can_delegate_permissions(db_session, superuser, ["user.reed"])
 
 
-def test_can_delegate_permissions_rejects_unknown_permission(
-    principal: Principal,
-) -> None:
-    """Unknown permissions are rejected."""
+async def test_assigning_a_role_needs_every_permission_it_carries(db_session: AsyncSession, test_user: dict):
+    held = await _role_with(db_session, "held", "user.read")
+    stronger = await _role_with(db_session, "stronger", "user.read", "user.delete")
+    weaker = await _role_with(db_session, "weaker", "user.read")
+    db_session.add(UserRole(user_id=test_user["id"], role_id=held.id))
+    await db_session.commit()
+    principal = Principal(user_id=test_user["id"])
 
-    with pytest.raises(ValueError, match="Unknown permission name"):
-        import asyncio
+    assert await deps.can_assign_role(db_session, principal, weaker.id)
+    assert not await deps.can_assign_role(db_session, principal, stronger.id)
 
-        asyncio.run(
-            deps.can_delegate_permissions(
-                principal,
-                {"role.does_not_exist"},
-            )
-        )
+
+async def test_a_role_carrying_nothing_is_assignable(db_session: AsyncSession, test_user: dict):
+    empty = await _role_with(db_session, "empty")
+    principal = Principal(user_id=test_user["id"])
+
+    assert await deps.can_assign_role(db_session, principal, empty.id)
+
+
+async def test_a_superuser_can_assign_any_role(db_session: AsyncSession):
+    strong = await _role_with(db_session, "strong", "user.delete")
+
+    assert await deps.can_assign_role(db_session, Principal(user_id=1, is_superuser=True), strong.id)

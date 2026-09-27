@@ -1,13 +1,14 @@
 # Permissions and Authorization
 
-Authentication answers "who are you?". Authorization answers "what can you do?". This page covers the boilerplate's authorization patterns: superuser flags, resource ownership, tier-based limits, and API key permissions.
+Authentication answers "who are you?". Authorization answers "what can you do?". This page covers the boilerplate's authorization patterns: role permissions, superuser flags, resource ownership, tier-based limits, and API key permissions.
 
 ## Authorization Patterns
 
-The boilerplate ships four overlapping mechanisms. Pick the one(s) that fit your use case.
+The boilerplate ships five overlapping mechanisms. Pick the one(s) that fit your use case.
 
 | Pattern | Where it lives | When to use |
 |---------|----------------|-------------|
+| **Role permissions** | `Role` + `RolePermission` + `UserRole` models, `require_permissions` | Granting a named capability to a group of users |
 | **Superuser flag** | `User.is_superuser` boolean | Admin-only operations |
 | **Resource ownership** | Service-layer permission checks | "Users can only edit their own X" |
 | **Tier-based limits** | `Tier` model + `RateLimit` rules | Subscription gating, rate limits |
@@ -16,9 +17,127 @@ The boilerplate ships four overlapping mechanisms. Pick the one(s) that fit your
 These compose. A typical request goes through:
 
 1. **Authentication** — session cookie (or API key) identifies *who*
-2. **Coarse access** — superuser flag for admin endpoints
+2. **Coarse access** — role permissions, or the superuser flag, for privileged endpoints
 3. **Fine-grained access** — service-layer ownership / tier checks
 4. **Rate limiting** — tier-based per-route limits (separate concern)
+
+## Role-Based Permissions
+
+A permission is a flat `resource.action` string — `user.read`, `tier.update`. Permissions are never granted to a user directly: a `Role` carries a set of them, and a user is assigned roles.
+
+```text
+User ──< UserRole >── Role ──< RolePermission
+```
+
+Three tables in `modules/role/models.py`:
+
+| Table | Columns | Notes |
+|-------|---------|-------|
+| `roles` | `id`, `name` (unique), `description` | No soft delete — a deleted role is gone |
+| `role_permissions` | `role_id`, `permission_name` (composite PK) | `ON DELETE CASCADE` from `roles` |
+| `user_roles` | `user_id`, `role_id` (composite PK) | `ON DELETE CASCADE` from both sides |
+
+### Declaring a Module's Permissions
+
+Each module owns its permission names in its own `permissions.py`, as a `StrEnum` decorated with `@register_permissions("<resource>")`:
+
+```python
+# modules/user/permissions.py
+from enum import StrEnum
+
+from ..role.permission_registry import register_permissions
+
+
+@register_permissions("user")
+class UserPermission(StrEnum):
+    READ = "user.read"
+    CREATE = "user.create"
+    UPDATE = "user.update"
+    DELETE = "user.delete"
+```
+
+Registration is validated: the resource must match `^[a-z][a-z0-9_]*$`, every member must be `<resource>.<action>` with an action matching the same pattern, and the whole name must fit the 100-character `permission_name` column. A resource can only be registered once.
+
+`discover_permissions()` walks `src.modules.*.permissions` and imports each one; `modules/__init__.py` calls it at import time, so a new `permissions.py` needs no registration elsewhere.
+
+The registry in `modules/role/permission_registry.py` is what the rest of the app reads:
+
+| Function | Returns |
+|----------|---------|
+| `all_permissions()` | Every registered name, as a `frozenset[str]` |
+| `permission_groups()` | `{resource: (names, ...)}` — for a UI that offers permissions per resource |
+| `is_known_permission(name)` | Whether a name is registered |
+
+Unregistered names can't be stored: `RolePermission` validates `permission_name` against the registry and raises. In the other direction, a name that was stored and has since been removed from the code is ignored when permissions are loaded, so deleting a permission from a `StrEnum` can never grant anything.
+
+### Protecting a Route
+
+`require_permissions(*names)` returns a dependency that answers 403 unless the caller holds every name. It injects nothing into the handler, so it goes in the route's `dependencies`:
+
+```python
+# modules/user/routes.py
+from ...infrastructure.auth.dependencies import require_permissions
+
+
+@router.get(
+    "/",
+    response_model=PaginatedListResponse[UserRead],
+    dependencies=[require_permissions("user.read")],
+)
+async def get_users(
+    db: AsyncSessionDep,
+    user_service: UserServiceDep,
+    page: int = 1,
+    items_per_page: int = 10,
+) -> dict[str, Any]:
+    ...
+```
+
+Unknown names are a programming error, not a runtime one: `require_permissions` raises when the route is declared, so a typo fails at import rather than on the first request.
+
+**Superusers bypass every permission check.** `require_permissions` passes them without a lookup, and `get_current_permissions` reports them as holding every registered permission — so a superuser needs no roles.
+
+### Reading the Caller's Permissions
+
+When the handler itself has to decide, take the permission set instead of a guard. `CurrentPermissionsDep` (from `infrastructure/dependencies.py`) is `get_current_permissions` as an `Annotated` alias; FastAPI resolves it once per request, so several guards and parameters share one query:
+
+```python
+from ...infrastructure.dependencies import CurrentPermissionsDep
+
+
+@router.patch("/{username}")
+async def update_user_profile(
+    username: str,
+    values: UserUpdate,
+    current_user: CurrentUserDep,
+    permissions: CurrentPermissionsDep,
+    db: AsyncSessionDep,
+    user_service: UserServiceDep,
+) -> dict[str, str]:
+    await user_service.verify_update_permission(current_user, username, permissions)
+    ...
+```
+
+`load_permissions(db, user_id, is_superuser=...)` is the same lookup as a plain function, for code outside a request — or, as in the route above, for reading *another* user's permissions to compare against the caller's.
+
+### Granting Permissions
+
+A role is a row in `roles` plus one `role_permissions` row per permission; assigning it is a row in `user_roles`. Write them through the ORM (from a script, a migration, or your own admin tooling):
+
+```python
+from src.modules.role.models import Role, RolePermission, UserRole
+
+role = Role(name="support", description="Read-only access to user records")
+db.add(role)
+await db.flush()
+
+db.add(RolePermission(role_id=role.id, permission_name="user.read"))
+db.add(UserRole(user_id=user_id, role_id=role.id))
+await db.commit()
+```
+
+!!! info "Not shipped yet"
+    Role and permission CRUD endpoints, admin-panel views for roles, and narrowing an API key to a subset of its owner's permissions are follow-up work. This change ships the models, the registry, and the route guards.
 
 ## Superuser Authorization
 
@@ -55,6 +174,8 @@ The leading `_:` is the codebase convention for dependency-only parameters whose
 - GDPR data anonymization
 - System configuration changes
 
+Anything a *subset* of staff should be able to do is better expressed as a permission on a role than as another superuser.
+
 ### Bootstrapping the First Superuser
 
 The first superuser is created by `scripts/setup_initial_data.py` from `ADMIN_*` env vars on first run:
@@ -87,7 +208,9 @@ async def verify_user_permission(
         raise PermissionDeniedError(f"Cannot {action} for another user")
 ```
 
-Routes call this before dispatching the operation:
+Routes call this before dispatching the operation.
+
+Where ownership and a role permission both apply, the service takes the permission set too. `PATCH /api/v1/users/{username}` is the example that ships:
 
 ```python
 # modules/user/routes.py
@@ -95,14 +218,30 @@ Routes call this before dispatching the operation:
 async def update_user_profile(
     username: str,
     values: UserUpdate,
-    current_user: Annotated[dict[str, Any], Depends(get_current_user)],
-    db: Annotated[AsyncSession, Depends(async_session)],
-    user_service: Annotated[UserService, Depends(get_user_service)],
+    current_user: CurrentUserDep,
+    permissions: CurrentPermissionsDep,
+    db: AsyncSessionDep,
+    user_service: UserServiceDep,
 ) -> dict[str, str]:
-    try:
-        await user_service.verify_user_permission(current_user, username, "update profile")
-        # ...proceed with update...
+    await user_service.verify_update_permission(current_user, username, permissions)
+    user = await user_service.get_by_username(username, db)
+
+    if not user_service.is_self_or_superuser(current_user, user["username"]):
+        target_permissions = await load_permissions(db, user["id"])
+        user_service.verify_no_privilege_escalation(user, values, permissions, target_permissions)
+
+    await user_service.update(user["id"], values, db)
+    return {"message": "User updated successfully"}
 ```
+
+The rules this enforces:
+
+- A user may always edit their own profile.
+- A superuser may edit anyone.
+- A `user.update` holder may edit *another* user only when that user is not a superuser and holds no permission the requester lacks — editing an account is a way to take it over, so it can't reach a stronger one.
+- Only a superuser may change another user's email address: a verified provider email is how an OAuth login is matched to an existing account.
+
+The public `UserUpdate` schema accepts `name`, `username`, `email` and `profile_image_url` only. `google_id`, `github_id`, `oauth_provider`, `email_verified` and `oauth_updated_at` moved to `UserAdminUpdate`, which the admin panel uses — sending them to the API returns 422.
 
 The exception flows up to the global handler (registered in `infrastructure/app_factory.py`) which translates it via the `EXCEPTION_MAPPING` table — `PermissionDeniedError` → `ForbiddenException` (403). See [Exceptions](../api/exceptions.md) for the full mapping pipeline.
 

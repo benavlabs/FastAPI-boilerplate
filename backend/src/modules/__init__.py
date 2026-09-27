@@ -7,7 +7,7 @@ from .role.permission_registry import discover_permissions
 from .tier.models import Tier
 from .user.models import User
 
-discover_permissions("src.modules")
+discover_permissions()
 
 __all__ = [
     "User",

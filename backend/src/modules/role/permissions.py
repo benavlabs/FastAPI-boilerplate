@@ -6,7 +6,7 @@ from .permission_registry import register_permissions
 
 
 @register_permissions("role")
-class RolePermission(StrEnum):
+class RolePermissionName(StrEnum):
     """Permissions for role resources."""
 
     READ = "role.read"

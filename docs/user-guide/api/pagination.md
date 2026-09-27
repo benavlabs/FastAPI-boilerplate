@@ -197,23 +197,26 @@ The boilerplate uses `ge=1, le=100` for the user list endpoint and `ge=1, le=100
 From `modules/user/routes.py`:
 
 ```python
+from ...infrastructure.auth.dependencies import require_permissions
+
+
 @router.get(
     "/",
     response_model=PaginatedListResponse[UserRead],
-    summary="List All Users (Admin)",
+    summary="List All Users",
     responses={
         401: {"description": "Not authenticated"},
-        403: {"description": "Not authorized - requires admin privileges"},
+        403: {"description": "Not authorized - requires the user.read permission"},
     },
+    dependencies=[require_permissions("user.read")],
 )
 async def get_users(
-    db: Annotated[AsyncSession, Depends(async_session)],
-    _: Annotated[dict[str, Any], Depends(get_current_superuser)],
-    user_service: Annotated[UserService, Depends(get_user_service)],
+    db: AsyncSessionDep,
+    user_service: UserServiceDep,
     page: int = 1,
     items_per_page: int = 10,
 ) -> dict[str, Any]:
-    """Get paginated list of all users (admin only)."""
+    """Get paginated list of users."""
     users_data = await user_service.get_paginated(
         skip=compute_offset(page, items_per_page),
         limit=items_per_page,
@@ -221,6 +224,8 @@ async def get_users(
     )
     return paginated_response(crud_data=users_data, page=page, items_per_page=items_per_page)
 ```
+
+The endpoint is gated on the `user.read` permission, which a role grants — not on the superuser flag. Superusers always pass. See [Permissions](../authentication/permissions.md#role-based-permissions).
 
 ## Real Endpoint: API Key Usage History
 
@@ -304,4 +309,4 @@ The User model already indexes `username`, `email`, `tier_id`, `google_id`, and 
 
 - **[CRUD Operations](../database/crud.md)** — Filter/sort/offset/limit semantics
 - **[Schemas](../database/schemas.md)** — How `*Read` schemas pair with `schema_to_select`
-- **[Authentication](../authentication/index.md)** — Gating list endpoints behind login or admin
+- **[Authentication](../authentication/index.md)** — Gating list endpoints behind login, a permission, or admin

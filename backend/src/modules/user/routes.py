@@ -6,7 +6,7 @@ from fastcrud import PaginatedListResponse, compute_offset, paginated_response
 from ...infrastructure.auth.dependencies import load_permissions, require_permissions
 from ...infrastructure.dependencies import (
     AsyncSessionDep,
-    CurrentPrincipalDep,
+    CurrentPermissionsDep,
     CurrentSuperUserDep,
     CurrentUserDep,
 )
@@ -61,14 +61,16 @@ async def create_user(
     description="""
            Retrieves a paginated list of all users in the system.
 
-           This endpoint requires the `user.read` permission.
+           Requires the `user.read` permission, which a role grants; superusers
+           always pass. The results include basic profile information for each
+           user.
 
-           The results include basic profile information for each user.
-           Sensitive information like passwords is never included in the response.
+           For security reasons, sensitive information like passwords is never included
+           in the response.
            """,
     responses={
         401: {"description": "Not authenticated"},
-        403: {"description": "Not authorized - requires user.read permission"},
+        403: {"description": "Not authorized - requires the user.read permission"},
     },
     response_description="A paginated list of users with total count and pagination metadata",
     dependencies=[require_permissions("user.read")],
@@ -80,17 +82,9 @@ async def get_users(
     items_per_page: int = 10,
 ) -> dict[str, Any]:
     """Get paginated list of users."""
-    users_data = await user_service.get_paginated(
-        skip=compute_offset(page, items_per_page),
-        limit=items_per_page,
-        db=db,
-    )
+    users_data = await user_service.get_paginated(skip=compute_offset(page, items_per_page), limit=items_per_page, db=db)
 
-    return paginated_response(
-        crud_data=users_data,
-        page=page,
-        items_per_page=items_per_page,
-    )
+    return paginated_response(crud_data=users_data, page=page, items_per_page=items_per_page)
 
 
 @router.get(
@@ -132,10 +126,7 @@ async def get_current_user_profile(
 
             Note that usernames are case-sensitive in lookup operations.
             """,
-    responses={
-        401: {"description": "Not authenticated"},
-        404: {"description": "User not found"},
-    },
+    responses={401: {"description": "Not authenticated"}, 404: {"description": "User not found"}},
     response_description="The requested user's profile data",
 )
 async def get_user_by_username(
@@ -185,14 +176,17 @@ async def get_active_and_inactive_user_by_username(
     description="""
             Updates a user's profile information.
 
-            This endpoint allows users to modify their own profile data or users
-            with the `user.update` permission to modify any user's data. Only the
-            fields provided in the request will be updated, and all fields are optional.
+            This endpoint allows users to modify their own profile data, and users
+            holding the `user.update` permission to modify another user's data. Only
+            the fields provided in the request will be updated, and all fields are
+            optional.
 
             Permission rules:
             - Regular users can only update their own profiles
-            - Users with the `user.update` permission can update any user's profile
             - Superusers can update any user's profile
+            - A `user.update` holder can update another user only when that user is
+              not a superuser and holds no permission the requester lacks, and cannot
+              change another user's email address
             - Note: Tier updates are handled by a separate endpoint (/users/{username}/tier)
 
             Username and email changes are validated to ensure uniqueness.
@@ -210,21 +204,17 @@ async def update_user_profile(
     username: str,
     values: UserUpdate,
     current_user: CurrentUserDep,
-    current_principal: CurrentPrincipalDep,
+    permissions: CurrentPermissionsDep,
     db: AsyncSessionDep,
     user_service: UserServiceDep,
 ) -> dict[str, str]:
     """Update user profile information."""
-    permissions = await load_permissions(current_principal)
-
-    await user_service.verify_user_permission(
-        current_user,
-        username,
-        "update profile",
-        permissions,
-    )
-
+    await user_service.verify_update_permission(current_user, username, permissions)
     user = await user_service.get_by_username(username, db)
+
+    if not user_service.is_self_or_superuser(current_user, user["username"]):
+        target_permissions = await load_permissions(db, user["id"])
+        user_service.verify_no_privilege_escalation(user, values, permissions, target_permissions)
 
     await user_service.update(user["id"], values, db)
     return {"message": "User updated successfully"}
@@ -261,11 +251,7 @@ async def delete_user_account(
     user_service: UserServiceDep,
 ) -> dict[str, str]:
     """Soft delete a user account."""
-    await user_service.verify_user_permission(
-        current_user,
-        username,
-        "delete this account",
-    )
+    await user_service.verify_user_permission(current_user, username, "delete this account")
     user = await user_service.get_by_username(username, db)
 
     await user_service.delete(user["id"], db)
@@ -350,11 +336,7 @@ async def get_user_rate_limits(
     user_service: UserServiceDep,
 ) -> dict[str, Any]:
     """Get rate limits for a user."""
-    await user_service.verify_user_permission(
-        current_user,
-        username,
-        "view rate limits",
-    )
+    await user_service.verify_user_permission(current_user, username, "view rate limits")
     user = await user_service.get_by_username(username, db)
     return await user_service.get_rate_limits(user["id"], db)
 
@@ -390,11 +372,7 @@ async def get_user_tier(
     user_service: UserServiceDep,
 ) -> dict[str, Any]:
     """Get detailed tier information for a user."""
-    await user_service.verify_user_permission(
-        current_user,
-        username,
-        "view tier information",
-    )
+    await user_service.verify_user_permission(current_user, username, "view tier information")
 
     user = await user_service.get_by_username(username, db)
     return await user_service.get_user_with_tier(user["id"], db)

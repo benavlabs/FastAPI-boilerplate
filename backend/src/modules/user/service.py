@@ -1,3 +1,4 @@
+from collections.abc import Collection
 from datetime import UTC, datetime
 from typing import Any, cast
 
@@ -288,61 +289,127 @@ class UserService:
             raise UserNotFoundError(f"User with ID {user_id} not found")
         return updated_user
 
-    async def check_update_permission(
+    async def check_update_permission(self, requester_user: dict[str, Any], target_username: str) -> bool:
+        """Check if user has permission to update another user.
+
+        Determines if the requesting user has permission to update the target user.
+        Superusers can update any user, regular users can only update themselves.
+
+        Args:
+            requester_user: User data of the user making the request.
+            target_username: Username of the user to be updated.
+
+        Returns:
+            True if the user has permission, False otherwise.
+
+        Note:
+            Permission rules:
+            - Superusers can update any user
+            - Regular users can only update their own profile
+        """
+        if requester_user.get("is_superuser", False):
+            return True
+
+        return requester_user.get("username") == target_username
+
+    async def verify_user_permission(
+        self, requester_user: dict[str, Any], target_username: str, action_description: str = "perform this action"
+    ) -> None:
+        """Verify user has permission to perform an action on another user.
+
+        Checks permissions and raises an exception if the user doesn't have
+        the required permissions for the specified action.
+
+        Args:
+            requester_user: User data of the user making the request.
+            target_username: Username of the user to perform action on.
+            action_description: Description of the action for error messages.
+
+        Raises:
+            PermissionDeniedError: If the user doesn't have permission.
+
+        Note:
+            This method combines permission checking with error handling
+            for convenient use in API endpoints and business logic.
+
+        Example:
+            ```python
+            await service.verify_user_permission(
+                current_user, "johndoe", "update profile"
+            )
+            ```
+        """
+        has_permission = await self.check_update_permission(requester_user, target_username)
+        if not has_permission:
+            raise PermissionDeniedError(f"You don't have permission to {action_description} on this user")
+
+    async def verify_update_permission(
         self,
         requester_user: dict[str, Any],
         target_username: str,
-        permissions: set[str] | frozenset[str] | None = None,
-    ) -> bool:
-        """Check if user has permission to update another user.
+        permissions: Collection[str],
+    ) -> None:
+        """Verify the requester may update this profile at all.
 
-        Superusers and users holding ``user.update`` can update any user.
-        Other regular users can only update their own profile.
+        Editing your own profile stays the ownership rule. Editing someone else's
+        needs the ``user.update`` permission, or superuser.
 
         Args:
             requester_user: User data of the user making the request.
             target_username: Username of the user to be updated.
             permissions: Effective permissions held by the requester.
 
-        Returns:
-            True if the user has permission, False otherwise.
+        Raises:
+            PermissionDeniedError: If the requester may not update this profile.
         """
-        if requester_user.get("is_superuser", False):
-            return True
+        if self.is_self_or_superuser(requester_user, target_username):
+            return
 
-        if permissions is not None and UserPermission.UPDATE.value in permissions:
+        if UserPermission.UPDATE.value in permissions:
+            return
+
+        raise PermissionDeniedError("You don't have permission to update profile on this user")
+
+    def is_self_or_superuser(self, requester_user: dict[str, Any], target_username: str) -> bool:
+        """Whether the requester owns this profile or may act on any of them."""
+        if requester_user.get("is_superuser", False):
             return True
 
         return requester_user.get("username") == target_username
 
-    async def verify_user_permission(
+    def verify_no_privilege_escalation(
         self,
-        requester_user: dict[str, Any],
-        target_username: str,
-        action_description: str = "perform this action",
-        permissions: set[str] | frozenset[str] | None = None,
+        target_user: dict[str, Any],
+        values: UserUpdate,
+        requester_permissions: Collection[str],
+        target_permissions: Collection[str],
     ) -> None:
-        """Verify user has permission to perform an action on another user.
+        """Verify a ``user.update`` holder isn't editing their way to more access.
 
-        Superusers and users holding ``user.update`` may update any user.
-        Otherwise, the existing self-profile ownership rule is preserved.
+        Editing an account is a way to take it over, so a non-superuser holding
+        ``user.update`` may only edit accounts weaker than their own: not a
+        superuser, and holding nothing the requester doesn't already hold.
+        The email address is how a verified provider login is matched to an
+        existing account, so only a superuser may change someone else's.
 
         Args:
-            requester_user: User data of the user making the request.
-            target_username: Username of the user to perform action on.
-            action_description: Description of the action for error messages.
-            permissions: Effective permissions held by the requester.
+            target_user: The user being updated.
+            values: The submitted changes.
+            requester_permissions: Effective permissions held by the requester.
+            target_permissions: Effective permissions held by the target.
 
         Raises:
-            PermissionDeniedError: If the user doesn't have permission.
+            PermissionDeniedError: If the edit would reach a stronger account.
         """
-        has_permission = await self.check_update_permission(
-            requester_user,
-            target_username,
-            permissions,
-        )
-        if not has_permission:
-            raise PermissionDeniedError(f"You don't have permission to {action_description} on this user")
+        if target_user.get("is_superuser", False):
+            raise PermissionDeniedError("You don't have permission to update profile on this user")
+
+        if not set(target_permissions) <= set(requester_permissions):
+            raise PermissionDeniedError("You don't have permission to update profile on this user")
+
+        submitted = values.model_dump(exclude_unset=True)
+        if "email" in submitted and submitted["email"] != target_user.get("email"):
+            raise PermissionDeniedError("Only a superuser can change another user's email address")
 
     async def delete(self, user_id: int, db: AsyncSession) -> None:
         """Soft delete a user.
