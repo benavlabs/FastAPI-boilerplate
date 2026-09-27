@@ -80,15 +80,15 @@ class UserRead(BaseModel):
 
 
 class UserCreate(UserBase):
-    """Schema for creating a new user."""
+    """Schema for creating a new user.
+
+    Signing up never sets the OAuth identifiers or ``email_verified``: a self-declared
+    verified address would pre-claim it, and crudauth links a provider login to an
+    existing account by verified email. Those fields belong to
+    ``UserCreateInternal``, which only server-side code builds.
+    """
 
     password: password_policy.body_field()  # type: ignore[valid-type]
-    google_id: str | None = None
-    github_id: str | None = None
-    oauth_provider: str | None = None
-    email_verified: bool = False
-    oauth_created_at: datetime | None = None
-    oauth_updated_at: datetime | None = None
 
     model_config = ConfigDict(extra="forbid")
 

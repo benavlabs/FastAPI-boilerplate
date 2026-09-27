@@ -4,6 +4,7 @@ import uuid
 import pytest
 from faker import Faker
 from httpx import AsyncClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.modules.user.models import User
@@ -144,3 +145,39 @@ async def test_signup_names_every_missing_class_at_once(client: AsyncClient, db_
     assert response.status_code == 422
     requirements = {error["ctx"]["requirement"] for error in response.json()["detail"]}
     assert {"uppercase", "digit", "special"} <= requirements
+
+
+@pytest.mark.parametrize(
+    "field, value",
+    [
+        ("email_verified", True),
+        ("google_id", "attacker-google-sub"),
+        ("github_id", "attacker-github-id"),
+        ("oauth_provider", "google"),
+        ("oauth_created_at", "2026-01-01T00:00:00Z"),
+        ("oauth_updated_at", "2026-01-01T00:00:00Z"),
+    ],
+)
+async def test_signup_refuses_the_oauth_fields(client: AsyncClient, db_session: AsyncSession, field: str, value):
+    """Signing up as verified would pre-claim the address before its owner uses a provider login."""
+    payload = {**generate_unique_user_data(), field: value}
+
+    response = await client.post("/api/v1/users/", json=payload)
+
+    assert response.status_code == 422
+    stored = await db_session.scalar(select(User).where(User.email == payload["email"]))
+    assert stored is None
+
+
+async def test_signup_leaves_the_address_unverified(client: AsyncClient, db_session: AsyncSession):
+    """Only a provider login or a verification email may mark an address verified."""
+    payload = generate_unique_user_data()
+
+    response = await client.post("/api/v1/users/", json=payload)
+
+    assert response.status_code == 201
+    stored = await db_session.scalar(select(User).where(User.email == payload["email"]))
+    assert stored is not None
+    assert stored.email_verified is False
+    assert stored.google_id is None
+    assert stored.oauth_provider is None

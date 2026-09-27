@@ -203,3 +203,52 @@ async def test_the_auth_paths_keep_their_existing_contract():
         "/api/v1/auth/oauth/callback/{provider}",
     ):
         assert path in paths
+
+
+async def test_a_provider_login_claims_an_account_that_was_signed_up_for(
+    client: AsyncClient, db_session: AsyncSession, monkeypatch
+):
+    """Signing up with someone's address must not survive that address proving itself.
+
+    crudauth claims an unverified account when a verified provider login matches its
+    email: the password stops working, so whoever registered first can't keep access.
+    """
+    signup = await client.post(
+        "/api/v1/users/",
+        json={
+            "name": "Ada Lovelace",
+            "username": "adalovelace",
+            "email": "ada.lovelace@example.com",
+            "password": "Registered1!",
+        },
+    )
+    assert signup.status_code == 201
+
+    _stub_google(
+        monkeypatch,
+        {
+            "sub": "google-ada",
+            "email": "ada.lovelace@example.com",
+            "email_verified": True,
+            "name": "Ada Lovelace",
+        },
+    )
+    state = await _start(client)
+    callback = await client.get(
+        "/api/v1/auth/oauth/callback/google",
+        params={"code": "the-code", "state": state},
+        follow_redirects=False,
+    )
+    assert callback.status_code == 307
+    client.cookies.clear()
+
+    login = await client.post(
+        "/api/v1/auth/login",
+        data={"username": "adalovelace", "password": "Registered1!"},
+    )
+
+    assert login.status_code == 401
+    claimed = (await db_session.execute(select(User).where(User.email == "ada.lovelace@example.com"))).scalar_one()
+    await db_session.refresh(claimed)
+    assert claimed.google_id == "google-ada"
+    assert claimed.email_verified is True
