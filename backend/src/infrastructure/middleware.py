@@ -7,24 +7,52 @@ from starlette.types import ASGIApp
 # Two years, matching the HSTS preload-list requirement.
 HSTS_MAX_AGE_SECONDS = 63072000
 
+# Paths whose bytes are the same for every caller. SQLAdmin serves its own CSS and
+# JS from ``/statics`` under the panel's mount point.
+PUBLIC_CACHE_PREFIXES: tuple[str, ...] = ("/admin/statics/",)
+
 
 class ClientCacheMiddleware(BaseHTTPMiddleware):
-    """Set Cache-Control headers.
+    """Set Cache-Control headers, withholding caching by default.
 
-    API endpoints get no-cache (authenticated, dynamic data).
-    Static assets get public caching with the configured max_age.
+    Only the paths in ``public_prefixes`` are publicly cacheable. Everything else
+    is ``private, no-store``: the admin panel, the docs and the health endpoint
+    all answer with per-caller data or state, and a shared cache that kept one
+    response could hand it to the next visitor. API paths keep the longer
+    no-store wording they already had. A response that set its own
+    ``Cache-Control`` is left alone, so a route can opt in to caching.
+
+    Args:
+        app: The ASGI app to wrap.
+        max_age: Seconds a public response may be cached for.
+        public_prefixes: Path prefixes to mark publicly cacheable; pass your own
+            to add an application's static mount.
     """
 
-    def __init__(self, app: ASGIApp, max_age: int = 60) -> None:
+    def __init__(
+        self,
+        app: ASGIApp,
+        max_age: int = 60,
+        public_prefixes: tuple[str, ...] = PUBLIC_CACHE_PREFIXES,
+    ) -> None:
         super().__init__(app)
         self.max_age: int = max_age
+        self.public_prefixes: tuple[str, ...] = public_prefixes
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         response: Response = await call_next(request)
-        if request.url.path.startswith("/api/"):
+
+        if "cache-control" in response.headers:
+            return response
+
+        path = request.url.path
+        if path.startswith("/api/"):
             response.headers["Cache-Control"] = "private, no-cache, no-store, must-revalidate"
-        else:
+        elif path.startswith(self.public_prefixes):
             response.headers["Cache-Control"] = f"public, max-age={self.max_age}"
+        else:
+            response.headers["Cache-Control"] = "private, no-store"
+
         return response
 
 
