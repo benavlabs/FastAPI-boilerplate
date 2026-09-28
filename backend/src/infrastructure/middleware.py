@@ -7,8 +7,6 @@ from starlette.types import ASGIApp
 # Two years, matching the HSTS preload-list requirement.
 HSTS_MAX_AGE_SECONDS = 63072000
 
-# Paths whose bytes are the same for every caller. SQLAdmin serves its own CSS and
-# JS from ``/statics`` under the panel's mount point.
 PUBLIC_CACHE_PREFIXES: tuple[str, ...] = ("/admin/statics/",)
 
 
@@ -25,8 +23,10 @@ class ClientCacheMiddleware(BaseHTTPMiddleware):
     Args:
         app: The ASGI app to wrap.
         max_age: Seconds a public response may be cached for.
-        public_prefixes: Path prefixes to mark publicly cacheable; pass your own
-            to add an application's static mount.
+        public_prefixes: Path prefixes whose bytes are the same for every caller, so a
+            shared cache may keep them. The default is where SQLAdmin serves its own CSS
+            and JS, under the panel's mount point; pass your own to add an application's
+            static mount.
     """
 
     def __init__(
