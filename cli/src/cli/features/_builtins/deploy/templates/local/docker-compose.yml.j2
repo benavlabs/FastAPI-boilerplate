@@ -42,7 +42,7 @@ services:
       TASKIQ_REDIS_HOST: redis
     working_dir: /app/src
     command: >
-      taskiq worker infrastructure.taskiq.worker:default_broker
+      taskiq worker src.infrastructure.taskiq.worker:default_broker
       --reload
     volumes:
       - {{ backend_context }}/src:/app/src

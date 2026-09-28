@@ -45,7 +45,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 COPY backend/src ./src
 
 # Set Python path
-ENV PYTHONPATH=/app/src
+ENV PYTHONPATH=/app:/app/src
 
 # ===================== Development Stage =====================
 FROM base AS dev

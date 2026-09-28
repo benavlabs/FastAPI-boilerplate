@@ -12,22 +12,36 @@ Two commands today:
 
 from __future__ import annotations
 
+import importlib
 import logging
 import secrets
+import sys
+from pathlib import Path
+from types import ModuleType
 
 import typer
 
-# The installed package layout puts `infrastructure`, `modules`, etc.
-# at the top of the import tree (see [tool.setuptools.packages.find]
-# in backend/pyproject.toml). The CLI is only callable when the package
-# is installed, so this form is always valid here.
-from infrastructure.config.settings import get_settings
-from infrastructure.security.production_validator import (
-    ProductionSecurityError,
-    ProductionSecurityValidator,
-)
-
 from ..lib.prompts import error, info, success, warn
+
+
+def _app_module(name: str) -> ModuleType:
+    """Import a backend module by its ``src.`` path, putting ``backend/`` on the path first.
+
+    The app is imported through a single root, ``src``, which the installed
+    distribution does not expose: its packages are published from inside ``src/``.
+    Resolving it here, when a command needs it, also keeps ``bp --help`` from
+    paying for the app's settings and database imports.
+    """
+    backend = next((p / "backend" for p in (Path.cwd(), *Path.cwd().parents) if (p / "backend" / "src").is_dir()), None)
+    if backend is None:
+        error("No `backend/src` in this directory or above it: run this from inside a project.")
+        raise typer.Exit(code=1)
+
+    if str(backend) not in sys.path:
+        sys.path.insert(0, str(backend))
+
+    return importlib.import_module(name)
+
 
 app = typer.Typer(no_args_is_help=True, help="Inspect and prepare the runtime environment.")
 
@@ -47,9 +61,12 @@ def validate() -> None:
     Forces production-mode validation regardless of ``ENVIRONMENT`` so
     you can audit a dev or staging config the same way prod is gated.
     """
-    settings = get_settings()
+    settings = _app_module("src.infrastructure.config.settings").get_settings()
+    validator_module = _app_module("src.infrastructure.security.production_validator")
+    ProductionSecurityValidator = validator_module.ProductionSecurityValidator
+    ProductionSecurityError = validator_module.ProductionSecurityError
 
-    class _ForcedProd(ProductionSecurityValidator):
+    class _ForcedProd(ProductionSecurityValidator):  # type: ignore[valid-type,misc]
         def _is_production(self) -> bool:
             return True
 
