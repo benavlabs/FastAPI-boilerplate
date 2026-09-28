@@ -121,3 +121,29 @@ async def test_profile_lookup_never_carries_an_email(auth_client: AsyncClient, t
     assert data["username"] == test_user_2["username"]
     assert "email" not in data
     assert "is_superuser" not in data
+
+
+@pytest.mark.parametrize(
+    "username",
+    [
+        "with_underscore",
+        "a" * 25,
+    ],
+)
+async def test_a_username_signup_accepts_can_be_looked_up(client: AsyncClient, auth_client: AsyncClient, username: str):
+    """The profile response must describe what the column holds, not a stricter rule."""
+    signup = await client.post(
+        "/api/v1/users/",
+        json={
+            "name": "Lookup Target",
+            "username": username,
+            "email": f"{username}@example.com",
+            "password": "Password123!",
+        },
+    )
+    assert signup.status_code == 201
+
+    response = await auth_client.get(f"/api/v1/users/{username}")
+
+    assert response.status_code == 200
+    assert response.json()["username"] == username

@@ -52,11 +52,8 @@ class UserProfileRead(BaseModel):
     """
 
     id: int
-    name: Annotated[str, Field(min_length=2, max_length=30, examples=["User Userson"])]
-    username: Annotated[
-        str,
-        Field(min_length=2, max_length=20, pattern=r"^[a-z0-9]+$", examples=["userson"]),
-    ]
+    name: Annotated[str, Field(examples=["User Userson"])]
+    username: Annotated[str, Field(examples=["userson"])]
     profile_image_url: str
     tier_id: int | None = None
 
