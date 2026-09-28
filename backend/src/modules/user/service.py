@@ -70,6 +70,10 @@ class UserService:
             Passwords are automatically hashed using secure password hashing.
             Both email and username must be unique across the system.
 
+            Only the four fields above are read from the payload. The verification
+            flag and the OAuth identifiers decide which account a provider login
+            resolves to, so a password signup always leaves them at their defaults.
+
         Example:
             ```python
             user_data = UserCreate(
@@ -89,11 +93,12 @@ class UserService:
         if username_exists:
             raise UserExistsError("Username already taken")
 
-        user_internal_dict = user.model_dump()
-        user_internal_dict["hashed_password"] = await get_password_hash_async(user_internal_dict["password"])
-        del user_internal_dict["password"]
-
-        user_internal = UserCreateInternal(**user_internal_dict)
+        user_internal = UserCreateInternal(
+            name=user.name,
+            username=user.username,
+            email=user.email,
+            hashed_password=await get_password_hash_async(user.password),
+        )
         created_user = await crud_users.create(db=db, object=user_internal, schema_to_select=UserRead)
         if not created_user:
             raise PersistenceError("User row was not returned after insert")

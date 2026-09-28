@@ -3,7 +3,7 @@
 import pytest
 
 from src.modules.common.exceptions import PermissionDeniedError
-from src.modules.user.schemas import UserUpdate
+from src.modules.user.schemas import UserCreate, UserUpdate
 from src.modules.user.service import UserService
 
 UPDATE = "user.update"
@@ -95,3 +95,32 @@ def test_submitting_the_email_a_user_already_has_is_not_a_change(user_service: U
         frozenset({UPDATE}),
         frozenset(),
     )
+
+
+# =============================================================================
+# What signup is allowed to write
+# =============================================================================
+class SignupWithServerFields(UserCreate):
+    """A signup payload that carries columns only the server may set."""
+
+    model_config = {"extra": "allow"}
+
+    email_verified: bool = True
+    google_id: str | None = "smuggled-google-sub"
+    oauth_provider: str | None = "google"
+
+
+async def test_signup_cannot_write_the_verification_or_oauth_columns(user_service: UserService, db_session):
+    """The public schema refuses these fields; creating the row must not trust them either."""
+    created = await user_service.create(
+        SignupWithServerFields(
+            name="Smuggler",
+            username="smuggler",
+            email="smuggler@example.com",
+            password="Password123!",
+        ),
+        db_session,
+    )
+
+    assert created["email_verified"] is False
+    assert created["oauth_provider"] is None
