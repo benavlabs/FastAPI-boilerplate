@@ -308,7 +308,8 @@ The `migrate` stage in `backend/Dockerfile` exists for this. It runs `alembic up
 services:
   migrate:
     build:
-      context: ./backend
+      context: .
+      dockerfile: backend/Dockerfile
       target: migrate
     env_file:
       - ./backend/.env

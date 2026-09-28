@@ -136,13 +136,13 @@ The boilerplate ships a multi-stage `backend/Dockerfile`:
 To build the production image:
 
 ```bash
-docker build --target prod -t myapp-api:1.0.0 -f backend/Dockerfile backend/
+docker build --target prod -t myapp-api:1.0.0 -f backend/Dockerfile .
 ```
 
 To run a one-off migration, build the `migrate` image and run it:
 
 ```bash
-docker build --target migrate -t myapp-migrate:1.0.0 -f backend/Dockerfile backend/
+docker build --target migrate -t myapp-migrate:1.0.0 -f backend/Dockerfile .
 
 docker run --rm \
     --env-file backend/.env.production \

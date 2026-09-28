@@ -1,6 +1,6 @@
 # Docker Setup
 
-This page walks through running the boilerplate in containers. The Python project lives at `backend/`, so all Docker operations happen from there.
+This page walks through running the boilerplate in containers. The Python project lives at `backend/`, which is where you run `docker compose` from, while the image builds from the repository root: it needs the workspace's `pyproject.toml`, `uv.lock` and `cli/pyproject.toml` as well as `backend/`.
 
 !!! info "docker-compose.yml status"
     The repository ships a `backend/Dockerfile` (multi-stage). A canonical `backend/docker-compose.yml` is on the way — until then, the **Recommended Compose File** below is what to drop in at `backend/docker-compose.yml` to get the `docker compose up` flow running.
@@ -26,12 +26,12 @@ docker compose up
 | `migrate` | Adds `migrations/` and `alembic.ini`. Default command is `alembic upgrade head`. Useful as a one-off job before the prod app starts. |
 | `prod` | Same as base, runs as non-root, starts with `fastapi run interfaces/main.py --host 0.0.0.0 --port 8000 --workers $WORKERS` (defaults to 1). |
 
-You select a stage with `--target` when building:
+You select a stage with `--target` when building. The context is the repository root, because the Dockerfile copies `pyproject.toml`, `uv.lock`, `backend/` and `cli/pyproject.toml` from there:
 
 ```bash
-docker build --target dev -t fastapi-boilerplate:dev backend
-docker build --target prod -t fastapi-boilerplate:prod backend
-docker build --target migrate -t fastapi-boilerplate:migrate backend
+docker build --target dev -t fastapi-boilerplate:dev -f backend/Dockerfile .
+docker build --target prod -t fastapi-boilerplate:prod -f backend/Dockerfile .
+docker build --target migrate -t fastapi-boilerplate:migrate -f backend/Dockerfile .
 ```
 
 ## Recommended Compose File
@@ -42,8 +42,8 @@ Save this as `backend/docker-compose.yml`. It brings up Postgres, Redis, and the
 services:
   app:
     build:
-      context: .
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: backend/Dockerfile
       target: dev
     env_file:
       - .env
@@ -120,8 +120,8 @@ To process background tasks, add a worker service:
 ```yaml
   worker:
     build:
-      context: .
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: backend/Dockerfile
       target: dev
     env_file:
       - .env
@@ -142,8 +142,8 @@ Run Alembic migrations before the app starts:
 ```yaml
   migrate:
     build:
-      context: .
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: backend/Dockerfile
       target: migrate
     env_file:
       - .env
@@ -162,8 +162,8 @@ Create the first admin user and default tier on a fresh DB:
 ```yaml
   setup:
     build:
-      context: .
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: backend/Dockerfile
       target: dev
     env_file:
       - .env
