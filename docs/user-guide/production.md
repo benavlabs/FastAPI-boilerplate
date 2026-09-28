@@ -181,7 +181,7 @@ docker run -d \
     --env-file .env.production \
     --target base \
     myapp-api:1.0.0 \
-    sh -c "taskiq worker infrastructure.taskiq.worker:default_broker --workers 4"
+    sh -c "taskiq worker src.infrastructure.taskiq.worker:default_broker --workers 4"
 ```
 
 In Kubernetes / ECS, that's a separate `Deployment` / `Service` with its own scaling. The worker doesn't accept HTTP traffic — it only consumes from the broker.

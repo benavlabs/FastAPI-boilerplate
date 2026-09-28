@@ -158,7 +158,7 @@ cd backend
 uv run alembic upgrade head
 uv run python -m scripts.setup_initial_data   # creates the first admin user + default tier
 uv run fastapi dev src/interfaces/main.py     # API
-uv run taskiq worker infrastructure.taskiq.worker:default_broker  # in a second terminal
+uv run taskiq worker src.infrastructure.taskiq.worker:default_broker  # in a second terminal
 ```
 
 > Full setup, env-var reference, and per-environment deployment guides live in the [docs](https://benavlabs.github.io/FastAPI-boilerplate/getting-started/installation/).

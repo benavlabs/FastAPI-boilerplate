@@ -216,7 +216,7 @@ services:
   redis:  # Cache, rate limiting, sessions, taskiq broker
 ```
 
-To run a Taskiq worker, add a worker service to your Compose file with the command `taskiq worker infrastructure.taskiq.worker:default_broker`.
+To run a Taskiq worker, add a worker service to your Compose file with the command `taskiq worker src.infrastructure.taskiq.worker:default_broker`.
 
 ## Common Configuration Patterns
 

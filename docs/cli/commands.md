@@ -66,7 +66,7 @@ Existing files are protected: if a target already exists you'll be prompted to c
 All three modes use the same service names and networking:
 
 - **`api`** — the FastAPI application
-- **`worker`** — Taskiq worker, running `taskiq worker infrastructure.taskiq.worker:default_broker`
+- **`worker`** — Taskiq worker, running `taskiq worker src.infrastructure.taskiq.worker:default_broker`
 - **`postgres`** — Postgres 16 (alpine), with health check
 - **`redis`** — Redis 7 (alpine), with health check
 - **`migrate`** (prod & nginx) — runs `alembic upgrade head` once, with `CONFIRM_PRODUCTION_MIGRATION=yes`. The `api` and `worker` services depend on it via `service_completed_successfully`.

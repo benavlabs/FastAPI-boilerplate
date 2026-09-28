@@ -204,7 +204,7 @@ To start a worker locally:
 
 ```bash
 cd backend
-uv run taskiq worker infrastructure.taskiq.worker:default_broker
+uv run taskiq worker src.infrastructure.taskiq.worker:default_broker
 ```
 
 ## Adding Your First Feature Module

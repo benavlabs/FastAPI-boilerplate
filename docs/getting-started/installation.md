@@ -166,7 +166,7 @@ For development on your host machine. You provide PostgreSQL and Redis yourself.
 8. **(Optional) Start a Taskiq worker** (in a second terminal):
 
     ```bash
-    uv run taskiq worker infrastructure.taskiq.worker:default_broker
+    uv run taskiq worker src.infrastructure.taskiq.worker:default_broker
     ```
 
 ## Method 3: Development Setup

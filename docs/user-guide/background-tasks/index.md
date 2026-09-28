@@ -163,7 +163,7 @@ In development, run the worker in a separate terminal from the API:
 
 ```bash
 cd backend
-uv run taskiq worker infrastructure.taskiq.worker:default_broker
+uv run taskiq worker src.infrastructure.taskiq.worker:default_broker
 ```
 
 In Docker Compose, add a worker service that runs the same command. The worker needs the same Redis (or RabbitMQ) and the same database the API uses.
@@ -171,7 +171,7 @@ In Docker Compose, add a worker service that runs the same command. The worker n
 To tune concurrency:
 
 ```bash
-uv run taskiq worker infrastructure.taskiq.worker:default_broker --workers 4
+uv run taskiq worker src.infrastructure.taskiq.worker:default_broker --workers 4
 ```
 
 The `TASKIQ_WORKER_CONCURRENCY` env var configures the per-process concurrency; multiple `--workers` spawn additional processes. Pick the combination based on whether your tasks are I/O-bound (high concurrency, single process) or CPU-bound (multiple processes, low concurrency).
@@ -179,7 +179,7 @@ The `TASKIQ_WORKER_CONCURRENCY` env var configures the per-process concurrency; 
 ### Reloading on Code Changes
 
 ```bash
-uv run --extra dev taskiq worker infrastructure.taskiq.worker:default_broker --reload
+uv run --extra dev taskiq worker src.infrastructure.taskiq.worker:default_broker --reload
 ```
 
 Helpful in development. `--reload` needs `taskiq[reload]` from the `dev` extra, which is why the
@@ -308,7 +308,7 @@ The user is created synchronously; the email goes out from a worker. If the emai
 
 ### "Worker can't import my task module"
 
-The worker imports the broker by module path. With the boilerplate's install layout (`[tool.setuptools.packages.find] where = ["src"]`), `infrastructure`, `modules`, etc. are top-level packages once you've run `uv sync` — so `infrastructure.taskiq.worker:default_broker` resolves cleanly. If you skipped install and are running from source, ensure `backend/src` is on `PYTHONPATH`.
+The worker imports the broker by module path, and the app has one import root: `src`. Run the worker from `backend/`, so that directory is on `sys.path` and `src.infrastructure.taskiq.worker:default_broker` resolves. In the image, `PYTHONPATH=/app:/app/src` covers it.
 
 ### "Database connection errors in tasks"
 

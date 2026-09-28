@@ -21,7 +21,7 @@ docker compose up
 | Stage | Purpose |
 |-------|---------|
 | `requirements-stage` | Exports pinned requirements from `uv.lock` into `requirements-prod.txt` and `requirements-dev.txt`. Uses the official `astral-sh/uv` image to do this reliably. |
-| `base` | Installs system deps (gcc), production Python deps, and copies `src/` into the image. Sets `PYTHONPATH=/app/src`. |
+| `base` | Installs system deps (gcc), production Python deps, and copies `src/` into the image. Sets `PYTHONPATH=/app:/app/src`. |
 | `dev` | Adds dev requirements and `tests/`, runs as a non-root `appuser`, starts with `fastapi dev interfaces/main.py --host 0.0.0.0 --port 8000`. |
 | `migrate` | Adds `migrations/` and `alembic.ini`. Default command is `alembic upgrade head`. Useful as a one-off job before the prod app starts. |
 | `prod` | Same as base, runs as non-root, starts with `fastapi run interfaces/main.py --host 0.0.0.0 --port 8000 --workers $WORKERS` (defaults to 1). |
@@ -125,7 +125,7 @@ To process background tasks, add a worker service:
       target: dev
     env_file:
       - .env
-    command: taskiq worker infrastructure.taskiq.worker:default_broker
+    command: taskiq worker src.infrastructure.taskiq.worker:default_broker
     volumes:
       - ./src:/app/src
     depends_on:
