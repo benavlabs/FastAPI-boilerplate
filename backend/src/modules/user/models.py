@@ -6,15 +6,19 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ...infrastructure.database.models import SoftDeleteMixin, TimestampMixin
 from ...infrastructure.database.session import Base
+from ...wiring.models import UserModelExtensions
 from .constants import NAME_MAX_LENGTH, USERNAME_MAX_LENGTH
 
 if TYPE_CHECKING:
-    from ..role.models import UserRole
     from ..tier.models import Tier
 
 
-class User(Base, TimestampMixin, SoftDeleteMixin):
-    """User model representing application users."""
+class User(Base, TimestampMixin, SoftDeleteMixin, UserModelExtensions):
+    """User model representing application users.
+
+    Other features add to it through ``UserModelExtensions`` in the wiring: rbac
+    contributes ``user_roles``.
+    """
 
     __tablename__ = "user"
 
@@ -50,15 +54,6 @@ class User(Base, TimestampMixin, SoftDeleteMixin):
     oauth_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
 
     tier: Mapped["Tier | None"] = relationship("Tier", back_populates="users", lazy="selectin", init=False)
-    user_roles: Mapped[list["UserRole"]] = relationship(
-        "UserRole",
-        back_populates="user",
-        lazy="select",
-        cascade="all, delete-orphan",
-        passive_deletes=True,
-        default_factory=list,
-        init=False,
-    )
 
     @property
     def is_active(self) -> bool:

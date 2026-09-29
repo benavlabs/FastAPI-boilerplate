@@ -5,8 +5,8 @@ from fastapi import Depends
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from .auth.authorization import get_current_permissions
 from .auth.dependencies import (
-    get_current_permissions,
     get_current_principal,
     get_current_superuser,
     get_current_user,

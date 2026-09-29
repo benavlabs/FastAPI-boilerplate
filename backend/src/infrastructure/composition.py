@@ -5,11 +5,12 @@ these types at a stable path, the wiring imports the ones this project selected,
 and the core reads them from there.
 """
 
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Collection
 from dataclasses import dataclass, field
 from typing import Any
 
 from fastapi import APIRouter
+from sqlalchemy.ext.asyncio import AsyncSession
 
 
 @dataclass(frozen=True)
@@ -28,3 +29,7 @@ class Lifecycle:
     name: str
     startup: Callable[[], Awaitable[Any]] | None = None
     shutdown: tuple[Callable[[], Awaitable[Any]], ...] = field(default_factory=tuple)
+
+
+PermissionSource = Callable[[AsyncSession, int], Awaitable[Collection[str]]]
+"""Answers which permission names a user holds; the authorization checks ask every one."""

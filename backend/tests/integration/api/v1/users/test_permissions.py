@@ -14,6 +14,7 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.infrastructure.auth import authorization as authz
 from src.infrastructure.auth import dependencies as deps
 from src.infrastructure.database.session import async_session
 from src.infrastructure.dependencies import CurrentPermissionsDep
@@ -221,13 +222,13 @@ async def test_permissions_are_loaded_once_per_request(
     await _login(client, test_user)
 
     calls: list[int] = []
-    original = deps.load_permissions
+    original = authz.load_permissions
 
     async def counting_load_permissions(db, user_id, *, is_superuser=False):
         calls.append(user_id)
         return await original(db, user_id, is_superuser=is_superuser)
 
-    monkeypatch.setattr(deps, "load_permissions", counting_load_permissions)
+    monkeypatch.setattr(authz, "load_permissions", counting_load_permissions)
 
     response = await client.get("/api/v1/users/")
 
@@ -240,17 +241,17 @@ async def test_one_request_resolves_permissions_once_however_many_ask(db_session
     await _grant(db_session, test_user["id"], "reader", "user.read")
 
     calls: list[int] = []
-    original = deps.load_permissions
+    original = authz.load_permissions
 
     async def counting_load_permissions(db, user_id, *, is_superuser=False):
         calls.append(user_id)
         return await original(db, user_id, is_superuser=is_superuser)
 
-    monkeypatch.setattr(deps, "load_permissions", counting_load_permissions)
+    monkeypatch.setattr(authz, "load_permissions", counting_load_permissions)
 
     app = FastAPI()
 
-    @app.get("/twice", dependencies=[deps.require_permissions("user.read")])
+    @app.get("/twice", dependencies=[authz.require_permissions("user.read")])
     async def twice(permissions: CurrentPermissionsDep) -> dict[str, int]:
         return {"held": len(permissions)}
 
@@ -287,3 +288,28 @@ async def test_a_stale_stored_permission_grants_nothing(client: AsyncClient, db_
     assert response.status_code == 403
     stored = await db_session.scalars(select(RolePermission.permission_name).where(RolePermission.role_id == role.id))
     assert list(stored) == ["user.retired"]
+
+
+# =============================================================================
+# A project that contributes no permission source
+# =============================================================================
+async def test_without_a_source_permission_routes_are_superuser_only(
+    client: AsyncClient, db_session: AsyncSession, test_user: dict, monkeypatch
+):
+    """Dropping rbac gives back the behaviour from before roles existed.
+
+    The grant below would pass the check with rbac wired; with no source, holding
+    a role means nothing and only a superuser gets through.
+    """
+    await _grant(db_session, test_user["id"], "reader", "user.read")
+    monkeypatch.setattr(authz, "PERMISSION_SOURCES", ())
+    await _login(client, test_user)
+
+    assert (await client.get("/api/v1/users/")).status_code == 403
+
+
+async def test_without_a_source_a_superuser_still_passes(client: AsyncClient, test_superuser: dict, monkeypatch):
+    monkeypatch.setattr(authz, "PERMISSION_SOURCES", ())
+    await _login(client, test_superuser)
+
+    assert (await client.get("/api/v1/users/")).status_code == 200
