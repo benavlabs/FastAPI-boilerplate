@@ -1,10 +1,13 @@
 """``bp env``: what it reports about a configuration, and what it refuses."""
 
+import warnings
 from types import SimpleNamespace
 
 import pytest
 from typer.testing import CliRunner
 
+import cli.app
+from cli import plugins
 from cli.commands import env
 
 runner = CliRunner()
@@ -73,3 +76,23 @@ def test_gen_secret_produces_a_key_the_validator_accepts():
     assert result.exit_code == 0
     assert len(key) == 64
     assert int(key, 16) >= 0
+
+
+def test_a_plugin_warning_is_written_to_stderr(capsys):
+    """On stdout it would corrupt whatever the caller is piping command output into."""
+    plugins.emit_plugin_warnings_to_stderr()
+
+    warnings.showwarning("entry point 'acme' failed to load", RuntimeWarning, "plugins.py", 1)
+    captured = capsys.readouterr()
+
+    assert "acme" in captured.err
+    assert captured.out == ""
+
+
+def test_mounting_the_plugins_routes_their_warnings(monkeypatch):
+    routed: list[bool] = []
+    monkeypatch.setattr(plugins, "emit_plugin_warnings_to_stderr", lambda: routed.append(True))
+
+    cli.app._mount_command_plugins()
+
+    assert routed == [True]

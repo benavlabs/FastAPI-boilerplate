@@ -13,10 +13,7 @@ from ....infrastructure.http_exceptions import (
 )
 from ....infrastructure.logging import get_logger
 from ..constants import EXCEPTION_MAPPING, GENERIC_ERROR_MESSAGE, SUPPORT_ID_LENGTH
-from ..exceptions import (
-    DomainError,
-    InsufficientCreditsError,
-)
+from ..exceptions import DomainError
 
 logger = get_logger()
 
@@ -68,9 +65,7 @@ def register_exception_handlers(app: FastAPI) -> None:
     All handlers log full details server-side and answer the client with the
     message ``EXCEPTION_MAPPING`` defines for that failure plus a support_id -
     enough to say what went wrong, never the raw domain message, which can name
-    rows the caller isn't entitled to know about. InsufficientCreditsError (402)
-    is the exception: it passes its own message, since the frontend needs the
-    credit info for upgrade prompts.
+    rows the caller isn't entitled to know about.
     """
     app.add_middleware(CatchAllErrorMiddleware)
 
@@ -95,27 +90,8 @@ def register_exception_handlers(app: FastAPI) -> None:
         support_id = _generate_support_id()
         http_exception = map_exception(exc)
 
-        if isinstance(exc, InsufficientCreditsError):
-            logger.info(f"Insufficient credits [{support_id}] on {request.method} {request.url.path}: {exc}")
-            return JSONResponse(
-                status_code=http_exception.status_code,
-                content={"detail": http_exception.detail, "support_id": support_id},
-            )
-
         logger.warning(f"Domain error [{support_id}] on {request.method} {request.url.path}: {type(exc).__name__}: {exc}")
         return JSONResponse(
             status_code=http_exception.status_code,
             content={"detail": http_exception.detail, "support_id": support_id},
         )
-
-
-def handle_exception(error: Exception) -> HTTPException | None:
-    """Handle an exception and return an appropriate HTTP exception if possible.
-
-    For use in route handlers when you want to handle exceptions manually.
-    """
-    if isinstance(error, DomainError):
-        return map_exception(error)
-    elif isinstance(error, HTTPException):
-        return error
-    return None

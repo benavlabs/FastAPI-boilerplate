@@ -16,7 +16,6 @@ class TestTaskiqSettings:
         settings = get_settings()
 
         # Test default values
-        assert settings.TASKIQ_ENABLED is True
         assert settings.TASKIQ_BROKER_TYPE == "redis"
         assert settings.TASKIQ_REDIS_HOST == "localhost"
         assert settings.TASKIQ_REDIS_PORT == 6379
@@ -28,7 +27,6 @@ class TestTaskiqSettings:
     @patch.dict(
         os.environ,
         {
-            "TASKIQ_ENABLED": "false",
             "TASKIQ_BROKER_TYPE": "rabbitmq",
             "TASKIQ_REDIS_HOST": "redis-server",
             "TASKIQ_REDIS_PORT": "6380",
@@ -42,7 +40,6 @@ class TestTaskiqSettings:
         """Test loading Taskiq settings from environment variables."""
         settings = Settings()
 
-        assert settings.TASKIQ_ENABLED is False
         assert settings.TASKIQ_BROKER_TYPE == "rabbitmq"
         assert settings.TASKIQ_REDIS_HOST == "redis-server"
         assert settings.TASKIQ_REDIS_PORT == 6380
@@ -129,7 +126,6 @@ class TestTaskiqSettings:
         settings = get_settings()
 
         required_attrs = [
-            "TASKIQ_ENABLED",
             "TASKIQ_BROKER_TYPE",
             "TASKIQ_REDIS_HOST",
             "TASKIQ_REDIS_PORT",

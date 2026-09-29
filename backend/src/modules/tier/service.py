@@ -5,7 +5,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...wiring.hooks import TIER_DELETE_GUARDS
 from ..common.exceptions import (
-    PermissionDeniedError,
     PersistenceError,
     ResourceExistsError,
     ValidationError,
@@ -106,11 +105,6 @@ class TierService:
             refusal = await guard(tier, db)
             if refusal is not None:
                 raise ValidationError(refusal)
-
-    async def verify_superuser(self, user: dict[str, Any], action: str = "manage tiers") -> None:
-        """Verify that a user has superuser privileges."""
-        if not user.get("is_superuser", False):
-            raise PermissionDeniedError(f"Only superusers can {action}")
 
     async def update_user_tier(self, user_id: int, tier_update: UserTierUpdate, db: AsyncSession) -> dict[str, Any]:
         """Update a user's tier assignment.

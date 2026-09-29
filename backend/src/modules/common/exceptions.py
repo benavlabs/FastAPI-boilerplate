@@ -38,18 +38,6 @@ class PermissionDeniedError(DomainError):
     pass
 
 
-class InsufficientCreditsError(DomainError):
-    """Raised when a user doesn't have enough credits for an operation."""
-
-    pass
-
-
-class UsageLimitExceededError(DomainError):
-    """Raised when a user exceeds their usage limits."""
-
-    pass
-
-
 class PersistenceError(DomainError):
     """Raised when a write the caller is entitled to make doesn't come back from the database."""
 

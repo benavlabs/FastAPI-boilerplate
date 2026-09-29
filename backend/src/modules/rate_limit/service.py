@@ -7,7 +7,6 @@ from fastcrud.types import GetMultiResponseDict
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..common.exceptions import (
-    PermissionDeniedError,
     PersistenceError,
     ResourceExistsError,
 )
@@ -117,11 +116,6 @@ class RateLimitService:
             raise RateLimitNotFoundError(f"Rate limit with name '{name}' not found")
 
         await crud_rate_limits.db_delete(db=db, name=name)
-
-    async def verify_superuser(self, user: dict[str, Any], action: str = "manage rate limits") -> None:
-        """Verify that the user is a superuser."""
-        if not user.get("is_superuser", False):
-            raise PermissionDeniedError(f"Only superusers can {action}")
 
     async def get_for_user(self, user_id: int, db: AsyncSession) -> dict[str, Any]:
         """Get rate limits for a user through their tier assignment.
