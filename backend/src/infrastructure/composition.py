@@ -42,3 +42,11 @@ RateLimitResolver = Callable[[Request, Any], Awaitable[RateLimit | None]]
 
 TierDeleteGuard = Callable[[dict[str, Any], AsyncSession], Awaitable[str | None]]
 """Answers why a tier can't be deleted, or ``None`` to allow it."""
+
+
+@dataclass(frozen=True)
+class ReadinessCheck:
+    """A dependency the app needs before it can serve, and how to ask whether it is there."""
+
+    name: str
+    check: Callable[[], Awaitable[None]]

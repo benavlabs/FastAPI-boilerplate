@@ -279,11 +279,14 @@ def _wiring_app(chosen: set[str]) -> str:
 
 def _wiring_hooks(chosen: set[str]) -> str:
     imports = [
-        "from ..infrastructure.composition import PermissionSource, RateLimitResolver, TierDeleteGuard"
+        "from ..infrastructure.composition import PermissionSource, RateLimitResolver, ReadinessCheck, TierDeleteGuard",
+        "from ..infrastructure.database.health import readiness as database_readiness",
     ]
     sources = "()"
     resolvers = "()"
     guards = "()"
+    readiness = ["database_readiness"]
+
     if "rbac" in chosen:
         imports.append("from ..modules.role.sources import role_permissions")
         sources = "(role_permissions,)"
@@ -293,12 +296,21 @@ def _wiring_hooks(chosen: set[str]) -> str:
         )
         resolvers = "(tier_rate_limit,)"
         guards = "(rate_limits_reference_tier,)"
+    if "cache" in chosen:
+        imports.append(
+            "from ..infrastructure.cache.health import readiness as cache_readiness"
+        )
+        readiness.append("cache_readiness")
+
+    checks = "(" + ", ".join(readiness) + ",)"
+
     return (
-        '"""The contributions features make to each other\'s extension points."""\n\n'
+        '''"""The contributions features make to each other\'s extension points."""\n\n'''
         + "\n".join(sorted(imports))
         + f"\n\nPERMISSION_SOURCES: tuple[PermissionSource, ...] = {sources}\n"
         f"RATE_LIMIT_RESOLVERS: tuple[RateLimitResolver, ...] = {resolvers}\n"
         f"TIER_DELETE_GUARDS: tuple[TierDeleteGuard, ...] = {guards}\n"
+        f"READINESS_CHECKS: tuple[ReadinessCheck, ...] = {checks}\n"
     )
 
 
