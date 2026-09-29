@@ -17,7 +17,7 @@ from src.modules.api_keys.schemas import (
     KeyUsageCreate,
 )
 from src.modules.api_keys.service import APIKeyService
-from src.modules.common.exceptions import PermissionDeniedError, ResourceNotFoundError
+from src.modules.common.exceptions import PermissionDeniedError, ResourceNotFoundError, ValidationError
 
 
 @pytest.fixture
@@ -57,8 +57,8 @@ async def test_create_api_key(api_key_service, db_session: AsyncSession, test_us
 @pytest.mark.asyncio
 async def test_api_key_generation_unique(api_key_service):
     """Test that API key generation produces unique keys."""
-    key1, prefix1, hash1 = api_key_service._generate_api_key()
-    key2, prefix2, hash2 = api_key_service._generate_api_key()
+    key1, prefix1, hash1 = await api_key_service._generate_api_key()
+    key2, prefix2, hash2 = await api_key_service._generate_api_key()
 
     assert key1 != key2
     assert prefix1 != prefix2
@@ -539,7 +539,7 @@ async def test_validate_api_key_with_underscore_in_prefix(api_key_service, db_se
     substring and the key_prefix lookup misses, breaking validation for the (rare) keys that draw
     underscores.
     """
-    api_key, prefix, key_hash = api_key_service._generate_api_key()
+    api_key, prefix, key_hash = await api_key_service._generate_api_key()
     forced_prefix = "ab_cd_ef"
     api_key = f"fai_{forced_prefix}_{api_key.split('_', 2)[2]}"
     forced_hash = api_key_service._hash_api_key(api_key)
@@ -587,3 +587,64 @@ async def test_usage_pagination(api_key_service, db_session: AsyncSession, test_
     usage_history = result.get("data", []) if isinstance(result, dict) else []
 
     assert len(usage_history) == 3
+
+
+@pytest.mark.asyncio
+async def test_a_revoked_key_cannot_be_reactivated(api_key_service, db_session, test_user: dict):
+    """Revocation is the answer to a leak, so it has to be one-way."""
+    created = await api_key_service.create_api_key(user_id=test_user["id"], key_data=APIKeyCreate(name="leaked"), db=db_session)
+    await api_key_service.update_api_key(
+        key_id=created["id"], user_id=test_user["id"], update_data=APIKeyUpdate(is_active=False), db=db_session
+    )
+
+    with pytest.raises(ValidationError, match="revoked"):
+        await api_key_service.update_api_key(
+            key_id=created["id"], user_id=test_user["id"], update_data=APIKeyUpdate(is_active=True), db=db_session
+        )
+
+
+@pytest.mark.asyncio
+async def test_an_expiry_cannot_be_pushed_back(api_key_service, db_session, test_user: dict):
+    created = await api_key_service.create_api_key(
+        user_id=test_user["id"],
+        key_data=APIKeyCreate(name="short lived", expires_at=datetime.now(UTC) + timedelta(days=1)),
+        db=db_session,
+    )
+
+    with pytest.raises(ValidationError, match="expiry"):
+        await api_key_service.update_api_key(
+            key_id=created["id"],
+            user_id=test_user["id"],
+            update_data=APIKeyUpdate(expires_at=datetime.now(UTC) + timedelta(days=30)),
+            db=db_session,
+        )
+
+
+@pytest.mark.asyncio
+async def test_an_expiry_cannot_be_cleared(api_key_service, db_session, test_user: dict):
+    created = await api_key_service.create_api_key(
+        user_id=test_user["id"],
+        key_data=APIKeyCreate(name="short lived", expires_at=datetime.now(UTC) + timedelta(days=1)),
+        db=db_session,
+    )
+
+    with pytest.raises(ValidationError, match="expiry"):
+        await api_key_service.update_api_key(
+            key_id=created["id"], user_id=test_user["id"], update_data=APIKeyUpdate(expires_at=None), db=db_session
+        )
+
+
+@pytest.mark.asyncio
+async def test_an_expiry_can_be_brought_forward(api_key_service, db_session, test_user: dict):
+    created = await api_key_service.create_api_key(
+        user_id=test_user["id"],
+        key_data=APIKeyCreate(name="short lived", expires_at=datetime.now(UTC) + timedelta(days=30)),
+        db=db_session,
+    )
+    sooner = datetime.now(UTC) + timedelta(days=1)
+
+    updated = await api_key_service.update_api_key(
+        key_id=created["id"], user_id=test_user["id"], update_data=APIKeyUpdate(expires_at=sooner), db=db_session
+    )
+
+    assert updated["expires_at"].replace(tzinfo=UTC) == sooner.replace(microsecond=sooner.microsecond)
