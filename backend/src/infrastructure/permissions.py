@@ -2,7 +2,14 @@
 
 Each module declares its own permissions as a ``StrEnum`` decorated with
 ``@register_permissions("<resource>")``. The registry is what validates a stored
-permission name and what the admin UI groups by resource.
+permission name and what the admin UI groups by resource. It belongs to no
+feature: the authorization checks read it, and any module may declare into it
+without depending on whoever grants the permissions.
+
+Reading the registry discovers the declarations first. ``require_permissions``
+validates names at import time, when a route is declared, so a route module that
+is imported on its own -- by Alembic, a worker or a script -- has to see every
+permission without something else having imported ``src.modules`` beforehand.
 """
 
 import importlib
@@ -10,7 +17,7 @@ import pkgutil
 import re
 from enum import StrEnum
 
-from .constants import PERMISSION_NAME_MAX_LENGTH
+PERMISSION_NAME_MAX_LENGTH = 100
 
 PERMISSIONS_PACKAGE = "src.modules"
 
@@ -67,24 +74,6 @@ def register_permissions(resource: str):
     return decorator
 
 
-def all_permissions() -> frozenset[str]:
-    """Return every registered permission name."""
-    return _known_permissions
-
-
-def permission_groups() -> dict[str, tuple[str, ...]]:
-    """Return permissions grouped by resource, for a UI that offers them per resource."""
-    return {
-        resource: tuple(permission.value for permission in enum_class)
-        for resource, enum_class in _registered_permissions.items()
-    }
-
-
-def is_known_permission(permission_name: str) -> bool:
-    """Return whether a permission is registered."""
-    return permission_name in _known_permissions
-
-
 def discover_permissions(package_name: str = PERMISSIONS_PACKAGE) -> None:
     """Import every permissions module below the given package, once."""
     global _discovered
@@ -98,3 +87,27 @@ def discover_permissions(package_name: str = PERMISSIONS_PACKAGE) -> None:
     for _, module_name, _ in pkgutil.walk_packages(package.__path__, package.__name__ + "."):
         if module_name.endswith(".permissions"):
             importlib.import_module(module_name)
+
+
+def all_permissions() -> frozenset[str]:
+    """Return every registered permission name."""
+    discover_permissions()
+
+    return _known_permissions
+
+
+def permission_groups() -> dict[str, tuple[str, ...]]:
+    """Return permissions grouped by resource, for a UI that offers them per resource."""
+    discover_permissions()
+
+    return {
+        resource: tuple(permission.value for permission in enum_class)
+        for resource, enum_class in _registered_permissions.items()
+    }
+
+
+def is_known_permission(permission_name: str) -> bool:
+    """Return whether a permission is registered."""
+    discover_permissions()
+
+    return permission_name in _known_permissions

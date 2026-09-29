@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from src.modules.role.constants import PERMISSION_NAME_MAX_LENGTH
-from src.modules.role.permission_registry import (
+from src.infrastructure.permissions import (
+    PERMISSION_NAME_MAX_LENGTH,
     all_permissions,
     permission_groups,
     register_permissions,
@@ -137,27 +137,46 @@ def test_a_failed_registration_leaves_the_registry_untouched():
     assert "leftover" not in permission_groups()
 
 
+def test_reading_the_registry_discovers_the_declarations():
+    """Nothing imports the permission modules on the app's behalf any more.
+
+    A process that only reads the registry has to end up with the declarations,
+    because that is what makes ``require_permissions`` valid at import time in a
+    module imported on its own.
+    """
+    result = _in_a_cold_process(
+        "from src.infrastructure.permissions import all_permissions\n"
+        "assert all_permissions(), 'reading the registry discovered nothing'\n"
+    )
+
+    assert result.returncode == 0, result.stderr
+
+
 def test_a_route_module_imports_on_its_own():
     """``require_permissions`` validates at import time, so discovery has to have run.
 
     Importing a route module directly is how Alembic, a worker or a script reaches
     the app, and it must not depend on something else importing ``src.modules`` first.
     """
-    backend = Path(__file__).resolve().parents[4]
-    environment = {
-        "PATH": "/usr/bin:/bin",
-        "PYTHONPATH": str(backend),
-        "SECRET_KEY": "test_secret_key_for_tests",
-        "SESSION_BACKEND": "memory",
-        "RATE_LIMITER_BACKEND": "memory",
-    }
+    result = _in_a_cold_process("import src.modules.user.routes")
 
-    result = subprocess.run(
-        [sys.executable, "-c", "import src.modules.user.routes"],
+    assert result.returncode == 0, result.stderr
+
+
+def _in_a_cold_process(code: str) -> subprocess.CompletedProcess[str]:
+    """Run ``code`` in a process that has imported nothing of the app yet."""
+    backend = Path(__file__).resolve().parents[3]
+
+    return subprocess.run(
+        [sys.executable, "-c", code],
         cwd=backend,
         capture_output=True,
         text=True,
-        env=environment,
+        env={
+            "PATH": "/usr/bin:/bin",
+            "PYTHONPATH": str(backend),
+            "SECRET_KEY": "test_secret_key_for_tests",
+            "SESSION_BACKEND": "memory",
+            "RATE_LIMITER_BACKEND": "memory",
+        },
     )
-
-    assert result.returncode == 0, result.stderr

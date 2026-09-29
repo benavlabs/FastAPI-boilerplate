@@ -5,8 +5,8 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.infrastructure.permissions import all_permissions, is_known_permission
 from src.modules.role.models import Role, RolePermission, UserRole
-from src.modules.role.permission_registry import all_permissions, is_known_permission
 from src.modules.user.models import User
 
 

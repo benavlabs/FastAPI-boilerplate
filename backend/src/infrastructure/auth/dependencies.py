@@ -17,9 +17,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...modules.role.models import RolePermission, UserRole
-from ...modules.role.permission_registry import all_permissions
 from ...modules.user.crud import crud_users
 from ..database.session import async_session
+from ..permissions import all_permissions
 from .setup import auth
 
 
