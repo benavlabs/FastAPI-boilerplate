@@ -1,5 +1,6 @@
 """Tests for production security validator."""
 
+import secrets
 from unittest.mock import Mock
 
 import pytest
@@ -446,3 +447,31 @@ class TestAProjectWithoutTheseFeatures:
         errors = validator._validate_critical_security()
 
         assert any("SECRET_KEY" in error for error in errors)
+
+
+class TestTheSecretKeyRule:
+    """What the validator refuses, and what it must never refuse."""
+
+    def _validator(self, secret: str) -> ProductionSecurityValidator:
+        return ProductionSecurityValidator(Settings(SECRET_KEY=secret, ENVIRONMENT=EnvironmentOption.PRODUCTION))
+
+    def test_every_generated_key_is_accepted(self):
+        """A key from `bp env gen-secret` must never keep production from starting."""
+        refused = [key for _ in range(10_000) if self._validator(key := secrets.token_hex(32))._is_insecure_secret_key()]
+
+        assert refused == []
+
+    @pytest.mark.parametrize(
+        "secret",
+        [
+            "",
+            "insecure-secret-key-change-this",
+            "change-me-please-change-me-please-change",
+            "my-super-secret-production-key-value",
+            "short",
+            "a" * 64,
+            "abababababababababababababababababababab",
+        ],
+    )
+    def test_a_weak_key_is_refused(self, secret: str):
+        assert self._validator(secret)._is_insecure_secret_key()

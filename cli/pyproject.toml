@@ -32,6 +32,11 @@ include = ["*"]
 [tool.setuptools.package-data]
 "*" = ["*.j2", "*.toml", "*.conf", "py.typed"]
 
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+python_files = ["test_*.py"]
+
 [tool.ruff]
 line-length = 128
 

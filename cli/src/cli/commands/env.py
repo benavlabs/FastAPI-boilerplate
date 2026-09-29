@@ -13,7 +13,6 @@ Two commands today:
 from __future__ import annotations
 
 import importlib
-import logging
 import secrets
 import sys
 from pathlib import Path
@@ -64,35 +63,12 @@ def validate() -> None:
     settings = _app_module("src.infrastructure.config.settings").get_settings()
     validator_module = _app_module("src.infrastructure.security.production_validator")
     ProductionSecurityValidator = validator_module.ProductionSecurityValidator
-    ProductionSecurityError = validator_module.ProductionSecurityError
 
     class _ForcedProd(ProductionSecurityValidator):  # type: ignore[valid-type,misc]
         def _is_production(self) -> bool:
             return True
 
-    validator = _ForcedProd(settings)
-
-    captured_warnings: list[str] = []
-    handler = _CapturingHandler(captured_warnings)
-    validator.logger.addHandler(handler)
-    # Silence the validator's normal logging while we drive it — we render
-    # the result ourselves below.
-    previous_level = validator.logger.level
-    previous_propagate = validator.logger.propagate
-    validator.logger.setLevel(logging.CRITICAL + 1)
-    validator.logger.propagate = False
-    handler.setLevel(logging.WARNING)  # still capture warnings via the dedicated handler
-
-    critical_errors: list[str] = []
-    try:
-        try:
-            validator.validate_production_security()
-        except ProductionSecurityError as exc:
-            critical_errors = [line.strip(" •") for line in str(exc).splitlines()[1:] if line.strip()]
-    finally:
-        validator.logger.removeHandler(handler)
-        validator.logger.setLevel(previous_level)
-        validator.logger.propagate = previous_propagate
+    critical_errors, captured_warnings = _ForcedProd(settings).audit()
 
     if not critical_errors and not captured_warnings:
         success("No issues found. Configuration would pass production validation.")
@@ -112,17 +88,3 @@ def validate() -> None:
 
     if critical_errors:
         raise typer.Exit(code=1)
-
-
-class _CapturingHandler(logging.Handler):
-    """Capture only the warning lines emitted by the production validator."""
-
-    def __init__(self, sink: list[str]) -> None:
-        super().__init__(level=logging.WARNING)
-        self._sink = sink
-
-    def emit(self, record: logging.LogRecord) -> None:
-        message = record.getMessage()
-        marker = "PRODUCTION SECURITY WARNING: "
-        if marker in message:
-            self._sink.append(message.split(marker, 1)[1])

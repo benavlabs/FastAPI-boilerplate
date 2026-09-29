@@ -4,7 +4,6 @@ This module provides comprehensive security validation for production environmen
 checking for common misconfigurations that could lead to security vulnerabilities.
 """
 
-import re
 from typing import Any
 from urllib.parse import unquote, urlsplit
 
@@ -12,6 +11,24 @@ from ..config.settings import EnvironmentOption, Settings
 from ..logging import get_logger
 
 logger = get_logger()
+
+MINIMUM_SECRET_KEY_LENGTH = 32
+MINIMUM_SECRET_KEY_ALPHABET = 8
+
+PLACEHOLDER_FRAGMENTS = (
+    "insecure",
+    "change-me",
+    "change-this",
+    "changeme",
+    "changethis",
+    "default",
+    "secret",
+    "password",
+    "qwerty",
+    "example",
+    "placeholder",
+    "test",
+)
 
 
 class ProductionSecurityError(Exception):
@@ -234,6 +251,14 @@ class ProductionSecurityValidator:
 
         return errors
 
+    def audit(self) -> tuple[list[str], list[str]]:
+        """Every critical error and every warning this configuration produces.
+
+        Both lists are always computed: a caller reporting on a configuration
+        wants the warnings even when a critical error would stop startup.
+        """
+        return self._validate_critical_security(), self._collect_warnings()
+
     def _validate_warning_security(self) -> None:
         """Log warnings for security concerns that don't prevent startup.
 
@@ -258,6 +283,19 @@ class ProductionSecurityValidator:
             - Session timeout too long
             - Weak admin usernames or passwords
         """
+        warnings = self._collect_warnings()
+
+        for warning in warnings:
+            self.logger.warning(f"PRODUCTION SECURITY WARNING: {warning}")
+
+        if warnings:
+            self.logger.warning(
+                f"Found {len(warnings)} production security warnings. "
+                "While not critical, these should be reviewed for optimal security."
+            )
+
+    def _collect_warnings(self) -> list[str]:
+        """The security concerns worth raising that don't prevent startup."""
         warnings = []
 
         redis_warnings = self._check_redis_security()
@@ -286,14 +324,7 @@ class ProductionSecurityValidator:
         admin_warnings = self._check_admin_credentials()
         warnings.extend(admin_warnings)
 
-        for warning in warnings:
-            self.logger.warning(f"PRODUCTION SECURITY WARNING: {warning}")
-
-        if warnings:
-            self.logger.warning(
-                f"Found {len(warnings)} production security warnings. "
-                "While not critical, these should be reviewed for optimal security."
-            )
+        return warnings
 
     def _is_insecure_secret_key(self) -> bool:
         """Check if SECRET_KEY is insecure or uses default values.
@@ -305,77 +336,26 @@ class ProductionSecurityValidator:
             True if the secret key is insecure, False otherwise.
 
         Note:
-            The validation checks for:
-            - Empty or missing secret keys
-            - Common default values and patterns
-            - Insufficient length (< 32 characters)
-            - Predictable patterns and repetition
-            - Common weak strings
+            A key is refused when it is empty, reads as a placeholder, is shorter
+            than 32 characters, or draws on too small an alphabet to be random.
 
-            A secure secret key should be:
-            - At least 32 characters long
-            - Randomly generated
-            - Unique to the application
-            - Free of predictable patterns
+            Sequence and repetition heuristics are deliberately absent: a run of
+            four identical characters, or "1234", appears in about one generated
+            hex key in sixty, and refusing those would keep a correctly generated
+            key out of production.
         """
         secret = self.settings.SECRET_KEY
 
         if not secret:
             return True
 
-        insecure_patterns = [
-            "insecure-secret-key-change-this",
-            "change-me",
-            "change-this",
-            "default",
-            "secret",
-            "password",
-            "secretkey",
-            "key",
-            "123456",
-            "abc123",
-            "test",
-            "dev",
-            "development",
-        ]
-
-        secret_lower = secret.lower()
-        if any(pattern in secret_lower for pattern in insecure_patterns):
+        if any(fragment in secret.lower() for fragment in PLACEHOLDER_FRAGMENTS):
             return True
 
-        if len(secret) < 32:
+        if len(secret) < MINIMUM_SECRET_KEY_LENGTH:
             return True
 
-        if self._has_predictable_pattern(secret):
-            return True
-
-        return False
-
-    def _has_predictable_pattern(self, secret: str) -> bool:
-        """Check if secret has predictable patterns that reduce security.
-
-        Args:
-            secret: The secret string to analyze for patterns.
-
-        Returns:
-            True if predictable patterns are found, False otherwise.
-
-        Note:
-            Predictable patterns include:
-            - Repeated characters (e.g., "aaaa", "1111")
-            - Sequential characters (e.g., "1234", "abcd")
-            - Common keyboard patterns (e.g., "qwerty")
-
-            These patterns reduce the entropy of the secret key and
-            make it more susceptible to brute force attacks.
-        """
-        if re.search(r"(.)\1{3,}", secret):
-            return True
-
-        if "1234" in secret or "abcd" in secret.lower() or "qwerty" in secret.lower():
-            return True
-
-        return False
+        return len(set(secret)) < MINIMUM_SECRET_KEY_ALPHABET
 
     def _is_admin_access_completely_open(self) -> bool:
         """Check if admin interface has no access restrictions.
