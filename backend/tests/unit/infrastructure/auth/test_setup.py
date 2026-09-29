@@ -2,14 +2,12 @@
 
 from types import SimpleNamespace
 
-import pytest
 from crudauth import NewUserContext, Principal
 from starlette.requests import Request
 
 from src.infrastructure.auth import setup
 from src.infrastructure.config.settings import settings
 from src.infrastructure.database.session import async_session
-from src.infrastructure.redis import rate_limiter_redis_client
 from src.modules.rate_limit.crud import crud_rate_limits
 from src.modules.user.constants import NAME_MAX_LENGTH
 
@@ -50,31 +48,6 @@ class TestSessionRedisWiring:
         monkeypatch.setattr(settings, "RATE_LIMITER_BACKEND", "redis")
 
         assert setup._session_transport().redis_url is None
-
-
-class TestRateLimiterBackend:
-    """RATE_LIMITER_BACKEND alone decides where the limiter and login lockout count."""
-
-    def test_redis_uses_the_shared_limiter_client(self, monkeypatch):
-        monkeypatch.setattr(settings, "RATE_LIMITER_BACKEND", "redis")
-        monkeypatch.setattr(settings, "SESSION_BACKEND", "memory")
-
-        backend = setup._rate_limiter()
-
-        assert backend is not None
-        assert backend.client is rate_limiter_redis_client
-
-    def test_memory_leaves_crudauth_its_in_process_limiter(self, monkeypatch):
-        monkeypatch.setattr(settings, "RATE_LIMITER_BACKEND", "memory")
-
-        assert setup._rate_limiter() is None
-
-    def test_the_removed_memcached_backend_fails_loudly(self, monkeypatch):
-        """A deployment still configured for memcached must not silently fall back to memory."""
-        monkeypatch.setattr(settings, "RATE_LIMITER_BACKEND", "memcached")
-
-        with pytest.raises(ValueError, match="memcached"):
-            setup._rate_limiter()
 
 
 class TestApiRateLimitKey:
@@ -253,3 +226,29 @@ class TestSessionTransportWiring:
         assert transport.max_sessions_per_user == 2
         assert transport.session_timeout_minutes == 7
         assert transport.cleanup_interval_minutes == 3
+
+
+class TestAccountsLifecycle:
+    """What the app runs for accounts on startup and shutdown."""
+
+    def test_starts_crudauth_and_closes_what_it_opened(self):
+        assert setup.lifecycle.name == "accounts"
+        assert setup.lifecycle.startup == setup.auth.initialize
+        assert setup.auth.shutdown in setup.lifecycle.shutdown
+
+    async def test_the_limiter_client_closes_even_with_the_api_throttle_off(self, monkeypatch):
+        """The login lockout uses the client whether or not API routes are throttled."""
+        monkeypatch.setattr(settings, "RATE_LIMITER_ENABLED", False)
+        closed = False
+
+        async def record_close() -> None:
+            nonlocal closed
+            closed = True
+
+        monkeypatch.setattr(setup.rate_limiter_redis_client, "aclose", record_close)
+
+        for shutdown in setup.lifecycle.shutdown:
+            if shutdown is not setup.auth.shutdown:
+                await shutdown()
+
+        assert closed

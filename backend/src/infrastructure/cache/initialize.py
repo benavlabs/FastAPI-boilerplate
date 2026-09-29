@@ -1,9 +1,10 @@
 """Module for initializing the cache backends."""
 
+from ..composition import Lifecycle
 from ..config.enums import CacheBackend
 from ..config.settings import get_settings
-from ..redis import cache_redis_client
 from . import MEMCACHED_INSTALLED, REDIS_INSTALLED
+from .client import cache_redis_client
 from .provider import cache_provider
 
 if MEMCACHED_INSTALLED:
@@ -70,3 +71,15 @@ async def close_cache() -> None:
 
     elif settings.CACHE_BACKEND == CacheBackend.REDIS.value and REDIS_INSTALLED:
         await cache_redis_client.aclose()
+
+
+async def _close_cache_client() -> None:
+    """Close the feature's Redis client whatever backend was configured.
+
+    ``close_cache`` only reaches it on the Redis backend, and the client is built
+    when the module is imported, so this is what returns its pool either way.
+    """
+    await cache_redis_client.aclose()
+
+
+lifecycle = Lifecycle("cache", startup=initialize_cache, shutdown=(close_cache, _close_cache_client))

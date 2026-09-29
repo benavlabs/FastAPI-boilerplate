@@ -1,13 +1,12 @@
 import json
 import logging
 from asyncio import Event
-from collections.abc import AsyncGenerator, Callable
+from collections.abc import AsyncGenerator, Callable, Sequence
 from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontextmanager
 from typing import Any
 
 import anyio
 import fastapi
-from crudauth.ratelimit import RateLimitHeadersMiddleware
 from fastapi import APIRouter, Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
@@ -15,10 +14,8 @@ from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
 from fastapi.openapi.utils import get_openapi
 
 from ..modules.common.utils.error_handler import register_exception_handlers
-from .auth.dependencies import get_current_superuser
-from .auth.setup import auth
-from .cache.initialize import close_cache, initialize_cache
-from .cache.settings import CacheSettings
+from ..wiring.app import DOCS_GUARD, INSTALLERS, LIFECYCLES, ROOT_ROUTERS
+from .composition import Lifecycle
 from .config.settings import (
     DatabaseSettings,
     EnvironmentOption,
@@ -29,8 +26,6 @@ from .config.settings import (
 from .database.initialize import close_database
 from .database.session import create_tables
 from .middleware import ClientCacheMiddleware, SecurityHeadersMiddleware
-from .ratelimit.settings import RateLimitSettings
-from .redis import cache_redis_client, rate_limiter_redis_client
 
 logger = logging.getLogger(__name__)
 
@@ -44,8 +39,15 @@ async def set_threadpool_tokens(number_of_tokens: int = 100) -> None:
 def lifespan_factory(
     settings: Settings,
     create_tables_on_startup: bool = True,
+    lifecycles: Sequence[Lifecycle] | None = None,
 ) -> Callable[[FastAPI], AbstractAsyncContextManager[None]]:
-    """Factory to create a lifespan async context manager for a FastAPI app."""
+    """Factory to create a lifespan async context manager for a FastAPI app.
+
+    The database opens first and closes last. Each feature's ``Lifecycle``, from
+    the wiring unless given, then starts in order and is torn down in reverse,
+    including when a later startup step raises.
+    """
+    feature_lifecycles = LIFECYCLES if lifecycles is None else lifecycles
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
@@ -60,18 +62,12 @@ def lifespan_factory(
                 if create_tables_on_startup:
                     await create_tables()
 
-            if isinstance(settings, CacheSettings) and settings.CACHE_ENABLED:
-                await initialize_cache()
-                teardown.push_async_callback(close_cache)
+            for lifecycle in feature_lifecycles:
+                for shutdown in reversed(lifecycle.shutdown):
+                    teardown.push_async_callback(shutdown)
 
-            if isinstance(settings, RateLimitSettings) and settings.RATE_LIMITER_ENABLED:
-                teardown.push_async_callback(rate_limiter_redis_client.aclose)
-
-            if not (isinstance(settings, CacheSettings) and settings.CACHE_ENABLED and settings.CACHE_BACKEND == "redis"):
-                teardown.push_async_callback(cache_redis_client.aclose)
-
-            teardown.push_async_callback(auth.shutdown)
-            await auth.initialize()
+                if lifecycle.startup is not None:
+                    await lifecycle.startup()
 
             initialization_complete.set()
 
@@ -89,6 +85,7 @@ def create_application(
     cors_origins: list[str] | None = None,
     enable_docs_in_production: bool | None = None,
     docs_production_dependency: Callable[..., Any] | None = None,
+    docs_guard: Callable[..., Any] | None = DOCS_GUARD,
     enable_gzip: bool | None = None,
     openapi_prefix: str | None = None,
     title: str | None = None,
@@ -250,16 +247,18 @@ def create_application(
     docs_dependency = None
     if show_docs:
         if is_production and _enable_docs_in_production:
-            docs_dependency = docs_production_dependency if docs_production_dependency is not None else get_current_superuser
+            docs_dependency = docs_production_dependency if docs_production_dependency is not None else docs_guard
+            show_docs = docs_dependency is not None
         elif settings.ENVIRONMENT == EnvironmentOption.STAGING:
-            docs_dependency = get_current_superuser
+            docs_dependency = docs_guard
+            show_docs = docs_dependency is not None
 
     hide_docs = (
         isinstance(settings, EnvironmentSettings)
         and settings.ENVIRONMENT == EnvironmentOption.PRODUCTION
         and not _enable_docs_in_production
     )
-    serve_builtin_docs = not hide_docs and docs_dependency is None
+    serve_builtin_docs = not hide_docs and docs_dependency is None and show_docs
     if not serve_builtin_docs:
         kwargs.update({"docs_url": None, "redoc_url": None, "openapi_url": None})
 
@@ -271,7 +270,12 @@ def create_application(
     register_exception_handlers(application)
 
     application.include_router(router)
-    application.add_middleware(RateLimitHeadersMiddleware)
+
+    for root_router in ROOT_ROUTERS:
+        application.include_router(root_router)
+
+    for install in INSTALLERS:
+        install(application)
 
     if settings.CLIENT_CACHE_ENABLED:
         application.add_middleware(ClientCacheMiddleware, max_age=settings.CLIENT_CACHE_MAX_AGE)

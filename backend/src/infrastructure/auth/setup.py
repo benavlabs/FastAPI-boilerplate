@@ -16,7 +16,7 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from crudauth import CookieConfig, CRUDAuth, NewUserContext, OAuthCredentials, Principal, SessionTransport
-from crudauth.ratelimit import RateLimit, RateLimiterBackend, redis_rate_limiter
+from crudauth.ratelimit import RateLimit
 from crudauth.utils import client_ip_key, get_client_ip
 from fastapi import Request
 
@@ -24,27 +24,14 @@ from ...modules.rate_limit.crud import crud_rate_limits
 from ...modules.rate_limit.schemas import RateLimitSelect
 from ...modules.user.constants import NAME_MAX_LENGTH
 from ...modules.user.models import User
-from ..config.enums import RateLimiterBackend as RateLimiterBackendName
+from ..composition import Lifecycle
 from ..config.enums import SessionBackend
 from ..config.settings import settings
 from ..database.session import async_session
-from ..redis import rate_limiter_redis_client
+from .limiter import build_rate_limiter, rate_limiter_redis_client
 from .password_policy import password_policy
 
 OAUTH_PREFIX = "/api/v1/auth/oauth"
-
-
-def _rate_limiter() -> RateLimiterBackend | None:
-    """The limiter backend ``RATE_LIMITER_BACKEND`` names; ``None`` lets crudauth use memory."""
-    backend = settings.RATE_LIMITER_BACKEND
-    if backend == RateLimiterBackendName.REDIS:
-        return redis_rate_limiter(client=rate_limiter_redis_client)
-    if backend == RateLimiterBackendName.MEMORY:
-        return None
-    raise ValueError(
-        f"RATE_LIMITER_BACKEND={backend!r} isn't supported; use 'redis' or 'memory'. "
-        "The memcached rate limiter was removed when rate limiting moved to crudauth."
-    )
 
 
 def _session_transport() -> SessionTransport:
@@ -84,7 +71,7 @@ auth = CRUDAuth(
     SECRET_KEY=settings.SECRET_KEY,
     cookies=CookieConfig(secure=settings.SESSION_SECURE_COOKIES),
     transports=[session_transport],
-    rate_limiter=_rate_limiter(),
+    rate_limiter=build_rate_limiter(),
     trusted_proxy_hops=settings.TRUSTED_PROXY_HOPS,
     password_policy=password_policy,
     new_user_fields=_new_user_fields,
@@ -135,3 +122,10 @@ async def resolve_api_rate_limit(request: Request, principal: Principal | None) 
 
 
 api_rate_limit_dependency = auth.rate_limit("api", resolve_api_rate_limit, key=api_rate_limit_key)
+
+
+async def _close_limiter_client() -> None:
+    await rate_limiter_redis_client.aclose()
+
+
+lifecycle = Lifecycle("accounts", startup=auth.initialize, shutdown=(auth.shutdown, _close_limiter_client))

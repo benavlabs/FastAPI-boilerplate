@@ -1,7 +1,7 @@
-"""The shared Redis clients, and where they are injected."""
+"""The Redis client the cache owns, and where it is injected."""
 
-from src.infrastructure import redis
 from src.infrastructure.cache import initialize
+from src.infrastructure.cache.client import cache_redis_client
 from src.infrastructure.config.settings import settings
 
 
@@ -10,10 +10,10 @@ def _connection(client):
 
 
 class TestClientSettings:
-    """Each client follows its own settings, not the other service's."""
+    """The client follows the cache's settings, not another service's."""
 
     def test_cache_client_uses_the_cache_settings(self):
-        pool = _connection(redis.cache_redis_client)
+        pool = _connection(cache_redis_client)
         kwargs = pool.connection_kwargs
 
         assert kwargs["host"] == settings.CACHE_REDIS_HOST
@@ -22,17 +22,6 @@ class TestClientSettings:
         assert kwargs["socket_timeout"] == settings.CACHE_REDIS_CONNECT_TIMEOUT
         assert kwargs["decode_responses"] is False
         assert pool.max_connections == settings.CACHE_REDIS_POOL_SIZE
-
-    def test_rate_limiter_client_uses_the_rate_limiter_settings(self):
-        pool = _connection(redis.rate_limiter_redis_client)
-        kwargs = pool.connection_kwargs
-
-        assert kwargs["host"] == settings.RATE_LIMITER_REDIS_HOST
-        assert kwargs["port"] == settings.RATE_LIMITER_REDIS_PORT
-        assert kwargs["db"] == settings.RATE_LIMITER_REDIS_DB
-        assert kwargs["socket_timeout"] == settings.RATE_LIMITER_REDIS_CONNECT_TIMEOUT
-        assert kwargs["decode_responses"] is False
-        assert pool.max_connections == settings.RATE_LIMITER_REDIS_POOL_SIZE
 
 
 class TestInjection:
@@ -51,4 +40,4 @@ class TestInjection:
 
         await initialize.initialize_cache()
 
-        assert captured["client"] is redis.cache_redis_client
+        assert captured["client"] is cache_redis_client

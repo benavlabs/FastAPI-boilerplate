@@ -1,14 +1,16 @@
 """SQLAdmin interface initialization."""
 
+from fastapi import FastAPI
 from sqladmin import Admin
+from starlette.middleware.sessions import SessionMiddleware
 
 from ...infrastructure.config.settings import get_settings
 from ...infrastructure.database.session import get_engine
+from ...wiring.admin import ADMIN_VIEWS
 from .auth import AdminAuth
-from .views import register_admin_views
 
 
-def create_admin_interface(app) -> Admin | None:
+def create_admin_interface(app: FastAPI) -> Admin | None:
     """Create and configure the SQLAdmin interface.
 
     Args:
@@ -31,6 +33,18 @@ def create_admin_interface(app) -> Admin | None:
         title="Admin",
     )
 
-    register_admin_views(admin)
+    for view in ADMIN_VIEWS:
+        admin.add_view(view)
 
     return admin
+
+
+def install(app: FastAPI) -> None:
+    """Mount the admin panel, with the signed session cookie its login needs."""
+    settings = get_settings()
+
+    if not settings.ADMIN_ENABLED:
+        return
+
+    app.add_middleware(SessionMiddleware, secret_key=settings.SECRET_KEY)
+    create_admin_interface(app)

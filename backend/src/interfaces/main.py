@@ -2,13 +2,11 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
-from starlette.middleware.sessions import SessionMiddleware
 
 from ..infrastructure.app_factory import create_application, lifespan_factory
 from ..infrastructure.config.settings import get_settings
 from ..infrastructure.security import validate_production_security
 from ..interfaces.api import router
-from .admin.initialize import create_admin_interface
 
 settings = get_settings()
 
@@ -63,9 +61,6 @@ app = create_application(
     redoc_url="/redoc",
     openapi_url="/openapi.json",
 )
-
-app.add_middleware(SessionMiddleware, secret_key=settings.SECRET_KEY)
-create_admin_interface(app)
 
 
 @app.get("/health", tags=["System"])

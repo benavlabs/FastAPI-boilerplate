@@ -1,7 +1,9 @@
 """Unit tests for the application factory."""
 
+from collections.abc import Callable
 from contextlib import ExitStack
-from unittest.mock import AsyncMock, MagicMock, patch
+from typing import Any
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi import APIRouter, FastAPI
@@ -9,10 +11,11 @@ from httpx import ASGITransport, AsyncClient
 
 from src.infrastructure import app_factory
 from src.infrastructure.auth.dependencies import get_current_superuser
+from src.infrastructure.composition import Lifecycle
 from src.infrastructure.config.settings import EnvironmentOption, Settings, settings
+from src.wiring.app import DOCS_GUARD
 
 DOCS_PATHS = ("/docs", "/redoc", "/openapi.json")
-TEARDOWN_NAMES = ("close_cache", "close_database")
 
 
 @pytest.mark.asyncio
@@ -41,107 +44,115 @@ def lifespan_settings():
 
 
 @pytest.fixture
-def patched_lifespan():
-    """Patch every side effect of the lifespan and record teardown call order."""
+def feature_lifecycles():
+    """Two stand-in features, recording the order their startups and shutdowns run in.
+
+    The lifespan knows nothing about which features a project selected, so these
+    are ordinary ``Lifecycle`` values rather than patched module globals.
+    """
     call_order: list[str] = []
 
     def recorder(name: str) -> AsyncMock:
         return AsyncMock(side_effect=lambda *args, **kwargs: call_order.append(name))
 
-    auth = MagicMock()
-    auth.initialize = AsyncMock()
-    auth.shutdown = recorder("auth_shutdown")
+    first = Lifecycle(
+        "first",
+        startup=recorder("first_startup"),
+        shutdown=(recorder("first_shutdown"), recorder("first_client_close")),
+    )
+    second = Lifecycle("second", startup=recorder("second_startup"), shutdown=(recorder("second_shutdown"),))
 
-    cache_redis_client = MagicMock()
-    cache_redis_client.aclose = recorder("cache_redis_client_aclose")
+    return (first, second), call_order
 
-    rate_limiter_redis_client = MagicMock()
-    rate_limiter_redis_client.aclose = recorder("rate_limiter_redis_client_aclose")
 
-    mocks = {
-        "create_tables": AsyncMock(),
-        "initialize_cache": AsyncMock(),
-        "cache_redis_client": cache_redis_client,
-        "rate_limiter_redis_client": rate_limiter_redis_client,
-        "auth": auth,
-    }
-    for name in TEARDOWN_NAMES:
-        mocks[name] = recorder(name)
+@pytest.fixture
+def database_calls():
+    """The database steps the core itself owns."""
+    mocks = {"create_tables": AsyncMock(), "close_database": AsyncMock()}
 
     with ExitStack() as stack:
         for name, mock in mocks.items():
             stack.enter_context(patch(f"src.infrastructure.app_factory.{name}", mock))
-        yield mocks, call_order
+        yield mocks
 
 
 class TestLifespanDatabaseTeardown:
     """The lifespan must drain the connection pool on the way out."""
 
-    async def test_disposes_engine_on_clean_shutdown(self, lifespan_settings, patched_lifespan):
+    async def test_disposes_engine_on_clean_shutdown(self, lifespan_settings, database_calls, feature_lifecycles):
         """close_database is awaited once after a normal shutdown."""
-        mocks, _ = patched_lifespan
-        lifespan = app_factory.lifespan_factory(lifespan_settings)
+        lifecycles, _ = feature_lifecycles
+        lifespan = app_factory.lifespan_factory(lifespan_settings, lifecycles=lifecycles)
 
         async with lifespan(FastAPI()):
-            mocks["close_database"].assert_not_awaited()
+            database_calls["close_database"].assert_not_awaited()
 
-        mocks["close_database"].assert_awaited_once()
+        database_calls["close_database"].assert_awaited_once()
 
-    async def test_teardown_runs_in_reverse_order_with_database_last(self, lifespan_settings, patched_lifespan):
-        """Teardown runs in reverse order of setup, with the database last."""
-        _, call_order = patched_lifespan
-        lifespan = app_factory.lifespan_factory(lifespan_settings)
+    async def test_teardown_runs_in_reverse_order_with_database_last(
+        self, lifespan_settings, database_calls, feature_lifecycles
+    ):
+        """Features start in wiring order and are torn down in reverse, the database last."""
+        lifecycles, call_order = feature_lifecycles
+        lifespan = app_factory.lifespan_factory(lifespan_settings, lifecycles=lifecycles)
 
         async with lifespan(FastAPI()):
-            pass
+            assert call_order == ["first_startup", "second_startup"]
 
         assert call_order == [
-            "auth_shutdown",
-            "cache_redis_client_aclose",
-            "rate_limiter_redis_client_aclose",
-            "close_cache",
-            "close_database",
+            "first_startup",
+            "second_startup",
+            "second_shutdown",
+            "first_shutdown",
+            "first_client_close",
         ]
+        database_calls["close_database"].assert_awaited_once()
 
-    async def test_disposes_when_body_raises(self, lifespan_settings, patched_lifespan):
+    async def test_disposes_when_body_raises(self, lifespan_settings, database_calls, feature_lifecycles):
         """A failure while the app is serving still drains the pool."""
-        mocks, _ = patched_lifespan
-        lifespan = app_factory.lifespan_factory(lifespan_settings)
+        lifecycles, _ = feature_lifecycles
+        lifespan = app_factory.lifespan_factory(lifespan_settings, lifecycles=lifecycles)
 
         with pytest.raises(RuntimeError, match="boom"):
             async with lifespan(FastAPI()):
                 raise RuntimeError("boom")
 
-        mocks["close_database"].assert_awaited_once()
+        database_calls["close_database"].assert_awaited_once()
 
-    async def test_disposes_when_startup_fails(self, lifespan_settings, patched_lifespan):
-        """A failure partway through startup still drains the pool."""
-        mocks, _ = patched_lifespan
-        mocks["initialize_cache"].side_effect = RuntimeError("cache down")
-        lifespan = app_factory.lifespan_factory(lifespan_settings)
+    async def test_disposes_when_startup_fails(self, lifespan_settings, database_calls, feature_lifecycles):
+        """A failure partway through startup still drains the pool, and unwinds what started."""
+        lifecycles, call_order = feature_lifecycles
+        lifecycles[1].startup.side_effect = RuntimeError("cache down")
+        lifespan = app_factory.lifespan_factory(lifespan_settings, lifecycles=lifecycles)
 
         with pytest.raises(RuntimeError, match="cache down"):
             async with lifespan(FastAPI()):
                 pytest.fail("startup should not have completed")
 
-        mocks["close_database"].assert_awaited_once()
+        assert call_order == ["first_startup", "second_shutdown", "first_shutdown", "first_client_close"]
+        database_calls["close_database"].assert_awaited_once()
 
-    async def test_skips_dispose_without_database_settings(self, patched_lifespan):
+    async def test_skips_dispose_without_database_settings(self, database_calls, feature_lifecycles):
         """Settings that carry no database config leave the engine alone."""
-        mocks, _ = patched_lifespan
-        lifespan = app_factory.lifespan_factory(object())  # type: ignore[arg-type]
+        lifecycles, _ = feature_lifecycles
+        lifespan = app_factory.lifespan_factory(object(), lifecycles=lifecycles)  # type: ignore[arg-type]
 
         async with lifespan(FastAPI()):
             pass
 
-        mocks["close_database"].assert_not_awaited()
-        mocks["create_tables"].assert_not_awaited()
+        database_calls["close_database"].assert_not_awaited()
+        database_calls["create_tables"].assert_not_awaited()
 
 
-def _create_app(environment: EnvironmentOption, enable_docs_in_production: bool = False) -> FastAPI:
+def _create_app(
+    environment: EnvironmentOption,
+    enable_docs_in_production: bool = False,
+    docs_guard: Callable[..., Any] | None = DOCS_GUARD,
+) -> FastAPI:
     return app_factory.create_application(
         router=APIRouter(),
         settings=Settings(ENVIRONMENT=environment, ENABLE_DOCS_IN_PRODUCTION=enable_docs_in_production),
+        docs_guard=docs_guard,
     )
 
 
@@ -203,12 +214,17 @@ async def test_gated_docs_use_the_configured_paths():
     assert await _statuses(app, custom_paths) == [200, 200, 200]
 
 
-class TestLifespanAuth:
-    """crudauth is initialized on startup, after every connection is ready."""
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("environment", "enable_docs_in_production"),
+    [(EnvironmentOption.STAGING, False), (EnvironmentOption.PRODUCTION, True)],
+)
+async def test_docs_are_hidden_when_no_feature_can_guard_them(environment, enable_docs_in_production):
+    """Without a guard there is nobody to let in, so the docs are not served at all.
 
-    async def test_initializes_crudauth_on_startup(self, lifespan_settings, patched_lifespan):
-        mocks, _ = patched_lifespan
-        lifespan = app_factory.lifespan_factory(lifespan_settings)
+    A project that selected no accounts feature contributes no ``DOCS_GUARD``, and
+    unguarded docs outside development would be public.
+    """
+    app = _create_app(environment, enable_docs_in_production, docs_guard=None)
 
-        async with lifespan(FastAPI()):
-            mocks["auth"].initialize.assert_awaited_once()
+    assert await _docs_statuses(app) == [404, 404, 404]
