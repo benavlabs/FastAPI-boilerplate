@@ -14,7 +14,8 @@ class CacheSettings(BaseSettings):
 
     Attributes:
         CACHE_ENABLED: Whether to enable caching. Default is True.
-        CACHE_BACKEND: The cache backend to use. Default is "memcached".
+        CACHE_BACKEND: The cache backend to use. Default is "redis", which is what
+            the compose files and .env.example provide.
 
         # Memcached settings
         CACHE_MEMCACHED_HOST: Memcached server hostname. Default is "localhost".
@@ -37,7 +38,7 @@ class CacheSettings(BaseSettings):
     """
 
     CACHE_ENABLED: bool = config("CACHE_ENABLED", default=True, cast=bool)
-    CACHE_BACKEND: str = config("CACHE_BACKEND", default=CacheBackend.MEMCACHED.value)
+    CACHE_BACKEND: str = config("CACHE_BACKEND", default=CacheBackend.REDIS.value)
 
     CACHE_MEMCACHED_HOST: str = config("CACHE_MEMCACHED_HOST", default="localhost")
     CACHE_MEMCACHED_PORT: int = config("CACHE_MEMCACHED_PORT", default=11211, cast=int)

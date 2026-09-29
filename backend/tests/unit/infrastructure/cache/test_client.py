@@ -2,6 +2,7 @@
 
 from src.infrastructure.cache import initialize
 from src.infrastructure.cache.client import cache_redis_client
+from src.infrastructure.cache.settings import CacheSettings
 from src.infrastructure.config.settings import settings
 
 
@@ -41,3 +42,8 @@ class TestInjection:
         await initialize.initialize_cache()
 
         assert captured["client"] is cache_redis_client
+
+
+def test_the_default_backend_is_the_one_the_compose_files_provide():
+    """An env file without CACHE_BACKEND must not switch the app onto a service nothing runs."""
+    assert CacheSettings().CACHE_BACKEND == "redis"
