@@ -76,3 +76,10 @@ async def test_disabling_rate_limits_lets_every_request_through(client: AsyncCli
     statuses = [(await client.get(THROTTLED_READS[0], headers=limits)).status_code for _ in range(5)]
 
     assert 429 not in statuses
+
+
+async def test_a_path_parameter_does_not_hand_out_a_fresh_budget(client: AsyncClient, limits: dict):
+    """Every value of a path parameter is the same route, so they share one allowance."""
+    responses = [(await client.get(f"/api/v1/users/{name}", headers=limits)).status_code for name in "abcd"]
+
+    assert responses[3] == 429

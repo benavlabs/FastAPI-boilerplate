@@ -15,18 +15,30 @@ from ..auth.setup import auth
 from ..config.settings import settings
 
 
-def api_rate_limit_key(request: Request, principal: Principal | None) -> str:
-    """Name the budget a request counts against: one per caller per path.
+def throttled_path(request: Request) -> str:
+    """The route a request matched, as it was declared.
 
-    Limits are configured per path, so each path keeps its own counter: spending
-    the budget on one route never throttles another.
+    ``/users/alice`` and ``/users/bob`` are the same route, so they share a budget
+    and a configured limit. Counting the concrete path instead would hand every
+    path parameter its own allowance, which is no limit at all.
+    """
+    route = request.scope.get("route")
+
+    return getattr(route, "path", None) or request.url.path
+
+
+def api_rate_limit_key(request: Request, principal: Principal | None) -> str:
+    """Name the budget a request counts against: one per caller per route.
+
+    Limits are configured per route, so each route keeps its own counter: spending
+    the budget on one never throttles another.
     """
     if principal is not None:
         caller = f"user:{principal.user_id}"
     else:
         caller = f"ip:{client_ip_key(get_client_ip(request, settings.TRUSTED_PROXY_HOPS))}"
 
-    return f"{caller}:{request.url.path}"
+    return f"{caller}:{throttled_path(request)}"
 
 
 async def resolve_api_rate_limit(request: Request, principal: Principal | None) -> RateLimit | None:
