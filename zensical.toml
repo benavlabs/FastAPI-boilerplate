@@ -87,6 +87,7 @@ name = "FastAPI on PyPI"
 "User Guide" = [
     { "Overview" = "user-guide/index.md" },
     { "Project Structure" = "user-guide/project-structure.md" },
+    { "Composable Features" = "user-guide/composable-features.md" },
     { "Configuration" = [
         { "Overview" = "user-guide/configuration/index.md" },
         { "Environment Variables" = "user-guide/configuration/environment-variables.md" },

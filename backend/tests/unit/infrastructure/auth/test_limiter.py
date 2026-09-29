@@ -1,8 +1,12 @@
 """The limiter behind the login lockout: its client, and which backend it uses."""
 
+from typing import cast
+
 import pytest
+from crudauth.ratelimit import RateLimiterBackend
 
 from src.infrastructure.auth.limiter import build_rate_limiter, rate_limiter_redis_client
+from src.infrastructure.auth.setup import auth
 from src.infrastructure.config.settings import settings
 
 
@@ -48,3 +52,22 @@ class TestRateLimiterBackend:
 
         with pytest.raises(ValueError, match="memcached"):
             build_rate_limiter()
+
+
+class TestLockoutFailureMode:
+    """A limiter outage must not become a way to switch the login lockout off."""
+
+    @pytest.mark.asyncio
+    async def test_the_lockout_refuses_logins_while_the_backend_is_down(self):
+        """Documented in docs/user-guide/authentication/sessions.md: it fails closed."""
+
+        class UnreachableBackend:
+            async def get_ttl(self, key):
+                raise ConnectionError("limiter redis is down")
+
+        policy = auth._build_lockout(None, cast(RateLimiterBackend, UnreachableBackend()))
+        allowed, remaining, retry_after = await policy.check_and_record("203.0.113.7", "victim@example.com")
+
+        assert allowed is False
+        assert remaining == 0
+        assert retry_after > 0

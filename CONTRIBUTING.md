@@ -21,8 +21,11 @@ Once uv is installed, navigate to the cloned repository and install the dependen
 
 ```sh
 cd FastAPI-boilerplate
-uv sync
+uv sync --all-packages --all-extras
 ```
+
+`--all-packages` installs both workspace members, and `--all-extras` brings in the
+dev tools: a plain `uv sync` leaves you without ruff, mypy or pytest.
 
 ### Activating the Virtual Environment
 

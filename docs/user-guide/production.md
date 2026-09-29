@@ -256,29 +256,37 @@ For OpenTelemetry / APM integration, hook into the FastAPI app at startup — th
 
 ## Health and Readiness
 
-The boilerplate ships a `GET /api/v1/health` endpoint. Use it as your liveness probe:
+The boilerplate ships a `GET /health` endpoint, mounted on the app rather than under the API prefix. Use it as your liveness probe:
 
 ```yaml
 # Kubernetes / Docker probe
 livenessProbe:
   httpGet:
-    path: /api/v1/health
+    path: /health
     port: 8000
   initialDelaySeconds: 10
   periodSeconds: 10
 ```
 
-For a **readiness** probe (does the app actually have working DB / Redis connections?), the built-in health check is too thin — it returns 200 immediately. If you want strict readiness, add a richer endpoint that probes the database and cache:
+For a **readiness** probe (does the app actually have working DB / Redis connections?), use `GET /health/ready`. It runs the checks the project's wiring lists in `READINESS_CHECKS` — the database and, when the cache feature is in, the cache — and answers `503` while any of them is unreachable, so a load balancer holds traffic back instead of sending it into failing requests:
 
-```python
-@router.get("/ready")
-async def ready(db: Annotated[AsyncSession, Depends(async_session)]) -> dict[str, str]:
-    await db.execute(text("SELECT 1"))
-    await cache_get(key="readiness_probe")  # short-circuit; we don't care about value
-    return {"status": "ready"}
+```yaml
+readinessProbe:
+  httpGet:
+    path: /health/ready
+    port: 8000
+  initialDelaySeconds: 5
+  periodSeconds: 10
 ```
 
-Drop it into a private health-only router that's not gated by the rate limiter.
+```json
+{
+  "status": "not ready",
+  "dependencies": { "database": "ready", "cache": "unavailable" }
+}
+```
+
+Neither health route is throttled, and both stay out of the API prefix so an API-wide rate limit or auth dependency can't take your probes down. To report on something else this project needs, contribute a `ReadinessCheck` from the feature that owns it and list it in `src/wiring/hooks.py` — see [Composable Features](composable-features.md).
 
 ## Hardening Checklist
 
@@ -319,6 +327,8 @@ Managed Postgres works the same way — point `DATABASE_URL` at the provider and
 ### Redis
 
 The defaults use four separate DB numbers (`CACHE_REDIS_DB=0`, `RATE_LIMITER_REDIS_DB=1`, `SESSION_REDIS_DB=2`, `TASKIQ_REDIS_DB=3`) on the **same** Redis instance. Fine for small deployments. At scale, split sessions and the cache onto different Redis clusters — sessions are small and durability-sensitive; the cache is large, eviction-tolerant, and high-traffic. Mixing them puts your sessions at risk during cache memory pressure. Sessions follow the cache's Redis connection by default; set `SESSION_REDIS_URL` (e.g. `rediss://user:password@sessions-redis:6380/0`) to give them their own instance.
+
+The limiter's Redis (`RATE_LIMITER_REDIS_*`) is a hard dependency of logging in: the login lockout fails **closed**, so while that instance is unreachable every login is refused with `429`. Alert on it. See [Sessions → Login Lockout](authentication/sessions.md#login-lockout).
 
 ### Taskiq workers
 

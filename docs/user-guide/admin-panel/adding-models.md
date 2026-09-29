@@ -23,13 +23,16 @@ class MyModelAdmin(DataclassModelMixin, ModelView, model=MyModel):
 
 ### 1. Create the View File
 
+A view lives with the feature whose model it shows, so removing that feature takes
+its admin view with it.
+
 ```python
-# backend/src/interfaces/admin/views/widgets.py
+# backend/src/modules/widgets/admin.py
 from sqladmin import ModelView
 
-from ....modules.widgets.models import Widget
-from ....modules.widgets.schemas import WidgetCreate, WidgetUpdate
-from ..mixins import DataclassModelMixin
+from ...interfaces.admin.mixins import DataclassModelMixin
+from .models import Widget
+from .schemas import WidgetCreate, WidgetUpdate
 
 
 class WidgetAdmin(DataclassModelMixin, ModelView, model=Widget):
@@ -61,26 +64,19 @@ class WidgetAdmin(DataclassModelMixin, ModelView, model=Widget):
 
 ### 2. Register It
 
+Add it to the wiring, which is the one place that says what this project registers:
+
 ```python
-# backend/src/interfaces/admin/views/__init__.py
-from sqladmin import Admin
+# backend/src/wiring/admin.py
+from ..modules.tier.admin import TierAdmin
+from ..modules.user.admin import UserAdmin
+from ..modules.widgets.admin import WidgetAdmin   # new
 
-from .tiers import TierAdmin
-from .users import UserAdmin
-from .widgets import WidgetAdmin   # new
-
-__all__ = [
-    "UserAdmin",
-    "TierAdmin",
-    "WidgetAdmin",                  # new
-    "register_admin_views",
-]
-
-
-def register_admin_views(admin: Admin) -> None:
-    admin.add_view(UserAdmin)
-    admin.add_view(TierAdmin)
-    admin.add_view(WidgetAdmin)     # new
+ADMIN_VIEWS: tuple[type, ...] = (
+    UserAdmin,
+    TierAdmin,
+    WidgetAdmin,                                  # new
+)
 ```
 
 That's it — restart the app and Widgets show up in the sidebar under the "Inventory" category.
@@ -356,16 +352,16 @@ The boilerplate ships two admin views — read them as reference implementations
 
 | File | What it shows |
 |------|---------------|
-| `backend/src/interfaces/admin/views/users.py` | `on_model_change` for password hashing, OAuth-provider select field, relationship in `column_list`, custom `column_labels` |
-| `backend/src/interfaces/admin/views/tiers.py` | `delete_model` override that calls a service method, schema-driven form rules |
+| `backend/src/modules/user/admin.py` | `on_model_change` for password hashing, OAuth-provider select field, relationship in `column_list`, custom `column_labels` |
+| `backend/src/modules/tier/admin.py` | `delete_model` override that calls a service method, schema-driven form rules |
 
 ## Key Files
 
 | Component | Location |
 |-----------|----------|
 | Dataclass mixin | `backend/src/interfaces/admin/mixins.py` |
-| View registry | `backend/src/interfaces/admin/views/__init__.py` |
-| Example views | `backend/src/interfaces/admin/views/*.py` |
+| View registry | `backend/src/wiring/admin.py` |
+| Example views | `backend/src/modules/user/admin.py`, `backend/src/modules/tier/admin.py` |
 | Auth backend | `backend/src/interfaces/admin/auth.py` |
 
 ## Next Steps

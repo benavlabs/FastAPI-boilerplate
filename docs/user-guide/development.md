@@ -325,11 +325,11 @@ Then a smoke test:
 ```python
 # tests/test_smoke.py
 async def test_health(client):
-    response = await client.get("/api/v1/health")
+    response = await client.get("/health")
     assert response.status_code == 200
 ```
 
-For tests that genuinely need Postgres semantics (FK constraints, ARRAY types, JSONB), `testcontainers-postgres` is already a dev dependency — spin up a real Postgres in a fixture instead of mocking the database.
+For tests that genuinely need Postgres semantics (FK constraints, ARRAY types, JSONB), `testcontainers[postgres]` is already a dev dependency — spin up a real Postgres in a fixture instead of mocking the database.
 
 For unit tests on services, mock at the **CRUD layer**, not at the database. The service contract is "I call `crud_widgets.get` and get back a dict-or-None"; that's the seam to mock.
 
