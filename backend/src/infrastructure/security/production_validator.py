@@ -529,10 +529,10 @@ class ProductionSecurityValidator:
             configs.append(
                 {
                     "service": "cache",
-                    "host": self.settings.CACHE_REDIS_HOST,
-                    "port": self.settings.CACHE_REDIS_PORT,
-                    "db": self.settings.CACHE_REDIS_DB,
-                    "password": self.settings.CACHE_REDIS_PASSWORD,
+                    "host": self._feature_setting("CACHE_REDIS_HOST", ""),
+                    "port": self._feature_setting("CACHE_REDIS_PORT", 0),
+                    "db": self._feature_setting("CACHE_REDIS_DB", 0),
+                    "password": self._feature_setting("CACHE_REDIS_PASSWORD", None),
                     "ssl": False,
                 }
             )
@@ -541,16 +541,16 @@ class ProductionSecurityValidator:
             configs.append(
                 {
                     "service": "rate_limiter",
-                    "host": self.settings.RATE_LIMITER_REDIS_HOST,
-                    "port": self.settings.RATE_LIMITER_REDIS_PORT,
-                    "db": self.settings.RATE_LIMITER_REDIS_DB,
-                    "password": self.settings.RATE_LIMITER_REDIS_PASSWORD,
+                    "host": self._feature_setting("RATE_LIMITER_REDIS_HOST", ""),
+                    "port": self._feature_setting("RATE_LIMITER_REDIS_PORT", 0),
+                    "db": self._feature_setting("RATE_LIMITER_REDIS_DB", 0),
+                    "password": self._feature_setting("RATE_LIMITER_REDIS_PASSWORD", None),
                     "ssl": False,
                 }
             )
 
         if self._feature_setting("SESSION_BACKEND", "") == "redis":
-            configs.append(self._redis_configuration_from_url("sessions", self.settings.SESSION_REDIS_URL))
+            configs.append(self._redis_configuration_from_url("sessions", self._feature_setting("SESSION_REDIS_URL", "")))
 
         return configs
 
@@ -675,7 +675,7 @@ class ProductionSecurityValidator:
 
         if self._feature_setting("SESSION_TIMEOUT_MINUTES", 0) > 120:
             warnings.append(
-                f"Session timeout is set to {self.settings.SESSION_TIMEOUT_MINUTES} minutes "
+                f"Session timeout is set to {self._feature_setting('SESSION_TIMEOUT_MINUTES', 0)} minutes "
                 f"(more than 2 hours). Long session timeouts increase security risk if "
                 f"a session is compromised. Consider reducing the timeout for production."
             )
@@ -712,13 +712,13 @@ class ProductionSecurityValidator:
             return warnings
 
         weak_usernames = ["admin", "administrator", "root", "user", "test", "demo"]
-        if self.settings.ADMIN_USERNAME.lower() in weak_usernames:
+        if str(self._feature_setting("ADMIN_USERNAME", "")).lower() in weak_usernames:
             warnings.append(
-                f"Admin username '{self.settings.ADMIN_USERNAME}' is predictable. "
+                f"Admin username '{self._feature_setting('ADMIN_USERNAME', '')}' is predictable. "
                 f"Consider using a less obvious username for better security."
             )
 
-        password = self.settings.ADMIN_PASSWORD
+        password = self._feature_setting("ADMIN_PASSWORD", "")
         if len(password) < 12:
             warnings.append(
                 "Admin password is shorter than 12 characters. Use a longer, "

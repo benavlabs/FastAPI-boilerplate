@@ -5,7 +5,8 @@ from typing import Any
 from fastapi import APIRouter, Path, Query
 from fastcrud import PaginatedListResponse, compute_offset, paginated_response
 
-from ...infrastructure.dependencies import AsyncSessionDep, CurrentUserDep
+from ...infrastructure.auth.deps import CurrentUserDep
+from ...infrastructure.dependencies import AsyncSessionDep
 from .dependencies import APIKeyServiceDep
 from .schemas import (
     APIKeyCreate,

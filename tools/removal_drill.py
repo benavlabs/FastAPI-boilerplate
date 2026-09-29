@@ -37,6 +37,7 @@ FEATURES: dict[str, Feature] = {
             "backend/src/infrastructure/auth",
             "backend/src/modules/user",
             "backend/scripts/create_first_superuser.py",
+            "backend/tests/unit/scripts/test_create_first_superuser.py",
             "backend/tests/fixtures/accounts.py",
             "backend/tests/integration/auth",
             "backend/tests/integration/api/v1/users",
@@ -437,8 +438,30 @@ def _remove(path: Path) -> None:
         path.unlink()
 
 
+_IMPORT_EVERY_MODULE = """
+import importlib, pathlib, sys
+
+broken = []
+for path in sorted(pathlib.Path("src").rglob("*.py")):
+    module = ".".join(path.with_suffix("").parts).removesuffix(".__init__")
+    try:
+        importlib.import_module(module)
+    except Exception as error:
+        broken.append(f"{module}: {type(error).__name__}: {error}")
+
+if broken:
+    sys.exit("modules left behind by the removed features: " + "; ".join(broken))
+
+print("every module imports")
+"""
+
+
 def check(project: Path, python: Path) -> list[tuple[str, bool, str]]:
-    """Import the app, lint it and run whatever tests are left."""
+    """Import the app and every module, lint it, and run whatever tests are left.
+
+    Importing every module matters: a file no feature imports any more still ships,
+    and would fail only whenever someone reached for it.
+    """
     backend = project / "backend"
     environment = {
         "PATH": "/usr/bin:/bin",
@@ -449,16 +472,12 @@ def check(project: Path, python: Path) -> list[tuple[str, bool, str]]:
         "RATE_LIMITER_BACKEND": "memory",
         "HOME": str(Path.home()),
     }
+    quiet = "import warnings, logging; warnings.simplefilter('ignore'); logging.disable(50); "
     steps = [
-        (
-            "app imports",
-            [
-                str(python),
-                "-c",
-                "import warnings, logging; warnings.simplefilter('ignore'); logging.disable(50); import src.interfaces.main",
-            ],
-        ),
+        ("app imports", [str(python), "-c", quiet + "import src.interfaces.main"]),
+        ("every module imports", [str(python), "-c", quiet + _IMPORT_EVERY_MODULE]),
         ("ruff", [str(python), "-m", "ruff", "check", "src", "tests"]),
+        ("mypy", [str(python), "-m", "mypy", "src", "--config-file", "pyproject.toml"]),
         ("tests", [str(python), "-m", "pytest", "tests", "-q", "-p", "no:randomly"]),
     ]
     results = []

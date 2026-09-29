@@ -16,8 +16,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.infrastructure.auth import authorization as authz
 from src.infrastructure.auth import dependencies as deps
+from src.infrastructure.auth.deps import CurrentPermissionsDep
 from src.infrastructure.database.session import async_session
-from src.infrastructure.dependencies import CurrentPermissionsDep
 from src.modules.role.models import Role, RolePermission, UserRole
 from src.modules.user.models import User
 

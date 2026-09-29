@@ -4,12 +4,8 @@ from fastapi import APIRouter
 from fastcrud import PaginatedListResponse, compute_offset, paginated_response
 
 from ...infrastructure.auth.authorization import load_permissions, require_permissions
-from ...infrastructure.dependencies import (
-    AsyncSessionDep,
-    CurrentPermissionsDep,
-    CurrentSuperUserDep,
-    CurrentUserDep,
-)
+from ...infrastructure.auth.deps import CurrentPermissionsDep, CurrentSuperUserDep, CurrentUserDep
+from ...infrastructure.dependencies import AsyncSessionDep
 from .dependencies import UserServiceDep
 from .schemas import (
     UserCreate,

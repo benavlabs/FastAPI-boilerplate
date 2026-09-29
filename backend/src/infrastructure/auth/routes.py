@@ -7,9 +7,10 @@ from crudauth.utils import is_cross_site
 from fastapi import APIRouter, Depends, Form, Query, Request, Response
 
 from ...modules.user.crud import crud_users
-from ..dependencies import AsyncSessionDep, OAuth2FormDep
+from ..dependencies import AsyncSessionDep
 from ..logging import get_logger
 from .dependencies import get_current_principal, get_optional_principal
+from .deps import OAuth2FormDep
 from .setup import auth as crud_auth
 from .setup import session_transport
 

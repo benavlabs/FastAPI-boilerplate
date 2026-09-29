@@ -3,7 +3,8 @@ from typing import Any
 from fastapi import APIRouter
 from fastcrud import PaginatedListResponse, compute_offset, paginated_response
 
-from ...infrastructure.dependencies import AsyncSessionDep, CurrentSuperUserDep, CurrentUserDep
+from ...infrastructure.auth.deps import CurrentSuperUserDep, CurrentUserDep
+from ...infrastructure.dependencies import AsyncSessionDep
 from ..user.dependencies import UserServiceDep
 from .dependencies import TierServiceDep
 from .schemas import TierRead, UserTierUpdate
