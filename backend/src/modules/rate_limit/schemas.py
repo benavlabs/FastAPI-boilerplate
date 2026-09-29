@@ -1,10 +1,10 @@
 import re
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, ClassVar
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from ..common.schemas import TimestampSchema
+from ..common.schemas import PartialUpdate, TimestampSchema
 
 
 class RateLimitBase(BaseModel):
@@ -20,8 +20,8 @@ class RateLimitBase(BaseModel):
         if not v.startswith("/"):
             raise ValueError("Path must start with a forward slash (/)")
 
-        if not re.match(r"^\/[a-zA-Z0-9_\-\/]+$", v):
-            raise ValueError("Path must be a valid API path format, e.g. /api/v1/users")
+        if not re.match(r"^\/[a-zA-Z0-9_\-\/{}]+$", v):
+            raise ValueError("Path must be a valid API path format, e.g. /api/v1/users or /api/v1/users/{username}")
 
         return v
 
@@ -62,8 +62,10 @@ class RateLimitCreateInternal(RateLimitCreate):
     tier_id: int
 
 
-class RateLimitUpdate(BaseModel):
+class RateLimitUpdate(PartialUpdate):
     """Schema for updating rate limit information."""
+
+    NOT_NULLABLE: ClassVar[tuple[str, ...]] = ("path", "limit", "period", "name")
 
     path: str | None = Field(default=None)
     limit: int | None = Field(default=None, gt=0)
@@ -79,8 +81,8 @@ class RateLimitUpdate(BaseModel):
         if not v.startswith("/"):
             raise ValueError("Path must start with a forward slash (/)")
 
-        if not re.match(r"^\/[a-zA-Z0-9_\-\/]+$", v):
-            raise ValueError("Path must be a valid API path format, e.g. /api/v1/users")
+        if not re.match(r"^\/[a-zA-Z0-9_\-\/{}]+$", v):
+            raise ValueError("Path must be a valid API path format, e.g. /api/v1/users or /api/v1/users/{username}")
 
         return v
 

@@ -132,3 +132,11 @@ async def test_update_user_profile_duplicate_username(
     assert response.status_code == 422
     data = response.json()
     assert "detail" in data
+
+
+@pytest.mark.parametrize("field", ["name", "username", "profile_image_url"])
+async def test_an_explicit_null_is_refused_not_a_server_error(auth_client: AsyncClient, test_user: dict, field: str):
+    """A client sending null for a column the row requires gets told, not a 500."""
+    response = await auth_client.patch(f"/api/v1/users/{test_user['username']}", json={field: None})
+
+    assert response.status_code == 422

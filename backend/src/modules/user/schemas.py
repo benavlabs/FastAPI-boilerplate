@@ -1,11 +1,11 @@
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, ClassVar
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 from ...infrastructure.auth.password_policy import password_policy
 from ...wiring.models import UserSchemaExtensions
-from ..common.schemas import PersistentDeletion, TimestampSchema
+from ..common.schemas import PartialUpdate, PersistentDeletion, TimestampSchema
 from .constants import (
     NAME_MAX_LENGTH,
     USERNAME_MAX_LENGTH,
@@ -58,14 +58,16 @@ class UserProfileRead(UserSchemaExtensions):
 
 
 class UserRead(UserSchemaExtensions):
-    """Schema for reading user data, excludes sensitive information."""
+    """Schema for reading user data, excludes sensitive information.
+
+    The input rules live on the create and update schemas. A read schema that
+    repeated them would refuse rows the app itself writes, such as the short name
+    a provider login can leave behind, and turn them into a failed response.
+    """
 
     id: int
-    name: Annotated[str, Field(min_length=2, max_length=NAME_MAX_LENGTH, examples=["User Userson"])]
-    username: Annotated[
-        str,
-        Field(min_length=2, max_length=USERNAME_MAX_LENGTH, pattern=USERNAME_PATTERN, examples=["userson"]),
-    ]
+    name: Annotated[str, Field(examples=["User Userson"])]
+    username: Annotated[str, Field(examples=["userson"])]
     email: Annotated[EmailStr, Field(examples=["user.userson@example.com"])]
     profile_image_url: str
     is_deleted: bool = False
@@ -100,10 +102,12 @@ class UserCreateInternal(UserBase):
     oauth_updated_at: datetime | None = None
 
 
-class UserUpdate(BaseModel):
+class UserUpdate(PartialUpdate):
     """Schema for updating user data."""
 
     model_config = ConfigDict(extra="forbid")
+
+    NOT_NULLABLE: ClassVar[tuple[str, ...]] = ("name", "username", "email", "profile_image_url")
 
     name: Annotated[
         str | None,

@@ -4,7 +4,7 @@ from src.infrastructure.auth.password_policy import password_policy
 from src.infrastructure.auth.setup import auth
 from src.infrastructure.config.settings import settings
 from src.modules.user import schemas as user_schemas
-from src.modules.user.schemas import UserCreate
+from src.modules.user.schemas import UserCreate, UserProfileRead, UserRead
 
 
 def test_the_password_field_documents_the_configured_policy():
@@ -41,3 +41,27 @@ def test_the_password_field_is_driven_by_the_policy():
 
     assert field["minLength"] == password_policy.min_length
     assert field["description"] == password_policy.description
+
+
+def test_the_read_schema_describes_a_row_rather_than_policing_it():
+    """A row the app itself wrote has to be readable, whatever the signup rules were.
+
+    OAuth can leave a one-character name, and the admin panel writes rows without
+    the signup validators, so a read schema repeating those rules turns a valid
+    row into a 500 on every response that includes it.
+    """
+    row = {
+        "id": 1,
+        "name": "A",
+        "username": "x",
+        "email": "someone@example.com",
+        "profile_image_url": "https://example.com/a.jpg",
+    }
+
+    assert UserRead(**row).name == "A"
+
+
+def test_the_profile_schema_reads_the_same_row():
+    row = {"id": 1, "name": "A", "username": "x", "profile_image_url": "https://example.com/a.jpg"}
+
+    assert UserProfileRead(**row).username == "x"

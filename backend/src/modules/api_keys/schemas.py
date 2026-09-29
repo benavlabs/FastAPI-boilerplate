@@ -1,11 +1,11 @@
 """Pydantic schemas for API key management validation."""
 
 from datetime import datetime
-from typing import Annotated, Any
+from typing import Annotated, Any, ClassVar
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from ..common.schemas import TimestampSchema
+from ..common.schemas import PartialUpdate, TimestampSchema
 from .enums import HTTPMethod, KeyPermissionAction, KeyPermissionResource
 
 VALID_HTTP_METHODS = {m.value for m in HTTPMethod}
@@ -35,8 +35,10 @@ class APIKeyCreateInternal(APIKeyBase):
     key_prefix: str
 
 
-class APIKeyUpdate(BaseModel):
+class APIKeyUpdate(PartialUpdate):
     """Schema for updating an existing API key."""
+
+    NOT_NULLABLE: ClassVar[tuple[str, ...]] = ("name",)
 
     name: Annotated[str, Field(min_length=1, max_length=100)] | None = None
     permissions: dict[str, Any] | None = None
