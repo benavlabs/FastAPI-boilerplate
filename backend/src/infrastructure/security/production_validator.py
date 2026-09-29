@@ -5,6 +5,7 @@ checking for common misconfigurations that could lead to security vulnerabilitie
 """
 
 import re
+from typing import Any
 from urllib.parse import unquote, urlsplit
 
 from ..config.settings import EnvironmentOption, Settings
@@ -137,6 +138,14 @@ class ProductionSecurityValidator:
 
         self.logger.info("Production security validation completed successfully")
 
+    def _feature_setting(self, name: str, default: Any) -> Any:
+        """A setting a feature contributes, or ``default`` when the project didn't select it.
+
+        The validator runs whatever features a project has, so a check for one it
+        doesn't carry has to read as "nothing to warn about" rather than raise.
+        """
+        return getattr(self.settings, name, default)
+
     def _is_production(self) -> bool:
         """Check if the application is running in production environment.
 
@@ -202,7 +211,9 @@ class ProductionSecurityValidator:
                 "Set a strong password for production."
             )
 
-        if self.settings.ADMIN_ENABLED and (not self.settings.ADMIN_USERNAME or not self.settings.ADMIN_PASSWORD):
+        if self._feature_setting("ADMIN_ENABLED", False) and (
+            not self._feature_setting("ADMIN_USERNAME", "") or not self._feature_setting("ADMIN_PASSWORD", "")
+        ):
             errors.append(
                 "Admin interface is enabled (ADMIN_ENABLED=true) but ADMIN_USERNAME and/or "
                 "ADMIN_PASSWORD are not set. Set both to strong, unique values or set "
@@ -514,7 +525,7 @@ class ProductionSecurityValidator:
         """
         configs = []
 
-        if self.settings.CACHE_BACKEND == "redis":
+        if self._feature_setting("CACHE_BACKEND", "") == "redis":
             configs.append(
                 {
                     "service": "cache",
@@ -526,7 +537,7 @@ class ProductionSecurityValidator:
                 }
             )
 
-        if self.settings.RATE_LIMITER_ENABLED:
+        if self._feature_setting("RATE_LIMITER_ENABLED", False):
             configs.append(
                 {
                     "service": "rate_limiter",
@@ -538,7 +549,7 @@ class ProductionSecurityValidator:
                 }
             )
 
-        if self.settings.SESSION_BACKEND == "redis":
+        if self._feature_setting("SESSION_BACKEND", "") == "redis":
             configs.append(self._redis_configuration_from_url("sessions", self.settings.SESSION_REDIS_URL))
 
         return configs
@@ -655,21 +666,21 @@ class ProductionSecurityValidator:
         """
         warnings: list[str] = []
 
-        if not self.settings.SESSION_SECURE_COOKIES:
+        if not self._feature_setting("SESSION_SECURE_COOKIES", True):
             warnings.append(
                 "SESSION_SECURE_COOKIES is disabled. This allows session cookies to be "
                 "transmitted over unencrypted HTTP connections, making them vulnerable "
                 "to interception. Enable secure cookies in production."
             )
 
-        if self.settings.SESSION_TIMEOUT_MINUTES > 120:
+        if self._feature_setting("SESSION_TIMEOUT_MINUTES", 0) > 120:
             warnings.append(
                 f"Session timeout is set to {self.settings.SESSION_TIMEOUT_MINUTES} minutes "
                 f"(more than 2 hours). Long session timeouts increase security risk if "
                 f"a session is compromised. Consider reducing the timeout for production."
             )
 
-        if not self.settings.CSRF_ENABLED:
+        if not self._feature_setting("CSRF_ENABLED", True):
             warnings.append(
                 "CSRF protection is disabled. This makes your application vulnerable to "
                 "Cross-Site Request Forgery attacks. Enable CSRF protection in production."
@@ -694,10 +705,10 @@ class ProductionSecurityValidator:
         """
         warnings: list[str] = []
 
-        if not self.settings.ADMIN_ENABLED:
+        if not self._feature_setting("ADMIN_ENABLED", False):
             return warnings
 
-        if not self.settings.ADMIN_USERNAME or not self.settings.ADMIN_PASSWORD:
+        if not self._feature_setting("ADMIN_USERNAME", "") or not self._feature_setting("ADMIN_PASSWORD", ""):
             return warnings
 
         weak_usernames = ["admin", "administrator", "root", "user", "test", "demo"]

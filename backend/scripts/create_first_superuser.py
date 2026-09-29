@@ -11,7 +11,7 @@ from src.infrastructure.config.settings import settings  # noqa: E402
 from src.infrastructure.database.initialize import close_database  # noqa: E402
 from src.infrastructure.database.session import local_session  # noqa: E402
 from src.infrastructure.logging import get_logger  # noqa: E402
-from src.modules.common.exceptions import UserNotFoundError  # noqa: E402
+from src.modules.user.exceptions import UserNotFoundError  # noqa: E402
 from src.modules.user.models import User  # noqa: E402
 from src.modules.user.schemas import UserCreate  # noqa: E402
 from src.modules.user.service import UserService  # noqa: E402

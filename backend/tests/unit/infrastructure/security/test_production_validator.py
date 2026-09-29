@@ -4,6 +4,7 @@ from unittest.mock import Mock
 
 import pytest
 
+from src.infrastructure.config.base import CoreSettings
 from src.infrastructure.config.settings import EnvironmentOption, Settings
 from src.infrastructure.security.production_validator import (
     ProductionSecurityError,
@@ -422,3 +423,26 @@ class TestProductionSecurityValidator:
         warning_logs = [record for record in caplog.records if record.levelname == "WARNING"]
         ssl_warnings = [log for log in warning_logs if "not using SSL/TLS" in log.message]
         assert len(ssl_warnings) == 0
+
+
+class TestAProjectWithoutTheseFeatures:
+    """The validator runs whatever features a project selected, and no more.
+
+    ``CoreSettings`` carries none of the feature mixins, so every check that reads
+    one has to answer "nothing to warn about" instead of raising.
+    """
+
+    def test_it_validates_settings_that_carry_no_feature(self):
+        validator = ProductionSecurityValidator(CoreSettings(ENVIRONMENT=EnvironmentOption.PRODUCTION))
+
+        assert validator._check_session_security() == []
+        assert validator._check_admin_credentials() == []
+        assert validator._get_redis_configurations() == []
+
+    def test_the_core_checks_still_run(self):
+        """Dropping features must not drop the checks that hold for every project."""
+        validator = ProductionSecurityValidator(CoreSettings(ENVIRONMENT=EnvironmentOption.PRODUCTION))
+
+        errors = validator._validate_critical_security()
+
+        assert any("SECRET_KEY" in error for error in errors)
