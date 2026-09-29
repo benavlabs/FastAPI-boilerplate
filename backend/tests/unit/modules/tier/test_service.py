@@ -3,9 +3,10 @@
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.modules.common.exceptions import TierNotFoundError, ValidationError
+from src.modules.common.exceptions import ValidationError
 from src.modules.rate_limit.models import RateLimit
 from src.modules.tier.crud import crud_tiers
+from src.modules.tier.exceptions import TierNotFoundError
 from src.modules.tier.service import TierService
 
 pytestmark = pytest.mark.asyncio

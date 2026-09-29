@@ -8,14 +8,14 @@ from ..common.exceptions import (
     PermissionDeniedError,
     PersistenceError,
     ResourceExistsError,
-    TierNotFoundError,
-    UserNotFoundError,
     ValidationError,
 )
 from ..user.crud import crud_users
+from ..user.exceptions import UserNotFoundError
 from ..user.schemas import User as UserSchema
 from ..user.schemas import UserRead
 from .crud import crud_tiers
+from .exceptions import TierNotFoundError
 from .models import Tier
 from .schemas import (
     TierCreate,

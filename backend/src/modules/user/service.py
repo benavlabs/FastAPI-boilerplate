@@ -12,11 +12,10 @@ from ...infrastructure.logging import get_logger
 from ..common.exceptions import (
     PermissionDeniedError,
     PersistenceError,
-    UserExistsError,
-    UserNotFoundError,
     ValidationError,
 )
 from .crud import crud_users
+from .exceptions import UserExistsError, UserNotFoundError
 from .permissions import UserPermission
 from .schemas import (
     User as UserSchema,

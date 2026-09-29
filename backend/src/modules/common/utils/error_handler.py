@@ -8,7 +8,7 @@ from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.responses import Response
 
-from ....infrastructure.auth.http_exceptions import (
+from ....infrastructure.http_exceptions import (
     HTTPException,
 )
 from ....infrastructure.logging import get_logger
@@ -31,12 +31,17 @@ def map_exception(error: DomainError) -> HTTPException:
 
     Walks the exception's MRO and uses the first exact-type match found in
     EXCEPTION_MAPPING, so the most specific mapping wins regardless of the
-    order entries appear in the mapping.
+    order entries appear in the mapping. The status comes from that base class;
+    the message comes from the error's own ``public_detail`` when it sets one.
     """
     for exception_class in type(error).__mro__:
         mapper = EXCEPTION_MAPPING.get(exception_class)
         if mapper is not None:
-            return mapper(str(error))
+            http_exception = mapper(str(error))
+            if error.public_detail is not None:
+                http_exception.detail = error.public_detail
+
+            return http_exception
 
     logger.error(f"Unmapped domain error: {type(error).__name__}: {error}")
     return HTTPException(status_code=500, detail=GENERIC_ERROR_MESSAGE)

@@ -9,18 +9,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..common.exceptions import (
     PermissionDeniedError,
     PersistenceError,
-    RateLimitNotFoundError,
     ResourceExistsError,
-    TierNotFoundError,
-    UserNotFoundError,
 )
 from ..tier.crud import crud_tiers
+from ..tier.exceptions import TierNotFoundError
 from ..tier.models import Tier
 from ..tier.schemas import TierRead
 from ..user.crud import crud_users
+from ..user.exceptions import UserNotFoundError
 from ..user.models import User
 from ..user.schemas import UserRead
 from .crud import crud_rate_limits
+from .exceptions import RateLimitNotFoundError
 from .models import RateLimit
 from .schemas import (
     RateLimitCreate,

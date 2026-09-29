@@ -8,12 +8,9 @@ from src.modules.common.constants import GENERIC_ERROR_MESSAGE
 from src.modules.common.exceptions import (
     InsufficientCreditsError,
     PersistenceError,
-    RateLimitNotFoundError,
+    ResourceExistsError,
     ResourceNotFoundError,
-    TierNotFoundError,
     UsageLimitExceededError,
-    UserExistsError,
-    UserNotFoundError,
     ValidationError,
 )
 from src.modules.common.utils.error_handler import (
@@ -131,20 +128,34 @@ def test_map_exception_insufficient_credits_preserves_detail():
     assert "50 more credits" in http_exc.detail
 
 
-def test_map_exception_prefers_specific_subclass_mapping():
-    """Subclasses of ResourceNotFoundError must use their own mapping, not the parent's."""
-    assert map_exception(UserNotFoundError("nope")).detail == "User not found."
-    assert map_exception(TierNotFoundError("nope")).detail == "The requested tier was not found."
-    assert map_exception(RateLimitNotFoundError("nope")).detail == "Rate limit configuration not found."
-    # The base class itself still uses the generic not-found mapping
-    assert map_exception(ResourceNotFoundError("nope")).detail == "The requested resource was not found."
+class _MissingWidget(ResourceNotFoundError):
+    """A feature's own error, with the message it wants the client to see."""
+
+    public_detail = "The requested widget was not found."
 
 
-def test_map_exception_user_exists_uses_specific_mapping():
-    """UserExistsError must not fall through to the generic ResourceExistsError mapping."""
-    http_exc = map_exception(UserExistsError(""))
-    assert http_exc.status_code == 422
-    assert http_exc.detail == "A user with this email or username already exists."
+class _DuplicateWidget(ResourceExistsError):
+    public_detail = "That widget already exists."
+
+
+def test_a_features_own_message_replaces_the_base_one():
+    """The status comes from the base class; the message from the error itself."""
+    http_exc = map_exception(_MissingWidget("no such widget 7"))
+
+    assert http_exc.status_code == map_exception(ResourceNotFoundError("x")).status_code
+    assert http_exc.detail == "The requested widget was not found."
+
+
+def test_a_base_error_keeps_the_generic_message():
+    """An error that sets no message of its own must not leak the raised text."""
+    assert map_exception(ResourceNotFoundError("user 7 is missing")).detail == "The requested resource was not found."
+
+
+def test_the_status_still_comes_from_the_closest_base():
+    http_exc = map_exception(_DuplicateWidget(""))
+
+    assert http_exc.status_code == map_exception(ResourceExistsError("")).status_code
+    assert http_exc.detail == "That widget already exists."
 
 
 def test_map_exception_persistence_failure_is_a_500():

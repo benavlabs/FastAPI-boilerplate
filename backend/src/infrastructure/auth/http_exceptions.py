@@ -1,36 +1,13 @@
-"""Authentication-specific HTTP exceptions.
+"""The CSRF failure the authentication routes answer with.
 
-This module provides HTTP exceptions specifically designed for authentication
-and authorization scenarios, extending the base FastCRUD exceptions with
-auth-specific functionality like CSRF protection.
-
-The module re-exports commonly used HTTP exceptions from FastCRUD for
-convenience and consistency across the authentication system.
+The general HTTP exceptions live in ``infrastructure.http_exceptions``: core maps
+domain errors onto them without depending on this feature.
 """
 
 from fastapi import status
 from fastapi.exceptions import HTTPException
-from fastcrud.exceptions.http_exceptions import (
-    BadRequestException,
-    DuplicateValueException,
-    ForbiddenException,
-    NotFoundException,
-    RateLimitException,
-    UnauthorizedException,
-    UnprocessableEntityException,
-)
 
-__all__ = [
-    "BadRequestException",
-    "NotFoundException",
-    "ForbiddenException",
-    "UnauthorizedException",
-    "UnprocessableEntityException",
-    "DuplicateValueException",
-    "RateLimitException",
-    "HTTPException",
-    "CSRFException",
-]
+__all__ = ["CSRFException"]
 
 
 class CSRFException(HTTPException):
