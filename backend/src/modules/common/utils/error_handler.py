@@ -76,8 +76,15 @@ def register_exception_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(RequestValidationError)
     async def validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+        """Log where and why a request failed to validate, never what it carried.
+
+        pydantic reports the offending value in ``input``, and for a missing field
+        that value is the whole body, so logging the errors verbatim would write
+        submitted passwords to the log.
+        """
         support_id = _generate_support_id()
-        logger.warning(f"Validation error [{support_id}] on {request.method} {request.url.path}: {exc.errors()}")
+        failures = [{"loc": error["loc"], "type": error["type"], "msg": error["msg"]} for error in exc.errors()]
+        logger.warning(f"Validation error [{support_id}] on {request.method} {request.url.path}: {failures}")
         return JSONResponse(
             status_code=422,
             content={"detail": "Invalid request. Please check your input and try again.", "support_id": support_id},

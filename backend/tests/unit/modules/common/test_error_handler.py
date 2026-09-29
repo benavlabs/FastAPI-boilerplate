@@ -1,8 +1,11 @@
 """Tests for the error handler module."""
 
+import logging
+
 import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
+from pydantic import BaseModel
 
 from src.modules.common.constants import GENERIC_ERROR_MESSAGE
 from src.modules.common.exceptions import (
@@ -181,3 +184,26 @@ def test_handle_exception_returns_generic_for_domain_errors():
     assert http_exc is not None
     assert http_exc.status_code == 404
     assert "Payment record #123" not in http_exc.detail
+
+
+async def test_a_validation_failure_does_not_log_what_was_submitted(caplog):
+    """pydantic hands a missing-field error the whole body, password included."""
+    app = FastAPI()
+    register_exception_handlers(app)
+
+    class SignUp(BaseModel):
+        username: str
+        password: str
+
+    @app.post("/signup")
+    async def signup(body: SignUp) -> dict[str, str]:
+        return {"status": "created"}
+
+    with caplog.at_level(logging.WARNING):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            response = await client.post("/signup", json={"password": "hunter2-secret"})
+
+    assert response.status_code == 422
+    assert "hunter2-secret" not in caplog.text
+    assert "username" in caplog.text
+    assert "missing" in caplog.text
