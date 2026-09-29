@@ -14,7 +14,6 @@ from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
 from fastapi.openapi.utils import get_openapi
 
 from ..modules.common.utils.error_handler import register_exception_handlers
-from ..wiring.app import DOCS_GUARD, INSTALLERS, LIFECYCLES, ROOT_ROUTERS
 from .composition import Lifecycle
 from .config.settings import (
     DatabaseSettings,
@@ -39,15 +38,14 @@ async def set_threadpool_tokens(number_of_tokens: int = 100) -> None:
 def lifespan_factory(
     settings: Settings,
     create_tables_on_startup: bool = True,
-    lifecycles: Sequence[Lifecycle] | None = None,
+    lifecycles: Sequence[Lifecycle] = (),
 ) -> Callable[[FastAPI], AbstractAsyncContextManager[None]]:
     """Factory to create a lifespan async context manager for a FastAPI app.
 
-    The database opens first and closes last. Each feature's ``Lifecycle``, from
-    the wiring unless given, then starts in order and is torn down in reverse,
-    including when a later startup step raises.
+    The database opens first and closes last. Each feature's ``Lifecycle`` then
+    starts in order and is torn down in reverse, including when a later startup
+    step raises. The caller says which ones: this module knows no feature.
     """
-    feature_lifecycles = LIFECYCLES if lifecycles is None else lifecycles
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
@@ -62,7 +60,7 @@ def lifespan_factory(
                 if create_tables_on_startup:
                     await create_tables()
 
-            for lifecycle in feature_lifecycles:
+            for lifecycle in lifecycles:
                 for shutdown in reversed(lifecycle.shutdown):
                     teardown.push_async_callback(shutdown)
 
@@ -85,7 +83,9 @@ def create_application(
     cors_origins: list[str] | None = None,
     enable_docs_in_production: bool | None = None,
     docs_production_dependency: Callable[..., Any] | None = None,
-    docs_guard: Callable[..., Any] | None = DOCS_GUARD,
+    docs_guard: Callable[..., Any] | None = None,
+    root_routers: Sequence[APIRouter] = (),
+    installers: Sequence[Callable[[FastAPI], None]] = (),
     enable_gzip: bool | None = None,
     openapi_prefix: str | None = None,
     title: str | None = None,
@@ -101,88 +101,52 @@ def create_application(
     openapi_url: str | None = None,
     **kwargs: Any,
 ) -> FastAPI:
-    """Creates and configures a FastAPI application based on the provided settings."""
+    """Creates and configures a FastAPI application based on the provided settings.
+
+    What the app mounts, installs and guards its docs with is passed in rather
+    than read from the project's wiring, so the same factory can build a different
+    project, and a test can build one with wiring of its own.
+    """
     if settings is None:
         settings = get_settings()
 
-    _create_tables_on_startup = True
-    if create_tables_on_startup is not None:
-        _create_tables_on_startup = create_tables_on_startup
-    elif hasattr(settings, "CREATE_TABLES_ON_STARTUP"):
-        _create_tables_on_startup = settings.CREATE_TABLES_ON_STARTUP
-
-    _enable_cors = True
-    if enable_cors is not None:
-        _enable_cors = enable_cors
-    elif hasattr(settings, "CORS_ENABLED"):
-        _enable_cors = settings.CORS_ENABLED
+    _create_tables_on_startup = (
+        create_tables_on_startup if create_tables_on_startup is not None else settings.CREATE_TABLES_ON_STARTUP
+    )
+    _enable_cors = enable_cors if enable_cors is not None else settings.CORS_ENABLED
 
     _cors_origins: list[str] = cors_origins if cors_origins is not None else settings.CORS_ORIGINS_LIST
 
-    _enable_docs_in_production = False
-    if enable_docs_in_production is not None:
-        _enable_docs_in_production = enable_docs_in_production
-    elif hasattr(settings, "ENABLE_DOCS_IN_PRODUCTION"):
-        _enable_docs_in_production = settings.ENABLE_DOCS_IN_PRODUCTION
-
-    _enable_gzip = True
-    if enable_gzip is not None:
-        _enable_gzip = enable_gzip
-    elif hasattr(settings, "GZIP_ENABLED"):
-        _enable_gzip = settings.GZIP_ENABLED
-
-    _openapi_prefix = ""
-    if openapi_prefix is not None:
-        _openapi_prefix = openapi_prefix
-    elif hasattr(settings, "OPENAPI_PREFIX"):
-        _openapi_prefix = settings.OPENAPI_PREFIX
+    _enable_docs_in_production = (
+        enable_docs_in_production if enable_docs_in_production is not None else settings.ENABLE_DOCS_IN_PRODUCTION
+    )
+    _enable_gzip = enable_gzip if enable_gzip is not None else settings.GZIP_ENABLED
+    _openapi_prefix = openapi_prefix if openapi_prefix is not None else settings.OPENAPI_PREFIX
 
     metadata: dict[str, Any] = {"openapi_prefix": _openapi_prefix}
 
-    if title is not None:
-        metadata["title"] = title
-    elif hasattr(settings, "API_TITLE") and settings.API_TITLE:
-        metadata["title"] = settings.API_TITLE
-    elif hasattr(settings, "APP_NAME"):
-        metadata["title"] = settings.APP_NAME
+    metadata["title"] = title or settings.API_TITLE or settings.APP_NAME
 
-    if summary is not None:
-        metadata["summary"] = summary
-    elif hasattr(settings, "API_SUMMARY") and settings.API_SUMMARY:
-        metadata["summary"] = settings.API_SUMMARY
+    summary_text = summary or settings.API_SUMMARY
+    if summary_text:
+        metadata["summary"] = summary_text
 
-    if description is not None:
-        metadata["description"] = description
-    elif hasattr(settings, "API_DESCRIPTION") and settings.API_DESCRIPTION:
-        metadata["description"] = settings.API_DESCRIPTION
-    elif hasattr(settings, "APP_DESCRIPTION"):
-        metadata["description"] = settings.APP_DESCRIPTION
+    metadata["description"] = description or settings.API_DESCRIPTION or settings.APP_DESCRIPTION
+    metadata["version"] = version or settings.API_VERSION or settings.VERSION
 
-    if version is not None:
-        metadata["version"] = version
-    elif hasattr(settings, "API_VERSION") and settings.API_VERSION:
-        metadata["version"] = settings.API_VERSION
-    elif hasattr(settings, "VERSION"):
-        metadata["version"] = settings.VERSION
-
-    if terms_of_service is not None:
-        metadata["terms_of_service"] = terms_of_service
-    elif hasattr(settings, "API_TERMS_OF_SERVICE") and settings.API_TERMS_OF_SERVICE:
-        metadata["terms_of_service"] = settings.API_TERMS_OF_SERVICE
+    terms = terms_of_service or settings.API_TERMS_OF_SERVICE
+    if terms:
+        metadata["terms_of_service"] = terms
 
     if contact is not None:
         metadata["contact"] = contact
     else:
         contact_dict = {}
-        if hasattr(settings, "API_CONTACT_NAME") and settings.API_CONTACT_NAME:
-            contact_dict["name"] = settings.API_CONTACT_NAME
-        elif hasattr(settings, "CONTACT_NAME") and settings.CONTACT_NAME:
-            contact_dict["name"] = settings.CONTACT_NAME
-        if hasattr(settings, "API_CONTACT_EMAIL") and settings.API_CONTACT_EMAIL:
-            contact_dict["email"] = settings.API_CONTACT_EMAIL
-        elif hasattr(settings, "CONTACT_EMAIL") and settings.CONTACT_EMAIL:
-            contact_dict["email"] = settings.CONTACT_EMAIL
-        if hasattr(settings, "API_CONTACT_URL") and settings.API_CONTACT_URL:
+        if settings.API_CONTACT_NAME or settings.CONTACT_NAME:
+            contact_dict["name"] = settings.API_CONTACT_NAME or settings.CONTACT_NAME
+        if settings.API_CONTACT_EMAIL or settings.CONTACT_EMAIL:
+            contact_dict["email"] = settings.API_CONTACT_EMAIL or settings.CONTACT_EMAIL
+        if settings.API_CONTACT_URL:
             contact_dict["url"] = settings.API_CONTACT_URL
         if contact_dict:
             metadata["contact"] = contact_dict
@@ -191,42 +155,26 @@ def create_application(
         metadata["license_info"] = license_info
     else:
         license_dict = {}
-        if hasattr(settings, "API_LICENSE_NAME") and settings.API_LICENSE_NAME:
-            license_dict["name"] = settings.API_LICENSE_NAME
-        elif hasattr(settings, "LICENSE_NAME") and settings.LICENSE_NAME:
-            license_dict["name"] = settings.LICENSE_NAME
-        if hasattr(settings, "API_LICENSE_URL") and settings.API_LICENSE_URL:
+        if settings.API_LICENSE_NAME or settings.LICENSE_NAME:
+            license_dict["name"] = settings.API_LICENSE_NAME or settings.LICENSE_NAME
+        if settings.API_LICENSE_URL:
             license_dict["url"] = settings.API_LICENSE_URL
-        if hasattr(settings, "API_LICENSE_IDENTIFIER") and settings.API_LICENSE_IDENTIFIER:
+        if settings.API_LICENSE_IDENTIFIER:
             license_dict["identifier"] = settings.API_LICENSE_IDENTIFIER
         if license_dict:
             metadata["license_info"] = license_dict
 
     if openapi_tags is not None:
         metadata["openapi_tags"] = openapi_tags
-    elif hasattr(settings, "API_TAGS_METADATA") and settings.API_TAGS_METADATA:
+    elif settings.API_TAGS_METADATA:
         try:
             metadata["openapi_tags"] = json.loads(settings.API_TAGS_METADATA)
         except json.JSONDecodeError:
             pass
 
-    _docs_url = "/docs"
-    if docs_url is not None:
-        _docs_url = docs_url
-    elif hasattr(settings, "DOCS_URL"):
-        _docs_url = settings.DOCS_URL
-
-    _redoc_url = "/redoc"
-    if redoc_url is not None:
-        _redoc_url = redoc_url
-    elif hasattr(settings, "REDOC_URL"):
-        _redoc_url = settings.REDOC_URL
-
-    _openapi_url = "/openapi.json"
-    if openapi_url is not None:
-        _openapi_url = openapi_url
-    elif hasattr(settings, "OPENAPI_URL"):
-        _openapi_url = settings.OPENAPI_URL
+    _docs_url = docs_url if docs_url is not None else settings.DOCS_URL
+    _redoc_url = redoc_url if redoc_url is not None else settings.REDOC_URL
+    _openapi_url = openapi_url if openapi_url is not None else settings.OPENAPI_URL
 
     metadata["docs_url"] = _docs_url
     metadata["redoc_url"] = _redoc_url
@@ -267,10 +215,10 @@ def create_application(
 
     application.include_router(router)
 
-    for root_router in ROOT_ROUTERS:
+    for root_router in root_routers:
         application.include_router(root_router)
 
-    for install in INSTALLERS:
+    for install in installers:
         install(application)
 
     if settings.CLIENT_CACHE_ENABLED:
@@ -288,12 +236,12 @@ def create_application(
         application.add_middleware(CORSMiddleware, **cors_settings_dict)
 
     if _enable_gzip:
-        gzip_min_size = getattr(settings, "GZIP_MINIMUM_SIZE", 1000) if hasattr(settings, "GZIP_MINIMUM_SIZE") else 1000
+        gzip_min_size = settings.GZIP_MINIMUM_SIZE
         application.add_middleware(GZipMiddleware, minimum_size=gzip_min_size)
 
     _security_headers_enabled = getattr(settings, "SECURITY_HEADERS_ENABLED", True)
     if _security_headers_enabled:
-        _environment = settings.ENVIRONMENT.value if hasattr(settings, "ENVIRONMENT") else EnvironmentOption.DEVELOPMENT.value
+        _environment = settings.ENVIRONMENT.value
         application.add_middleware(SecurityHeadersMiddleware, environment=_environment)
 
     if show_docs:

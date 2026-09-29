@@ -265,3 +265,42 @@ async def test_named_origins_still_carry_credentials():
 
     assert cors.kwargs["allow_origins"] == ["https://app.example.com"]
     assert cors.kwargs["allow_credentials"] is True
+
+
+@pytest.mark.asyncio
+async def test_an_app_can_be_built_with_wiring_of_its_own():
+    """The factory builds whatever project it is handed, not the one it was compiled with."""
+    installed: list[str] = []
+    extra = APIRouter()
+
+    @extra.get("/from-the-wiring")
+    async def from_the_wiring() -> dict[str, bool]:
+        return {"mounted": True}
+
+    app = app_factory.create_application(
+        router=APIRouter(),
+        settings=Settings(ENVIRONMENT=EnvironmentOption.LOCAL),
+        root_routers=(extra,),
+        installers=(lambda application: installed.append("installed"),),
+    )
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get("/from-the-wiring")
+
+    assert response.status_code == 200
+    assert installed == ["installed"]
+
+
+@pytest.mark.asyncio
+async def test_the_api_metadata_settings_reach_the_schema():
+    """They used to be overridden by literals the app passed in, so nobody could set them."""
+    app = app_factory.create_application(
+        router=APIRouter(),
+        settings=Settings(API_TITLE="Acme API", API_VERSION="2.5.0", API_DESCRIPTION="What Acme runs on"),
+    )
+
+    info = app.openapi()["info"]
+
+    assert info["title"] == "Acme API"
+    assert info["version"] == "2.5.0"
+    assert info["description"] == "What Acme runs on"

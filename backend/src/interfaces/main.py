@@ -9,6 +9,7 @@ from ..infrastructure.config.settings import get_settings
 from ..infrastructure.logging import get_logger
 from ..infrastructure.security import validate_production_security
 from ..interfaces.api import router
+from ..wiring.app import DOCS_GUARD, INSTALLERS, LIFECYCLES, ROOT_ROUTERS
 from ..wiring.hooks import READINESS_CHECKS
 
 logger = get_logger()
@@ -25,7 +26,9 @@ async def lifespan_with_security(app: FastAPI) -> AsyncGenerator[None, None]:
     if settings.PRODUCTION_SECURITY_VALIDATION_ENABLED:
         validate_production_security(settings)
 
-    default_lifespan = lifespan_factory(settings, create_tables_on_startup=settings.CREATE_TABLES_ON_STARTUP)
+    default_lifespan = lifespan_factory(
+        settings, create_tables_on_startup=settings.CREATE_TABLES_ON_STARTUP, lifecycles=LIFECYCLES
+    )
 
     async with default_lifespan(app):
         yield
@@ -35,39 +38,9 @@ app = create_application(
     router=router,
     settings=settings,
     lifespan=lifespan_with_security,
-    create_tables_on_startup=None,
-    enable_cors=None,
-    cors_origins=None,
-    enable_docs_in_production=None,
-    docs_production_dependency=None,
-    enable_gzip=None,
-    openapi_prefix=None,
-    title="FastAPI Boilerplate",
-    summary="A modular FastAPI starter with a plugin system",
-    description="""
-    # FastAPI Boilerplate
-
-    A modern FastAPI starter with:
-
-    * Vertical-slice modules and a clean infrastructure layer
-    * Session-based auth with OAuth providers
-    * Swappable cache, queue, and rate-limit backends
-    * SQLAdmin admin UI
-    """,
-    version="0.19.0",
-    contact={
-        "name": "Benav Labs",
-        "url": "https://github.com/benavlabs/FastAPI-boilerplate",
-        "email": "contact@benav.io",
-    },
-    license_info={
-        "name": "MIT",
-        "identifier": "MIT",
-    },
-    openapi_tags=None,
-    docs_url="/docs",
-    redoc_url="/redoc",
-    openapi_url="/openapi.json",
+    root_routers=ROOT_ROUTERS,
+    installers=INSTALLERS,
+    docs_guard=DOCS_GUARD,
 )
 
 

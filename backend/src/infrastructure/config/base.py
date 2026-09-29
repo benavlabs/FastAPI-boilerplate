@@ -16,6 +16,17 @@ from .enums import LogFormat, LogLevel
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_APP_DESCRIPTION = """
+# FastAPI Boilerplate
+
+A modern FastAPI starter with:
+
+* Vertical-slice modules and a clean infrastructure layer
+* Session-based auth with OAuth providers
+* Swappable cache, queue, and rate-limit backends
+* SQLAdmin admin UI
+"""
+
 current_file_dir = os.path.dirname(os.path.realpath(__file__))
 backend_root = os.path.abspath(os.path.join(current_file_dir, "..", "..", ".."))
 project_root = os.path.abspath(os.path.join(current_file_dir, "..", "..", "..", ".."))
@@ -140,18 +151,18 @@ class APIDocSettings(BaseSettings):
     OPENAPI_URL: str = config("OPENAPI_URL", default="/openapi.json")
 
     API_TITLE: str = config("API_TITLE", default="")
-    API_SUMMARY: str = config("API_SUMMARY", default="")
+    API_SUMMARY: str = config("API_SUMMARY", default="A modular FastAPI starter with a plugin system")
     API_DESCRIPTION: str = config("API_DESCRIPTION", default="")
     API_VERSION: str = config("API_VERSION", default="")
     API_TERMS_OF_SERVICE: str = config("API_TERMS_OF_SERVICE", default="")
 
     API_CONTACT_NAME: str = config("API_CONTACT_NAME", default="")
-    API_CONTACT_URL: str = config("API_CONTACT_URL", default="")
+    API_CONTACT_URL: str = config("API_CONTACT_URL", default="https://github.com/benavlabs/FastAPI-boilerplate")
     API_CONTACT_EMAIL: str = config("API_CONTACT_EMAIL", default="")
 
     API_LICENSE_NAME: str = config("API_LICENSE_NAME", default="")
     API_LICENSE_URL: str = config("API_LICENSE_URL", default="")
-    API_LICENSE_IDENTIFIER: str = config("API_LICENSE_IDENTIFIER", default="")
+    API_LICENSE_IDENTIFIER: str = config("API_LICENSE_IDENTIFIER", default="MIT")
 
     API_TAGS_METADATA: str = config("API_TAGS_METADATA", default="[]")
 
@@ -167,12 +178,12 @@ class AppSettings(BaseSettings):
 
     # Note: For API documentation, prefer using API_* fields in APIDocSettings
     APP_NAME: str = config("APP_NAME", default="FastAPI Boilerplate")
-    APP_DESCRIPTION: str = config("APP_DESCRIPTION", default="Modular FastAPI starter")
+    APP_DESCRIPTION: str = config("APP_DESCRIPTION", default=DEFAULT_APP_DESCRIPTION)
     DEBUG: bool = config("DEBUG", default=False, cast=bool)
-    VERSION: str = config("VERSION", default="0.1.0")
-    CONTACT_NAME: str = config("CONTACT_NAME", default="Support")
-    CONTACT_EMAIL: str = config("CONTACT_EMAIL", default="support@example.com")
-    LICENSE_NAME: str = config("LICENSE_NAME", default="All rights reserved.")
+    VERSION: str = config("VERSION", default="0.19.0")
+    CONTACT_NAME: str = config("CONTACT_NAME", default="Benav Labs")
+    CONTACT_EMAIL: str = config("CONTACT_EMAIL", default="contact@benav.io")
+    LICENSE_NAME: str = config("LICENSE_NAME", default="MIT")
 
 
 class SecuritySettings(BaseSettings):
@@ -181,7 +192,6 @@ class SecuritySettings(BaseSettings):
     SECRET_KEY: str = config("SECRET_KEY", default="insecure-secret-key-change-this")
 
     PRODUCTION_SECURITY_VALIDATION_ENABLED: bool = config("PRODUCTION_SECURITY_VALIDATION_ENABLED", default=True, cast=bool)
-    PRODUCTION_SECURITY_STRICT_MODE: bool = config("PRODUCTION_SECURITY_STRICT_MODE", default=False, cast=bool)
     SECURITY_HEADERS_ENABLED: bool = config("SECURITY_HEADERS_ENABLED", default=True, cast=bool)
 
 
