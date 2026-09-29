@@ -4,7 +4,8 @@ from taskiq import AsyncBroker
 from taskiq_aio_pika import AioPikaBroker
 from taskiq_redis import ListQueueBroker, RedisAsyncResultBackend
 
-from ..config import TaskiqBrokerType, get_settings
+from ..config.enums import TaskiqBrokerType
+from ..config.settings import get_settings
 
 settings = get_settings()
 

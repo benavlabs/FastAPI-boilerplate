@@ -18,7 +18,7 @@ import logging.config
 import threading
 import uuid
 
-from ..config import LogFormat
+from ..config.enums import LogFormat
 from ..config.settings import EnvironmentOption, get_settings
 from .handlers import (
     create_console_handler,

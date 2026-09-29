@@ -1,19 +1,8 @@
-"""Initialize all modules and models to ensure SQLAlchemy registration."""
+"""The feature modules.
 
-from .api_keys.models import APIKey, KeyPermission, KeyUsage
-from .rate_limit.models import RateLimit
-from .role.models import Role, RolePermission, UserRole
-from .tier.models import Tier
-from .user.models import User
-
-__all__ = [
-    "User",
-    "Tier",
-    "RateLimit",
-    "APIKey",
-    "KeyUsage",
-    "KeyPermission",
-    "Role",
-    "RolePermission",
-    "UserRole",
-]
+This init imports nothing: the settings composition imports every feature's
+``settings`` module, which runs the inits above it, and importing app code that
+reads settings from here would close that circle. Models register themselves when
+their module is imported -- Alembic walks the packages, and the app reaches them
+through its routers.
+"""

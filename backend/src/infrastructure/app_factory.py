@@ -18,18 +18,18 @@ from ..modules.common.utils.error_handler import register_exception_handlers
 from .auth.dependencies import get_current_superuser
 from .auth.setup import auth
 from .cache.initialize import close_cache, initialize_cache
+from .cache.settings import CacheSettings
 from .config.settings import (
-    CacheSettings,
     DatabaseSettings,
     EnvironmentOption,
     EnvironmentSettings,
-    RateLimiterSettings,
     Settings,
     get_settings,
 )
 from .database.initialize import close_database
 from .database.session import create_tables
 from .middleware import ClientCacheMiddleware, SecurityHeadersMiddleware
+from .ratelimit.settings import RateLimitSettings
 from .redis import cache_redis_client, rate_limiter_redis_client
 
 logger = logging.getLogger(__name__)
@@ -64,7 +64,7 @@ def lifespan_factory(
                 await initialize_cache()
                 teardown.push_async_callback(close_cache)
 
-            if isinstance(settings, RateLimiterSettings) and settings.RATE_LIMITER_ENABLED:
+            if isinstance(settings, RateLimitSettings) and settings.RATE_LIMITER_ENABLED:
                 teardown.push_async_callback(rate_limiter_redis_client.aclose)
 
             if not (isinstance(settings, CacheSettings) and settings.CACHE_ENABLED and settings.CACHE_BACKEND == "redis"):
@@ -273,10 +273,8 @@ def create_application(
     application.include_router(router)
     application.add_middleware(RateLimitHeadersMiddleware)
 
-    if isinstance(settings, CacheSettings) and settings.CACHE_ENABLED and hasattr(settings, "CLIENT_CACHE_ENABLED"):
-        if settings.CLIENT_CACHE_ENABLED:
-            client_cache_max_age = getattr(settings, "CLIENT_CACHE_MAX_AGE", 60)
-            application.add_middleware(ClientCacheMiddleware, max_age=client_cache_max_age)
+    if settings.CLIENT_CACHE_ENABLED:
+        application.add_middleware(ClientCacheMiddleware, max_age=settings.CLIENT_CACHE_MAX_AGE)
 
     if _enable_cors:
         cors_settings_dict: dict[str, Any] = {

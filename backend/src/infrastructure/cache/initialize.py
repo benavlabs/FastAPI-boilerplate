@@ -1,6 +1,6 @@
 """Module for initializing the cache backends."""
 
-from ..config import CacheBackend
+from ..config.enums import CacheBackend
 from ..config.settings import get_settings
 from ..redis import cache_redis_client
 from . import MEMCACHED_INSTALLED, REDIS_INSTALLED
