@@ -250,6 +250,9 @@ class UserService:
 
         Note:
             Validates uniqueness when updating email or username.
+            A new address has proved nothing, so changing the email clears
+            ``email_verified``: an address that never verified must not be one a
+            provider login trusts.
             Only non-deleted users can be updated.
 
         Example:
@@ -272,13 +275,15 @@ class UserService:
             if email_exists:
                 raise UserExistsError("Email already registered")
 
+            update_data["email_verified"] = False
+
         if "username" in update_data and update_data["username"] != existing_user["username"]:
             username_exists = await crud_users.exists(db=db, username=update_data["username"])
             if username_exists:
                 raise UserExistsError("Username already taken")
 
         updated_user = await crud_users.update(
-            db=db, object=user_update, id=user_id, return_columns=list(UserSchema.model_fields.keys())
+            db=db, object=update_data, id=user_id, return_columns=list(UserSchema.model_fields.keys())
         )
         if not updated_user:
             raise UserNotFoundError(f"User with ID {user_id} not found")
@@ -501,7 +506,6 @@ class UserService:
                 "User anonymization requested",
                 extra={
                     "user_id": user_id,
-                    "email": existing_user.get("email"),
                     "action": "user_anonymization_start",
                 },
             )

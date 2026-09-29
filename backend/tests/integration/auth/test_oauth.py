@@ -4,7 +4,7 @@ from urllib.parse import parse_qs, urlparse
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.infrastructure.auth.setup import auth
@@ -252,3 +252,53 @@ async def test_a_provider_login_claims_an_account_that_was_signed_up_for(
     await db_session.refresh(claimed)
     assert claimed.google_id == "google-ada"
     assert claimed.email_verified is True
+
+
+async def test_a_provider_login_claims_an_account_whose_address_was_changed(
+    client: AsyncClient, db_session: AsyncSession, test_user: dict, monkeypatch
+):
+    """Moving a verified account onto someone else's address must not carry the trust over.
+
+    The account below is verified, so a provider login would link into it without
+    claiming it. Changing the email clears that, and the claim runs: the password
+    stops working and the row is signed out.
+    """
+    await db_session.execute(update(User).where(User.id == test_user["id"]).values(email_verified=True))
+    await db_session.commit()
+
+    login = await client.post(
+        "/api/v1/auth/login",
+        data={"username": test_user["username"], "password": test_user["password"]},
+    )
+    assert login.status_code == 200
+
+    moved = await client.patch(
+        f"/api/v1/users/{test_user['username']}",
+        json={"email": "victim@example.com"},
+        headers={"X-CSRF-Token": login.json()["csrf_token"]},
+    )
+    assert moved.status_code == 200
+    client.cookies.clear()
+
+    _stub_google(
+        monkeypatch,
+        {"sub": "google-victim", "email": "victim@example.com", "email_verified": True, "name": "Victim"},
+    )
+    state = await _start(client)
+    callback = await client.get(
+        "/api/v1/auth/oauth/callback/google",
+        params={"code": "the-code", "state": state},
+        follow_redirects=False,
+    )
+    assert callback.status_code == 307
+    client.cookies.clear()
+
+    refused = await client.post(
+        "/api/v1/auth/login",
+        data={"username": test_user["username"], "password": test_user["password"]},
+    )
+
+    assert refused.status_code == 401
+    claimed = (await db_session.execute(select(User).where(User.id == test_user["id"]))).scalar_one()
+    await db_session.refresh(claimed)
+    assert claimed.google_id == "google-victim"

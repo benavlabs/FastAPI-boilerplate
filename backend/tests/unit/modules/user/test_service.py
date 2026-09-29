@@ -1,8 +1,10 @@
 """Unit tests for the user service's authorization rules."""
 
 import pytest
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.modules.common.exceptions import PermissionDeniedError
+from src.modules.user.crud import crud_users
 from src.modules.user.schemas import UserCreate, UserUpdate
 from src.modules.user.service import UserService
 
@@ -124,3 +126,40 @@ async def test_signup_cannot_write_the_verification_or_oauth_columns(user_servic
 
     assert created["email_verified"] is False
     assert created["oauth_provider"] is None
+
+
+# =============================================================================
+# A new address has proved nothing
+# =============================================================================
+async def test_changing_the_email_drops_the_verification(user_service: UserService, db_session: AsyncSession, test_user: dict):
+    """A verified address doesn't vouch for the next one the owner types in."""
+    await crud_users.update(db=db_session, object={"email_verified": True}, id=test_user["id"])
+
+    await user_service.update(test_user["id"], UserUpdate(email="moved@example.com"), db_session)
+
+    moved = await crud_users.get(db=db_session, id=test_user["id"])
+    assert moved["email"] == "moved@example.com"
+    assert moved["email_verified"] is False
+
+
+async def test_an_update_that_keeps_the_email_keeps_the_verification(
+    user_service: UserService, db_session: AsyncSession, test_user: dict
+):
+    await crud_users.update(db=db_session, object={"email_verified": True}, id=test_user["id"])
+
+    await user_service.update(test_user["id"], UserUpdate(name="Same Address"), db_session)
+
+    unchanged = await crud_users.get(db=db_session, id=test_user["id"])
+    assert unchanged["email_verified"] is True
+
+
+async def test_resubmitting_the_same_email_keeps_the_verification(
+    user_service: UserService, db_session: AsyncSession, test_user: dict
+):
+    """A form that posts every field must not cost the user their verification."""
+    await crud_users.update(db=db_session, object={"email_verified": True}, id=test_user["id"])
+
+    await user_service.update(test_user["id"], UserUpdate(email=test_user["email"]), db_session)
+
+    unchanged = await crud_users.get(db=db_session, id=test_user["id"])
+    assert unchanged["email_verified"] is True
