@@ -29,7 +29,7 @@ env_paths = [
 
 env_path = next((path for path in env_paths if os.path.isfile(path)), env_paths[0])
 
-running_under_pytest = os.environ.get("ENVIRONMENT") == "pytest" or "PYTEST_VERSION" in os.environ
+running_under_pytest = "PYTEST_VERSION" in os.environ or "PYTEST_CURRENT_TEST" in os.environ
 if running_under_pytest:
     config = Config()
 else:

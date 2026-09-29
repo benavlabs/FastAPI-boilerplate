@@ -3,7 +3,9 @@
 import os
 from unittest.mock import patch
 
-from src.infrastructure.config.settings import Settings, get_settings
+import pytest
+
+from src.infrastructure.config.settings import EnvironmentOption, Settings, get_settings
 
 
 class TestSettings:
@@ -100,3 +102,11 @@ class TestCORSSettings:
     @patch.dict(os.environ, {"CORS_ORIGINS": "http://a.test, http://b.test ,"})
     def test_the_origin_list_strips_whitespace_and_drops_empties(self):
         assert Settings().CORS_ORIGINS_LIST == ["http://a.test", "http://b.test"]
+
+
+def test_the_environment_setting_only_takes_values_it_can_hold():
+    """``ENVIRONMENT=pytest`` used to be read as a signal here and then fail the cast."""
+    assert {option.value for option in EnvironmentOption} == {"production", "staging", "development", "local"}
+
+    with pytest.raises(ValueError):
+        EnvironmentOption("pytest")
