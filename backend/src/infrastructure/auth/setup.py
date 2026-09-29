@@ -6,22 +6,15 @@ dependencies reference it at import time; the lifespan only opens and closes its
 connections via ``auth.initialize()`` / ``auth.shutdown()`` (see ``app_factory``).
 
 Wires a single session transport (sessions + CSRF + escalating login lockout)
-over the configured session backend, the rate limiter behind both the login
-lockout and the per-tier API limits, the password policy, and Google OAuth when
-it's configured. Email recovery and sudo are intentionally not configured - the
+over the configured session backend, the limiter behind the login lockout, the
+password policy, and Google OAuth when it's configured. Email recovery and sudo are intentionally not configured - the
 boilerplate has no email pipeline, and no route gates on sudo.
 """
 
-from contextlib import asynccontextmanager
 from typing import Any
 
-from crudauth import CookieConfig, CRUDAuth, NewUserContext, OAuthCredentials, Principal, SessionTransport
-from crudauth.ratelimit import RateLimit
-from crudauth.utils import client_ip_key, get_client_ip
-from fastapi import Request
+from crudauth import CookieConfig, CRUDAuth, NewUserContext, OAuthCredentials, SessionTransport
 
-from ...modules.rate_limit.crud import crud_rate_limits
-from ...modules.rate_limit.schemas import RateLimitSelect
 from ...modules.user.constants import NAME_MAX_LENGTH
 from ...modules.user.models import User
 from ..composition import Lifecycle
@@ -84,44 +77,6 @@ auth = CRUDAuth(
     },
     oauth_response_mode="redirect",
 )
-
-
-def api_rate_limit_key(request: Request, principal: Principal | None) -> str:
-    """Name the budget a request counts against: one per caller per path.
-
-    Tier limits are configured per path, so each path keeps its own counter -
-    spending the budget on one route never throttles another.
-    """
-    if principal is not None:
-        caller = f"user:{principal.user_id}"
-    else:
-        caller = f"ip:{client_ip_key(get_client_ip(request, settings.TRUSTED_PROXY_HOPS))}"
-    return f"{caller}:{request.url.path}"
-
-
-async def resolve_api_rate_limit(request: Request, principal: Principal | None) -> RateLimit | None:
-    """The limit for this request: the caller's tier row for the path, else the default.
-
-    The row is read through the app's own database dependency, honoring any
-    override on it, so the lookup uses the same database as the route it guards.
-    """
-    if not settings.RATE_LIMITER_ENABLED:
-        return None
-
-    tier_id: Any = auth.repo.get(principal.user, "tier_id") if principal is not None and principal.user else None
-    if tier_id is not None:
-        database = request.app.dependency_overrides.get(async_session, async_session)
-        async with asynccontextmanager(database)() as db:
-            configured = await crud_rate_limits.get(
-                db=db, tier_id=tier_id, path=request.url.path, schema_to_select=RateLimitSelect
-            )
-        if configured:
-            return RateLimit(configured["limit"], configured["period"])
-
-    return RateLimit(settings.DEFAULT_RATE_LIMIT_LIMIT, settings.DEFAULT_RATE_LIMIT_PERIOD)
-
-
-api_rate_limit_dependency = auth.rate_limit("api", resolve_api_rate_limit, key=api_rate_limit_key)
 
 
 async def _close_limiter_client() -> None:

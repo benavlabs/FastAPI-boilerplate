@@ -12,10 +12,11 @@ from fastapi import APIRouter, Depends, FastAPI
 from ..infrastructure.auth.dependencies import get_current_superuser
 from ..infrastructure.auth.install import install as accounts_install
 from ..infrastructure.auth.routes import router as auth_router
-from ..infrastructure.auth.setup import api_rate_limit_dependency, auth
+from ..infrastructure.auth.setup import auth
 from ..infrastructure.auth.setup import lifecycle as accounts_lifecycle
 from ..infrastructure.cache.initialize import lifecycle as cache_lifecycle
 from ..infrastructure.composition import Lifecycle, RouterMount
+from ..infrastructure.ratelimit.dependency import api_rate_limit_dependency
 from ..interfaces.admin.initialize import install as admin_install
 from ..modules.api_keys.routes import router as api_keys_router
 from ..modules.rate_limit.routes import router as rate_limits_router

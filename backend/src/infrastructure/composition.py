@@ -9,7 +9,8 @@ from collections.abc import Awaitable, Callable, Collection
 from dataclasses import dataclass, field
 from typing import Any
 
-from fastapi import APIRouter
+from crudauth.ratelimit import RateLimit
+from fastapi import APIRouter, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 
@@ -33,3 +34,7 @@ class Lifecycle:
 
 PermissionSource = Callable[[AsyncSession, int], Awaitable[Collection[str]]]
 """Answers which permission names a user holds; the authorization checks ask every one."""
+
+
+RateLimitResolver = Callable[[Request, Any], Awaitable[RateLimit | None]]
+"""Answers the limit for a request, or ``None`` to let the next resolver decide."""
