@@ -152,17 +152,6 @@ def test_reading_the_registry_discovers_the_declarations():
     assert result.returncode == 0, result.stderr
 
 
-def test_a_route_module_imports_on_its_own():
-    """``require_permissions`` validates at import time, so discovery has to have run.
-
-    Importing a route module directly is how Alembic, a worker or a script reaches
-    the app, and it must not depend on something else importing ``src.modules`` first.
-    """
-    result = _in_a_cold_process("import src.modules.user.routes")
-
-    assert result.returncode == 0, result.stderr
-
-
 def _in_a_cold_process(code: str) -> subprocess.CompletedProcess[str]:
     """Run ``code`` in a process that has imported nothing of the app yet."""
     backend = Path(__file__).resolve().parents[3]

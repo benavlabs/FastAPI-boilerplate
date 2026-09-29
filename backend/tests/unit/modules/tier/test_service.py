@@ -21,7 +21,7 @@ def tier_service() -> TierService:
 
 @pytest.mark.parametrize("method", DELETE_METHODS)
 async def test_delete_rejects_tier_assigned_to_users(
-    tier_service: TierService, db_session: AsyncSession, test_user: dict, test_tier: dict, method: str
+    tier_service: TierService, db_session: AsyncSession, tiered_user: dict, test_tier: dict, method: str
 ):
     with pytest.raises(ValidationError, match="assigned to users"):
         await getattr(tier_service, method)(test_tier["name"], db_session)

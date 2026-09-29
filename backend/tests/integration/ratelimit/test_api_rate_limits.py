@@ -55,14 +55,16 @@ async def test_each_path_keeps_its_own_budget(client: AsyncClient, limits: dict)
 
 
 async def test_a_signed_in_user_gets_their_tiers_limit_for_the_path(
-    client: AsyncClient, db_session: AsyncSession, test_user: dict, test_tier: dict, limits: dict
+    client: AsyncClient, db_session: AsyncSession, tiered_user: dict, test_tier: dict, limits: dict
 ):
     path = "/api/v1/tiers/"
     db_session.add(RateLimit(tier_id=test_tier["id"], name="tiers_listing", path=path, limit=2, period=3600))
     await db_session.commit()
-    login = await client.post("/api/v1/auth/login", data={"username": test_user["username"], "password": test_user["password"]})
+    login = await client.post(
+        "/api/v1/auth/login", data={"username": tiered_user["username"], "password": tiered_user["password"]}
+    )
     assert login.status_code == 200
-    await auth.rate_limiter.reset(f"ratelimit:api:user:{test_user['id']}:{path}")
+    await auth.rate_limiter.reset(f"ratelimit:api:user:{tiered_user['id']}:{path}")
 
     responses = [await client.get(path) for _ in range(3)]
     default_path = await client.get("/api/v1/users/me")
