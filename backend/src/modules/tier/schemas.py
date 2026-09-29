@@ -93,3 +93,9 @@ class TierDelete(BaseModel):
     """Schema for deleting a tier."""
 
     pass
+
+
+class UserTierUpdate(BaseModel):
+    """The payload for putting a user on a tier."""
+
+    tier_id: int

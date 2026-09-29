@@ -1,9 +1,8 @@
 from collections.abc import Collection
 from datetime import UTC, datetime
-from typing import Any, cast
+from typing import Any
 
 from crudauth import get_password_hash_async
-from fastcrud import JoinConfig
 from fastcrud.types import GetMultiResponseDict
 from sqlalchemy.exc import MultipleResultsFound, NoResultFound
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,18 +12,11 @@ from ...infrastructure.logging import get_logger
 from ..common.exceptions import (
     PermissionDeniedError,
     PersistenceError,
-    TierNotFoundError,
     UserExistsError,
     UserNotFoundError,
     ValidationError,
 )
-from ..rate_limit.models import RateLimit
-from ..rate_limit.schemas import RateLimitRead
-from ..tier.crud import crud_tiers
-from ..tier.models import Tier
-from ..tier.schemas import TierRead
 from .crud import crud_users
-from .models import User
 from .permissions import UserPermission
 from .schemas import (
     User as UserSchema,
@@ -34,7 +26,6 @@ from .schemas import (
     UserCreate,
     UserCreateInternal,
     UserRead,
-    UserTierUpdate,
     UserUpdate,
 )
 
@@ -45,9 +36,9 @@ class UserService:
     """Service class for user-related operations.
 
     This service manages user accounts including creation, updates, authentication,
-    tier management, and permission handling. It provides comprehensive user
-    management functionality with support for soft deletion, tier-based access
-    control, and rate limiting through tier associations.
+    and permission handling, with support for soft deletion. Features that add to
+    the user model bring their own service: the tiers feature owns a user's tier,
+    and the tier-limits feature owns the limits that follow from it.
     """
 
     async def create(self, user: UserCreate, db: AsyncSession) -> dict[str, Any]:
@@ -552,161 +543,3 @@ class UserService:
                 extra={"user_id": user_id, "action": "user_anonymization_failed", "reason": "user_not_found"},
             )
             raise UserNotFoundError(f"User with ID {user_id} not found")
-
-    async def update_tier(self, user_id: int, tier_update: UserTierUpdate, db: AsyncSession) -> dict[str, Any]:
-        """Update a user's tier assignment.
-
-        Changes the tier assignment for a user, which affects their access
-        levels, permissions, and rate limits.
-
-        Args:
-            user_id: ID of the user to update.
-            tier_update: New tier assignment data.
-            db: Database session for the operation.
-
-        Returns:
-            Updated user data dictionary.
-
-        Raises:
-            UserNotFoundError: If the user doesn't exist.
-            TierNotFoundError: If the specified tier doesn't exist.
-
-        Note:
-            Tier changes immediately affect the user's access levels and
-            rate limits. This is typically an administrative operation.
-
-        Example:
-            ```python
-            tier_update = UserTierUpdate(tier_id=2)
-            updated_user = await service.update_tier(123, tier_update, db)
-            ```
-        """
-        existing_user = await crud_users.get(db=db, id=user_id, is_deleted=False)
-        if not existing_user:
-            raise UserNotFoundError(f"User with ID {user_id} not found")
-
-        tier_exists = await crud_tiers.exists(db=db, id=tier_update.tier_id)
-        if not tier_exists:
-            raise TierNotFoundError(f"Tier with ID {tier_update.tier_id} not found")
-
-        updated_user = await crud_users.update(
-            db=db, object=tier_update, id=user_id, return_columns=list(UserSchema.model_fields.keys())
-        )
-        if not updated_user:
-            raise UserNotFoundError(f"User with ID {user_id} not found")
-        return updated_user
-
-    async def get_rate_limits(self, user_id: int, db: AsyncSession) -> dict[str, Any]:
-        """Get rate limits for a user through their tier assignment.
-
-        Retrieves all rate limits applicable to a user based on their tier
-        assignment. Uses database joins for efficient data retrieval.
-
-        Args:
-            user_id: ID of the user to get rate limits for.
-            db: Database session for the operation.
-
-        Returns:
-            Dictionary containing user data with nested rate limits.
-
-        Raises:
-            UserNotFoundError: If the user doesn't exist.
-
-        Note:
-            Rate limits are inherited from the user's tier. Users without
-            tier assignments have no rate limits. Uses advanced joins to
-            efficiently retrieve related data.
-
-        Example:
-            ```python
-            user_limits = await service.get_rate_limits(123, db)
-            for limit in user_limits.get("rate_limits", []):
-                print(f"Rate limit: {limit['resource']} - {limit['limit']}")
-            ```
-        """
-        user = await crud_users.get(db=db, id=user_id, is_deleted=False, schema_to_select=UserRead)
-        if not user:
-            raise UserNotFoundError(f"User with ID {user_id} not found")
-
-        if user["tier_id"] is None:
-            user["rate_limits"] = []
-            return user
-
-        joins_config = [
-            JoinConfig(
-                model=Tier,
-                join_on=User.tier_id == Tier.id,
-                join_prefix="tier_",
-                schema_to_select=TierRead,
-                join_type="left",
-            ),
-            JoinConfig(
-                model=RateLimit,
-                join_on=Tier.id == RateLimit.tier_id,
-                join_prefix="rate_limits_",
-                schema_to_select=RateLimitRead,
-                join_type="left",
-                relationship_type="one-to-many",
-            ),
-        ]
-
-        result = await crud_users.get_joined(
-            db=db, schema_to_select=UserRead, joins_config=joins_config, nest_joins=True, id=user_id
-        )
-
-        if not result:
-            raise UserNotFoundError(f"User with ID {user_id} not found")
-
-        return result
-
-    async def get_user_with_tier(self, user_id: int, db: AsyncSession) -> dict[str, Any]:
-        """Get user with detailed tier information.
-
-        Retrieves a user along with their complete tier information
-        using database joins for efficient data access.
-
-        Args:
-            user_id: ID of the user to retrieve.
-            db: Database session for the operation.
-
-        Returns:
-            Dictionary containing user data with nested tier information.
-
-        Raises:
-            UserNotFoundError: If the user doesn't exist.
-
-        Note:
-            Returns complete tier details including tier name, description,
-            and configuration. Users without tier assignments have tier=None.
-
-        Example:
-            ```python
-            user_data = await service.get_user_with_tier(123, db)
-            if user_data.get("tier"):
-                print(f"User tier: {user_data['tier']['name']}")
-            ```
-        """
-        user_dict = await crud_users.get(db=db, id=user_id, is_deleted=False, schema_to_select=UserRead)
-        if not user_dict:
-            raise UserNotFoundError(f"User with ID {user_id} not found")
-
-        if user_dict.get("tier_id") is None:
-            user_dict["tier"] = None
-            return user_dict
-
-        tier_exists = await crud_tiers.exists(db=db, id=user_dict["tier_id"])
-        if not tier_exists:
-            user_dict["tier"] = None
-            return user_dict
-
-        result = await crud_users.get_joined(
-            db=db,
-            join_model=Tier,
-            join_prefix="tier_",
-            schema_to_select=UserRead,
-            join_schema_to_select=TierRead,
-            id=user_id,
-            nest_joins=True,
-        )
-
-        return cast(dict[str, Any], result)

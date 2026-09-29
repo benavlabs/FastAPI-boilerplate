@@ -6,6 +6,7 @@ from typing import Any
 from crudauth import Principal
 from crudauth.ratelimit import RateLimit
 from fastapi import Request
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...infrastructure.auth.setup import auth
 from ...infrastructure.database.session import async_session
@@ -28,3 +29,11 @@ async def tier_rate_limit(request: Request, principal: Principal | None) -> Rate
         configured = await crud_rate_limits.get(db=db, tier_id=tier_id, path=request.url.path, schema_to_select=RateLimitSelect)
 
     return RateLimit(configured["limit"], configured["period"]) if configured else None
+
+
+async def rate_limits_reference_tier(tier: dict[str, Any], db: AsyncSession) -> str | None:
+    """Refuse to delete a tier that still has rate limits, and say why."""
+    if await crud_rate_limits.exists(db=db, tier_id=tier["id"]):
+        return f"Cannot delete tier '{tier['name']}' because it has rate limits. Delete the rate limits first."
+
+    return None

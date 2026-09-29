@@ -7,7 +7,7 @@ import bcrypt
 import pytest
 from crudauth.exceptions import PasswordPolicyException
 
-from src.interfaces.admin.views.users import UserAdmin
+from src.modules.user.admin import UserAdmin
 
 
 async def test_the_admin_form_hashes_the_password_off_the_event_loop():

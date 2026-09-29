@@ -20,11 +20,15 @@ from ..infrastructure.ratelimit.dependency import api_rate_limit_dependency
 from ..interfaces.admin.initialize import install as admin_install
 from ..modules.api_keys.routes import router as api_keys_router
 from ..modules.rate_limit.routes import router as rate_limits_router
+from ..modules.rate_limit.routes import user_rate_limits_router
 from ..modules.tier.routes import router as tiers_router
+from ..modules.tier.routes import user_tier_router
 from ..modules.user.routes import router as users_router
 
 ROUTER_MOUNTS: tuple[RouterMount, ...] = (
     RouterMount(users_router, "/users", throttled=True),
+    RouterMount(user_tier_router, "/users", throttled=True),
+    RouterMount(user_rate_limits_router, "/users", throttled=True),
     RouterMount(tiers_router, "/tiers", throttled=True),
     RouterMount(rate_limits_router, "/rate-limits", throttled=True),
     RouterMount(auth_router, "/auth", throttled=False),

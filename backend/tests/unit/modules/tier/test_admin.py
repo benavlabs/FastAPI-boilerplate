@@ -1,6 +1,6 @@
 """Tests for the Tier admin view configuration."""
 
-from src.interfaces.admin.views.tiers import TierAdmin
+from src.modules.tier.admin import TierAdmin
 
 
 def test_tier_admin_form_does_not_include_users():

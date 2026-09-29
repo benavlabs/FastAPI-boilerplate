@@ -3,12 +3,12 @@
 from sqladmin import ModelView
 from starlette.requests import Request
 
-from ....infrastructure.database.session import local_session
-from ....modules.tier.crud import crud_tiers
-from ....modules.tier.models import Tier
-from ....modules.tier.schemas import TierCreate, TierUpdate
-from ....modules.tier.service import TierService
-from ..mixins import DataclassModelMixin
+from ...infrastructure.database.session import local_session
+from ...interfaces.admin.mixins import DataclassModelMixin
+from .crud import crud_tiers
+from .models import Tier
+from .schemas import TierCreate, TierUpdate
+from .service import TierService
 
 
 class TierAdmin(DataclassModelMixin, ModelView, model=Tier):

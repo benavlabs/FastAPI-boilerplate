@@ -3,8 +3,8 @@
 Hand-maintained until the generator exists.
 """
 
-from ..interfaces.admin.views.tiers import TierAdmin
-from ..interfaces.admin.views.users import UserAdmin
+from ..modules.tier.admin import TierAdmin
+from ..modules.user.admin import UserAdmin
 
 ADMIN_VIEWS: tuple[type, ...] = (
     UserAdmin,

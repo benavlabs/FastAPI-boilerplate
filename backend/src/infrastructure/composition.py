@@ -38,3 +38,7 @@ PermissionSource = Callable[[AsyncSession, int], Awaitable[Collection[str]]]
 
 RateLimitResolver = Callable[[Request, Any], Awaitable[RateLimit | None]]
 """Answers the limit for a request, or ``None`` to let the next resolver decide."""
+
+
+TierDeleteGuard = Callable[[dict[str, Any], AsyncSession], Awaitable[str | None]]
+"""Answers why a tier can't be deleted, or ``None`` to allow it."""

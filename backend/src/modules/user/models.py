@@ -1,23 +1,19 @@
 from datetime import datetime
-from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy import DateTime, String
+from sqlalchemy.orm import Mapped, mapped_column
 
 from ...infrastructure.database.models import SoftDeleteMixin, TimestampMixin
 from ...infrastructure.database.session import Base
 from ...wiring.models import UserModelExtensions
 from .constants import NAME_MAX_LENGTH, USERNAME_MAX_LENGTH
 
-if TYPE_CHECKING:
-    from ..tier.models import Tier
-
 
 class User(Base, TimestampMixin, SoftDeleteMixin, UserModelExtensions):
     """User model representing application users.
 
     Other features add to it through ``UserModelExtensions`` in the wiring: rbac
-    contributes ``user_roles``.
+    contributes ``user_roles``, and the tiers feature ``tier_id`` and ``tier``.
     """
 
     __tablename__ = "user"
@@ -37,13 +33,6 @@ class User(Base, TimestampMixin, SoftDeleteMixin, UserModelExtensions):
 
     profile_image_url: Mapped[str] = mapped_column(String, default="https://profileimageurl.com")
 
-    tier_id: Mapped[int | None] = mapped_column(
-        Integer,
-        ForeignKey("tiers.id"),
-        index=True,
-        default=None,
-    )
-
     is_superuser: Mapped[bool] = mapped_column(default=False)
 
     google_id: Mapped[str | None] = mapped_column(String(50), unique=True, index=True, default=None)
@@ -52,8 +41,6 @@ class User(Base, TimestampMixin, SoftDeleteMixin, UserModelExtensions):
     email_verified: Mapped[bool] = mapped_column(default=False)
     oauth_created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
     oauth_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
-
-    tier: Mapped["Tier | None"] = relationship("Tier", back_populates="users", lazy="selectin", init=False)
 
     @property
     def is_active(self) -> bool:

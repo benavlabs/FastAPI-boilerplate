@@ -1,4 +1,8 @@
-"""Admin view for User model."""
+"""Admin view for the User model.
+
+The tier column and form field appear only when the tiers feature contributed
+them to the model, so the panel works in a project without tiers.
+"""
 
 from typing import Any
 
@@ -7,13 +11,13 @@ from sqladmin import ModelView
 from starlette.requests import Request
 from wtforms import SelectField
 
-from ....infrastructure.auth.setup import auth
-from ....infrastructure.database.session import local_session
-from ....modules.user.enums import OAuthProvider
-from ....modules.user.models import User
-from ....modules.user.schemas import UserAdminUpdate
-from ....modules.user.service import UserService
-from ..mixins import DataclassModelMixin
+from ...infrastructure.auth.setup import auth
+from ...infrastructure.database.session import local_session
+from ...interfaces.admin.mixins import DataclassModelMixin
+from .enums import OAuthProvider
+from .models import User
+from .schemas import UserAdminUpdate
+from .service import UserService
 
 OAUTH_PROVIDER_CHOICES = [("", "None")] + [(p.value, p.value.title()) for p in OAuthProvider]
 
@@ -26,7 +30,9 @@ class UserAdmin(DataclassModelMixin, ModelView, model=User):
     icon = "fa-solid fa-user"
     category = "Users & Access"
 
-    column_list = [User.id, User.name, User.username, User.email, User.is_superuser, User.tier]
+    column_list = [User.id, User.name, User.username, User.email, User.is_superuser]
+    if hasattr(User, "tier"):
+        column_list = [*column_list, User.tier]
     column_details_list = "__all__"
     column_searchable_list = [User.name, User.username, User.email]
     column_sortable_list = [User.id, User.name, User.username, User.email]
@@ -40,8 +46,9 @@ class UserAdmin(DataclassModelMixin, ModelView, model=User):
 
     column_labels = {"hashed_password": "Password"}
 
-    form_create_rules = ["name", "username", "email", "hashed_password", "tier_id", "is_superuser"]
-    form_edit_rules = [*UserAdminUpdate.model_fields.keys(), "tier_id", "is_superuser"]
+    _tier_rules = ["tier_id"] if hasattr(User, "tier") else []
+    form_create_rules = ["name", "username", "email", "hashed_password", *_tier_rules, "is_superuser"]
+    form_edit_rules = [*UserAdminUpdate.model_fields.keys(), *_tier_rules, "is_superuser"]
 
     form_overrides = {"oauth_provider": SelectField}
     form_args = {"oauth_provider": {"choices": OAUTH_PROVIDER_CHOICES}}

@@ -4,6 +4,7 @@ from typing import Annotated
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 from ...infrastructure.auth.password_policy import password_policy
+from ...wiring.models import UserSchemaExtensions
 from ..common.schemas import PersistentDeletion, TimestampSchema
 from .constants import (
     NAME_MAX_LENGTH,
@@ -21,7 +22,7 @@ class UserBase(BaseModel):
     email: Annotated[EmailStr, Field(examples=["user.userson@example.com"])]
 
 
-class User(TimestampSchema, UserBase, PersistentDeletion):
+class User(TimestampSchema, UserBase, PersistentDeletion, UserSchemaExtensions):
     """Complete user model with all fields."""
 
     hashed_password: str
@@ -33,7 +34,6 @@ class User(TimestampSchema, UserBase, PersistentDeletion):
             description="URL of the user's profile image",
         ),
     ]
-    tier_id: int | None = None
 
     google_id: str | None = None
     github_id: str | None = None
@@ -43,7 +43,7 @@ class User(TimestampSchema, UserBase, PersistentDeletion):
     oauth_updated_at: datetime | None = None
 
 
-class UserProfileRead(BaseModel):
+class UserProfileRead(UserSchemaExtensions):
     """Another user's profile: the fields any signed-in user may see.
 
     No email address, so looking someone up by username can't be used to collect
@@ -55,10 +55,9 @@ class UserProfileRead(BaseModel):
     name: Annotated[str, Field(examples=["User Userson"])]
     username: Annotated[str, Field(examples=["userson"])]
     profile_image_url: str
-    tier_id: int | None = None
 
 
-class UserRead(BaseModel):
+class UserRead(UserSchemaExtensions):
     """Schema for reading user data, excludes sensitive information."""
 
     id: int
@@ -70,7 +69,6 @@ class UserRead(BaseModel):
     email: Annotated[EmailStr, Field(examples=["user.userson@example.com"])]
     profile_image_url: str
     is_deleted: bool = False
-    tier_id: int | None
     is_superuser: bool = False
     email_verified: bool = False
     oauth_provider: str | None = None
@@ -150,12 +148,6 @@ class UserUpdateInternal(UserAdminUpdate):
     """Internal schema for user updates."""
 
     updated_at: datetime
-
-
-class UserTierUpdate(BaseModel):
-    """Schema for updating a user's tier."""
-
-    tier_id: int
 
 
 class UserDelete(BaseModel):
