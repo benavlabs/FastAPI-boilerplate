@@ -99,10 +99,12 @@ class CORSSettings(BaseSettings):
 
     @property
     def CORS_ORIGINS_LIST(self) -> list[str]:
-        """Get CORS origins as a list."""
-        if not self.CORS_ORIGINS:
-            return ["*"]
-        return [x.strip() for x in self.CORS_ORIGINS.split(",") if x.strip()]
+        """The origins allowed to make cross-origin requests.
+
+        An empty setting allows none of them. Answering ``*`` instead would hand
+        every site on the internet an allowance nobody asked for.
+        """
+        return [origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()]
 
     CORS_ALLOW_METHODS: str = config("CORS_ALLOW_METHODS", default="*")
     CORS_ALLOW_HEADERS: str = config("CORS_ALLOW_HEADERS", default="*")

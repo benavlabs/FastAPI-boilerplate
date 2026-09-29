@@ -117,11 +117,7 @@ def create_application(
     elif hasattr(settings, "CORS_ENABLED"):
         _enable_cors = settings.CORS_ENABLED
 
-    _cors_origins: list[str] = ["*"]
-    if cors_origins is not None:
-        _cors_origins = cors_origins
-    elif hasattr(settings, "CORS_ORIGINS_LIST"):
-        _cors_origins = settings.CORS_ORIGINS_LIST
+    _cors_origins: list[str] = cors_origins if cors_origins is not None else settings.CORS_ORIGINS_LIST
 
     _enable_docs_in_production = False
     if enable_docs_in_production is not None:
@@ -280,21 +276,15 @@ def create_application(
     if settings.CLIENT_CACHE_ENABLED:
         application.add_middleware(ClientCacheMiddleware, max_age=settings.CLIENT_CACHE_MAX_AGE)
 
-    if _enable_cors:
+    if _enable_cors and _cors_origins:
+        methods = settings.CORS_ALLOW_METHODS
+        headers = settings.CORS_ALLOW_HEADERS
         cors_settings_dict: dict[str, Any] = {
             "allow_origins": _cors_origins,
-            "allow_credentials": True,
-            "allow_methods": ["*"],
-            "allow_headers": ["*"],
+            "allow_credentials": settings.CORS_ALLOW_CREDENTIALS and "*" not in _cors_origins,
+            "allow_methods": methods.split(",") if isinstance(methods, str) else methods,
+            "allow_headers": headers.split(",") if isinstance(headers, str) else headers,
         }
-        if hasattr(settings, "CORS_ALLOW_CREDENTIALS"):
-            cors_settings_dict["allow_credentials"] = settings.CORS_ALLOW_CREDENTIALS
-        if hasattr(settings, "CORS_ALLOW_METHODS"):
-            methods = settings.CORS_ALLOW_METHODS
-            cors_settings_dict["allow_methods"] = methods.split(",") if isinstance(methods, str) else methods
-        if hasattr(settings, "CORS_ALLOW_HEADERS"):
-            headers = settings.CORS_ALLOW_HEADERS
-            cors_settings_dict["allow_headers"] = headers.split(",") if isinstance(headers, str) else headers
         application.add_middleware(CORSMiddleware, **cors_settings_dict)
 
     if _enable_gzip:

@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from crudauth.exceptions import UnauthorizedException
 from fastapi import APIRouter, FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from httpx import ASGITransport, AsyncClient
 
 from src.infrastructure import app_factory
@@ -233,3 +234,34 @@ async def test_docs_are_hidden_when_no_feature_can_guard_them(environment, enabl
     app = _create_app(environment, enable_docs_in_production, docs_guard=None)
 
     assert await _docs_statuses(app) == [404, 404, 404]
+
+
+@pytest.mark.asyncio
+async def test_no_configured_origin_means_no_cross_origin_allowance():
+    """An empty allowlist must not become a wildcard."""
+    app = app_factory.create_application(router=APIRouter(), settings=Settings(CORS_ORIGINS=""))
+
+    assert not [middleware for middleware in app.user_middleware if middleware.cls is CORSMiddleware]
+
+
+@pytest.mark.asyncio
+async def test_a_wildcard_origin_never_carries_credentials():
+    """Starlette would otherwise echo any Origin back together with the cookie."""
+    app = app_factory.create_application(router=APIRouter(), settings=Settings(CORS_ORIGINS="*", CORS_ALLOW_CREDENTIALS=True))
+
+    cors = next(middleware for middleware in app.user_middleware if middleware.cls is CORSMiddleware)
+
+    assert cors.kwargs["allow_origins"] == ["*"]
+    assert cors.kwargs["allow_credentials"] is False
+
+
+@pytest.mark.asyncio
+async def test_named_origins_still_carry_credentials():
+    app = app_factory.create_application(
+        router=APIRouter(), settings=Settings(CORS_ORIGINS="https://app.example.com", CORS_ALLOW_CREDENTIALS=True)
+    )
+
+    cors = next(middleware for middleware in app.user_middleware if middleware.cls is CORSMiddleware)
+
+    assert cors.kwargs["allow_origins"] == ["https://app.example.com"]
+    assert cors.kwargs["allow_credentials"] is True
