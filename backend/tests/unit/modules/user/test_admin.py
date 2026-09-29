@@ -40,3 +40,12 @@ async def test_the_admin_form_turns_a_blank_oauth_provider_into_none():
     await UserAdmin().on_model_change(data, model=None, is_created=False, request=None)
 
     assert data["oauth_provider"] is None
+
+
+async def test_the_admin_panel_stores_the_address_in_canonical_form():
+    """A row written in the panel is signed in to through crudauth, which lowercases."""
+    data = {"name": "Mixed Case", "username": "mixedcase", "email": "Admin@Example.COM"}
+
+    await UserAdmin().on_model_change(data, None, False, None)
+
+    assert data["email"] == "admin@example.com"

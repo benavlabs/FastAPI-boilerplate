@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.modules.common.exceptions import PermissionDeniedError
 from src.modules.user.crud import crud_users
+from src.modules.user.exceptions import UserExistsError
 from src.modules.user.schemas import UserCreate, UserUpdate
 from src.modules.user.service import UserService
 
@@ -163,3 +164,50 @@ async def test_resubmitting_the_same_email_keeps_the_verification(
 
     unchanged = await crud_users.get(db=db_session, id=test_user["id"])
     assert unchanged["email_verified"] is True
+
+
+# =============================================================================
+# One address, whatever case it was typed in
+# =============================================================================
+async def test_signup_stores_the_address_in_canonical_form(user_service: UserService, db_session: AsyncSession):
+    """crudauth looks accounts up in lowercase, so that is what the row has to hold."""
+    created = await user_service.create(
+        UserCreate(name="Mixed Case", username="mixedcase", email="Alice@Example.COM", password="Str1ngst!"),
+        db_session,
+    )
+
+    assert created["email"] == "alice@example.com"
+
+
+async def test_the_same_address_in_another_case_is_still_taken(user_service: UserService, db_session: AsyncSession):
+    await user_service.create(
+        UserCreate(name="First Owner", username="firstowner", email="owner@example.com", password="Str1ngst!"),
+        db_session,
+    )
+
+    with pytest.raises(UserExistsError):
+        await user_service.create(
+            UserCreate(name="Second Owner", username="secondowner", email="OWNER@Example.com", password="Str1ngst!"),
+            db_session,
+        )
+
+
+async def test_changing_to_the_same_address_in_another_case_is_refused(
+    user_service: UserService, db_session: AsyncSession, test_user: dict
+):
+    await user_service.create(
+        UserCreate(name="Other Person", username="otherperson", email="taken@example.com", password="Str1ngst!"),
+        db_session,
+    )
+
+    with pytest.raises(UserExistsError):
+        await user_service.update(test_user["id"], UserUpdate(email="TAKEN@example.com"), db_session)
+
+
+async def test_an_updated_address_is_stored_in_canonical_form(
+    user_service: UserService, db_session: AsyncSession, test_user: dict
+):
+    await user_service.update(test_user["id"], UserUpdate(email="Moved@Example.COM"), db_session)
+
+    moved = await crud_users.get(db=db_session, id=test_user["id"])
+    assert moved["email"] == "moved@example.com"

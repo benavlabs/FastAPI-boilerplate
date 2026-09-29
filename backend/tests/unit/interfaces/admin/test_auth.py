@@ -6,7 +6,8 @@ from unittest.mock import patch
 
 import pytest
 
-from src.interfaces.admin.auth import AdminAuth
+from src.infrastructure.config.settings import EnvironmentOption, settings
+from src.interfaces.admin.auth import SESSION_MAX_AGE_SECONDS, AdminAuth
 
 
 class FakeRequest:
@@ -21,8 +22,12 @@ class FakeRequest:
 async def _login(configured: tuple[str, str], form: dict[str, Any]) -> tuple[bool, dict[str, Any]]:
     username, password = configured
     request = FakeRequest(form)
-    settings = SimpleNamespace(ADMIN_USERNAME=username, ADMIN_PASSWORD=password)
-    with patch("src.interfaces.admin.auth.get_settings", return_value=settings):
+    configured_settings = SimpleNamespace(
+        ADMIN_USERNAME=username,
+        ADMIN_PASSWORD=password,
+        ENVIRONMENT=EnvironmentOption.LOCAL,
+    )
+    with patch("src.interfaces.admin.auth.get_settings", return_value=configured_settings):
         authenticated = await AdminAuth(secret_key="test").login(request)
     return authenticated, request.session
 
@@ -77,3 +82,22 @@ async def test_login_accepts_non_ascii_configured_password():
 
     assert authenticated is True
     assert session == {"admin_authenticated": True}
+
+
+def test_the_admin_session_cookie_is_scoped_and_short_lived(monkeypatch):
+    """Nothing can revoke this cookie, so it expires in hours and never travels over HTTP."""
+    monkeypatch.setattr(settings, "ENVIRONMENT", EnvironmentOption.PRODUCTION)
+
+    middleware = AdminAuth(secret_key="a-secret").middlewares
+
+    assert len(middleware) == 1
+    options = middleware[0].kwargs
+    assert options["https_only"] is True
+    assert options["max_age"] == SESSION_MAX_AGE_SECONDS
+    assert options["session_cookie"] == "admin_session"
+
+
+def test_the_cookie_may_travel_over_http_in_development(monkeypatch):
+    monkeypatch.setattr(settings, "ENVIRONMENT", EnvironmentOption.LOCAL)
+
+    assert AdminAuth(secret_key="a-secret").middlewares[0].kwargs["https_only"] is False

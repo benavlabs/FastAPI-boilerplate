@@ -181,3 +181,39 @@ async def test_signup_leaves_the_address_unverified(client: AsyncClient, db_sess
     assert stored.email_verified is False
     assert stored.google_id is None
     assert stored.oauth_provider is None
+
+
+async def test_an_address_typed_in_mixed_case_can_sign_in(client: AsyncClient):
+    """crudauth looks accounts up in lowercase, so signup has to store them that way."""
+    signup = await client.post(
+        "/api/v1/users/",
+        json={
+            "name": "Mixed Case",
+            "username": "mixedcaseuser",
+            "email": "Alice@Example.COM",
+            "password": "Str1ngst!",
+        },
+    )
+    assert signup.status_code == 201
+
+    login = await client.post(
+        "/api/v1/auth/login",
+        data={"username": "Alice@Example.COM", "password": "Str1ngst!"},
+    )
+
+    assert login.status_code == 200
+
+
+async def test_the_same_address_in_another_case_cannot_register_twice(client: AsyncClient):
+    first = await client.post(
+        "/api/v1/users/",
+        json={"name": "First Owner", "username": "firstowner", "email": "owner@example.com", "password": "Str1ngst!"},
+    )
+    assert first.status_code == 201
+
+    second = await client.post(
+        "/api/v1/users/",
+        json={"name": "Second Owner", "username": "secondowner", "email": "OWNER@Example.com", "password": "Str1ngst!"},
+    )
+
+    assert second.status_code == 422

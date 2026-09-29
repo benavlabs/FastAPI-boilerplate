@@ -7,6 +7,7 @@ them to the model, so the panel works in a project without tiers.
 from typing import Any
 
 from crudauth import get_password_hash_async
+from crudauth.utils import canonical_email
 from sqladmin import ModelView
 from starlette.requests import Request
 from wtforms import SelectField
@@ -33,7 +34,7 @@ class UserAdmin(DataclassModelMixin, ModelView, model=User):
     column_list = [User.id, User.name, User.username, User.email, User.is_superuser]
     if hasattr(User, "tier"):
         column_list = [*column_list, User.tier]
-    column_details_list = "__all__"
+    column_details_exclude_list = [User.hashed_password]
     column_searchable_list = [User.name, User.username, User.email]
     column_sortable_list = [User.id, User.name, User.username, User.email]
     column_default_sort = [(User.id, True)]
@@ -54,10 +55,16 @@ class UserAdmin(DataclassModelMixin, ModelView, model=User):
     form_args = {"oauth_provider": {"choices": OAUTH_PROVIDER_CHOICES}}
 
     async def on_model_change(self, data: dict[str, Any], model: Any, is_created: bool, request: Request) -> None:
-        """Hash the password before saving."""
+        """Hash the password and canonicalise the address before saving.
+
+        A row written here is signed in to through crudauth, which looks accounts
+        up by the canonical address.
+        """
         if is_created and "hashed_password" in data and data["hashed_password"]:
             await auth.validate_password(data["hashed_password"])
             data["hashed_password"] = await get_password_hash_async(data["hashed_password"])
+        if data.get("email"):
+            data["email"] = canonical_email(data["email"])
         if "oauth_provider" in data and data["oauth_provider"] == "":
             data["oauth_provider"] = None
 

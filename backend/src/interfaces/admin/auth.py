@@ -3,9 +3,13 @@
 import hmac
 
 from sqladmin.authentication import AuthenticationBackend
+from starlette.middleware import Middleware
+from starlette.middleware.sessions import SessionMiddleware
 from starlette.requests import Request
 
-from ...infrastructure.config.settings import get_settings
+from ...infrastructure.config.settings import EnvironmentOption, get_settings
+
+SESSION_MAX_AGE_SECONDS = 60 * 60 * 8
 
 
 def _credential_matches(submitted: object, expected: str) -> bool:
@@ -16,7 +20,28 @@ def _credential_matches(submitted: object, expected: str) -> bool:
 
 
 class AdminAuth(AuthenticationBackend):
-    """Session-based authentication for the admin interface."""
+    """Session-based authentication for the admin interface.
+
+    The panel mounts its own session middleware, which is the only one that cookie
+    needs. Outside development the cookie is HTTPS-only, and it expires in hours
+    rather than Starlette's fortnight, because nothing can revoke it server-side.
+    """
+
+    def __init__(self, secret_key: str) -> None:
+        super().__init__(secret_key)
+        settings = get_settings()
+        local = settings.ENVIRONMENT in (EnvironmentOption.LOCAL, EnvironmentOption.DEVELOPMENT)
+
+        self.middlewares = [
+            Middleware(
+                SessionMiddleware,
+                secret_key=secret_key,
+                session_cookie="admin_session",
+                max_age=SESSION_MAX_AGE_SECONDS,
+                same_site="lax",
+                https_only=not local,
+            )
+        ]
 
     async def login(self, request: Request) -> bool:
         """Validate login credentials and create session."""

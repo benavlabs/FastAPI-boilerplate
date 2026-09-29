@@ -2,7 +2,6 @@
 
 from fastapi import FastAPI
 from sqladmin import Admin
-from starlette.middleware.sessions import SessionMiddleware
 
 from ...infrastructure.config.settings import get_settings
 from ...infrastructure.database.session import get_engine
@@ -40,11 +39,9 @@ def create_admin_interface(app: FastAPI) -> Admin | None:
 
 
 def install(app: FastAPI) -> None:
-    """Mount the admin panel, with the signed session cookie its login needs."""
-    settings = get_settings()
+    """Mount the admin panel.
 
-    if not settings.ADMIN_ENABLED:
-        return
-
-    app.add_middleware(SessionMiddleware, secret_key=settings.SECRET_KEY)
+    The panel brings its own session middleware, scoped to its routes, so an API
+    request never decodes an admin cookie.
+    """
     create_admin_interface(app)

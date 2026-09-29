@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from crudauth import get_password_hash_async
+from crudauth.utils import canonical_email
 from fastcrud.types import GetMultiResponseDict
 from sqlalchemy.exc import MultipleResultsFound, NoResultFound
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -38,6 +39,9 @@ class UserService:
     and permission handling, with support for soft deletion. Features that add to
     the user model bring their own service: the tiers feature owns a user's tier,
     and the tier-limits feature owns the limits that follow from it.
+
+    Addresses are stored as crudauth canonicalises them, which is how it looks an
+    account up: a row written in another case could never be signed in to.
     """
 
     async def create(self, user: UserCreate, db: AsyncSession) -> dict[str, Any]:
@@ -75,7 +79,9 @@ class UserService:
             ```
         """
         await auth.validate_password(user.password, source="register")
-        email_exists = await crud_users.exists(db=db, email=user.email)
+        email = canonical_email(user.email)
+
+        email_exists = await crud_users.exists(db=db, email=email)
         if email_exists:
             raise UserExistsError("Email already registered")
 
@@ -86,7 +92,7 @@ class UserService:
         user_internal = UserCreateInternal(
             name=user.name,
             username=user.username,
-            email=user.email,
+            email=email,
             hashed_password=await get_password_hash_async(user.password),
         )
         created_user = await crud_users.create(db=db, object=user_internal, schema_to_select=UserRead)
@@ -269,6 +275,9 @@ class UserService:
             raise UserNotFoundError(f"User with ID {user_id} not found")
 
         update_data = user_update.model_dump(exclude_unset=True)
+
+        if "email" in update_data:
+            update_data["email"] = canonical_email(update_data["email"])
 
         if "email" in update_data and update_data["email"] != existing_user["email"]:
             email_exists = await crud_users.exists(db=db, email=update_data["email"])
