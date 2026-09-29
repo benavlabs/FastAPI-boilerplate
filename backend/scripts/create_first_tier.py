@@ -18,33 +18,24 @@ logger = get_logger()
 
 
 async def create_first_tier() -> None:
-    """
-    Create the first tier in the database if it doesn't exist.
+    """Create the default tier named by DEFAULT_TIER_NAME, if it isn't there yet."""
+    tier_name = settings.DEFAULT_TIER_NAME
 
-    This script uses environment variables for configuration:
-    - DEFAULT_TIER_NAME: The name of the default tier (defaults to "free")
-    """
-    try:
-        tier_name = getattr(settings, "DEFAULT_TIER_NAME", "free")
+    async with local_session() as session:
+        query = select(Tier).where(Tier.name == tier_name)
+        result = await session.execute(query)
+        tier = result.scalar_one_or_none()
 
-        async with local_session() as session:
-            query = select(Tier).where(Tier.name == tier_name)
-            result = await session.execute(query)
-            tier = result.scalar_one_or_none()
+        if tier:
+            logger.info(f"Tier '{tier_name}' already exists with ID {tier.id}")
+            return
 
-            if tier:
-                logger.info(f"Tier '{tier_name}' already exists with ID {tier.id}")
-                return
+        tier = Tier(name=tier_name)
+        session.add(tier)
+        await session.commit()
+        await session.refresh(tier)
 
-            tier = Tier(name=tier_name)
-            session.add(tier)
-            await session.commit()
-            await session.refresh(tier)
-
-            logger.info(f"Tier '{tier_name}' created successfully with ID {tier.id}")
-
-    except Exception as e:
-        logger.error(f"Error creating tier: {e}")
+        logger.info(f"Tier '{tier_name}' created successfully with ID {tier.id}")
 
 
 async def main() -> None:

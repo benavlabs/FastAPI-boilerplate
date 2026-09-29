@@ -19,68 +19,60 @@ from src.modules.user.service import UserService  # noqa: E402
 logger = get_logger()
 
 
+class SeedError(RuntimeError):
+    """Raised when the environment can't produce the row this script is meant to seed."""
+
+
 async def create_first_superuser() -> None:
+    """Create the first superuser from the admin environment variables.
+
+    Reads ADMIN_NAME, ADMIN_EMAIL, ADMIN_USERNAME and ADMIN_PASSWORD, and raises
+    when any is missing rather than falling back to a known credential.
+
+    An account already registered with ADMIN_EMAIL is never promoted: whoever
+    holds that address may not be the operator, so the caller is told to pick
+    another address or promote the account deliberately.
     """
-    Create the first superuser in the database if it doesn't exist.
+    name = settings.ADMIN_NAME
+    email = settings.ADMIN_EMAIL
+    username = settings.ADMIN_USERNAME
+    password = settings.ADMIN_PASSWORD
 
-    This script uses environment variables for configuration:
-    - ADMIN_NAME: The admin's full name
-    - ADMIN_EMAIL: The admin's email address
-    - ADMIN_USERNAME: The admin's username
-    - ADMIN_PASSWORD: The admin's password
-    """
-    try:
-        name = settings.ADMIN_NAME
-        email = settings.ADMIN_EMAIL
-        username = settings.ADMIN_USERNAME
-        password = settings.ADMIN_PASSWORD
+    if not all([name, email, username, password]):
+        raise SeedError("Set ADMIN_NAME, ADMIN_EMAIL, ADMIN_USERNAME and ADMIN_PASSWORD before seeding a superuser.")
 
-        if not all([name, email, username, password]):
-            logger.error("Admin configuration is incomplete. Please check environment variables.")
-            logger.info("Using default admin credentials for testing")
-            name = "Admin User"
-            email = "admin@example.com"
-            username = "admin"
-            password = "adminpassword"
+    async with local_session() as session:
+        user_service = UserService()
 
-        async with local_session() as session:
-            user_service = UserService()
+        try:
+            existing = await user_service.get_by_email(email, session)
+        except UserNotFoundError:
+            existing = None
 
-            user = None
-            try:
-                user_model = await user_service.get_by_email(email, session)
-                if user_model:
-                    logger.info(f"Superuser with email {email} already exists.")
-                    if not user_model["is_superuser"]:
-                        user_model["is_superuser"] = True
-                        await session.commit()
-                        logger.info(f"Updated user {username} to be a superuser")
-                    return
-            except UserNotFoundError:
-                logger.info(f"No user found with email {email}, creating a new superuser")
+        if existing is not None:
+            if existing["is_superuser"]:
+                logger.info(f"Superuser {existing['username']} already exists.")
+                return
 
-            user_data = UserCreate(name=name, email=email, username=username, password=password)
+            raise SeedError(
+                f"{email} already belongs to user {existing['username']}, who is not a superuser. "
+                "Choose another ADMIN_EMAIL, or promote that account deliberately."
+            )
 
-            user = await user_service.create(user_data, session)
+        created = await user_service.create(UserCreate(name=name, email=email, username=username, password=password), session)
 
-            if hasattr(user, "id"):
-                user_id = user.id
-            else:
-                user_id = user["id"]
+        await session.execute(update(User).where(User.id == created["id"]).values(is_superuser=True))
+        await session.commit()
 
-            stmt = update(User).where(User.id == user_id).values(is_superuser=True)
-            await session.execute(stmt)
-            await session.commit()
-
-            logger.info(f"Superuser {username} created successfully with ID {user_id}")
-
-    except Exception as e:
-        logger.error(f"Error creating superuser: {e}")
+        logger.info(f"Superuser {username} created successfully with ID {created['id']}")
 
 
 async def main() -> None:
     try:
         await create_first_superuser()
+    except SeedError as error:
+        logger.error(str(error))
+        raise SystemExit(1) from error
     finally:
         await close_database()
 

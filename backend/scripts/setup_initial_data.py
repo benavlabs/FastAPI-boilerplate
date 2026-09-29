@@ -23,12 +23,8 @@ async def setup_initial_data() -> None:
     logger.info("Setting up initial data...")
 
     logger.info("Creating database tables...")
-    try:
-        await create_tables()
-        logger.info("Database tables created successfully")
-    except Exception as e:
-        logger.error(f"Error creating database tables: {str(e)}", exc_info=True)
-        sys.exit(1)
+    await create_tables()
+    logger.info("Database tables created successfully")
 
     for seed in SEEDERS:
         logger.info(f"Running {seed.__name__}...")
@@ -40,6 +36,9 @@ async def setup_initial_data() -> None:
 async def main() -> None:
     try:
         await setup_initial_data()
+    except Exception as error:
+        logger.error(f"Initial data setup failed: {error}")
+        raise SystemExit(1) from error
     finally:
         await close_database()
 
