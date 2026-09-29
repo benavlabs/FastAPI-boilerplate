@@ -23,3 +23,9 @@ requires-python = ">=3.11"
 
 [tool.uv.workspace]
 members = ["backend", "cli"]
+
+[tool.ruff]
+line-length = 128
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
