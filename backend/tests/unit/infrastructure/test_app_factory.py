@@ -6,16 +6,25 @@ from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from crudauth.exceptions import UnauthorizedException
 from fastapi import APIRouter, FastAPI
 from httpx import ASGITransport, AsyncClient
 
 from src.infrastructure import app_factory
-from src.infrastructure.auth.dependencies import get_current_superuser
 from src.infrastructure.composition import Lifecycle
 from src.infrastructure.config.settings import EnvironmentOption, Settings, settings
-from src.wiring.app import DOCS_GUARD
 
 DOCS_PATHS = ("/docs", "/redoc", "/openapi.json")
+
+
+async def _refuse() -> None:
+    """A guard that lets nobody in, standing in for whatever a feature contributes."""
+    raise UnauthorizedException("Not authenticated")
+
+
+async def _admit() -> dict[str, int]:
+    """The same guard, for a caller it accepts."""
+    return {"id": 1}
 
 
 @pytest.mark.asyncio
@@ -36,11 +45,8 @@ async def test_startup_failure_surfaces_the_original_error(monkeypatch):
 
 @pytest.fixture
 def lifespan_settings():
-    """Settings with cache and rate limiting on, so every teardown branch runs."""
-    lifespan_settings = settings.model_copy()
-    lifespan_settings.CACHE_ENABLED = True
-    lifespan_settings.RATE_LIMITER_ENABLED = True
-    return lifespan_settings
+    """The app's settings; the lifespan reads only the database ones itself."""
+    return settings.model_copy()
 
 
 @pytest.fixture
@@ -147,7 +153,7 @@ class TestLifespanDatabaseTeardown:
 def _create_app(
     environment: EnvironmentOption,
     enable_docs_in_production: bool = False,
-    docs_guard: Callable[..., Any] | None = DOCS_GUARD,
+    docs_guard: Callable[..., Any] | None = _refuse,
 ) -> FastAPI:
     return app_factory.create_application(
         router=APIRouter(),
@@ -187,9 +193,8 @@ async def test_docs_access_for_anonymous_requests(environment, enable_docs_in_pr
     ("environment", "enable_docs_in_production"),
     [(EnvironmentOption.STAGING, False), (EnvironmentOption.PRODUCTION, True)],
 )
-async def test_gated_docs_are_served_to_superusers(environment, enable_docs_in_production):
-    app = _create_app(environment, enable_docs_in_production)
-    app.dependency_overrides[get_current_superuser] = lambda: {"id": 1, "is_superuser": True}
+async def test_gated_docs_are_served_to_whoever_the_guard_admits(environment, enable_docs_in_production):
+    app = _create_app(environment, enable_docs_in_production, docs_guard=_admit)
 
     assert await _docs_statuses(app) == [200] * len(DOCS_PATHS)
 
@@ -204,14 +209,14 @@ async def test_gated_docs_use_the_configured_paths():
         REDOC_URL=custom_paths[1],
         OPENAPI_URL=custom_paths[2],
     )
-    app = app_factory.create_application(router=APIRouter(), settings=custom)
+    app = app_factory.create_application(router=APIRouter(), settings=custom, docs_guard=_refuse)
 
     assert await _statuses(app, custom_paths) == [401, 401, 401]
     assert await _docs_statuses(app) == [404, 404, 404]
 
-    app.dependency_overrides[get_current_superuser] = lambda: {"id": 1, "is_superuser": True}
+    admitting = app_factory.create_application(router=APIRouter(), settings=custom, docs_guard=_admit)
 
-    assert await _statuses(app, custom_paths) == [200, 200, 200]
+    assert await _statuses(admitting, custom_paths) == [200, 200, 200]
 
 
 @pytest.mark.asyncio

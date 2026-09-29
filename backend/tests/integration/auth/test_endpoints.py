@@ -123,7 +123,7 @@ async def test_check_auth_no_session_cookie_returns_unauthenticated(client: Asyn
 
 
 @pytest.mark.asyncio
-async def test_login_soft_deleted_user_rejected(client: AsyncClient, db_session: AsyncSession, test_tier: dict):
+async def test_login_soft_deleted_user_rejected(client: AsyncClient, db_session: AsyncSession):
     """A soft-deleted user cannot log in — crudauth reads User.is_active (not is_deleted).
 
     This is the migration's core new invariant: the derived is_active property gates
@@ -134,7 +134,6 @@ async def test_login_soft_deleted_user_rejected(client: AsyncClient, db_session:
         username="deleted_user",
         email="deleted@example.com",
         hashed_password=get_password_hash("Password123!"),
-        tier_id=test_tier["id"],
     )
     user.is_deleted = True
     db_session.add(user)

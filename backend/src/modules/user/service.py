@@ -506,20 +506,21 @@ class UserService:
                 },
             )
 
-            anonymize_data = UserAnonymize(
-                name="[DELETED]",
-                username=f"del_{user_id}_{timestamp % 10000}",
-                hashed_password="DELETED_INVALID_HASH",
-                profile_image_url="https://deleted.com/deleted.jpg",
-                tier_id=None,
-                is_superuser=False,
-                google_id=None,
-                github_id=None,
-                oauth_provider=None,
-                email_verified=False,
-                oauth_created_at=None,
-                oauth_updated_at=None,
-            )
+            anonymized = {
+                "name": "[DELETED]",
+                "username": f"del_{user_id}_{timestamp % 10000}",
+                "hashed_password": "DELETED_INVALID_HASH",
+                "profile_image_url": "https://deleted.com/deleted.jpg",
+                "is_superuser": False,
+                "google_id": None,
+                "github_id": None,
+                "oauth_provider": None,
+                "email_verified": False,
+                "oauth_created_at": None,
+                "oauth_updated_at": None,
+            }
+            contributed = dict.fromkeys(UserAnonymize.model_fields.keys() - anonymized.keys())
+            anonymize_data = UserAnonymize.model_validate(anonymized | contributed)
 
             await crud_users.update(db=db, object=anonymize_data, commit=False, id=user_id)
             await crud_users.delete(db=db, id=user_id)

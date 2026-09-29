@@ -27,9 +27,15 @@ def _request(path: str, client_host: str = "203.0.113.7") -> Request:
 class TestSessionRedisWiring:
     """Session storage uses SESSION_REDIS_URL, on a different DB than the cache by default."""
 
-    def test_session_redis_db_is_not_the_cache_db(self):
-        """By default a cache FLUSHDB must not reach the database holding sessions."""
-        assert settings.SESSION_REDIS_DB != settings.CACHE_REDIS_DB
+    def test_sessions_get_a_redis_database_of_their_own(self):
+        """Another service's FLUSHDB must not reach the database holding sessions."""
+        other_dbs = {
+            getattr(settings, name)
+            for name in ("CACHE_REDIS_DB", "RATE_LIMITER_REDIS_DB", "TASKIQ_REDIS_DB")
+            if hasattr(settings, name)
+        }
+
+        assert settings.SESSION_REDIS_DB not in other_dbs
         assert settings.SESSION_REDIS_URL.endswith(f"/{settings.SESSION_REDIS_DB}")
 
     def test_redis_sessions_are_built_from_the_session_url(self, monkeypatch):
@@ -123,9 +129,8 @@ class TestAccountsLifecycle:
         assert setup.lifecycle.startup == setup.auth.initialize
         assert setup.auth.shutdown in setup.lifecycle.shutdown
 
-    async def test_the_limiter_client_closes_even_with_the_api_throttle_off(self, monkeypatch):
+    async def test_the_limiter_client_closes_whatever_else_is_wired(self, monkeypatch):
         """The login lockout uses the client whether or not API routes are throttled."""
-        monkeypatch.setattr(settings, "RATE_LIMITER_ENABLED", False)
         closed = False
 
         async def record_close() -> None:

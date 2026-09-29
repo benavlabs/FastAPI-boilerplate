@@ -14,13 +14,10 @@ def test_registered_permissions_are_known():
     """Registered flat permission names are recognized."""
     permissions = all_permissions()
 
-    assert "user.read" in permissions
-    assert "role.assign" in permissions
-    assert "tier.delete" in permissions
+    assert {"role.read", "role.assign"} <= permissions
 
-    assert is_known_permission("user.read")
+    assert is_known_permission("role.read")
     assert is_known_permission("role.assign")
-    assert is_known_permission("tier.delete")
 
 
 def test_unknown_permissions_are_not_known():

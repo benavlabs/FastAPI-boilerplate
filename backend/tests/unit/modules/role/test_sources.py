@@ -19,11 +19,11 @@ async def _role_with(db: AsyncSession, name: str, *permissions: str) -> Role:
 
 
 async def test_the_source_reads_the_roles_assigned_to_the_user(db_session: AsyncSession, test_user: dict):
-    role = await _role_with(db_session, "reader", "user.read", "tier.read")
+    role = await _role_with(db_session, "reader", "role.read", "role.assign")
     db_session.add(UserRole(user_id=test_user["id"], role_id=role.id))
     await db_session.commit()
 
-    assert await role_permissions(db_session, test_user["id"]) == {"user.read", "tier.read"}
+    assert await role_permissions(db_session, test_user["id"]) == {"role.read", "role.assign"}
 
 
 async def test_the_source_is_empty_without_a_role(db_session: AsyncSession, test_user: dict):

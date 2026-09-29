@@ -16,22 +16,13 @@ from src.infrastructure.permissions import (
 
 
 def test_registered_permissions_are_flat_and_grouped():
+    """Whatever a project registers, the flat set and the groups describe the same names."""
     permissions = all_permissions()
     groups = permission_groups()
 
-    assert permissions
-    assert permissions == {permission for group in groups.values() for permission in group}
-
-    assert "user.read" in permissions
-    assert "role.assign" in permissions
-    assert "tier.update" in permissions
-
-    assert groups["user"] == (
-        "user.read",
-        "user.create",
-        "user.update",
-        "user.delete",
-    )
+    assert permissions == {name for names in groups.values() for name in names}
+    for resource, names in groups.items():
+        assert all(name.startswith(f"{resource}.") for name in names)
 
 
 def test_register_permissions_rejects_wrong_resource_prefix():
@@ -43,14 +34,19 @@ def test_register_permissions_rejects_wrong_resource_prefix():
 
 
 def test_register_permissions_rejects_duplicate_resource():
-    class DuplicatePermission(StrEnum):
-        READ = "user.read"
+    class FirstPermission(StrEnum):
+        READ = "duplicated.read"
+
+    class SecondPermission(StrEnum):
+        WRITE = "duplicated.write"
+
+    register_permissions("duplicated")(FirstPermission)
 
     with pytest.raises(
         ValueError,
-        match="Permissions for resource 'user' are already registered",
+        match="Permissions for resource 'duplicated' are already registered",
     ):
-        register_permissions("user")(DuplicatePermission)
+        register_permissions("duplicated")(SecondPermission)
 
 
 def test_register_permissions_rejects_a_nested_name():
@@ -145,8 +141,10 @@ def test_reading_the_registry_discovers_the_declarations():
     module imported on its own.
     """
     result = _in_a_cold_process(
+        "from pathlib import Path\n"
         "from src.infrastructure.permissions import all_permissions\n"
-        "assert all_permissions(), 'reading the registry discovered nothing'\n"
+        "declared = list(Path('src/modules').glob('*/permissions.py'))\n"
+        "assert all_permissions() or not declared, 'reading the registry discovered nothing'\n"
     )
 
     assert result.returncode == 0, result.stderr

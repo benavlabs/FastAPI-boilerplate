@@ -29,9 +29,9 @@ async def test_a_superuser_holds_everything_registered_without_asking_a_source(d
 
 
 async def test_the_holder_gets_the_union_of_every_source(db_session: AsyncSession):
-    sources = (_source("user.read"), _source("tier.read", "user.read"))
+    sources = (_source("user.read"), _source("user.update", "user.read"))
 
-    assert await load_permissions(db_session, 1, sources=sources) == {"user.read", "tier.read"}
+    assert await load_permissions(db_session, 1, sources=sources) == {"user.read", "user.update"}
 
 
 async def test_without_a_source_a_non_superuser_holds_nothing(db_session: AsyncSession):

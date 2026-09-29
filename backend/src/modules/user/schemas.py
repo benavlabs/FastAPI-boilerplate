@@ -159,7 +159,7 @@ class UserDelete(BaseModel):
     deleted_at: datetime
 
 
-class UserAnonymize(BaseModel):
+class UserAnonymize(UserSchemaExtensions):
     """Schema for GDPR/LGPD compliant user anonymization.
 
     This schema includes all fields that need to be updated during
@@ -172,7 +172,6 @@ class UserAnonymize(BaseModel):
     username: str
     hashed_password: str | None = None
     profile_image_url: str | None = None
-    tier_id: int | None = None
     is_superuser: bool = False
     google_id: str | None = None
     github_id: str | None = None

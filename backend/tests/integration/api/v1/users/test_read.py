@@ -81,26 +81,6 @@ async def test_get_current_user_profile(auth_client: AsyncClient, db_session: As
     assert data["email"] == test_user["email"]
 
 
-async def test_get_user_tier_info(auth_client: AsyncClient, db_session: AsyncSession, test_user: dict):
-    """Test retrieval of user's tier information."""
-    logger.info("Testing user tier information retrieval")
-    response = await auth_client.get(f"/api/v1/users/{test_user['username']}/tier")
-
-    assert response.status_code == 200
-    data = response.json()
-    assert "tier" in data
-
-
-async def test_get_user_rate_limits(auth_client: AsyncClient, db_session: AsyncSession, test_user: dict):
-    """Test retrieval of user's rate limits."""
-    logger.info("Testing user rate limits retrieval")
-    response = await auth_client.get(f"/api/v1/users/{test_user['username']}/rate-limits")
-
-    assert response.status_code == 200
-    data = response.json()
-    assert "rate_limits" in data
-
-
 async def test_get_user_by_username_requires_authentication(client: AsyncClient, test_user: dict):
     """An anonymous caller can't look anyone up by username."""
     response = await client.get(f"/api/v1/users/{test_user['username']}")
@@ -147,3 +127,15 @@ async def test_a_username_signup_accepts_can_be_looked_up(client: AsyncClient, a
 
     assert response.status_code == 200
     assert response.json()["username"] == username
+
+
+@pytest.mark.parametrize(
+    ("path", "method", "expected"),
+    [("/api/v1/users/{username}", "get", {"401", "404"})],
+)
+async def test_openapi_advertises_the_gate(client: AsyncClient, path: str, method: str, expected: set[str]):
+    """A client generated from the schema must know these can be refused."""
+    schema = (await client.get("/openapi.json")).json()
+    operation = schema["paths"][path][method]
+
+    assert expected <= set(operation["responses"])
