@@ -9,6 +9,7 @@ from enum import StrEnum
 
 from pydantic import Field
 from pydantic_settings import BaseSettings
+from sqlalchemy.engine import URL
 from starlette.config import Config
 
 from .enums import LogFormat, LogLevel
@@ -78,16 +79,21 @@ class DatabaseSettings(BaseSettings):
         """Get the full database URL.
 
         Checks for DATABASE_URL environment variable first (production pattern),
-        then falls back to constructing from individual components (development pattern).
+        then falls back to constructing from individual components (development
+        pattern), with the credentials escaped: a password containing ``@``, ``/``
+        or ``#`` would otherwise produce a URL that parses as something else.
         """
         if self.DATABASE_URL_OVERRIDE:
             return self.DATABASE_URL_OVERRIDE
 
-        return (
-            f"{self.POSTGRES_ASYNC_PREFIX}{self.POSTGRES_USER}:"
-            f"{self.POSTGRES_PASSWORD}@{self.POSTGRES_SERVER}:"
-            f"{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
-        )
+        return URL.create(
+            drivername=self.POSTGRES_ASYNC_PREFIX.rstrip(":/"),
+            username=self.POSTGRES_USER,
+            password=self.POSTGRES_PASSWORD,
+            host=self.POSTGRES_SERVER,
+            port=self.POSTGRES_PORT,
+            database=self.POSTGRES_DB,
+        ).render_as_string(hide_password=False)
 
 
 class CORSSettings(BaseSettings):

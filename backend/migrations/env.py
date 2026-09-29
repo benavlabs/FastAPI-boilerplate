@@ -9,7 +9,7 @@ from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
-from src.infrastructure.config.settings import settings
+from src.infrastructure.config.settings import EnvironmentOption, settings
 from src.infrastructure.database.session import Base
 
 # this is the Alembic Config object, which provides
@@ -19,10 +19,12 @@ config = context.config
 
 # Production safety checks
 def validate_production_migration():
-    """Validate production migration safety."""
-    environment = os.getenv("ENVIRONMENT", "development")
+    """Refuse to migrate production unless the caller said so deliberately.
 
-    if environment == "production":
+    The environment comes from settings rather than the process environment, so a
+    production ``.env`` still trips the gate.
+    """
+    if settings.ENVIRONMENT == EnvironmentOption.PRODUCTION:
         print("🚨 PRODUCTION MIGRATION DETECTED")
 
         # Require explicit confirmation
@@ -33,11 +35,8 @@ def validate_production_migration():
                 "This ensures you understand you're migrating production data."
             )
 
-        # Check for required production environment variables
-        required_vars = ["DATABASE_URL", "SECRET_KEY"]
-        missing_vars = [var for var in required_vars if not os.getenv(var)]
-        if missing_vars:
-            raise Exception(f"Missing required production environment variables: {missing_vars}")
+        if not settings.SECRET_KEY:
+            raise Exception("SECRET_KEY must be set before migrating production.")
 
         # Warn about production migration
         print("✅ Production migration confirmed")
@@ -46,7 +45,7 @@ def validate_production_migration():
 
 
 # Build the database URL from settings - use the built-in DATABASE_URL property
-config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
+config.set_main_option("sqlalchemy.url", settings.DATABASE_URL.replace("%", "%%"))
 
 # Run production safety checks
 validate_production_migration()

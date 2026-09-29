@@ -1,9 +1,11 @@
 """Settings for the taskiq feature."""
 
 from pydantic_settings import BaseSettings
+from sqlalchemy.engine import URL
 
 from ..config.base import config
 from ..config.enums import TaskiqBrokerType
+from ..redis import redis_url
 
 
 class TaskiqSettings(BaseSettings):
@@ -30,12 +32,15 @@ class TaskiqSettings(BaseSettings):
     def TASKIQ_BROKER_URL(self) -> str:
         """Generate broker URL based on configured backend."""
         if self.TASKIQ_BROKER_TYPE == TaskiqBrokerType.REDIS.value:
-            password_part = f":{self.TASKIQ_REDIS_PASSWORD}@" if self.TASKIQ_REDIS_PASSWORD else ""
-            return f"redis://{password_part}{self.TASKIQ_REDIS_HOST}:{self.TASKIQ_REDIS_PORT}/{self.TASKIQ_REDIS_DB}"
+            return redis_url(self.TASKIQ_REDIS_HOST, self.TASKIQ_REDIS_PORT, self.TASKIQ_REDIS_DB, self.TASKIQ_REDIS_PASSWORD)
         elif self.TASKIQ_BROKER_TYPE == TaskiqBrokerType.RABBITMQ.value:
-            vhost = self.TASKIQ_RABBITMQ_VHOST
-            if vhost.startswith("/"):
-                vhost = vhost[1:]
-            return f"amqp://{self.TASKIQ_RABBITMQ_USER}:{self.TASKIQ_RABBITMQ_PASSWORD}@{self.TASKIQ_RABBITMQ_HOST}:{self.TASKIQ_RABBITMQ_PORT}/{vhost}"
+            return URL.create(
+                drivername="amqp",
+                username=self.TASKIQ_RABBITMQ_USER,
+                password=self.TASKIQ_RABBITMQ_PASSWORD,
+                host=self.TASKIQ_RABBITMQ_HOST,
+                port=self.TASKIQ_RABBITMQ_PORT,
+                database=self.TASKIQ_RABBITMQ_VHOST.lstrip("/"),
+            ).render_as_string(hide_password=False)
         else:
             raise ValueError(f"Unsupported broker type: {self.TASKIQ_BROKER_TYPE}")
