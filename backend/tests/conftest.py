@@ -49,6 +49,9 @@ sys.path.append(str(backend_dir))
 pytest_plugins = PYTEST_PLUGINS
 
 
+POSTGRES_IMAGE = "postgres:16-alpine"
+
+
 def is_docker_running() -> bool:
     try:
         DockerClient()
@@ -63,7 +66,7 @@ async def pg_container():
     if not is_docker_running():
         pytest.skip("Docker is required, but not running")
 
-    with PostgresContainer() as pg:
+    with PostgresContainer(POSTGRES_IMAGE) as pg:
         yield pg
 
 

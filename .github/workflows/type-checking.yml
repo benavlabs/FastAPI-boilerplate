@@ -11,16 +11,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
       - name: Install uv
-        run: pip install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Set up Python
+        run: uv python install 3.11
 
       - name: Sync workspace
-        run: uv sync --all-packages --all-extras
+        run: uv sync --all-packages --all-extras --locked
 
       - name: Mypy (backend)
         run: cd backend && uv run --no-sync mypy src --config-file pyproject.toml

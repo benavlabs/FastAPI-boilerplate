@@ -487,9 +487,13 @@ def check(project: Path, python: Path) -> list[tuple[str, bool, str]]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("presets", nargs="*", choices=list(PRESETS), metavar="PRESET")
+    parser.add_argument("presets", nargs="*", metavar="PRESET", help=f"one or more of: {', '.join(PRESETS)}")
     parser.add_argument("--keep", action="store_true", help="leave the scratch copies on disk")
     arguments = parser.parse_args()
+
+    unknown = [preset for preset in arguments.presets if preset not in PRESETS]
+    if unknown:
+        parser.error(f"unknown preset(s) {', '.join(unknown)}; choose from {', '.join(PRESETS)}")
 
     python = Path(sys.executable)
     scratch = Path(tempfile.mkdtemp(prefix="removal-drill-"))
