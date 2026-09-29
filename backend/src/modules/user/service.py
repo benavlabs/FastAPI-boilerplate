@@ -137,6 +137,7 @@ class UserService:
             limit=limit,
             schema_to_select=UserRead,
             is_deleted=False,
+            sort_columns="id",
         )
 
     async def get_by_username(self, username: str, db: AsyncSession) -> dict[str, Any]:

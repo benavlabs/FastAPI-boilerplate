@@ -41,6 +41,7 @@ FEATURES: dict[str, Feature] = {
             "backend/tests/fixtures/accounts.py",
             "backend/tests/integration/auth",
             "backend/tests/integration/api/v1/users",
+            "backend/tests/integration/accounts",
             "backend/tests/unit/infrastructure/auth",
             "backend/tests/unit/modules/user",
         ),
@@ -224,9 +225,7 @@ def _wiring_app(chosen: set[str]) -> str:
         installers.append("accounts_install")
         docs_guard = "get_current_superuser"
     if "ratelimit" in chosen:
-        imports.append(
-            "from ..infrastructure.ratelimit.dependency import api_rate_limit_dependency"
-        )
+        imports.append("from ..infrastructure.ratelimit.dependency import api_rate_limit_dependency")
         throttle = "(Depends(api_rate_limit_dependency),)"
     if "tiers" in chosen:
         imports += [
@@ -247,19 +246,13 @@ def _wiring_app(chosen: set[str]) -> str:
             'RouterMount(rate_limits_router, "/rate-limits", throttled=True)',
         ]
     if "api_keys" in chosen:
-        imports.append(
-            "from ..modules.api_keys.routes import router as api_keys_router"
-        )
+        imports.append("from ..modules.api_keys.routes import router as api_keys_router")
         mounts.append('RouterMount(api_keys_router, "/api-keys", throttled=True)')
     if "cache" in chosen:
-        imports.append(
-            "from ..infrastructure.cache.initialize import lifecycle as cache_lifecycle"
-        )
+        imports.append("from ..infrastructure.cache.initialize import lifecycle as cache_lifecycle")
         lifecycles.append("cache_lifecycle")
     if "admin" in chosen:
-        imports.append(
-            "from ..interfaces.admin.initialize import install as admin_install"
-        )
+        imports.append("from ..interfaces.admin.initialize import install as admin_install")
         installers.append("admin_install")
 
     def tuple_of(items: list[str]) -> str:
@@ -291,15 +284,11 @@ def _wiring_hooks(chosen: set[str]) -> str:
         imports.append("from ..modules.role.sources import role_permissions")
         sources = "(role_permissions,)"
     if "tier_limits" in chosen:
-        imports.append(
-            "from ..modules.rate_limit.hooks import rate_limits_reference_tier, tier_rate_limit"
-        )
+        imports.append("from ..modules.rate_limit.hooks import rate_limits_reference_tier, tier_rate_limit")
         resolvers = "(tier_rate_limit,)"
         guards = "(rate_limits_reference_tier,)"
     if "cache" in chosen:
-        imports.append(
-            "from ..infrastructure.cache.health import readiness as cache_readiness"
-        )
+        imports.append("from ..infrastructure.cache.health import readiness as cache_readiness")
         readiness.append("cache_readiness")
 
     checks = "(" + ", ".join(readiness) + ",)"
@@ -321,9 +310,7 @@ def _wiring_models(chosen: set[str]) -> str:
         imports.append("from ..modules.role.contrib import UserRoleColumns")
         model_bases.append("UserRoleColumns")
     if "tiers" in chosen:
-        imports.append(
-            "from ..modules.tier.contrib import UserTierColumns, UserTierFields"
-        )
+        imports.append("from ..modules.tier.contrib import UserTierColumns, UserTierFields")
         model_bases.append("UserTierColumns")
         schema_bases.append("UserTierFields")
     model_line = ", ".join(model_bases) if model_bases else ""
@@ -360,9 +347,7 @@ def _seeders(chosen: set[str]) -> str:
         imports.append("from scripts.create_first_tier import create_first_tier")
         seeds.append("create_first_tier")
     if "accounts" in chosen:
-        imports.append(
-            "from scripts.create_first_superuser import create_first_superuser"
-        )
+        imports.append("from scripts.create_first_superuser import create_first_superuser")
         seeds.append("create_first_superuser")
     body = "(\n    " + ",\n    ".join(seeds) + ",\n)" if seeds else "()"
     return (
@@ -494,9 +479,7 @@ def check(project: Path, python: Path) -> list[tuple[str, bool, str]]:
     ]
     results = []
     for name, command in steps:
-        completed = subprocess.run(
-            command, cwd=backend, env=environment, capture_output=True, text=True
-        )
+        completed = subprocess.run(command, cwd=backend, env=environment, capture_output=True, text=True)
         output = (completed.stdout + completed.stderr).strip().splitlines()
         results.append((name, completed.returncode == 0, output[-1] if output else ""))
     return results
@@ -505,9 +488,7 @@ def check(project: Path, python: Path) -> list[tuple[str, bool, str]]:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("presets", nargs="*", choices=list(PRESETS), metavar="PRESET")
-    parser.add_argument(
-        "--keep", action="store_true", help="leave the scratch copies on disk"
-    )
+    parser.add_argument("--keep", action="store_true", help="leave the scratch copies on disk")
     arguments = parser.parse_args()
 
     python = Path(sys.executable)
@@ -516,9 +497,7 @@ def main() -> int:
     try:
         for preset in arguments.presets or PRESETS:
             project = build(preset, scratch)
-            print(
-                f"\n=== {preset}: {', '.join(sorted(_selected(preset))) or 'core only'}"
-            )
+            print(f"\n=== {preset}: {', '.join(sorted(_selected(preset))) or 'core only'}")
             for name, ok, last_line in check(project, python):
                 print(f"  {'PASS' if ok else 'FAIL'}  {name:12} {last_line}")
                 failures += not ok

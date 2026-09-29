@@ -47,7 +47,9 @@ class TierService:
 
     async def get_all(self, db: AsyncSession, skip: int = 0, limit: int = 100) -> GetMultiResponseDict:
         """Retrieve all tiers with pagination."""
-        return await crud_tiers.get_multi(db=db, offset=skip, limit=limit, schema_to_select=TierRead, is_deleted=False)
+        return await crud_tiers.get_multi(
+            db=db, offset=skip, limit=limit, schema_to_select=TierRead, is_deleted=False, sort_columns="id"
+        )
 
     async def get_by_id(self, tier_id: int, db: AsyncSession) -> dict[str, Any]:
         """Retrieve a tier by ID."""
@@ -142,7 +144,7 @@ class TierService:
         if not existing_user:
             raise UserNotFoundError(f"User with ID {user_id} not found")
 
-        tier_exists = await crud_tiers.exists(db=db, id=tier_update.tier_id)
+        tier_exists = await crud_tiers.exists(db=db, id=tier_update.tier_id, is_deleted=False)
         if not tier_exists:
             raise TierNotFoundError(f"Tier with ID {tier_update.tier_id} not found")
 
@@ -171,7 +173,8 @@ class TierService:
 
         Note:
             Returns complete tier details including tier name, description,
-            and configuration. Users without tier assignments have tier=None.
+            and configuration. Users without tier assignments have tier=None, and
+            so do users still pointing at a tier that has since been deleted.
 
         Example:
             ```python
@@ -188,7 +191,7 @@ class TierService:
             user_dict["tier"] = None
             return user_dict
 
-        tier_exists = await crud_tiers.exists(db=db, id=user_dict["tier_id"])
+        tier_exists = await crud_tiers.exists(db=db, id=user_dict["tier_id"], is_deleted=False)
         if not tier_exists:
             user_dict["tier"] = None
             return user_dict

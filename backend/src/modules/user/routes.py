@@ -1,6 +1,6 @@
 from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 from fastcrud import PaginatedListResponse, compute_offset, paginated_response
 
 from ...infrastructure.auth.authorization import load_permissions, require_permissions
@@ -73,8 +73,8 @@ async def create_user(
 async def get_users(
     db: AsyncSessionDep,
     user_service: UserServiceDep,
-    page: int = 1,
-    items_per_page: int = 10,
+    page: int = Query(1, ge=1, description="Page number"),
+    items_per_page: int = Query(10, ge=1, le=100, description="Items per page"),
 ) -> dict[str, Any]:
     """Get paginated list of users."""
     users_data = await user_service.get_paginated(skip=compute_offset(page, items_per_page), limit=items_per_page, db=db)
