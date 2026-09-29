@@ -10,8 +10,10 @@ server {
     server_name _;
 
     client_max_body_size 25M;
+    server_tokens off;
 
-    # Forwarded headers — FastAPI / Starlette respect these by default.
+    # Forwarded headers. The app only trusts these when TRUSTED_PROXY_HOPS says how
+    # many proxies sit in front of it, and uvicorn only trusts the hop it is told to.
     proxy_set_header Host $host;
     proxy_set_header X-Real-IP $remote_addr;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;

@@ -88,4 +88,4 @@ def generate(
     else:
         info("  cp backend/.env.example backend/.env  # if you haven't already")
         info("  docker compose up -d --build")
-        info("  curl -i http://localhost/api/v1/health")
+        info("  curl -i http://localhost/health/ready")

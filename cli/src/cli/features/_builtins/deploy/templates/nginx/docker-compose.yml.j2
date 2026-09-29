@@ -33,6 +33,8 @@ services:
       CACHE_REDIS_HOST: redis
       RATE_LIMITER_REDIS_HOST: redis
       TASKIQ_REDIS_HOST: redis
+      TRUSTED_PROXY_HOPS: "1"
+      FORWARDED_ALLOW_IPS: "*"
       WORKERS: "{{ workers }}"
     expose:
       - "8000"
@@ -43,13 +45,19 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/ready').read()"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     restart: unless-stopped
 
   worker:
     build:
       context: {{ build_context }}
       dockerfile: {{ backend_dockerfile }}
-      target: base
+      target: prod
     env_file:
       - {{ env_file }}
     environment:
