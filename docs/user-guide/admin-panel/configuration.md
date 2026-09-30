@@ -57,7 +57,7 @@ Notes:
 - Credentials come from environment variables, **not the database**. Restart the app to change them.
 - **Admin login is disabled until both `ADMIN_USERNAME` and `ADMIN_PASSWORD` are set.** With the empty defaults, every login attempt fails — an empty form submission does not authenticate.
 - Only one admin login is supported. There's no multi-admin user table.
-- The session is encrypted with `SECRET_KEY` via Starlette's `SessionMiddleware`.
+- The session is signed with `SECRET_KEY` via the `SessionMiddleware` the panel mounts for itself.
 - Logout clears the session: `request.session.clear()`.
 
 If you need multiple admin operators, see [User Management](user-management.md) for ways to extend this.
@@ -84,18 +84,31 @@ SQLAdmin reuses the **same SQLAlchemy engine** the rest of the app uses (importe
 
 ## Session Cookies
 
-The admin login uses Starlette's `SessionMiddleware`, which is added to the FastAPI app in `src/interfaces/main.py`:
+The admin login uses Starlette's `SessionMiddleware`, which `AdminAuth` mounts on the panel's own
+routes (`src/interfaces/admin/auth.py`). The API never carries it, so an API request never decodes
+an admin cookie:
 
 ```python
-app.add_middleware(SessionMiddleware, secret_key=settings.SECRET_KEY)
+self.middlewares = [
+    Middleware(
+        SessionMiddleware,
+        secret_key=secret_key,
+        session_cookie="admin_session",
+        path=ADMIN_COOKIE_PATH,
+        max_age=SESSION_MAX_AGE_SECONDS,
+        same_site="lax",
+        https_only=not local,
+    )
+]
 ```
 
 Cookie behavior:
 
-- HTTP-only by default
-- Encrypted/signed with `SECRET_KEY`
+- HTTP-only, signed with `SECRET_KEY`, named `admin_session`
+- Scoped to `/admin`, so it isn't sent with API requests
 - Same-site `lax`
-- **Not** marked `Secure` automatically — if you serve the app over HTTPS, set `SESSION_SECURE_COOKIES=true` and adjust the middleware as needed (the Starlette `SessionMiddleware` doesn't have a built-in production-secure flag the way our session backend does)
+- `Secure` outside `local` and `development`, since nothing can revoke it server-side
+- Expires after 8 hours (`SESSION_MAX_AGE_SECONDS`)
 
 For production behind HTTPS, you'll typically want to:
 
@@ -126,7 +139,7 @@ Three options, ordered by aggressiveness:
     ```env
     ADMIN_ENABLED=false
     ```
-    Simplest. The admin panel never mounts. Run admin tasks via scripts (`uv run python -m scripts.setup_initial_data`, custom one-offs) or temporary overrides.
+    Simplest. The admin panel never mounts. Run admin tasks via scripts (`uv run --no-sync python -m scripts.setup_initial_data`, custom one-offs) or temporary overrides.
 
 2. **Restrict at the proxy/load balancer**
     Keep `ADMIN_ENABLED=true` but only allow the `/admin` path from your VPN's CIDR range or a specific IP allowlist. The app stays the same; the network blocks public access.
@@ -143,9 +156,9 @@ The Production Security Validator (`infrastructure/security/`) checks several th
 
 The admin panel itself doesn't change behavior between `local` / `development` / `staging` / `production` — it's the same SQLAdmin app. What changes is the surrounding environment:
 
-- **Cookie security**: derived from your reverse proxy / TLS setup, not from the `ENVIRONMENT` setting
+- **Cookie security**: `https_only` follows `ENVIRONMENT` — off in `local` and `development`, on everywhere else
 - **Logging**: admin actions go through the same logger configured by `infrastructure/logging/`
-- **Session backend**: Starlette's `SessionMiddleware` is in-memory + cookie-based, not the same as the API's `SESSION_BACKEND` (Redis/memory). Restart-resilience for the *admin* login isn't relevant — admins re-log-in fine.
+- **Session backend**: the panel's cookie is self-contained and signed, not the API's `SESSION_BACKEND` (Redis/memory). Restart-resilience for the *admin* login isn't relevant — admins re-log-in fine.
 
 ## Troubleshooting
 
@@ -154,23 +167,20 @@ Check `ADMIN_ENABLED`. If it's `false` (or unset and Pydantic resolves to a fals
 
 ```bash
 cd backend
-uv run python -c "from src.infrastructure.config.settings import get_settings; print(get_settings().ADMIN_ENABLED)"
+uv run --no-sync python -c "from src.infrastructure.config.settings import get_settings; print(get_settings().ADMIN_ENABLED)"
 ```
 
 ### Login form keeps rejecting credentials
 - Confirm `ADMIN_USERNAME` and `ADMIN_PASSWORD` in `backend/.env` match what you're typing
 - Restart the app after changing env vars (settings are read at startup)
-- If running in Docker, confirm the env vars are actually reaching the container (`docker compose exec app env | grep ADMIN_`)
+- If running in Docker, confirm the env vars are actually reaching the container (`docker compose exec api env | grep ADMIN_`)
 
 ### Admin session keeps logging out
-The Starlette `SessionMiddleware` cookie's lifetime is controlled by the browser (it's a session cookie). For longer-lived admin sessions, edit the middleware setup in `src/interfaces/main.py` to pass `max_age=...`:
+The cookie expires 8 hours after login. To change that, edit `SESSION_MAX_AGE_SECONDS` in
+`src/interfaces/admin/auth.py`:
 
 ```python
-app.add_middleware(
-    SessionMiddleware,
-    secret_key=settings.SECRET_KEY,
-    max_age=60 * 60 * 8,  # 8 hours
-)
+SESSION_MAX_AGE_SECONDS = 60 * 60 * 8
 ```
 
 ### Wrong `engine` connection / "no such table"
@@ -178,7 +188,7 @@ The admin uses the same engine as the API, which means it requires `CREATE_TABLE
 
 ```bash
 cd backend
-uv run alembic current
+uv run --no-sync alembic current
 ```
 
 ## Next Steps

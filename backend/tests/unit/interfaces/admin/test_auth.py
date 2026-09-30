@@ -7,7 +7,7 @@ from unittest.mock import patch
 import pytest
 
 from src.infrastructure.config.settings import EnvironmentOption, settings
-from src.interfaces.admin.auth import SESSION_MAX_AGE_SECONDS, AdminAuth
+from src.interfaces.admin.auth import ADMIN_COOKIE_PATH, SESSION_MAX_AGE_SECONDS, AdminAuth
 
 
 class FakeRequest:
@@ -95,6 +95,7 @@ def test_the_admin_session_cookie_is_scoped_and_short_lived(monkeypatch):
     assert options["https_only"] is True
     assert options["max_age"] == SESSION_MAX_AGE_SECONDS
     assert options["session_cookie"] == "admin_session"
+    assert options["path"] == ADMIN_COOKIE_PATH
 
 
 def test_the_cookie_may_travel_over_http_in_development(monkeypatch):

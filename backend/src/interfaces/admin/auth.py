@@ -10,6 +10,7 @@ from starlette.requests import Request
 from ...infrastructure.config.settings import EnvironmentOption, get_settings
 
 SESSION_MAX_AGE_SECONDS = 60 * 60 * 8
+ADMIN_COOKIE_PATH = "/admin"
 
 
 def _credential_matches(submitted: object, expected: str) -> bool:
@@ -37,6 +38,7 @@ class AdminAuth(AuthenticationBackend):
                 SessionMiddleware,
                 secret_key=secret_key,
                 session_cookie="admin_session",
+                path=ADMIN_COOKIE_PATH,
                 max_age=SESSION_MAX_AGE_SECONDS,
                 same_site="lax",
                 https_only=not local,
