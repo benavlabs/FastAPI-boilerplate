@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...infrastructure.auth.setup import auth
 from ...infrastructure.database.session import async_session
+from ...infrastructure.ratelimit.routing import throttled_path
 from .crud import crud_rate_limits
 from .schemas import RateLimitSelect
 
@@ -26,7 +27,13 @@ async def tier_rate_limit(request: Request, principal: Principal | None) -> Rate
 
     database = request.app.dependency_overrides.get(async_session, async_session)
     async with asynccontextmanager(database)() as db:
-        configured = await crud_rate_limits.get(db=db, tier_id=tier_id, path=request.url.path, schema_to_select=RateLimitSelect)
+        configured = await crud_rate_limits.get(
+            db=db,
+            tier_id=tier_id,
+            path=throttled_path(request),
+            is_deleted=False,
+            schema_to_select=RateLimitSelect,
+        )
 
     return RateLimit(configured["limit"], configured["period"]) if configured else None
 

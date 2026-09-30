@@ -13,18 +13,7 @@ from fastapi import Request
 from ...wiring.hooks import RATE_LIMIT_RESOLVERS
 from ..auth.setup import auth
 from ..config.settings import settings
-
-
-def throttled_path(request: Request) -> str:
-    """The route a request matched, as it was declared.
-
-    ``/users/alice`` and ``/users/bob`` are the same route, so they share a budget
-    and a configured limit. Counting the concrete path instead would hand every
-    path parameter its own allowance, which is no limit at all.
-    """
-    route = request.scope.get("route")
-
-    return getattr(route, "path", None) or request.url.path
+from .routing import throttled_path
 
 
 def api_rate_limit_key(request: Request, principal: Principal | None) -> str:

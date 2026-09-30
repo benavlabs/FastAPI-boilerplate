@@ -1,10 +1,11 @@
 from typing import Any
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter
 from fastcrud import PaginatedListResponse, compute_offset, paginated_response
 
 from ...infrastructure.auth.deps import CurrentSuperUserDep, CurrentUserDep
 from ...infrastructure.dependencies import AsyncSessionDep
+from ..common.pagination import ItemsPerPageDep, PageDep
 from ..user.dependencies import UserServiceDep
 from .dependencies import RateLimitServiceDep
 from .schemas import (
@@ -42,8 +43,8 @@ async def get_rate_limits(
     db: AsyncSessionDep,
     _: CurrentSuperUserDep,
     rate_limit_service: RateLimitServiceDep,
-    page: int = Query(1, ge=1, description="Page number"),
-    items_per_page: int = Query(10, ge=1, le=100, description="Items per page"),
+    page: PageDep = 1,
+    items_per_page: ItemsPerPageDep = 10,
 ) -> dict[str, Any]:
     """
     Get a paginated list of all rate limits.

@@ -35,7 +35,7 @@ class RateLimitService:
 
     async def create(self, rate_limit: RateLimitCreate, tier_id: int, db: AsyncSession) -> dict[str, Any]:
         """Create a new rate limit for a tier."""
-        tier_exists = await crud_tiers.exists(db=db, id=tier_id)
+        tier_exists = await crud_tiers.exists(db=db, id=tier_id, is_deleted=False)
         if not tier_exists:
             raise TierNotFoundError(f"Tier with ID {tier_id} not found")
 

@@ -11,9 +11,10 @@ from src.modules.rate_limit.hooks import tier_rate_limit
 _SENTINEL_DB = object()
 
 
-def _request_for(path: str, override):
+def _request_for(path: str, override, template: str | None = None):
     return SimpleNamespace(
         url=SimpleNamespace(path=path),
+        scope={"route": SimpleNamespace(path=template)} if template else {},
         app=SimpleNamespace(dependency_overrides={async_session: override}),
     )
 
@@ -65,3 +66,42 @@ async def test_a_tier_without_a_row_for_the_path_declines(monkeypatch):
     principal = Principal(user_id=1, user=SimpleNamespace(tier_id=7), transport="session")
 
     assert await tier_rate_limit(_request_for("/api/v1/tiers/", override_session), principal) is None
+
+
+async def test_the_lookup_uses_the_route_template(monkeypatch):
+    """A row saved for the template applies to every path that matches it."""
+
+    async def override_session():
+        yield _SENTINEL_DB
+
+    seen: dict[str, object] = {}
+
+    async def fake_get(db, **kwargs):
+        seen.update(kwargs)
+        return {"limit": 2, "period": 3600}
+
+    monkeypatch.setattr(crud_rate_limits, "get", fake_get)
+    principal = Principal(user_id=1, user=SimpleNamespace(tier_id=7), transport="session")
+    request = _request_for("/api/v1/users/alice", override_session, template="/api/v1/users/{username}")
+
+    result = await tier_rate_limit(request, principal)
+
+    assert seen["path"] == "/api/v1/users/{username}"
+    assert (result.times, result.seconds) == (2, 3600)
+
+
+async def test_the_lookup_ignores_soft_deleted_rows(monkeypatch):
+    async def override_session():
+        yield _SENTINEL_DB
+
+    seen: dict[str, object] = {}
+
+    async def fake_get(db, **kwargs):
+        seen.update(kwargs)
+        return None
+
+    monkeypatch.setattr(crud_rate_limits, "get", fake_get)
+    principal = Principal(user_id=1, user=SimpleNamespace(tier_id=7), transport="session")
+
+    assert await tier_rate_limit(_request_for("/api/v1/tiers/", override_session), principal) is None
+    assert seen["is_deleted"] is False
