@@ -18,6 +18,9 @@ logger = get_logger()
 
 router = APIRouter(tags=["Authentication"])
 
+root_routers: tuple[APIRouter, ...] = (crud_auth.oauth_router,) if crud_auth.oauth is not None else ()
+"""The routers accounts mounts outside the API prefix: crudauth's OAuth router, when a provider is configured."""
+
 
 @router.post(
     "/login",
