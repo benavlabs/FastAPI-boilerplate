@@ -10,6 +10,7 @@ from crudauth.exceptions import PasswordPolicyException
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.modules.user.admin import UserAdmin
+from src.modules.user.models import User
 
 
 async def test_the_admin_form_hashes_the_password_off_the_event_loop():
@@ -116,3 +117,12 @@ async def test_the_panel_accepts_a_live_tier():
     await UserAdmin().on_model_change(data, SimpleNamespace(email="x@example.com"), False, None)
 
     assert data["tier"].id == 7
+
+
+def test_the_form_rules_name_only_fields_the_model_has():
+    """Every form rule names a column or a relationship of the model."""
+    mapper = User.__mapper__
+    known = set(mapper.columns.keys()) | set(mapper.relationships.keys())
+
+    assert set(UserAdmin.form_edit_rules) <= known
+    assert set(UserAdmin.form_create_rules) <= known

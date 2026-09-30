@@ -135,6 +135,15 @@ class UserUpdate(PartialUpdate):
     ]
 
 
+class UserSelfUpdate(UserUpdate):
+    """Schema for the fields a user may change on their own account."""
+
+    current_password: Annotated[
+        str | None,
+        Field(default=None, exclude=True, description="Required when the email changes"),
+    ]
+
+
 class UserAdminUpdate(UserUpdate):
     """Schema for updates only an administrator may make.
 

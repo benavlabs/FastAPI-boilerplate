@@ -1,7 +1,9 @@
 import logging
 
 import pytest
+from crudauth import make_unusable_password
 from httpx import AsyncClient
+from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.modules.user.models import User
@@ -25,6 +27,7 @@ async def test_update_user_profile_success(
         "name": "Updated Name",
         "email": "updated.email@example.com",
         "profile_image_url": "https://example.com/new-image.jpg",
+        "current_password": test_user["password"],
     }
 
     logger.info(f"Testing successful profile update for user: {username}, user_id: {test_user['id']}")
@@ -103,7 +106,7 @@ async def test_update_user_profile_duplicate_email(
     assert create_response.status_code == 201
 
     username = test_user["username"]
-    update_data = {"email": other_user_data["email"]}
+    update_data = {"email": other_user_data["email"], "current_password": test_user["password"]}
 
     logger.info(f"Testing duplicate email update for user: {username}")
     response = await auth_client.patch(f"/api/v1/users/{username}", json=update_data)
@@ -140,3 +143,105 @@ async def test_an_explicit_null_is_refused_not_a_server_error(auth_client: Async
     response = await auth_client.patch(f"/api/v1/users/{test_user['username']}", json={field: None})
 
     assert response.status_code == 422
+
+
+class TestAnEmailChangeIsReauthenticated:
+    """What the PATCH route requires before an account's address moves."""
+
+    async def test_without_the_current_password_it_is_refused(
+        self, auth_client: AsyncClient, db_session: AsyncSession, test_user: dict
+    ):
+        response = await auth_client.patch(f"/api/v1/users/{test_user['username']}", json={"email": "attacker@example.com"})
+
+        assert response.status_code == 403
+        assert response.json()["detail"] == "Confirm this change with your current password."
+        stored = await db_session.get(User, test_user["id"])
+        await db_session.refresh(stored)
+        assert stored.email == test_user["email"]
+
+    async def test_with_the_wrong_password_it_is_refused(
+        self, auth_client: AsyncClient, db_session: AsyncSession, test_user: dict
+    ):
+        response = await auth_client.patch(
+            f"/api/v1/users/{test_user['username']}",
+            json={"email": "attacker@example.com", "current_password": "NotTheOne123!"},
+        )
+
+        assert response.status_code == 403
+        assert response.json()["detail"] == "Confirm this change with your current password."
+        stored = await db_session.get(User, test_user["id"])
+        await db_session.refresh(stored)
+        assert stored.email == test_user["email"]
+
+    async def test_with_the_current_password_it_succeeds_and_clears_the_verification(
+        self, auth_client: AsyncClient, db_session: AsyncSession, test_user: dict
+    ):
+        await db_session.execute(update(User).where(User.id == test_user["id"]).values(email_verified=True))
+        await db_session.commit()
+
+        response = await auth_client.patch(
+            f"/api/v1/users/{test_user['username']}",
+            json={"email": "moved@example.com", "current_password": test_user["password"]},
+        )
+
+        assert response.status_code == 200
+        stored = await db_session.get(User, test_user["id"])
+        await db_session.refresh(stored)
+        assert stored.email == "moved@example.com"
+        assert stored.email_verified is False
+
+    async def test_an_account_that_signs_in_with_a_provider_cannot_change_its_address(
+        self, auth_client: AsyncClient, db_session: AsyncSession, test_user: dict
+    ):
+        await db_session.execute(
+            update(User).where(User.id == test_user["id"]).values(hashed_password=make_unusable_password())
+        )
+        await db_session.commit()
+
+        response = await auth_client.patch(
+            f"/api/v1/users/{test_user['username']}",
+            json={"email": "moved@example.com", "current_password": test_user["password"]},
+        )
+
+        assert response.status_code == 403
+        assert response.json()["detail"] == "This account signs in with a provider, so its address can't be changed here."
+        stored = await db_session.get(User, test_user["id"])
+        await db_session.refresh(stored)
+        assert stored.email == test_user["email"]
+
+    async def test_another_field_needs_no_password(self, auth_client: AsyncClient, db_session: AsyncSession, test_user: dict):
+        response = await auth_client.patch(f"/api/v1/users/{test_user['username']}", json={"name": "Renamed Only"})
+
+        assert response.status_code == 200
+        stored = await db_session.get(User, test_user["id"])
+        await db_session.refresh(stored)
+        assert stored.name == "Renamed Only"
+
+    async def test_the_same_address_again_needs_no_password(self, auth_client: AsyncClient, test_user: dict):
+        response = await auth_client.patch(f"/api/v1/users/{test_user['username']}", json={"email": test_user["email"]})
+
+        assert response.status_code == 200
+
+    async def test_the_password_is_never_stored_or_echoed(
+        self, auth_client: AsyncClient, db_session: AsyncSession, test_user: dict
+    ):
+        response = await auth_client.patch(
+            f"/api/v1/users/{test_user['username']}",
+            json={"email": "kept@example.com", "current_password": test_user["password"]},
+        )
+
+        assert response.status_code == 200
+        assert test_user["password"] not in response.text
+        stored = await db_session.get(User, test_user["id"])
+        await db_session.refresh(stored)
+        assert stored.hashed_password.startswith("$2b$")
+
+
+async def test_a_refused_email_change_reports_the_password_budget(auth_client: AsyncClient, test_user: dict):
+    response = await auth_client.patch(
+        f"/api/v1/users/{test_user['username']}",
+        json={"email": "moved@example.com", "current_password": "WrongPassword1!"},
+    )
+
+    assert response.status_code == 403
+    assert response.headers["X-RateLimit-Limit"] == "5"

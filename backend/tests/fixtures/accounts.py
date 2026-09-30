@@ -1,5 +1,7 @@
 """Fixtures of the accounts feature: users, and clients signed in as them."""
 
+import time
+
 import pytest
 import pytest_asyncio
 from crudauth import Principal, get_password_hash
@@ -12,6 +14,8 @@ from src.infrastructure.auth.dependencies import (
     get_current_superuser,
     get_current_user,
 )
+from src.infrastructure.auth.password_attempts import PASSWORD_ATTEMPT_ACTION
+from src.infrastructure.auth.setup import auth as crud_auth
 from src.interfaces.main import app
 from src.modules.user.models import User
 
@@ -160,3 +164,44 @@ def mock_oauth_settings(monkeypatch):
     monkeypatch.setenv("OAUTH_GOOGLE_CLIENT_SECRET", "mock-google-client-secret")
     monkeypatch.setenv("OAUTH_GITHUB_CLIENT_ID", "mock-github-client-id")
     monkeypatch.setenv("OAUTH_GITHUB_CLIENT_SECRET", "mock-github-client-secret")
+
+
+BUDGETED_USER_IDS = range(1, 11)
+TEST_CLIENT_IP = "127.0.0.1"
+
+
+async def reset_rate_limits(*user_ids: int) -> None:
+    """Clear the change-password budgets of ``user_ids`` and the login lockout of the test client.
+
+    crudauth keys the budget ``ratelimit:{action}:{user_id}`` with the window stamped
+    on the end, and the lockout ``login:{dimension}:{value}``. Its backends expose no
+    way to clear one action, so the keys are spelled out here.
+    """
+    limiter = crud_auth.rate_limiter
+    if limiter is None:
+        return
+
+    period = crud_auth.rate_limits[PASSWORD_ATTEMPT_ACTION].seconds
+    window = int(time.time()) // period * period
+
+    for user_id in user_ids:
+        key = f"ratelimit:{PASSWORD_ATTEMPT_ACTION}:{user_id}"
+        await limiter.reset(key)
+        await limiter.reset(f"{key}:{window}")
+
+    for key in (
+        f"login:ip:{TEST_CLIENT_IP}",
+        f"login:lock:ip:{TEST_CLIENT_IP}",
+        f"login:rounds:ip:{TEST_CLIENT_IP}",
+    ):
+        await limiter.reset(key)
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def fresh_rate_limits():
+    """Start every test with the limiter counters the suite's accounts share unspent.
+
+    The suite recreates the tables per test, so user ids repeat, while the limiter
+    keeps its counters for the whole process.
+    """
+    await reset_rate_limits(*BUDGETED_USER_IDS)

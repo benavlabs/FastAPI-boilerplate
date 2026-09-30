@@ -184,7 +184,7 @@ Auth lives in `infrastructure/auth/routes.py` instead of in a feature module bec
 
 ## Mounted Endpoints
 
-What ships out of the box (40 total routes):
+What ships out of the box:
 
 | Prefix | Source | Notes |
 |--------|--------|-------|
@@ -192,6 +192,7 @@ What ships out of the box (40 total routes):
 | `GET /api/v1/tiers/*` | `modules/tier/routes.py` | Authenticated list + lookup by name |
 | `GET/PATCH/DELETE /api/v1/rate-limits/*` | `modules/rate_limit/routes.py` | Superuser only |
 | `POST /api/v1/auth/login`, `logout`, `logout-all`, `refresh-csrf`, `check-auth` | `infrastructure/auth/routes.py` | Session auth |
+| `POST /api/v1/auth/change-password`, `GET /api/v1/auth/me` | crudauth's account router, mounted in `infrastructure/auth/routes.py` | Session auth; `set-password` is not mounted |
 | `GET /api/v1/auth/oauth/{provider}`, `oauth/callback/{provider}` | crudauth router mounted in `infrastructure/auth/routes.py` | Google OAuth (configured in `infrastructure/auth/setup.py`) |
 | `POST/GET/PATCH/DELETE /api/v1/api-keys/*` | `modules/api_keys/routes.py` | Authenticated key management |
 | `GET /admin/*` | `interfaces/admin/initialize.py` | SQLAdmin UI |

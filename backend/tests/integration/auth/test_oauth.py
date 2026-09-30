@@ -259,9 +259,9 @@ async def test_a_provider_login_claims_an_account_whose_address_was_changed(
 ):
     """Moving a verified account onto someone else's address must not carry the trust over.
 
-    The account below is verified, so a provider login would link into it without
-    claiming it. Changing the email clears that, and the claim runs: the password
-    stops working and the row is signed out.
+    A session alone can't move the address: the PATCH is refused without the current
+    password. With it, the move clears the verification, and a provider login for the
+    new address claims the account.
     """
     await db_session.execute(update(User).where(User.id == test_user["id"]).values(email_verified=True))
     await db_session.commit()
@@ -272,9 +272,16 @@ async def test_a_provider_login_claims_an_account_whose_address_was_changed(
     )
     assert login.status_code == 200
 
-    moved = await client.patch(
+    with_a_session_alone = await client.patch(
         f"/api/v1/users/{test_user['username']}",
         json={"email": "victim@example.com"},
+        headers={"X-CSRF-Token": login.json()["csrf_token"]},
+    )
+    assert with_a_session_alone.status_code == 403
+
+    moved = await client.patch(
+        f"/api/v1/users/{test_user['username']}",
+        json={"email": "victim@example.com", "current_password": test_user["password"]},
         headers={"X-CSRF-Token": login.json()["csrf_token"]},
     )
     assert moved.status_code == 200

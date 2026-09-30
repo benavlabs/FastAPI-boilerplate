@@ -19,6 +19,9 @@ matrix. The round that followed fixed what a re-review of the refactor found.
 
 #### Added
 
+- **crudauth's account routes**, mounted under `/api/v1/auth`: `POST /change-password` (verifies the
+  current password, then revokes the account's other sessions) and `GET /me`. `set-password` is
+  deliberately not mounted, so an account that signs in with a provider still has no password.
 - **`src/wiring/`, the composition root.** `app.py`, `settings.py`, `hooks.py`, `models.py` and
   `admin.py` list what this project selected; `backend/scripts/seeders.py` and
   `backend/tests/wiring.py` do the same for seeders and fixtures. See
@@ -80,6 +83,14 @@ matrix. The round that followed fixed what a re-review of the refactor found.
 
 #### Breaking Changes
 
+- **Changing your own email address now requires the account's current password** in the `PATCH
+  /api/v1/users/{username}` body (`current_password`), and answers `403` without it. Every change
+  that needs the password counts against the same budget as `POST /api/v1/auth/change-password`,
+  correct passwords included: 5 per hour per account, then `429`. So an account can change its
+  address at most five times an hour. An account with no usable password (provider sign-in only)
+  can't change its address at all. A superuser changing someone else's address is unchanged: no
+  password, no limit. The address change still clears `email_verified`, which is what made a stolen
+  session enough to take an account over through a provider login.
 - **The caller-resolving dependency aliases moved** from `infrastructure/dependencies.py` to
   `infrastructure/auth/deps.py`: `CurrentUserDep`, `CurrentSuperUserDep`, `OptionalUserDep`,
   `CurrentPrincipalDep`, `CurrentPermissionsDep`, `OAuth2FormDep`. `AsyncSessionDep` stays.

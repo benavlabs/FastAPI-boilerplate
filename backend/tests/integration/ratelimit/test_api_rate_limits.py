@@ -83,3 +83,22 @@ async def test_a_path_parameter_does_not_hand_out_a_fresh_budget(client: AsyncCl
     responses = [(await client.get(f"/api/v1/users/{name}", headers=limits)).status_code for name in "abcd"]
 
     assert responses[3] == 429
+
+
+class TestTheHeadersOnACountedEmailChange:
+    """The email-change guard counts without taking over the API throttle's headers."""
+
+    @pytest.fixture
+    def throttled(self, monkeypatch):
+        monkeypatch.setattr(settings, "RATE_LIMITER_ENABLED", True)
+        monkeypatch.setattr(settings, "DEFAULT_RATE_LIMIT_LIMIT", 100)
+        monkeypatch.setattr(settings, "DEFAULT_RATE_LIMIT_PERIOD", 3600)
+
+    async def test_a_successful_change_reports_the_api_budget(self, auth_client: AsyncClient, test_user: dict, throttled: None):
+        response = await auth_client.patch(
+            f"/api/v1/users/{test_user['username']}",
+            json={"email": "moved@example.com", "current_password": test_user["password"]},
+        )
+
+        assert response.status_code == 200
+        assert response.headers["X-RateLimit-Limit"] == "100"

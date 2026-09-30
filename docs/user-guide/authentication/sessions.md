@@ -163,6 +163,35 @@ await fetch('/api/v1/users/', {
 
 Need a fresh token mid-session? Hit `POST /api/v1/auth/refresh-csrf` — it returns a new token and sets the cookie.
 
+## Passwords
+
+crudauth's account routes are mounted under `/api/v1/auth`:
+
+| Route | What it does |
+|---|---|
+| `POST /api/v1/auth/change-password` | Verifies `current_password`, sets `new_password`, bumps `token_version` and revokes the account's **other** sessions, keeping the current one. At most 5 calls per hour per account, successes included |
+| `GET /api/v1/auth/me` | The identity crudauth resolved: id, username, email, superuser, scopes, transport |
+
+```bash
+curl -X POST http://localhost:8000/api/v1/auth/change-password \
+  -b cookies.txt \
+  -H "Content-Type: application/json" \
+  -H "X-CSRF-Token: <token>" \
+  -d '{"current_password": "<current>", "new_password": "<new>"}'
+```
+
+A wrong `current_password` answers `401`, a missing `X-CSRF-Token` answers `403`, and a
+`new_password` that breaks the policy answers `422`. This route and the email change on
+`PATCH /api/v1/users/{username}` share one budget of 5 per hour per account. Every call that checks
+a password counts, whether the password was right or wrong, so an account can change its password
+or its address at most five times an hour; past that both answer `429`.
+
+crudauth also ships `POST /set-password`, for an account that has no password, and the email and
+password *reset* flows. This app mounts none of them: `set-password` would let anyone holding a
+session put a password on a provider-only account, and the reset flows need an `EmailSender`, which
+this repo doesn't configure. So an account that signs in with a provider has no password, can't set
+one, and can't change its email address.
+
 For dev/test environments where CSRF gets in the way, set `CSRF_ENABLED=false`.
 
 ## Device Tracking
