@@ -1,5 +1,7 @@
 """Settings for the taskiq feature."""
 
+from urllib.parse import quote
+
 from pydantic_settings import BaseSettings
 from sqlalchemy.engine import URL
 
@@ -24,9 +26,6 @@ class TaskiqSettings(BaseSettings):
     TASKIQ_RABBITMQ_PASSWORD: str = config("TASKIQ_RABBITMQ_PASSWORD", default="guest")
     TASKIQ_RABBITMQ_VHOST: str = config("TASKIQ_RABBITMQ_VHOST", default="/")
 
-    TASKIQ_WORKER_CONCURRENCY: int = config("TASKIQ_WORKER_CONCURRENCY", default=2, cast=int)
-    TASKIQ_MAX_TASKS_PER_WORKER: int = config("TASKIQ_MAX_TASKS_PER_WORKER", default=1000, cast=int)
-
     @property
     def TASKIQ_BROKER_URL(self) -> str:
         """Generate broker URL based on configured backend."""
@@ -39,7 +38,7 @@ class TaskiqSettings(BaseSettings):
                 password=self.TASKIQ_RABBITMQ_PASSWORD,
                 host=self.TASKIQ_RABBITMQ_HOST,
                 port=self.TASKIQ_RABBITMQ_PORT,
-                database=self.TASKIQ_RABBITMQ_VHOST.lstrip("/"),
+                database=quote(self.TASKIQ_RABBITMQ_VHOST.lstrip("/"), safe=""),
             ).render_as_string(hide_password=False)
         else:
             raise ValueError(f"Unsupported broker type: {self.TASKIQ_BROKER_TYPE}")

@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase, MappedAsDataclass
 
 from ..config.settings import get_settings
+from .registry import import_models
 
 _engine: AsyncEngine | None = None
 _session_factory: async_sessionmaker[AsyncSession] | None = None
@@ -152,6 +153,9 @@ async def create_tables() -> None:
     that inherit from the Base class. It's typically used during
     application initialization or database setup.
 
+    Every model module is imported first, so the metadata holds every table
+    whatever the caller happened to import.
+
     Note:
         This function is idempotent - it will only create tables that
         don't already exist. Existing tables are left unchanged.
@@ -176,6 +180,8 @@ async def create_tables() -> None:
             asyncio.run(create_tables())
         ```
     """
+    import_models()
+
     async with get_engine().begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 

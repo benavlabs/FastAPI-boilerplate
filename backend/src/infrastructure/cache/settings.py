@@ -33,7 +33,6 @@ class CacheSettings(BaseSettings):
         CACHE_REDIS_CONNECT_TIMEOUT: Connection timeout in seconds. Default is 5.
         CACHE_REDIS_POOL_SIZE: Maximum number of connections in the pool. Default is 10.
 
-        DEFAULT_CACHE_EXPIRATION: Default expiration time for cache entries in seconds.
             Default is 3600 (1 hour).
     """
 
@@ -51,5 +50,3 @@ class CacheSettings(BaseSettings):
     CACHE_REDIS_PASSWORD: str | None = config("CACHE_REDIS_PASSWORD", default=None)
     CACHE_REDIS_CONNECT_TIMEOUT: int = config("CACHE_REDIS_CONNECT_TIMEOUT", default=5, cast=int)
     CACHE_REDIS_POOL_SIZE: int = config("CACHE_REDIS_POOL_SIZE", default=10, cast=int)
-
-    DEFAULT_CACHE_EXPIRATION: int = config("DEFAULT_CACHE_EXPIRATION", default=3600, cast=int)

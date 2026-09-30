@@ -1,11 +1,35 @@
 """Tests for configuration settings."""
 
 import os
+import subprocess
+import sys
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
 from src.infrastructure.config.settings import EnvironmentOption, Settings, get_settings
+
+_MOUNTED_PATHS = """
+from src.interfaces.api import router
+
+print("PATHS:" + ",".join(route.path for route in router.routes))
+"""
+
+
+def _mounted_api_paths(**environment: str) -> list[str]:
+    """The paths the API router mounts, read from a cold interpreter."""
+    result = subprocess.run(
+        [sys.executable, "-c", _MOUNTED_PATHS],
+        cwd=Path(__file__).resolve().parents[4],
+        capture_output=True,
+        text=True,
+        check=True,
+        env={**os.environ, **environment},
+    )
+    line = next(line for line in result.stdout.splitlines() if line.startswith("PATHS:"))
+
+    return [path for path in line.removeprefix("PATHS:").split(",") if path]
 
 
 class TestSettings:
@@ -110,3 +134,32 @@ def test_the_environment_setting_only_takes_values_it_can_hold():
 
     with pytest.raises(ValueError):
         EnvironmentOption("pytest")
+
+
+class TestSettingsNothingReads:
+    """Settings that promised behaviour the code never had are gone."""
+
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "LOG_CORRELATION_ID",
+            "LOG_INCLUDE_STACKTRACE",
+            "LOG_PERFORMANCE_METRICS",
+            "LOG_SQL_QUERIES",
+            "LOG_STRUCTURED_CONTEXT",
+            "DEFAULT_CACHE_EXPIRATION",
+            "POSTGRES_SYNC_PREFIX",
+            "PRODUCTION_SECURITY_STRICT_MODE",
+        ],
+    )
+    def test_the_setting_is_gone(self, name: str):
+        assert not hasattr(get_settings(), name), name
+
+    def test_every_api_route_sits_under_the_configured_prefix(self):
+        assert [path for path in _mounted_api_paths() if not path.startswith(get_settings().API_PREFIX)] == []
+
+    def test_a_configured_prefix_moves_the_api(self):
+        """The prefix used to be hard-coded in the router, so setting it did nothing."""
+        moved = _mounted_api_paths(API_PREFIX="/service")
+
+        assert [path for path in moved if not path.startswith("/service")] == []

@@ -4,6 +4,7 @@ import os
 from unittest.mock import patch
 
 import pytest
+from yarl import URL
 
 from src.infrastructure.config.settings import Settings, get_settings
 
@@ -21,8 +22,6 @@ class TestTaskiqSettings:
         assert settings.TASKIQ_REDIS_PORT == 6379
         assert settings.TASKIQ_REDIS_DB == 3
         assert settings.TASKIQ_REDIS_PASSWORD is None
-        assert settings.TASKIQ_WORKER_CONCURRENCY == 2
-        assert settings.TASKIQ_MAX_TASKS_PER_WORKER == 1000
 
     @patch.dict(
         os.environ,
@@ -32,8 +31,6 @@ class TestTaskiqSettings:
             "TASKIQ_REDIS_PORT": "6380",
             "TASKIQ_REDIS_DB": "5",
             "TASKIQ_REDIS_PASSWORD": "test-password",
-            "TASKIQ_WORKER_CONCURRENCY": "4",
-            "TASKIQ_MAX_TASKS_PER_WORKER": "500",
         },
     )
     def test_taskiq_settings_from_env(self):
@@ -45,8 +42,6 @@ class TestTaskiqSettings:
         assert settings.TASKIQ_REDIS_PORT == 6380
         assert settings.TASKIQ_REDIS_DB == 5
         assert settings.TASKIQ_REDIS_PASSWORD == "test-password"
-        assert settings.TASKIQ_WORKER_CONCURRENCY == 4
-        assert settings.TASKIQ_MAX_TASKS_PER_WORKER == 500
 
     @patch.dict(
         os.environ,
@@ -135,10 +130,37 @@ class TestTaskiqSettings:
             "TASKIQ_RABBITMQ_USER",
             "TASKIQ_RABBITMQ_PASSWORD",
             "TASKIQ_RABBITMQ_VHOST",
-            "TASKIQ_WORKER_CONCURRENCY",
-            "TASKIQ_MAX_TASKS_PER_WORKER",
             "TASKIQ_BROKER_URL",
         ]
 
         for attr in required_attrs:
             assert hasattr(settings, attr), f"Missing required Taskiq setting: {attr}"
+
+
+class TestTheBrokerUrlEscaping:
+    """A vhost or password with punctuation in it still has to parse."""
+
+    @patch.dict(
+        os.environ,
+        {
+            "TASKIQ_BROKER_TYPE": "rabbitmq",
+            "TASKIQ_RABBITMQ_USER": "user",
+            "TASKIQ_RABBITMQ_PASSWORD": "p@ss/word",
+            "TASKIQ_RABBITMQ_HOST": "rabbitmq",
+            "TASKIQ_RABBITMQ_PORT": "5672",
+            "TASKIQ_RABBITMQ_VHOST": "/tenant/one",
+        },
+    )
+    def test_the_vhost_and_password_survive_the_url(self):
+        url = URL(Settings().TASKIQ_BROKER_URL)
+
+        assert url.path == "/tenant/one"
+        assert url.password == "p@ss/word"
+
+
+def test_the_workers_own_knobs_are_gone():
+    """Nothing read them: the worker's concurrency is set on its command line."""
+    settings = get_settings()
+
+    for name in ("TASKIQ_WORKER_CONCURRENCY", "TASKIQ_MAX_TASKS_PER_WORKER"):
+        assert not hasattr(settings, name), name

@@ -1,7 +1,5 @@
 import asyncio
-import importlib
 import os
-import pkgutil
 from logging.config import fileConfig
 
 from alembic import context
@@ -9,8 +7,11 @@ from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
+from src.infrastructure.config.base import ini_value
 from src.infrastructure.config.settings import EnvironmentOption, settings
+from src.infrastructure.database.registry import import_models
 from src.infrastructure.database.session import Base
+from src.infrastructure.security.production_validator import is_weak_secret_key
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -35,8 +36,8 @@ def validate_production_migration():
                 "This ensures you understand you're migrating production data."
             )
 
-        if not settings.SECRET_KEY:
-            raise Exception("SECRET_KEY must be set before migrating production.")
+        if is_weak_secret_key(settings.SECRET_KEY):
+            raise Exception("SECRET_KEY is missing, a placeholder, or too weak to migrate production with.")
 
         # Warn about production migration
         print("✅ Production migration confirmed")
@@ -44,25 +45,16 @@ def validate_production_migration():
         print("⚠️  This operation will modify production data!")
 
 
-# Build the database URL from settings - use the built-in DATABASE_URL property
-config.set_main_option("sqlalchemy.url", settings.DATABASE_URL.replace("%", "%%"))
+config.set_main_option("sqlalchemy.url", ini_value(settings.DATABASE_URL))
 
-# Run production safety checks
 validate_production_migration()
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 
-def import_models(package_name):
-    """Automatically import all models from a package and its subpackages."""
-    package = importlib.import_module(package_name)
-    for _, module_name, _ in pkgutil.walk_packages(package.__path__, package.__name__ + "."):
-        importlib.import_module(module_name)
-
-
 # Import all models to ensure they're registered with SQLAlchemy
-import_models("src.modules")
+import_models()
 target_metadata = Base.metadata
 
 

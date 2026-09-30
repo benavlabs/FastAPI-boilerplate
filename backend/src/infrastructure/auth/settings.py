@@ -1,12 +1,11 @@
 """Settings for the accounts feature: users, sessions, CSRF, login lockout, OAuth."""
 
-from urllib.parse import quote
-
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings
 
 from ..config.base import config
 from ..config.enums import RateLimiterBackend, SessionBackend
+from ..redis import redis_url
 
 
 class AuthSettings(BaseSettings):
@@ -67,9 +66,12 @@ class AuthSettings(BaseSettings):
         if self.SESSION_REDIS_URL_OVERRIDE:
             return self.SESSION_REDIS_URL_OVERRIDE
 
-        password_part = f":{quote(self.SESSION_REDIS_PASSWORD, safe='')}@" if self.SESSION_REDIS_PASSWORD else ""
-
-        return f"redis://{password_part}{self.SESSION_REDIS_HOST}:{self.SESSION_REDIS_PORT}/{self.SESSION_REDIS_DB}"
+        return redis_url(
+            self.SESSION_REDIS_HOST,
+            self.SESSION_REDIS_PORT,
+            self.SESSION_REDIS_DB,
+            self.SESSION_REDIS_PASSWORD,
+        )
 
 
 class LimiterBackendSettings(BaseSettings):

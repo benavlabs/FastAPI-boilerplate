@@ -12,9 +12,17 @@ from pydantic_settings import BaseSettings
 from sqlalchemy.engine import URL
 from starlette.config import Config
 
-from .enums import LogFormat, LogLevel
+from .enums import LogLevel
 
 logger = logging.getLogger(__name__)
+
+DATABASE_NAME_RESERVED = ("/", "?", "#", "@")
+
+
+def ini_value(value: str) -> str:
+    """``value`` as it has to be written into an ini file, where ``%`` starts an interpolation."""
+    return value.replace("%", "%%")
+
 
 DEFAULT_APP_DESCRIPTION = """
 # FastAPI Boilerplate
@@ -71,7 +79,6 @@ class DatabaseSettings(BaseSettings):
     POSTGRES_SERVER: str = config("POSTGRES_SERVER", default="localhost")
     POSTGRES_PORT: int = config("POSTGRES_PORT", default=5432)
     POSTGRES_DB: str = config("POSTGRES_DB", default="postgres")
-    POSTGRES_SYNC_PREFIX: str = config("POSTGRES_SYNC_PREFIX", default="postgresql://")
     POSTGRES_ASYNC_PREFIX: str = config("POSTGRES_ASYNC_PREFIX", default="postgresql+asyncpg://")
     CREATE_TABLES_ON_STARTUP: bool = config("CREATE_TABLES_ON_STARTUP", default=True, cast=bool)
 
@@ -93,9 +100,18 @@ class DatabaseSettings(BaseSettings):
         then falls back to constructing from individual components (development
         pattern), with the credentials escaped: a password containing ``@``, ``/``
         or ``#`` would otherwise produce a URL that parses as something else.
+
+        Raises:
+            ValueError: when POSTGRES_DB holds a character a URL reads as
+                punctuation. SQLAlchemy parses the database name literally, so
+                escaping it would connect to a differently named database.
         """
         if self.DATABASE_URL_OVERRIDE:
             return self.DATABASE_URL_OVERRIDE
+
+        unsafe = [character for character in DATABASE_NAME_RESERVED if character in self.POSTGRES_DB]
+        if unsafe:
+            raise ValueError(f"POSTGRES_DB cannot contain {' or '.join(unsafe)}; rename the database or set DATABASE_URL.")
 
         return URL.create(
             drivername=self.POSTGRES_ASYNC_PREFIX.rstrip(":/"),
@@ -151,18 +167,18 @@ class APIDocSettings(BaseSettings):
     OPENAPI_URL: str = config("OPENAPI_URL", default="/openapi.json")
 
     API_TITLE: str = config("API_TITLE", default="")
-    API_SUMMARY: str = config("API_SUMMARY", default="A modular FastAPI starter with a plugin system")
+    API_SUMMARY: str = config("API_SUMMARY", default="")
     API_DESCRIPTION: str = config("API_DESCRIPTION", default="")
     API_VERSION: str = config("API_VERSION", default="")
     API_TERMS_OF_SERVICE: str = config("API_TERMS_OF_SERVICE", default="")
 
     API_CONTACT_NAME: str = config("API_CONTACT_NAME", default="")
-    API_CONTACT_URL: str = config("API_CONTACT_URL", default="https://github.com/benavlabs/FastAPI-boilerplate")
+    API_CONTACT_URL: str = config("API_CONTACT_URL", default="")
     API_CONTACT_EMAIL: str = config("API_CONTACT_EMAIL", default="")
 
     API_LICENSE_NAME: str = config("API_LICENSE_NAME", default="")
     API_LICENSE_URL: str = config("API_LICENSE_URL", default="")
-    API_LICENSE_IDENTIFIER: str = config("API_LICENSE_IDENTIFIER", default="MIT")
+    API_LICENSE_IDENTIFIER: str = config("API_LICENSE_IDENTIFIER", default="")
 
     API_TAGS_METADATA: str = config("API_TAGS_METADATA", default="[]")
 
@@ -170,7 +186,7 @@ class APIDocSettings(BaseSettings):
 class APISettings(BaseSettings):
     """API-related settings."""
 
-    API_PREFIX: str = "/api"
+    API_PREFIX: str = config("API_PREFIX", default="/api")
 
 
 class AppSettings(BaseSettings):
@@ -181,9 +197,9 @@ class AppSettings(BaseSettings):
     APP_DESCRIPTION: str = config("APP_DESCRIPTION", default=DEFAULT_APP_DESCRIPTION)
     DEBUG: bool = config("DEBUG", default=False, cast=bool)
     VERSION: str = config("VERSION", default="0.19.0")
-    CONTACT_NAME: str = config("CONTACT_NAME", default="Benav Labs")
-    CONTACT_EMAIL: str = config("CONTACT_EMAIL", default="contact@benav.io")
-    LICENSE_NAME: str = config("LICENSE_NAME", default="MIT")
+    CONTACT_NAME: str = config("CONTACT_NAME", default="")
+    CONTACT_EMAIL: str = config("CONTACT_EMAIL", default="")
+    LICENSE_NAME: str = config("LICENSE_NAME", default="")
 
 
 class SecuritySettings(BaseSettings):
@@ -199,20 +215,13 @@ class LoggingSettings(BaseSettings):
     """Centralized logging configuration settings."""
 
     LOG_LEVEL: str = config("LOG_LEVEL", default=LogLevel.INFO.value)
-    LOG_FORMAT: str = config("LOG_FORMAT", default=LogFormat.STRUCTURED.value)
+    LOG_FORMAT: str = config("LOG_FORMAT", default="")
 
     LOG_CONSOLE_ENABLED: bool = config("LOG_CONSOLE_ENABLED", default=True, cast=bool)
     LOG_FILE_ENABLED: bool = config("LOG_FILE_ENABLED", default=False, cast=bool)
     LOG_FILE_PATH: str = config("LOG_FILE_PATH", default="logs/app.log")
     LOG_FILE_MAX_SIZE: int = config("LOG_FILE_MAX_SIZE", default=10485760, cast=int)
     LOG_FILE_BACKUP_COUNT: int = config("LOG_FILE_BACKUP_COUNT", default=5, cast=int)
-
-    LOG_CORRELATION_ID: bool = config("LOG_CORRELATION_ID", default=True, cast=bool)
-    LOG_STRUCTURED_CONTEXT: bool = config("LOG_STRUCTURED_CONTEXT", default=True, cast=bool)
-    LOG_PERFORMANCE_METRICS: bool = config("LOG_PERFORMANCE_METRICS", default=False, cast=bool)
-
-    LOG_SQL_QUERIES: bool = config("LOG_SQL_QUERIES", default=False, cast=bool)
-    LOG_INCLUDE_STACKTRACE: bool = config("LOG_INCLUDE_STACKTRACE", default=True, cast=bool)
 
     LOG_DEVELOPMENT_VERBOSE: bool = config("LOG_DEVELOPMENT_VERBOSE", default=True, cast=bool)
     LOG_PRODUCTION_OPTIMIZE: bool = config("LOG_PRODUCTION_OPTIMIZE", default=True, cast=bool)
