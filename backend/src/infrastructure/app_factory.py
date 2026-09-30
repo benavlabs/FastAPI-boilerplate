@@ -16,9 +16,7 @@ from fastapi.openapi.utils import get_openapi
 from ..modules.common.utils.error_handler import register_exception_handlers
 from .composition import Lifecycle
 from .config.settings import (
-    DatabaseSettings,
     EnvironmentOption,
-    EnvironmentSettings,
     Settings,
     get_settings,
 )
@@ -55,10 +53,9 @@ def lifespan_factory(
         await set_threadpool_tokens()
 
         async with AsyncExitStack() as teardown:
-            if isinstance(settings, DatabaseSettings):
-                teardown.push_async_callback(close_database)
-                if create_tables_on_startup:
-                    await create_tables()
+            teardown.push_async_callback(close_database)
+            if create_tables_on_startup:
+                await create_tables()
 
             for lifecycle in lifecycles:
                 for shutdown in reversed(lifecycle.shutdown):
@@ -86,6 +83,7 @@ def create_application(
     docs_guard: Callable[..., Any] | None = None,
     root_routers: Sequence[APIRouter] = (),
     installers: Sequence[Callable[[FastAPI], None]] = (),
+    lifecycles: Sequence[Lifecycle] = (),
     enable_gzip: bool | None = None,
     openapi_prefix: str | None = None,
     title: str | None = None,
@@ -154,14 +152,13 @@ def create_application(
     if license_info is not None:
         metadata["license_info"] = license_info
     else:
-        license_dict = {}
-        if settings.API_LICENSE_NAME or settings.LICENSE_NAME:
-            license_dict["name"] = settings.API_LICENSE_NAME or settings.LICENSE_NAME
-        if settings.API_LICENSE_URL:
-            license_dict["url"] = settings.API_LICENSE_URL
-        if settings.API_LICENSE_IDENTIFIER:
-            license_dict["identifier"] = settings.API_LICENSE_IDENTIFIER
-        if license_dict:
+        license_name = settings.API_LICENSE_NAME or settings.LICENSE_NAME
+        if license_name:
+            license_dict = {"name": license_name}
+            if settings.API_LICENSE_IDENTIFIER:
+                license_dict["identifier"] = settings.API_LICENSE_IDENTIFIER
+            elif settings.API_LICENSE_URL:
+                license_dict["url"] = settings.API_LICENSE_URL
             metadata["license_info"] = license_dict
 
     if openapi_tags is not None:
@@ -182,11 +179,9 @@ def create_application(
 
     kwargs.update(metadata)
 
-    show_docs = isinstance(settings, EnvironmentSettings) and (
-        settings.ENVIRONMENT != EnvironmentOption.PRODUCTION or _enable_docs_in_production
-    )
+    show_docs = settings.ENVIRONMENT != EnvironmentOption.PRODUCTION or _enable_docs_in_production
 
-    is_production = isinstance(settings, EnvironmentSettings) and settings.ENVIRONMENT == EnvironmentOption.PRODUCTION
+    is_production = settings.ENVIRONMENT == EnvironmentOption.PRODUCTION
 
     docs_dependency = None
     if show_docs:
@@ -197,17 +192,13 @@ def create_application(
             docs_dependency = docs_guard
             show_docs = docs_dependency is not None
 
-    hide_docs = (
-        isinstance(settings, EnvironmentSettings)
-        and settings.ENVIRONMENT == EnvironmentOption.PRODUCTION
-        and not _enable_docs_in_production
-    )
+    hide_docs = settings.ENVIRONMENT == EnvironmentOption.PRODUCTION and not _enable_docs_in_production
     serve_builtin_docs = not hide_docs and docs_dependency is None and show_docs
     if not serve_builtin_docs:
         kwargs.update({"docs_url": None, "redoc_url": None, "openapi_url": None})
 
     if lifespan is None:
-        lifespan = lifespan_factory(settings, create_tables_on_startup=_create_tables_on_startup)
+        lifespan = lifespan_factory(settings, create_tables_on_startup=_create_tables_on_startup, lifecycles=lifecycles)
 
     application = FastAPI(lifespan=lifespan, **kwargs)
 
@@ -239,8 +230,7 @@ def create_application(
         gzip_min_size = settings.GZIP_MINIMUM_SIZE
         application.add_middleware(GZipMiddleware, minimum_size=gzip_min_size)
 
-    _security_headers_enabled = getattr(settings, "SECURITY_HEADERS_ENABLED", True)
-    if _security_headers_enabled:
+    if settings.SECURITY_HEADERS_ENABLED:
         _environment = settings.ENVIRONMENT.value
         application.add_middleware(SecurityHeadersMiddleware, environment=_environment)
 

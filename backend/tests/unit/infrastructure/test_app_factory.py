@@ -139,16 +139,26 @@ class TestLifespanDatabaseTeardown:
         assert call_order == ["first_startup", "second_shutdown", "first_shutdown", "first_client_close"]
         database_calls["close_database"].assert_awaited_once()
 
-    async def test_skips_dispose_without_database_settings(self, database_calls, feature_lifecycles):
-        """Settings that carry no database config leave the engine alone."""
-        lifecycles, _ = feature_lifecycles
-        lifespan = app_factory.lifespan_factory(object(), lifecycles=lifecycles)  # type: ignore[arg-type]
+    async def test_the_factorys_own_lifespan_starts_the_lifecycles_it_is_given(self, database_calls, feature_lifecycles):
+        """An app built without a custom lifespan still starts the features it was wired with."""
+        lifecycles, call_order = feature_lifecycles
+        app = app_factory.create_application(
+            router=APIRouter(),
+            settings=Settings(),
+            lifecycles=lifecycles,
+            create_tables_on_startup=False,
+        )
 
-        async with lifespan(FastAPI()):
-            pass
+        async with app.router.lifespan_context(app):
+            assert call_order == ["first_startup", "second_startup"]
 
-        database_calls["close_database"].assert_not_awaited()
-        database_calls["create_tables"].assert_not_awaited()
+        assert call_order == [
+            "first_startup",
+            "second_startup",
+            "second_shutdown",
+            "first_shutdown",
+            "first_client_close",
+        ]
 
 
 def _create_app(
@@ -292,15 +302,65 @@ async def test_an_app_can_be_built_with_wiring_of_its_own():
 
 
 @pytest.mark.asyncio
-async def test_the_api_metadata_settings_reach_the_schema():
+async def test_the_api_metadata_settings_reach_the_schema(monkeypatch):
     """They used to be overridden by literals the app passed in, so nobody could set them."""
-    app = app_factory.create_application(
-        router=APIRouter(),
-        settings=Settings(API_TITLE="Acme API", API_VERSION="2.5.0", API_DESCRIPTION="What Acme runs on"),
-    )
+    monkeypatch.setenv("API_TITLE", "Acme API")
+    monkeypatch.setenv("API_VERSION", "2.5.0")
+    monkeypatch.setenv("API_DESCRIPTION", "What Acme runs on")
+
+    app = app_factory.create_application(router=APIRouter(), settings=Settings())
 
     info = app.openapi()["info"]
 
     assert info["title"] == "Acme API"
     assert info["version"] == "2.5.0"
     assert info["description"] == "What Acme runs on"
+
+
+class TestTheProjectsIdentity:
+    """A generated project must not inherit the template's identity, or an invalid licence."""
+
+    def _info(self, **overrides) -> dict:
+        blank = {
+            "API_TITLE": "",
+            "API_SUMMARY": "",
+            "API_CONTACT_NAME": "",
+            "API_CONTACT_EMAIL": "",
+            "API_CONTACT_URL": "",
+            "API_LICENSE_NAME": "",
+            "API_LICENSE_URL": "",
+            "API_LICENSE_IDENTIFIER": "",
+            "CONTACT_NAME": "",
+            "CONTACT_EMAIL": "",
+            "LICENSE_NAME": "",
+        }
+
+        app = app_factory.create_application(router=APIRouter(), settings=Settings(**{**blank, **overrides}))
+
+        return app.openapi()["info"]
+
+    def test_nothing_configured_means_no_contact_and_no_licence(self):
+        info = self._info()
+
+        assert "contact" not in info
+        assert "license" not in info
+        assert "summary" not in info
+
+    def test_a_licence_needs_a_name(self):
+        """OpenAPI requires the name; an identifier alone is not a licence."""
+        assert "license" not in self._info(API_LICENSE_IDENTIFIER="MIT")
+
+    def test_a_licence_carries_an_identifier_or_a_url_but_not_both(self):
+        """OpenAPI allows one of them, and the identifier is the one it prefers."""
+        both = self._info(API_LICENSE_NAME="MIT", API_LICENSE_IDENTIFIER="MIT", API_LICENSE_URL="https://example.com/l")
+
+        assert both["license"] == {"name": "MIT", "identifier": "MIT"}
+        assert self._info(API_LICENSE_NAME="MIT", API_LICENSE_URL="https://example.com/l")["license"] == {
+            "name": "MIT",
+            "url": "https://example.com/l",
+        }
+
+    def test_the_contact_is_whatever_the_project_configured(self):
+        info = self._info(API_CONTACT_NAME="Acme Support", API_CONTACT_EMAIL="ops@acme.example.com")
+
+        assert info["contact"] == {"name": "Acme Support", "email": "ops@acme.example.com"}
