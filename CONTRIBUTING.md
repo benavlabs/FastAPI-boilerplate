@@ -11,7 +11,7 @@ Start by forking and cloning the FastAPI-boilerplate repository:
 
 1. **Fork the Repository**: Begin by forking the project repository. You can do this by visiting https://github.com/igormagalhaesr/FastAPI-boilerplate and clicking the "Fork" button.
 1. **Create a Feature Branch**: Once you've forked the repo, create a branch for your feature by running `git checkout -b feature/fooBar`.
-1. **Testing Changes**: Ensure that your changes do not break existing functionality by running tests. In the root folder, execute `uv run pytest` to run the tests.
+1. **Testing Changes**: Ensure that your changes do not break existing functionality by running tests. From `backend/`, execute `uv run --no-sync pytest`.
 
 ### Using uv for Dependency Management
 
@@ -38,7 +38,7 @@ source .venv/bin/activate
 Alternatively, you can run commands directly with `uv run` without activating the environment:
 
 ```sh
-uv run python your_script.py
+uv run --no-sync python your_script.py
 ```
 
 ## Making Contributions
@@ -50,11 +50,14 @@ uv run python your_script.py
 
 ### Testing with Pytest
 
-FastAPI-boilerplate uses pytest for testing. Run tests using:
+FastAPI-boilerplate uses pytest for testing. Run tests from `backend/`:
 
 ```sh
-uv run pytest
+cd backend
+uv run --no-sync pytest
 ```
+
+`--no-sync` keeps uv from re-syncing without the dev extras, which would uninstall pytest itself.
 
 ### Linting
 

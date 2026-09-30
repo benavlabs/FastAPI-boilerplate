@@ -16,6 +16,12 @@ dependencies = [
     "fastapi-boilerplate",
 ]
 
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3.5",
+    "pyyaml>=6.0.2",
+]
+
 [project.scripts]
 bp = "cli.app:app"
 

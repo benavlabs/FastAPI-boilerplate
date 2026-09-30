@@ -44,6 +44,7 @@ dev = [
     "testcontainers[postgres]>=4.10.0",
     "pytest-xdist[psutil]>=3.8.0",
     "taskiq[reload]>=0.11.20",
+    "pre-commit>=4.0.0",
 ]
 
 [tool.setuptools.packages.find]
@@ -56,8 +57,7 @@ python_files = ["test_*.py"]
 python_functions = ["test_*"]
 python_classes = ["Test*"]
 asyncio_mode = "auto"
-addopts = ["-v", "--strict-markers", "--tb=short", "--disable-warnings"]
-env = ["ENVIRONMENT=pytest", "PYTEST_CURRENT_TEST=true"]
+addopts = ["-v", "--strict-markers", "--tb=short"]
 markers = [
     "unit: Unit tests that don't require external dependencies",
     "integration: Integration tests that may require external services",

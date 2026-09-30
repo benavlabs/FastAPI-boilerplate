@@ -139,11 +139,34 @@ PRESETS: dict[str, tuple[str, ...]] = {
 }
 
 
-def _selected(preset: str) -> set[str]:
-    chosen = set(PRESETS[preset])
-    for feature in list(chosen):
-        chosen.update(REQUIRES.get(feature, ()))
+COPY_EXCLUDES = (
+    ".git",
+    ".venv",
+    ".env",
+    "bp-and-fastro",
+    "site",
+    "__pycache__",
+    ".mypy_cache",
+    ".ruff_cache",
+)
+
+
+def _selected_from(features: tuple[str, ...]) -> set[str]:
+    """``features`` and everything they need, all the way down."""
+    chosen = set(features)
+    pending = list(chosen)
+    while pending:
+        for required in REQUIRES.get(pending.pop(), ()):
+            if required not in chosen:
+                chosen.add(required)
+                pending.append(required)
+
     return chosen
+
+
+def _selected(preset: str) -> set[str]:
+    """The preset's features, and everything they need."""
+    return _selected_from(PRESETS[preset])
 
 
 def _wiring_settings(chosen: set[str]) -> str:
@@ -211,8 +234,8 @@ def _wiring_app(chosen: set[str]) -> str:
         imports += [
             "from ..infrastructure.auth.dependencies import get_current_superuser",
             "from ..infrastructure.auth.install import install as accounts_install",
+            "from ..infrastructure.auth.routes import root_routers as accounts_root_routers",
             "from ..infrastructure.auth.routes import router as auth_router",
-            "from ..infrastructure.auth.setup import auth",
             "from ..infrastructure.auth.setup import lifecycle as accounts_lifecycle",
             "from ..modules.user.routes import router as users_router",
         ]
@@ -220,7 +243,7 @@ def _wiring_app(chosen: set[str]) -> str:
             'RouterMount(users_router, "/users", throttled=True)',
             'RouterMount(auth_router, "/auth", throttled=False)',
         ]
-        root_routers = "(auth.oauth_router,) if auth.oauth is not None else ()"
+        root_routers = "accounts_root_routers"
         lifecycles.append("accounts_lifecycle")
         installers.append("accounts_install")
         docs_guard = "get_current_superuser"
@@ -374,15 +397,7 @@ def build(preset: str, into: Path) -> Path:
     shutil.copytree(
         REPO,
         project,
-        ignore=shutil.ignore_patterns(
-            ".git",
-            ".venv",
-            "bp-and-fastro",
-            "site",
-            "__pycache__",
-            ".mypy_cache",
-            ".ruff_cache",
-        ),
+        ignore=shutil.ignore_patterns(*COPY_EXCLUDES),
     )
 
     for name, feature in FEATURES.items():

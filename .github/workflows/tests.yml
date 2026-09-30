@@ -21,7 +21,7 @@ jobs:
         run: uv python install 3.11
 
       - name: Sync workspace
-        run: uv sync --all-packages --all-extras --locked
+        run: uv sync --all-packages --all-extras --locked --python 3.11
 
       - name: Pytest (backend)
         # --no-sync prevents uv run's implicit re-sync from dropping member
@@ -59,7 +59,7 @@ jobs:
         run: uv python install 3.11
 
       - name: Sync workspace
-        run: uv sync --all-packages --all-extras --locked
+        run: uv sync --all-packages --all-extras --locked --python 3.11
 
       - name: Removal drill
         run: uv run --no-sync python tools/removal_drill.py ${{ matrix.preset }}

@@ -69,10 +69,18 @@ repos:
       files: ^backend/src/
       types: [python]
 
+    - id: mypy_cli
+      name: Mypy (cli)
+      language: system
+      entry: bash -c 'cd cli && uv run --no-sync mypy -p cli'
+      pass_filenames: false
+      files: ^cli/src/
+      types: [python]
+
     - id: unit_test
       name: Unit test
       language: system
-      entry: uv run pytest
+      entry: bash -c 'cd backend && uv run --no-sync pytest'
       pass_filenames: false
       always_run: true
       types: [python]
