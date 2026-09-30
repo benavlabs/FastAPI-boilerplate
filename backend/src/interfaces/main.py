@@ -7,6 +7,7 @@ from fastapi import FastAPI, Response, status
 from ..infrastructure.app_factory import create_application, lifespan_factory
 from ..infrastructure.config.settings import get_settings
 from ..infrastructure.logging import get_logger
+from ..infrastructure.readiness import READY, probe
 from ..infrastructure.security import validate_production_security
 from ..interfaces.api import router
 from ..wiring.app import DOCS_GUARD, INSTALLERS, LIFECYCLES, ROOT_ROUTERS
@@ -57,17 +58,8 @@ async def readiness_check(response: Response) -> dict[str, Any]:
     Answers 503 while something it needs is unreachable, so a load balancer holds
     traffic back instead of sending it into failing requests.
     """
-    dependencies: dict[str, str] = {}
-
-    for dependency in READINESS_CHECKS:
-        try:
-            await dependency.check()
-            dependencies[dependency.name] = "ready"
-        except Exception as error:
-            logger.warning(f"Readiness check {dependency.name} failed: {error}")
-            dependencies[dependency.name] = "unavailable"
-
-    ready = all(status == "ready" for status in dependencies.values())
+    dependencies = await probe(READINESS_CHECKS)
+    ready = all(answer == READY for answer in dependencies.values())
     response.status_code = status.HTTP_200_OK if ready else status.HTTP_503_SERVICE_UNAVAILABLE
 
     return {"status": "ready" if ready else "not ready", "dependencies": dependencies}

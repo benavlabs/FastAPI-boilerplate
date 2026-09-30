@@ -46,7 +46,12 @@ TierDeleteGuard = Callable[[dict[str, Any], AsyncSession], Awaitable[str | None]
 
 @dataclass(frozen=True)
 class ReadinessCheck:
-    """A dependency the app needs before it can serve, and how to ask whether it is there."""
+    """A dependency the app needs before it can serve, and how to ask whether it is there.
+
+    ``target`` names the connection the check probes, so two features pointed at one
+    server are asked once.
+    """
 
     name: str
     check: Callable[[], Awaitable[None]]
+    target: Callable[[], str | None] | None = None

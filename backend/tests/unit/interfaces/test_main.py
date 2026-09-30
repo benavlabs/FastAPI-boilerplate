@@ -8,6 +8,7 @@ from httpx import ASGITransport, AsyncClient
 
 from src.infrastructure.composition import ReadinessCheck
 from src.infrastructure.config.settings import settings
+from src.infrastructure.readiness import forget_cached_report
 from src.interfaces import main
 
 pytestmark = pytest.mark.asyncio
@@ -32,6 +33,14 @@ async def test_tables_are_created_when_the_setting_asks_for_it(monkeypatch):
             pass
 
     create_tables.assert_awaited_once()
+
+
+@pytest.fixture(autouse=True)
+def forget_the_readiness_report():
+    """The report is remembered for a couple of seconds, which tests must not inherit."""
+    forget_cached_report()
+    yield
+    forget_cached_report()
 
 
 async def test_readiness_reports_every_dependency(monkeypatch):
