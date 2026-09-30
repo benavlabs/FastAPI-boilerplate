@@ -73,6 +73,7 @@ SESSION_BACKEND=redis                  # redis | memory, on the cache Redis unle
 SESSION_SECURE_COOKIES=true            # required when serving over HTTPS
 CSRF_ENABLED=true
 TRUSTED_PROXY_HOPS=1                    # set to the number of proxies in front of the app
+FORWARDED_ALLOW_IPS=<proxy-subnet>     # which peers uvicorn takes forwarded headers from
 
 # Rate limiting (Redis-backed, provided by crudauth)
 RATE_LIMITER_ENABLED=true
@@ -80,7 +81,6 @@ RATE_LIMITER_REDIS_HOST=<redis-host>
 RATE_LIMITER_REDIS_PASSWORD=<redis-password>
 
 # Taskiq
-TASKIQ_ENABLED=true
 TASKIQ_BROKER_TYPE=redis
 TASKIQ_REDIS_HOST=<redis-host>
 TASKIQ_REDIS_PASSWORD=<redis-password>
@@ -189,8 +189,7 @@ In Kubernetes / ECS, that's a separate `Deployment` / `Service` with its own sca
 Tune via:
 
 - `--workers <N>` — process count
-- `TASKIQ_WORKER_CONCURRENCY` — async tasks per process
-- `TASKIQ_MAX_TASKS_PER_WORKER` — recycle a worker after N tasks (defaults to 1000) to bound memory leaks
+- taskiq's `--max-async-tasks <N>` — async tasks per process
 
 See [Background Tasks](background-tasks/index.md) for the full Taskiq setup.
 
@@ -234,6 +233,8 @@ The proxy must:
 
 Set `TRUSTED_PROXY_HOPS` to the number of reverse proxies you've put in front of the app (1 for a single nginx/Caddy, 2 if Cloudflare is also in front). crudauth uses it to read the real client IP from the last trusted hop of `X-Forwarded-For` when applying login lockout — otherwise every request would appear to come from the proxy and the lockout would key on a single IP.
 
+Set `FORWARDED_ALLOW_IPS` to your proxy's address or subnet. **uvicorn** reads it, not the app, and it decides what `request.client` and the access logs report. A wildcard makes uvicorn take the *leftmost* `X-Forwarded-For` entry, which is whatever the client sent, so any client can claim any address and say its request arrived over HTTPS. Named a subnet, uvicorn skips the entries from that subnet and reads the last one outside it, which is the address the proxy saw. The generated nginx stack puts the containers on a fixed subnet and sets this to that CIDR; `bp deploy generate nginx --internal-subnet 10.20.30.0/24` changes both together.
+
 `CORS_ORIGINS` should list your **frontend** origins, not the API origin. Wildcard (`*`) is incompatible with credentialed requests anyway — the validator warns on it for a reason.
 
 ## Logging in Production
@@ -268,7 +269,7 @@ livenessProbe:
   periodSeconds: 10
 ```
 
-For a **readiness** probe (does the app actually have working DB / Redis connections?), use `GET /health/ready`. It runs the checks the project's wiring lists in `READINESS_CHECKS` — the database and, when the cache feature is in, the cache — and answers `503` while any of them is unreachable, so a load balancer holds traffic back instead of sending it into failing requests:
+For a **readiness** probe (does the app actually have working DB / Redis connections?), use `GET /health/ready`. It runs the checks the project's wiring lists in `READINESS_CHECKS` — the database, and the cache, the login lockout's Redis, the session store and the task broker for the features it selected — and answers `503` while any of them is unreachable, so a load balancer holds traffic back instead of sending it into failing requests:
 
 ```yaml
 readinessProbe:
@@ -282,9 +283,20 @@ readinessProbe:
 ```json
 {
   "status": "not ready",
-  "dependencies": { "database": "ready", "cache": "unavailable" }
+  "dependencies": {
+    "database": "ready",
+    "cache": "unavailable",
+    "rate_limiter": "ready",
+    "sessions": "ready",
+    "task_broker": "ready"
+  }
 }
 ```
+
+Each check runs with its own two-second timeout, and they all run together, so one blackholed
+server can't hold the probe open. Two checks pointed at the same server are asked once, and the
+report is reused for a couple of seconds, so a flood of probes can't take the database pool away
+from real requests.
 
 Neither health route is throttled, and both stay out of the API prefix so an API-wide rate limit or auth dependency can't take your probes down. To report on something else this project needs, contribute a `ReadinessCheck` from the feature that owns it and list it in `src/wiring/hooks.py` — see [Composable Features](composable-features.md).
 

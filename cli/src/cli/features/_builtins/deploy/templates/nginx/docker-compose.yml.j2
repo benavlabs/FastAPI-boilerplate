@@ -34,7 +34,7 @@ services:
       RATE_LIMITER_REDIS_HOST: redis
       TASKIQ_REDIS_HOST: redis
       TRUSTED_PROXY_HOPS: "1"
-      FORWARDED_ALLOW_IPS: "*"
+      FORWARDED_ALLOW_IPS: "{{ internal_subnet }}"
       WORKERS: "{{ workers }}"
     expose:
       - "8000"
@@ -118,3 +118,12 @@ services:
 volumes:
   postgres-data:
   redis-data:
+
+# The API trusts forwarded headers only from this range, so a client can neither
+# claim another address nor say the request arrived over HTTPS. Change both this
+# subnet and FORWARDED_ALLOW_IPS together if it clashes with a network you use.
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: {{ internal_subnet }}

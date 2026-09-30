@@ -12,6 +12,7 @@ from pathlib import Path
 
 import typer
 
+from ..features._builtins.deploy.feature import DEFAULT_INTERNAL_SUBNET
 from ..features.installer import FeatureInstaller
 from ..features.registry import get_feature
 from ..lib.project import discover_project
@@ -41,6 +42,11 @@ def generate(
     ),
     api_port: int = typer.Option(8000, "--api-port", help="Host port to publish the API on."),
     workers: int = typer.Option(4, "--workers", help="Number of API workers (prod / nginx only)."),
+    internal_subnet: str = typer.Option(
+        DEFAULT_INTERNAL_SUBNET,
+        "--internal-subnet",
+        help="Subnet for the compose network, and the only peers uvicorn takes forwarded headers from (nginx only).",
+    ),
     force: bool = typer.Option(False, "--force", "-f", help="Overwrite existing files without asking."),
     yes: bool = typer.Option(False, "--yes", "-y", help="Assume yes for all prompts."),
     dry_run: bool = typer.Option(False, "--dry-run", help="Show what would be written, don't touch disk."),
@@ -53,7 +59,8 @@ def generate(
         raise typer.Exit(code=1)
 
     target_root = (output_dir or project.repo_root).resolve()
-    target_root.mkdir(parents=True, exist_ok=True)
+    if not dry_run:
+        target_root.mkdir(parents=True, exist_ok=True)
 
     params: dict = {
         "mode": mode.value,
@@ -63,6 +70,7 @@ def generate(
     }
     if mode == DeployMode.nginx:
         params["nginx_conf_target"] = target_root / "nginx" / "default.conf"
+        params["internal_subnet"] = internal_subnet
 
     plan = feature.plan(params, project)
 

@@ -6,6 +6,8 @@ import pytest
 import yaml
 from jinja2 import Environment, FileSystemLoader
 
+from cli.features._builtins.deploy.feature import DEFAULT_INTERNAL_SUBNET
+
 TEMPLATES = Path(__file__).resolve().parents[1] / "src/cli/features/_builtins/deploy/templates"
 
 CONTEXT = {
@@ -20,14 +22,18 @@ CONTEXT = {
     "build_context": ".",
     "backend_dockerfile": "backend/Dockerfile",
     "env_file": "./backend/.env",
+    "internal_subnet": DEFAULT_INTERNAL_SUBNET,
 }
 
 
-def _compose(mode: str) -> dict:
+def _render(template: str, mode: str = "nginx") -> str:
     environment = Environment(loader=FileSystemLoader(TEMPLATES), keep_trailing_newline=True)
-    rendered = environment.get_template(f"{mode}/docker-compose.yml.j2").render({**CONTEXT, "mode": mode})
 
-    return yaml.safe_load(rendered)
+    return environment.get_template(template).render({**CONTEXT, "mode": mode})
+
+
+def _compose(mode: str) -> dict:
+    return yaml.safe_load(_render(f"{mode}/docker-compose.yml.j2", mode))
 
 
 @pytest.mark.parametrize("mode", ["prod", "nginx"])
@@ -49,7 +55,21 @@ def test_behind_nginx_the_app_is_told_how_many_proxies_it_sits_behind():
     api = _compose("nginx")["services"]["api"]["environment"]
 
     assert api["TRUSTED_PROXY_HOPS"] == "1"
-    assert api["FORWARDED_ALLOW_IPS"] == "*"
+
+
+def test_forwarded_headers_are_trusted_only_from_the_compose_network():
+    """With a wildcard, uvicorn reads the leftmost X-Forwarded-For entry, which the client sets."""
+    compose = _compose("nginx")
+
+    assert compose["services"]["api"]["environment"]["FORWARDED_ALLOW_IPS"] == DEFAULT_INTERNAL_SUBNET
+    assert compose["networks"]["default"]["ipam"]["config"] == [{"subnet": DEFAULT_INTERNAL_SUBNET}]
+
+
+def test_nginx_appends_the_address_it_saw_and_hides_its_version():
+    conf = _render("nginx/default.conf.j2")
+
+    assert "proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;" in conf
+    assert "server_tokens off;" in conf
 
 
 def test_the_local_compose_does_not_claim_a_proxy():

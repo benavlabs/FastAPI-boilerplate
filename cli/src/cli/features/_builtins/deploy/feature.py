@@ -20,6 +20,7 @@ from ....lib.project import ProjectContext
 from ...base import Feature, FeatureManifest, FeaturePlan, FileOp
 
 SUPPORTED_MODES: tuple[str, ...] = ("local", "prod", "nginx")
+DEFAULT_INTERNAL_SUBNET = "172.31.240.0/24"
 
 _TEMPLATES_ROOT = Path(__file__).parent / "templates"
 
@@ -47,6 +48,7 @@ class DeployFeature(Feature):
         build_context = params.get("build_context", ".")
         backend_dockerfile = params.get("backend_dockerfile", "backend/Dockerfile")
         env_file = params.get("env_file", "./backend/.env")
+        internal_subnet = params.get("internal_subnet", DEFAULT_INTERNAL_SUBNET)
 
         context = {
             "mode": mode,
@@ -60,6 +62,7 @@ class DeployFeature(Feature):
             "build_context": build_context,
             "backend_dockerfile": backend_dockerfile,
             "env_file": env_file,
+            "internal_subnet": internal_subnet,
         }
 
         compose_target = Path(params.get("compose_target") or (project.repo_root / "docker-compose.yml"))

@@ -57,18 +57,14 @@ def gen_secret(
 def validate() -> None:
     """Run the production security validator against the current settings.
 
-    Forces production-mode validation regardless of ``ENVIRONMENT`` so
-    you can audit a dev or staging config the same way prod is gated.
+    Reports what production would refuse whatever ``ENVIRONMENT`` says, so a dev
+    or staging config can be audited the same way prod is gated.
     """
     settings = _app_module("src.infrastructure.config.settings").get_settings()
     validator_module = _app_module("src.infrastructure.security.production_validator")
     ProductionSecurityValidator = validator_module.ProductionSecurityValidator
 
-    class _ForcedProd(ProductionSecurityValidator):  # type: ignore[valid-type,misc]
-        def _is_production(self) -> bool:
-            return True
-
-    critical_errors, captured_warnings = _ForcedProd(settings).audit()
+    critical_errors, captured_warnings = ProductionSecurityValidator(settings).audit()
 
     if not critical_errors and not captured_warnings:
         success("No issues found. Configuration would pass production validation.")
