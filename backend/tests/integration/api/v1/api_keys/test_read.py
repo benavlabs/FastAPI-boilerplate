@@ -35,3 +35,15 @@ async def test_another_users_api_key_is_forbidden_generically(auth_client: Async
     assert body["detail"] == "You don't have permission for this action."
     assert body["support_id"]
     assert "Cross User Key" not in response.text
+
+
+async def test_the_usage_listing_is_capped_like_every_other(auth_client: AsyncClient):
+    """It used to allow a thousand rows per page."""
+    created = await auth_client.post("/api/v1/api-keys/", json={"name": "Usage Cap"})
+    key_id = created.json()["id"]
+
+    over = await auth_client.get(f"/api/v1/api-keys/{key_id}/usage", params={"items_per_page": 1000})
+    allowed = await auth_client.get(f"/api/v1/api-keys/{key_id}/usage", params={"items_per_page": 100})
+
+    assert over.status_code == 422
+    assert allowed.status_code == 200

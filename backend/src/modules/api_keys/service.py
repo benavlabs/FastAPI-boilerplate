@@ -78,8 +78,7 @@ class APIKeyService:
         Stored format: ``scrypt$N$r$p$salt_b64$derived_b64``. Non-deterministic;
         DB lookup uses ``key_prefix`` (already indexed) instead of ``key_hash``.
 
-        scrypt is deliberately slow and memory-hungry, so callers run it off the
-        event loop through ``hash_api_key``.
+        Callers run this in a worker thread, through ``_generate_api_key``.
         """
         salt = secrets.token_bytes(16)
         derived = hashlib.scrypt(
@@ -183,8 +182,8 @@ class APIKeyService:
                 db=db,
                 limit=limit,
                 offset=offset,
-                sort_columns="created_at",
-                sort_orders="desc",
+                sort_columns=["created_at", "id"],
+                sort_orders=["desc", "desc"],
                 user_id=user_id,
                 is_active=True,
                 schema_to_select=APIKeyRead,
@@ -194,8 +193,8 @@ class APIKeyService:
                 db=db,
                 limit=limit,
                 offset=offset,
-                sort_columns="created_at",
-                sort_orders="desc",
+                sort_columns=["created_at", "id"],
+                sort_orders=["desc", "desc"],
                 user_id=user_id,
                 schema_to_select=APIKeyRead,
             )
@@ -329,7 +328,7 @@ class APIKeyService:
 
         matched: APIKey | None = None
         for candidate in candidates:
-            if self._verify_api_key(api_key, candidate.key_hash):
+            if await anyio.to_thread.run_sync(self._verify_api_key, api_key, candidate.key_hash):
                 matched = candidate
                 break
 
@@ -443,8 +442,8 @@ class APIKeyService:
             db=db,
             limit=limit,
             offset=offset,
-            sort_columns="created_at",
-            sort_orders="desc",
+            sort_columns=["created_at", "id"],
+            sort_orders=["desc", "desc"],
             api_key_id=key_id,
             schema_to_select=KeyUsageRead,
         )

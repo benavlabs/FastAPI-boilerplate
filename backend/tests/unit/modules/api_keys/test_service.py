@@ -1,14 +1,17 @@
 """Tests for API key management service."""
 
+import threading
 from datetime import UTC, datetime, timedelta
+from unittest.mock import patch
 
 import pytest
 import pytest_asyncio
+from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.modules.api_keys.crud import crud_api_keys, crud_key_permissions
 from src.modules.api_keys.enums import KeyPermissionAction, KeyPermissionResource
-from src.modules.api_keys.models import KeyUsage
+from src.modules.api_keys.models import APIKey, KeyUsage
 from src.modules.api_keys.schemas import (
     APIKeyCreate,
     APIKeyCreateInternal,
@@ -648,3 +651,43 @@ async def test_an_expiry_can_be_brought_forward(api_key_service, db_session, tes
     )
 
     assert updated["expires_at"].replace(tzinfo=UTC) == sooner.replace(microsecond=sooner.microsecond)
+
+
+@pytest.mark.asyncio
+async def test_validation_hashes_off_the_event_loop(api_key_service, db_session: AsyncSession, test_api_key):
+    """scrypt is sized to take real time; on the loop thread it stalls every other request."""
+    threads: list[str] = []
+    real_verify = api_key_service._verify_api_key
+
+    def recording_verify(api_key: str, stored_hash: str) -> bool:
+        threads.append(threading.current_thread().name)
+        return real_verify(api_key, stored_hash)
+
+    with patch.object(api_key_service, "_verify_api_key", recording_verify):
+        validation = await api_key_service.validate_api_key(
+            api_key=test_api_key["api_key"], resource="conversations", action="read", db=db_session
+        )
+
+    assert validation.error_message == "No permission for read on conversations"
+    assert threads
+    assert threading.main_thread().name not in threads
+
+
+@pytest.mark.asyncio
+async def test_keys_created_at_the_same_moment_keep_a_stable_order(api_key_service, db_session: AsyncSession, test_user: dict):
+    """Without an id tie-break, one key can appear on both pages and another on neither."""
+    for name in ("First", "Second", "Third"):
+        await api_key_service.create_api_key(user_id=test_user["id"], key_data=APIKeyCreate(name=name), db=db_session)
+
+    stamped = datetime(2030, 1, 1, tzinfo=UTC)
+    await db_session.execute(update(APIKey).where(APIKey.user_id == test_user["id"]).values(created_at=stamped))
+    await db_session.commit()
+
+    pages = [
+        await api_key_service.get_user_api_keys(user_id=test_user["id"], db=db_session, limit=1, offset=offset)
+        for offset in (0, 1, 2)
+    ]
+    ids = [page["data"][0]["id"] for page in pages]
+
+    assert ids == sorted(ids, reverse=True)
+    assert len(set(ids)) == 3

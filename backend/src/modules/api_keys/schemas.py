@@ -3,10 +3,11 @@
 from datetime import datetime
 from typing import Annotated, Any, ClassVar
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator
 
-from ..common.schemas import PartialUpdate, TimestampSchema
+from ..common.schemas import PartialUpdate, TimestampSchema, not_nullable_columns
 from .enums import HTTPMethod, KeyPermissionAction, KeyPermissionResource
+from .models import APIKey
 
 VALID_HTTP_METHODS = {m.value for m in HTTPMethod}
 
@@ -17,7 +18,7 @@ class APIKeyBase(BaseModel):
     name: Annotated[str, Field(min_length=1, max_length=100, description="Human-readable name for the API key")]
     permissions: dict[str, Any] = Field(default_factory=dict, description="Permission settings")
     usage_limits: dict[str, Any] = Field(default_factory=dict, description="Usage limits per key")
-    expires_at: datetime | None = Field(default=None, description="Key expiration timestamp")
+    expires_at: AwareDatetime | None = Field(default=None, description="Key expiration timestamp")
     key_metadata: dict[str, Any] | None = Field(default=None, description="Additional key metadata")
 
 
@@ -38,13 +39,13 @@ class APIKeyCreateInternal(APIKeyBase):
 class APIKeyUpdate(PartialUpdate):
     """Schema for updating an existing API key."""
 
-    NOT_NULLABLE: ClassVar[tuple[str, ...]] = ("name",)
+    NOT_NULLABLE: ClassVar[tuple[str, ...]] = not_nullable_columns(APIKey)
 
     name: Annotated[str, Field(min_length=1, max_length=100)] | None = None
     permissions: dict[str, Any] | None = None
     usage_limits: dict[str, Any] | None = None
     is_active: bool | None = None
-    expires_at: datetime | None = None
+    expires_at: AwareDatetime | None = None
     key_metadata: dict[str, Any] | None = None
 
 

@@ -7,12 +7,16 @@ from fastcrud import PaginatedListResponse, compute_offset, paginated_response
 
 from ...infrastructure.auth.deps import CurrentUserDep
 from ...infrastructure.dependencies import AsyncSessionDep
+from ..common.pagination import ItemsPerPageDep, PageDep
 from .dependencies import APIKeyServiceDep
 from .schemas import (
     APIKeyCreate,
     APIKeyRead,
+    APIKeyResponse,
     APIKeyUpdate,
+    KeyUsageAnalytics,
     KeyUsageRead,
+    UserAPIKeySummary,
 )
 
 router = APIRouter(tags=["API Keys"])
@@ -21,6 +25,7 @@ router = APIRouter(tags=["API Keys"])
 @router.post(
     "/",
     status_code=201,
+    response_model=APIKeyResponse,
     summary="Create API Key",
     description="""
     Creates a new API key for the authenticated user.
@@ -31,7 +36,7 @@ router = APIRouter(tags=["API Keys"])
     - **name**: Human-readable name for the API key
     - **permissions**: Permission settings for the key
     - **usage_limits**: Usage limits specific to this key
-    - **expires_at**: Optional expiration date
+    - **expires_at**: Optional expiration timestamp, with a UTC offset
 
     ⚠️ **Important**: The full API key is only shown once during creation.
     Store it securely as it cannot be retrieved again.
@@ -82,8 +87,8 @@ async def get_user_api_keys(
     api_key_service: APIKeyServiceDep,
     db: AsyncSessionDep,
     active_only: bool = Query(True, description="Return only active keys"),
-    page: int = Query(1, ge=1, description="Page number"),
-    items_per_page: int = Query(50, ge=1, le=100, description="Items per page"),
+    page: PageDep = 1,
+    items_per_page: ItemsPerPageDep = 50,
 ) -> dict[str, Any]:
     """Get all API keys for the authenticated user."""
     result = await api_key_service.get_user_api_keys(
@@ -103,6 +108,7 @@ async def get_user_api_keys(
 
 @router.get(
     "/{key_id}",
+    response_model=APIKeyRead,
     summary="Get API Key Details",
     description="""
     Retrieves details for a specific API key.
@@ -136,6 +142,7 @@ async def get_api_key(
 
 @router.patch(
     "/{key_id}",
+    response_model=APIKeyRead,
     summary="Update API Key",
     description="""
     Updates an existing API key.
@@ -232,8 +239,8 @@ async def get_key_usage(
     api_key_service: APIKeyServiceDep,
     db: AsyncSessionDep,
     key_id: int = Path(..., description="API key ID"),
-    page: int = Query(1, ge=1, description="Page number"),
-    items_per_page: int = Query(100, ge=1, le=1000, description="Items per page"),
+    page: PageDep = 1,
+    items_per_page: ItemsPerPageDep = 100,
 ) -> dict[str, Any]:
     """Get usage history for an API key."""
     result = await api_key_service.get_key_usage(
@@ -253,6 +260,7 @@ async def get_key_usage(
 
 @router.get(
     "/{key_id}/analytics",
+    response_model=KeyUsageAnalytics,
     summary="Get API Key Usage Analytics",
     description="""
     Retrieves comprehensive usage analytics for a specific API key.
@@ -293,6 +301,7 @@ async def get_key_analytics(
 
 @router.get(
     "/summary/user",
+    response_model=UserAPIKeySummary,
     summary="Get User API Key Summary",
     description="""
     Retrieves a comprehensive summary of all API keys for the authenticated user.

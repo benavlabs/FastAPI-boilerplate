@@ -35,6 +35,11 @@ class PersistentDeletion(BaseModel):
         return None
 
 
+def not_nullable_columns(model: Any) -> tuple[str, ...]:
+    """The names of the model's columns that cannot hold ``null``."""
+    return tuple(column.key for column in model.__table__.columns if not column.nullable)
+
+
 class PartialUpdate(BaseModel):
     """A partial update: omit a field to leave it alone.
 
