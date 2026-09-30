@@ -83,7 +83,7 @@ interfaces/
     └── mixins.py
 ```
 
-`main.py` is the entry point — `uv run fastapi dev src/interfaces/main.py` starts here; it also serves `/health` and `/health/ready`. The `v1/__init__.py` aggregator mounts the routers `wiring/app.py` lists, so it never names a feature. Each feature's admin views live with the feature, in `modules/<feature>/admin.py`.
+`main.py` is the entry point — `uv run --no-sync fastapi dev src/interfaces/main.py` starts here; it also serves `/health` and `/health/ready`. The `v1/__init__.py` aggregator mounts the routers `wiring/app.py` lists, so it never names a feature. Each feature's admin views live with the feature, in `modules/<feature>/admin.py`.
 
 ### `src/infrastructure/`
 
@@ -104,7 +104,6 @@ infrastructure/
 │   ├── deps.py               # The annotated caller dependencies (CurrentUserDep, …)
 │   ├── authorization.py      # require_permissions and the permission resolution
 │   ├── routes.py             # /auth/login, /logout, /oauth, /check-auth
-│   └── http_exceptions.py    # fastcrud HTTP exception re-export
 ├── cache/                    # Redis/Memcached cache + decorator + readiness
 │   └── backends/
 ├── ratelimit/                # The API throttle dependency
@@ -168,7 +167,7 @@ wiring/
 └── admin.py                  # ADMIN_VIEWS
 ```
 
-These files are imports and literals only — no logic — so ruff, mypy and your IDE see exactly what the project wired. Removing a feature means deleting its folders and its lines here. [Composable Features](composable-features.md) covers the contribution shapes and the removal drill.
+These files are imports and names only — no decisions — so ruff, mypy and your IDE see exactly what the project wired. Removing a feature means deleting its folders and its lines here. [Composable Features](composable-features.md) covers the contribution shapes and the removal drill.
 
 ## Migrations (`backend/migrations/`)
 
@@ -182,8 +181,8 @@ migrations/
 Run from `backend/`:
 
 ```bash
-uv run alembic revision --autogenerate -m "add foo"
-uv run alembic upgrade head
+uv run --no-sync alembic revision --autogenerate -m "add foo"
+uv run --no-sync alembic upgrade head
 ```
 
 ## Scripts (`backend/scripts/`)
@@ -199,7 +198,7 @@ scripts/
 The most common entry point is `setup_initial_data` which calls all three.
 
 ```bash
-uv run python -m scripts.setup_initial_data
+uv run --no-sync python -m scripts.setup_initial_data
 ```
 
 ## Tests (`backend/tests/`)
@@ -218,9 +217,9 @@ tests/
 Run from `backend/`:
 
 ```bash
-uv run pytest tests/unit       # fast, no Docker
-uv run pytest tests/integration  # spins up Postgres in Docker via testcontainers
-uv run pytest                  # everything
+uv run --no-sync pytest tests/unit         # fast, no Docker
+uv run --no-sync pytest tests/integration  # spins up Postgres in Docker via testcontainers
+uv run --no-sync pytest                    # everything
 ```
 
 ## Architectural Patterns
@@ -280,8 +279,8 @@ The recommended flow:
 7. **Register the router**: add a `RouterMount` to `ROUTER_MOUNTS` in `backend/src/wiring/app.py`
 8. **Wire the rest of it**: its settings mixin in `wiring/settings.py`, its hook contributions in `wiring/hooks.py`, its admin views in `wiring/admin.py`, its fixtures in `tests/wiring.py` — whichever it has
 9. **Add it to the removal drill**: list its paths in `tools/removal_drill.py` so a build without it is checked
-10. **Generate a migration**: `uv run alembic revision --autogenerate -m "add widgets"`
-11. **Apply**: `uv run alembic upgrade head`
+10. **Generate a migration**: `uv run --no-sync alembic revision --autogenerate -m "add widgets"`
+11. **Apply**: `uv run --no-sync alembic upgrade head`
 
 See [Development Guide](development.md) for a full walkthrough.
 

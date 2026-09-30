@@ -85,7 +85,7 @@ When the app talks to the other services in the Compose network, it uses **servi
 
 ```env
 # In backend/.env
-POSTGRES_SERVER=db
+POSTGRES_SERVER=postgres
 CACHE_REDIS_HOST=redis
 RATE_LIMITER_REDIS_HOST=redis
 TASKIQ_REDIS_HOST=redis
@@ -250,14 +250,14 @@ docker compose up -d
 docker compose up --build
 
 # Logs for a specific service
-docker compose logs -f app
+docker compose logs -f api
 
 # Open a shell inside the app container
-docker compose exec app bash
+docker compose exec api bash
 
 # Run a one-off command
-docker compose exec app uv run alembic upgrade head
-docker compose exec db psql -U postgres
+docker compose exec api uv run --no-sync alembic upgrade head
+docker compose exec postgres psql -U postgres
 docker compose exec redis redis-cli
 
 # Stop everything
@@ -289,14 +289,14 @@ docker compose build --no-cache app
 ### Database connection refused
 
 ```bash
-# Is the db service up?
-docker compose ps db
+# Is the database service up?
+docker compose ps postgres
 
-# Can the app container resolve "db"?
-docker compose exec app python -c "import socket; print(socket.gethostbyname('db'))"
+# Can the api container resolve "postgres"?
+docker compose exec api python -c "import socket; print(socket.gethostbyname('postgres'))"
 
-# Inspect db logs
-docker compose logs db
+# Inspect its logs
+docker compose logs postgres
 ```
 
 ### Code changes not picking up

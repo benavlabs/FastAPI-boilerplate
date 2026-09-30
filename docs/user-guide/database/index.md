@@ -146,13 +146,13 @@ Run from `backend/`:
 
 ```bash
 # Generate a migration from model changes
-uv run alembic revision --autogenerate -m "Add user table"
+uv run --no-sync alembic revision --autogenerate -m "Add user table"
 
 # Apply migrations
-uv run alembic upgrade head
+uv run --no-sync alembic upgrade head
 
 # Roll back the most recent migration
-uv run alembic downgrade -1
+uv run --no-sync alembic downgrade -1
 ```
 
 ## Database Setup
@@ -165,7 +165,7 @@ The boilerplate uses async PostgreSQL via `asyncpg`.
 # backend/.env
 POSTGRES_USER=postgres
 POSTGRES_PASSWORD=postgres
-POSTGRES_SERVER=localhost     # or "db" for Docker Compose
+POSTGRES_SERVER=localhost     # or "postgres" for Docker Compose
 POSTGRES_PORT=5432
 POSTGRES_DB=postgres
 POSTGRES_ASYNC_PREFIX=postgresql+asyncpg://

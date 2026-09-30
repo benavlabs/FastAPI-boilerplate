@@ -99,7 +99,7 @@ DEBUG=false
 ```env
 POSTGRES_USER=your_user
 POSTGRES_PASSWORD=your_password
-POSTGRES_SERVER=localhost   # use "db" with Docker Compose
+POSTGRES_SERVER=localhost   # use "postgres" with Docker Compose
 POSTGRES_PORT=5432
 POSTGRES_DB=your_database
 CREATE_TABLES_ON_STARTUP=true
@@ -127,13 +127,11 @@ CACHE_BACKEND=redis           # or "memcached"
 CACHE_REDIS_HOST=localhost    # use "redis" with Docker Compose
 CACHE_REDIS_PORT=6379
 CACHE_REDIS_DB=0
-DEFAULT_CACHE_EXPIRATION=3600
 ```
 
 ### Background Tasks (Taskiq)
 
 ```env
-TASKIQ_ENABLED=true
 TASKIQ_BROKER_TYPE=redis      # or "rabbitmq"
 TASKIQ_REDIS_HOST=localhost   # use "redis" with Docker Compose
 TASKIQ_REDIS_PORT=6379
@@ -192,7 +190,6 @@ DEBUG=false
 POSTGRES_SERVER=prod-db.example.com
 CACHE_REDIS_HOST=prod-redis.example.com
 PRODUCTION_SECURITY_VALIDATION_ENABLED=true
-PRODUCTION_SECURITY_STRICT_MODE=true
 ENABLE_DOCS_IN_PRODUCTION=false
 ```
 
@@ -201,7 +198,7 @@ ENABLE_DOCS_IN_PRODUCTION=false
 Docker Compose loads variables from `.env` automatically. With Compose, services reach each other by service name:
 
 ```env
-POSTGRES_SERVER=db
+POSTGRES_SERVER=postgres
 CACHE_REDIS_HOST=redis
 RATE_LIMITER_REDIS_HOST=redis
 TASKIQ_REDIS_HOST=redis
@@ -222,7 +219,7 @@ To run a Taskiq worker, add a worker service to your Compose file with the comma
 
 ### Feature Toggles
 
-The boilerplate already exposes toggles like `CACHE_ENABLED`, `RATE_LIMITER_ENABLED`, `TASKIQ_ENABLED`, `ADMIN_ENABLED`, and `CSRF_ENABLED`. You can add your own in a settings class:
+The boilerplate already exposes toggles like `CACHE_ENABLED`, `RATE_LIMITER_ENABLED`, `ADMIN_ENABLED`, and `CSRF_ENABLED`. You can add your own in a settings class:
 
 ```python
 class FeatureSettings(BaseSettings):

@@ -35,11 +35,16 @@ async def list_items(
     ...
 ```
 
-The boilerplate pre-defines aliases for every shared dependency in `infrastructure/dependencies.py`:
+`infrastructure/dependencies.py` holds the alias every project has, whatever features it selected:
 
 | Alias | Resolves to |
 |---|---|
 | `AsyncSessionDep` | `Annotated[AsyncSession, Depends(async_session)]` |
+
+The aliases that resolve a caller belong to accounts, in `infrastructure/auth/deps.py`:
+
+| Alias | Resolves to |
+|---|---|
 | `CurrentUserDep` | `Annotated[dict[str, Any], Depends(get_current_user)]` |
 | `CurrentSuperUserDep` | `Annotated[dict[str, Any], Depends(get_current_superuser)]` |
 | `OptionalUserDep` | `Annotated[dict[str, Any] \| None, Depends(get_optional_user)]` |
@@ -69,10 +74,9 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...infrastructure.auth.http_exceptions import HTTPException
 from ...infrastructure.auth.dependencies import get_current_user
 from ...infrastructure.database.session import async_session
-from ..common.utils.error_handler import handle_exception
+from ..common.exceptions import ResourceNotFoundError
 from .schemas import WidgetCreate, WidgetRead
 from .service import WidgetService
 
@@ -91,16 +95,11 @@ async def get_widget(
     widget_service: Annotated[WidgetService, Depends(get_widget_service)],
 ) -> dict[str, Any]:
     """Get a widget by id."""
-    try:
-        widget = await widget_service.get_by_id(widget_id, db)
-        if widget is None:
-            raise HTTPException(status_code=404, detail=f"Widget {widget_id} not found")
-        return widget
-    except Exception as e:
-        http_exc = handle_exception(e)
-        if http_exc:
-            raise http_exc
-        raise HTTPException(status_code=500, detail="An unexpected error occurred")
+    widget = await widget_service.get_by_id(widget_id, db)
+    if widget is None:
+        raise ResourceNotFoundError(f"widget {widget_id}")
+
+    return widget
 ```
 
 Register the router in `interfaces/api/v1/__init__.py`:
@@ -132,16 +131,11 @@ async def get_widget(
     db: Annotated[AsyncSession, Depends(async_session)],
     widget_service: Annotated[WidgetService, Depends(get_widget_service)],
 ) -> dict[str, Any]:
-    try:
-        widget = await widget_service.get_by_id(widget_id, db)
-        if widget is None:
-            raise HTTPException(status_code=404, detail=f"Widget {widget_id} not found")
-        return widget
-    except Exception as e:
-        http_exc = handle_exception(e)
-        if http_exc:
-            raise http_exc
-        raise HTTPException(status_code=500, detail="An unexpected error occurred")
+    widget = await widget_service.get_by_id(widget_id, db)
+    if widget is None:
+        raise ResourceNotFoundError(f"widget {widget_id}")
+
+    return widget
 ```
 
 ### Get Multiple Items (Paginated)
@@ -176,13 +170,7 @@ async def create_widget(
     db: Annotated[AsyncSession, Depends(async_session)],
     widget_service: Annotated[WidgetService, Depends(get_widget_service)],
 ) -> dict[str, Any]:
-    try:
-        return await widget_service.create(widget, db)
-    except Exception as e:
-        http_exc = handle_exception(e)
-        if http_exc:
-            raise http_exc
-        raise HTTPException(status_code=500, detail="An unexpected error occurred")
+    return await widget_service.create(widget, db)
 ```
 
 The service does the duplicate check / business validation:
@@ -205,13 +193,7 @@ async def update_widget(
     db: Annotated[AsyncSession, Depends(async_session)],
     widget_service: Annotated[WidgetService, Depends(get_widget_service)],
 ) -> dict[str, Any]:
-    try:
-        return await widget_service.update(widget_id, values, db)
-    except Exception as e:
-        http_exc = handle_exception(e)
-        if http_exc:
-            raise http_exc
-        raise HTTPException(status_code=500, detail="An unexpected error occurred")
+    return await widget_service.update(widget_id, values, db)
 ```
 
 ### Delete (Soft Delete)
@@ -223,13 +205,7 @@ async def delete_widget(
     db: Annotated[AsyncSession, Depends(async_session)],
     widget_service: Annotated[WidgetService, Depends(get_widget_service)],
 ) -> None:
-    try:
-        await widget_service.delete(widget_id, db)
-    except Exception as e:
-        http_exc = handle_exception(e)
-        if http_exc:
-            raise http_exc
-        raise HTTPException(status_code=500, detail="An unexpected error occurred")
+    await widget_service.delete(widget_id, db)
 ```
 
 `crud_widgets.delete()` flips `is_deleted=True` if the model uses `SoftDeleteMixin`. Use `db_delete()` when you actually want to remove the row.
@@ -310,7 +286,7 @@ async def list_widgets(
 When a handler needs the permission set itself — to branch, or to compare it against another user's — take `CurrentPermissionsDep`:
 
 ```python
-from ...infrastructure.dependencies import CurrentPermissionsDep
+from ...infrastructure.auth.deps import CurrentPermissionsDep
 
 
 @router.patch("/{widget_id}")
@@ -392,7 +368,7 @@ Service methods raise these — they don't know about HTTP.
 
 ### HTTP exceptions (routes)
 
-Re-exported from FastCRUD in `infrastructure/auth/http_exceptions.py`:
+Re-exported from FastCRUD in `infrastructure/http_exceptions.py`:
 
 - `HTTPException` (the FastAPI base)
 - `BadRequestException` — 400
@@ -402,44 +378,39 @@ Re-exported from FastCRUD in `infrastructure/auth/http_exceptions.py`:
 - `UnprocessableEntityException` — 422
 - `DuplicateValueException` — 409
 - `RateLimitException` — 429
-- `CSRFException` — 403 with `X-CSRF-Error` header (defined locally for CSRF flows)
 
-### The `handle_exception` Bridge
+### Domain Errors Need No Route Code
 
-Routes wrap their work in a `try/except` and let `handle_exception()` map domain errors to HTTP errors:
+`register_exception_handlers(app)` installs a handler for `DomainError`, so a route lets the
+exception propagate and the client gets the right status and a `support_id`:
 
 ```python
-from ..common.utils.error_handler import handle_exception
-
-
-try:
+@router.patch("/{widget_id}", response_model=WidgetRead)
+async def update_widget(...) -> dict[str, Any]:
     return await widget_service.update(widget_id, values, db)
-except Exception as e:
-    http_exc = handle_exception(e)
-    if http_exc:
-        raise http_exc
-    raise HTTPException(status_code=500, detail="An unexpected error occurred")
 ```
 
-`handle_exception` returns the matching HTTP exception (or `None` for unrecognized errors, which become a 500).
+A route catches a domain error only when it wants to answer something else, as the tier lookup
+below does. See [Exception Handling](exceptions.md).
 
 ### Direct HTTP Exceptions
 
 When you have an immediate HTTP-shaped failure with no service involvement, raise directly:
 
 ```python
-from ...infrastructure.auth.http_exceptions import NotFoundException
+from ...infrastructure.http_exceptions import BadRequestException
 
 
-@router.get("/{name}", response_model=TierRead)
-async def get_tier_by_name(...):
-    try:
-        return await tier_service.get_by_name(name, db)
-    except TierNotFoundError:
-        raise NotFoundException("Tier not found")
+@router.post("/{widget_id}/export")
+async def export_widget(widget_id: int, format: str) -> dict[str, str]:
+    if format not in {"csv", "json"}:
+        raise BadRequestException("Format must be csv or json")
+
+    ...
 ```
 
-This pattern is used in `modules/tier/routes.py`. See [Exceptions](exceptions.md) for the full picture.
+A service failure needs no route code: raise a domain error from the service and the global handler
+answers with its status. See [Exceptions](exceptions.md) for the full picture.
 
 ## File Uploads
 
@@ -509,8 +480,8 @@ router.include_router(widgets_router, prefix="/widgets")
 
 ```bash
 cd backend
-uv run alembic revision --autogenerate -m "Add widgets table"
-uv run alembic upgrade head
+uv run --no-sync alembic revision --autogenerate -m "Add widgets table"
+uv run --no-sync alembic upgrade head
 ```
 
 ### 6. Test
@@ -524,7 +495,7 @@ Your routes are now visible in `/docs`.
 ## Best Practices
 
 1. **Delegate to a service** — keep `routes.py` thin. Routes handle HTTP; services hold rules.
-2. **Use the `handle_exception` pattern** — uniform error translation across the codebase.
+2. **Let domain errors propagate** — the global handler maps them, so error responses stay uniform.
 3. **Prefer `schema_to_select=`** — only return the columns the response model needs.
 4. **Use `*Update` schemas with all fields optional** — partial updates are the convention.
 5. **Match status codes to actions**: 201 on create, 204 on delete-with-no-body, 200 default.

@@ -99,10 +99,10 @@ Unknown names are a programming error, not a runtime one: `require_permissions` 
 
 ### Reading the Caller's Permissions
 
-When the handler itself has to decide, take the permission set instead of a guard. `CurrentPermissionsDep` (from `infrastructure/dependencies.py`) is `get_current_permissions` as an `Annotated` alias; FastAPI resolves it once per request, so several guards and parameters share one query:
+When the handler itself has to decide, take the permission set instead of a guard. `CurrentPermissionsDep` (from `infrastructure/auth/deps.py`) is `get_current_permissions` as an `Annotated` alias; FastAPI resolves it once per request, so several guards and parameters share one query:
 
 ```python
-from ...infrastructure.dependencies import CurrentPermissionsDep
+from ...infrastructure.auth.deps import CurrentPermissionsDep
 
 
 @router.patch("/{username}")
@@ -182,7 +182,7 @@ The first superuser is created by `scripts/setup_initial_data.py` from `ADMIN_*`
 
 ```bash
 cd backend
-uv run python -m scripts.setup_initial_data
+uv run --no-sync python -m scripts.setup_initial_data
 ```
 
 To grant superuser to an existing user, flip the column directly via the admin UI (`/admin`) or a one-off SQL update.
@@ -441,17 +441,11 @@ async def delete_widget(
     db: Annotated[AsyncSession, Depends(async_session)],
     widget_service: Annotated[WidgetService, Depends(get_widget_service)],
 ) -> None:
-    try:
-        # Service handles:
-        #   2. Existence check
-        #   3. Ownership check (superuser bypass)
-        #   4. Tier feature gate (e.g. "delete requires Pro tier")
-        await widget_service.delete(widget_id, current_user, db)
-    except Exception as e:
-        http_exc = handle_exception(e)
-        if http_exc:
-            raise http_exc
-        raise HTTPException(status_code=500, detail="An unexpected error occurred")
+    # The service handles:
+    #   2. Existence check
+    #   3. Ownership check (superuser bypass)
+    #   4. Tier feature gate (e.g. "delete requires Pro tier")
+    await widget_service.delete(widget_id, current_user, db)
 ```
 
 The route stays trivial. Authorization rules accumulate in the service, where they're testable and reusable.

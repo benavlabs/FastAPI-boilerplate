@@ -37,8 +37,7 @@ Importantly: **no example task ships in the boilerplate.** The infrastructure is
 The relevant settings live in `TaskiqSettings` (`infrastructure/config/settings.py`) and read from `backend/.env`:
 
 ```env
-# Toggle and broker selection
-TASKIQ_ENABLED=true
+# Broker selection
 TASKIQ_BROKER_TYPE=redis            # or "rabbitmq"
 
 # Redis broker (when TASKIQ_BROKER_TYPE=redis)
@@ -53,10 +52,6 @@ TASKIQ_RABBITMQ_PORT=5672
 TASKIQ_RABBITMQ_USER=guest
 TASKIQ_RABBITMQ_PASSWORD=guest
 TASKIQ_RABBITMQ_VHOST=/
-
-# Worker tuning
-TASKIQ_WORKER_CONCURRENCY=2
-TASKIQ_MAX_TASKS_PER_WORKER=1000
 ```
 
 The default `TASKIQ_REDIS_DB=3` keeps Taskiq isolated from the Cache (DB 0), the Rate Limiter (DB 1), and Sessions (DB 2) — so `redis-cli FLUSHDB` on one doesn't trash the others.
@@ -163,7 +158,7 @@ In development, run the worker in a separate terminal from the API:
 
 ```bash
 cd backend
-uv run taskiq worker src.infrastructure.taskiq.worker:default_broker
+uv run --no-sync taskiq worker src.infrastructure.taskiq.worker:default_broker
 ```
 
 In Docker Compose, add a worker service that runs the same command. The worker needs the same Redis (or RabbitMQ) and the same database the API uses.
@@ -171,15 +166,17 @@ In Docker Compose, add a worker service that runs the same command. The worker n
 To tune concurrency:
 
 ```bash
-uv run taskiq worker src.infrastructure.taskiq.worker:default_broker --workers 4
+uv run --no-sync taskiq worker src.infrastructure.taskiq.worker:default_broker --workers 4
 ```
 
-The `TASKIQ_WORKER_CONCURRENCY` env var configures the per-process concurrency; multiple `--workers` spawn additional processes. Pick the combination based on whether your tasks are I/O-bound (high concurrency, single process) or CPU-bound (multiple processes, low concurrency).
+`--workers` spawns additional worker processes, and taskiq's own `--max-async-tasks` sets how many
+tasks one process runs at a time. Pick the combination based on whether your tasks are I/O-bound
+(high concurrency, single process) or CPU-bound (multiple processes, low concurrency).
 
 ### Reloading on Code Changes
 
 ```bash
-uv run --extra dev taskiq worker src.infrastructure.taskiq.worker:default_broker --reload
+uv run --no-sync taskiq worker src.infrastructure.taskiq.worker:default_broker --reload
 ```
 
 Helpful in development. `--reload` needs `taskiq[reload]` from the `dev` extra, which is why the

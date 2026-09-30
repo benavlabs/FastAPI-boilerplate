@@ -46,7 +46,7 @@ VERSION=0.1.0-dev
 POSTGRES_USER=postgres
 POSTGRES_PASSWORD=postgres
 POSTGRES_DB=myapp_dev
-POSTGRES_SERVER=localhost     # or "db" with Docker Compose
+POSTGRES_SERVER=localhost     # or "postgres" with Docker Compose
 POSTGRES_PORT=5432
 
 # Security — keep a placeholder, never reuse for staging/prod
@@ -152,7 +152,6 @@ SECRET_KEY=<from secrets manager>
 
 # Production security validator is on by default
 PRODUCTION_SECURITY_VALIDATION_ENABLED=true
-PRODUCTION_SECURITY_STRICT_MODE=true
 
 # Sessions
 SESSION_SECURE_COOKIES=true
@@ -199,7 +198,7 @@ LOG_FILE_PATH=/var/log/app/app.log
 ```
 
 !!! danger "Production Security Validator"
-    With `ENVIRONMENT=production` and `PRODUCTION_SECURITY_VALIDATION_ENABLED=true` (both default), the app refuses to start if it finds insecure settings — e.g. the placeholder `SECRET_KEY`, default database credentials, an admin panel without credentials, or `CORS_ORIGINS=*`. Set `PRODUCTION_SECURITY_STRICT_MODE=true` to make it stricter still.
+    With `ENVIRONMENT=production` and `PRODUCTION_SECURITY_VALIDATION_ENABLED=true` (both default), the app refuses to start if it finds insecure settings — e.g. the placeholder `SECRET_KEY`, default database credentials, an admin panel without credentials, or `CORS_ORIGINS=*`.
 
 ## Detecting the Environment in Code
 
@@ -256,7 +255,7 @@ Run a quick check that the app reads what you think:
 
 ```bash
 cd backend
-uv run python -c "
+uv run --no-sync python -c "
 from src.infrastructure.config.settings import get_settings
 s = get_settings()
 print(f'env       : {s.ENVIRONMENT}')
@@ -285,7 +284,7 @@ For production deployment specifically, the security validator runs at startup �
 - Use Redis (not Memcached) when you need persistence or multi-DB separation
 - Set distinct Redis DB numbers for cache/rate-limit/taskiq (defaults 0/1/3)
 - Tune `POSTGRES_POOL_SIZE` for your workload (default 20)
-- Increase `TASKIQ_WORKER_CONCURRENCY` if jobs are I/O-bound
+- Raise taskiq's `--max-async-tasks` if jobs are I/O-bound
 
 ### Operations
 - Keep environment-specific values in your secrets manager, not env files

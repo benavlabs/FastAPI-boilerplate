@@ -1,6 +1,6 @@
 # Testing
 
-The boilerplate ships pytest configured against `backend/tests/`, with `testcontainers-postgres` available for real-database tests and `httpx` for HTTP-level tests against the FastAPI app. **No example tests ship yet** — this page covers the patterns you'll use when you add them.
+The boilerplate ships pytest configured against `backend/tests/`, with `testcontainers[postgres]` for real-database tests and `httpx` for HTTP-level tests against the FastAPI app. A suite ships with it: unit tests beside every module and integration tests that run against a real Postgres, plus `tools/removal_drill.py`, which builds the project without each feature and runs the whole set again. This page covers the patterns they use.
 
 ## What's Configured
 
@@ -8,13 +8,12 @@ The boilerplate ships pytest configured against `backend/tests/`, with `testcont
 
 ```toml
 [tool.pytest.ini_options]
-pythonpath = ["src"]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_functions = ["test_*"]
 python_classes = ["Test*"]
 asyncio_mode = "auto"
-env = ["ENVIRONMENT=pytest", "PYTEST_CURRENT_TEST=true"]
+addopts = ["-v", "--strict-markers", "--tb=short"]
 markers = [
     "unit: Unit tests that don't require external dependencies",
     "integration: Integration tests that may require external services",
@@ -25,17 +24,22 @@ markers = [
 
 What this gets you:
 
-- **`pythonpath = ["src"]`** — `from src.modules.user.service import UserService` works without manual sys.path hacks
 - **`asyncio_mode = "auto"`** — every `async def test_*` runs under pytest-asyncio; no decorator needed
-- **`ENVIRONMENT=pytest`** — the production validator skips its checks (sees a non-`production` env), so you don't need a real `SECRET_KEY` to boot the test app
+- **`--strict-markers`** — a typo in a marker fails the run instead of being ignored
 - **Markers** for `unit` / `integration` / `slow` — use them to split your suite
 
-Available test dependencies (from `[dependency-groups].dev`):
+`backend/tests/conftest.py` puts `backend/` and `backend/src` on `sys.path` and loads the fixture
+modules `backend/tests/wiring.py` lists. Nothing forces an `ENVIRONMENT` on the suite: the settings
+accept only `local`, `development`, `staging` and `production`, and the validator runs its checks
+only in `production`.
+
+Available test dependencies (from the backend's `dev` extra, installed by
+`uv sync --all-packages --all-extras`):
 
 - `pytest`, `pytest-asyncio`, `pytest-mock`
 - `httpx` — for in-process HTTP testing
 - `faker` — for realistic fixture data
-- `testcontainers` + `testcontainers-postgres` — for real-Postgres integration tests
+- `testcontainers[postgres]` — for real-Postgres integration tests
 - `pytest-xdist[psutil]` — for parallel test execution
 
 The repo doesn't currently bundle `pytest-cov`. Add it (`uv add --dev pytest-cov`) when you start tracking coverage.
@@ -320,31 +324,35 @@ Now `await my_task.kiq(...)` runs the task body in the test process. For tests t
 ```bash
 cd backend
 
-# Run everything
-uv run pytest
+# Run everything (--no-sync keeps uv from re-syncing without the dev extras)
+uv run --no-sync pytest
 
 # Just unit tests (skip the slower integration ones)
-uv run pytest -m unit
+uv run --no-sync pytest -m unit
 
 # Just integration tests
-uv run pytest -m integration
+uv run --no-sync pytest -m integration
 
 # Stop on first failure
-uv run pytest -x
+uv run --no-sync pytest -x
 
 # Keep running on failures, show output for tests matching a name
-uv run pytest -k "user_login" -v
+uv run --no-sync pytest -k "user_login" -v
 
 # Parallel via pytest-xdist
-uv run pytest -n auto
+uv run --no-sync pytest -n auto
 
 # With coverage (after `uv add --dev pytest-cov`)
-uv run pytest --cov=src --cov-report=term-missing
+uv run --no-sync pytest --cov=src --cov-report=term-missing
 ```
 
 ## Continuous Integration
 
-The repo's `.github/workflows/tests.yml` runs the test suite on PRs (along with linting and type-checking workflows). All three workflows pin the working directory to `backend/` so the same `uv run pytest` works there as locally.
+The repo's `.github/workflows/tests.yml` runs the test suite on PRs, along with the linting and
+type-checking workflows and a matrix job that runs `tools/removal_drill.py` for every preset. The
+workflows install the workspace from the repo root with `uv sync --all-packages --all-extras
+--locked`, then `cd backend` for the suite, so the same `uv run --no-sync pytest` works there as
+locally.
 
 CI runs in a clean image, which means:
 

@@ -15,7 +15,7 @@ This page is the meta-guide that ties them together.
 
 ```bash
 cd backend
-uv run fastapi dev src/interfaces/main.py
+uv run --no-sync fastapi dev src/interfaces/main.py
 ```
 
 `--reload` watches the filesystem and restarts on Python file changes. Use it for development; **never** in production.
@@ -36,7 +36,7 @@ If your app uses Taskiq tasks, run a worker alongside the API in a second termin
 
 ```bash
 cd backend
-uv run --extra dev taskiq worker src.infrastructure.taskiq.worker:default_broker --reload
+uv run --no-sync taskiq worker src.infrastructure.taskiq.worker:default_broker --reload
 ```
 
 `--reload` needs `taskiq[reload]`, which ships in the `dev` extra - hence `--extra dev`, since
@@ -50,18 +50,18 @@ The project ships configured `ruff`, `mypy`, and `pytest` via `backend/pyproject
 cd backend
 
 # Lint + format (ruff handles both)
-uv run ruff check .
-uv run ruff format .
-uv run ruff check --fix .          # auto-fix what ruff can
+uv run --no-sync ruff check .
+uv run --no-sync ruff format .
+uv run --no-sync ruff check --fix .          # auto-fix what ruff can
 
 # Type check
-uv run mypy src
+uv run --no-sync mypy src
 
 # Tests
-uv run pytest
-uv run pytest -k "test_user"       # run tests matching a name
-uv run pytest -x                   # stop on first failure
-uv run pytest -n auto              # parallel via pytest-xdist
+uv run --no-sync pytest
+uv run --no-sync pytest -k "test_user"       # run tests matching a name
+uv run --no-sync pytest -x                   # stop on first failure
+uv run --no-sync pytest -n auto              # parallel via pytest-xdist
 ```
 
 Ruff is configured (`pyproject.toml:[tool.ruff]`) with:
@@ -112,7 +112,7 @@ The full pattern (with concrete code) is in [Database → Models](database/model
    crud_widgets = FastCRUD(Widget)
    ```
 4. **Implement the service** in `service.py` with class methods that call `crud_widgets`, raise `DomainError` subclasses on bad state.
-5. **Define routes** in `routes.py`. Wrap the service, catch domain exceptions via `handle_exception`, return dicts (FastAPI serializes through `response_model=WidgetRead`).
+5. **Define routes** in `routes.py`. Call the service and return dicts (FastAPI serializes through `response_model=WidgetRead`); let domain errors propagate to the global handler.
 6. **Register the router** in `interfaces/main.py` (or wherever your top-level routers are aggregated):
    ```python
    from src.modules.widgets.routes import router as widgets_router
@@ -121,8 +121,8 @@ The full pattern (with concrete code) is in [Database → Models](database/model
 7. **Generate a migration**:
    ```bash
    cd backend
-   uv run alembic revision --autogenerate -m "Add widget model"
-   uv run alembic upgrade head
+   uv run --no-sync alembic revision --autogenerate -m "Add widget model"
+   uv run --no-sync alembic upgrade head
    ```
    Note: `validate_production_migration` runs at the start of `env.py` and refuses to apply migrations in production unless `CONFIRM_PRODUCTION_MIGRATION=yes` is set. Local development is unaffected.
 8. **(Optional)** Add a `WidgetAdmin` view — see [Admin Panel → Adding Models](admin-panel/adding-models.md).
@@ -156,7 +156,7 @@ Register in `infrastructure/app_factory.py` (or your overridden `create_applicat
 application.add_middleware(TimingMiddleware)
 ```
 
-Order matters — middleware added later runs **earlier** in the request path. The boilerplate's own middlewares (`SecurityHeadersMiddleware`, `ClientCacheMiddleware`, `SessionMiddleware`, etc.) are added in a deliberate order; see `app_factory.py:create_application`.
+Order matters — middleware added later runs **earlier** in the request path. The boilerplate's own middlewares (`SecurityHeadersMiddleware`, `ClientCacheMiddleware`, `CatchAllErrorMiddleware`, `GZipMiddleware`, `CORSMiddleware`) are added in a deliberate order; see `app_factory.py:create_application`. The admin panel's `SessionMiddleware` isn't among them: it is mounted on the panel's routes only.
 
 ## Adding a Custom Dependency
 
@@ -169,7 +169,7 @@ Dependencies belong with the feature they serve. For session-aware dependencies,
 from fastapi import Request
 
 from ...infrastructure.auth.dependencies import get_current_user
-from ...infrastructure.dependencies import CurrentUserDep
+from ...infrastructure.auth.deps import CurrentUserDep
 
 
 def get_workspace(
@@ -193,7 +193,7 @@ from typing import Annotated
 
 from fastapi import Depends
 
-from ...infrastructure.dependencies import CurrentUserDep
+from ...infrastructure.auth.deps import CurrentUserDep
 
 WorkspaceDep = Annotated[str, Depends(get_workspace)]
 ```
@@ -257,22 +257,26 @@ When `ENVIRONMENT=production`, `infrastructure/security/` runs validators at sta
 - Insecure or placeholder `SECRET_KEY`
 - Default or empty database password
 - Admin panel enabled without `ADMIN_USERNAME`/`ADMIN_PASSWORD`
-- `CORS_ORIGINS` empty or containing `*`
+- `CORS_ORIGINS` containing `*`
+
+An empty `CORS_ORIGINS` isn't an error: it means no cross-origin request is allowed at all.
 
 If your prod boot is failing with one of those, that's your hint — don't bypass the validator.
 
 ## Testing
 
-The repo is **set up** for `pytest` but doesn't ship example tests yet — `backend/pyproject.toml` configures pytest with:
+The repo ships a suite in `backend/tests/`, and `backend/pyproject.toml` configures pytest with:
 
 ```toml
 [tool.pytest.ini_options]
-pythonpath = ["src"]
 testpaths = ["tests"]
-env = ["ENVIRONMENT=pytest", "PYTEST_CURRENT_TEST=true"]
+asyncio_mode = "auto"
+addopts = ["-v", "--strict-markers", "--tb=short"]
 ```
 
-Tests run with `ENVIRONMENT=pytest`, which the production validator treats as "not production" — your test suite won't be blocked by missing prod-only env vars.
+Nothing forces an `ENVIRONMENT` on the suite. Leave it at `local` or `development`: the production
+validator runs its checks only in `production`, so the tests aren't blocked by missing prod-only
+env vars.
 
 A sane starting `tests/conftest.py`:
 
@@ -380,7 +384,7 @@ SQLAdmin runs in async context. A relationship without `lazy="selectin"` raises 
 
 ### Catching exceptions too broadly in routes
 
-The route layer catches domain errors (`ResourceNotFoundError`, `PermissionDeniedError`, etc.) and re-raises specific HTTP exceptions. Don't catch them inside the service — services raise; routes translate. The `handle_exception` helper in `modules/common/utils/error_handler.py` does the translation; routes call it as a fallback for unexpected errors.
+Services raise domain errors (`ResourceNotFoundError`, `PermissionDeniedError`, …); routes don't translate them. `register_exception_handlers(app)` in `modules/common/utils/error_handler.py` installs one handler that maps any `DomainError` to its status through `EXCEPTION_MAPPING`, and a catch-all that turns anything else into a 500 with a support id. A route catches a domain error only when it wants to answer something else.
 
 ### Cache decorators without `request: Request`
 

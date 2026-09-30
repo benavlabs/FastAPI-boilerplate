@@ -21,9 +21,8 @@ ENVIRONMENT=development
 POSTGRES_USER=postgres
 POSTGRES_PASSWORD=postgres
 POSTGRES_DB=postgres
-POSTGRES_SERVER=db          # use "localhost" without Docker
+POSTGRES_SERVER=postgres    # use "localhost" without Docker
 POSTGRES_PORT=5432
-POSTGRES_SYNC_PREFIX=postgresql://
 POSTGRES_ASYNC_PREFIX=postgresql+asyncpg://
 CREATE_TABLES_ON_STARTUP=true
 ```
@@ -35,7 +34,6 @@ CREATE_TABLES_ON_STARTUP=true
 | `POSTGRES_DB` | `postgres` | Database name |
 | `POSTGRES_SERVER` | `localhost` | Hostname (use `db` for Compose) |
 | `POSTGRES_PORT` | `5432` | TCP port |
-| `POSTGRES_SYNC_PREFIX` | `postgresql://` | Driver prefix for sync code (Alembic) |
 | `POSTGRES_ASYNC_PREFIX` | `postgresql+asyncpg://` | Driver prefix for async code (the app) |
 | `CREATE_TABLES_ON_STARTUP` | `true` | Auto-create tables from models on startup |
 | `POSTGRES_POOL_SIZE` | `20` | SQLAlchemy connection pool size |
@@ -56,7 +54,6 @@ The URL must use the `postgresql+asyncpg://` prefix, and query parameters are pa
 ```env
 CACHE_ENABLED=true
 CACHE_BACKEND=redis           # or "memcached"
-DEFAULT_CACHE_EXPIRATION=3600
 
 # Client-side cache (Cache-Control headers)
 CLIENT_CACHE_ENABLED=true
@@ -109,7 +106,6 @@ RATE_LIMITER_REDIS_POOL_SIZE=10
 ## Background Tasks (Taskiq)
 
 ```env
-TASKIQ_ENABLED=true
 TASKIQ_BROKER_TYPE=redis        # or "rabbitmq"
 ```
 
@@ -130,13 +126,6 @@ TASKIQ_RABBITMQ_PORT=5672
 TASKIQ_RABBITMQ_USER=guest
 TASKIQ_RABBITMQ_PASSWORD=guest
 TASKIQ_RABBITMQ_VHOST=/
-```
-
-### Worker tuning
-
-```env
-TASKIQ_WORKER_CONCURRENCY=2
-TASKIQ_MAX_TASKS_PER_WORKER=1000
 ```
 
 ## Web Server
@@ -182,7 +171,6 @@ SECRET_KEY=insecure-secret-key-change-this-in-production
 
 # Production security validation (enabled by default in production)
 PRODUCTION_SECURITY_VALIDATION_ENABLED=true
-PRODUCTION_SECURITY_STRICT_MODE=false
 ```
 
 Generate a strong key:
@@ -280,17 +268,12 @@ DEFAULT_TIER_NAME=free
 
 ```env
 LOG_LEVEL=INFO
-LOG_FORMAT=structured           # simple | detailed | structured | json
+LOG_FORMAT=                     # simple | detailed | structured | json; empty = the environment's default
 LOG_CONSOLE_ENABLED=true
 LOG_FILE_ENABLED=false
 LOG_FILE_PATH=logs/app.log
 LOG_FILE_MAX_SIZE=10485760      # 10 MB
 LOG_FILE_BACKUP_COUNT=5
-LOG_CORRELATION_ID=true
-LOG_STRUCTURED_CONTEXT=true
-LOG_PERFORMANCE_METRICS=false
-LOG_SQL_QUERIES=false
-LOG_INCLUDE_STACKTRACE=true
 LOG_DEVELOPMENT_VERBOSE=true
 LOG_PRODUCTION_OPTIMIZE=true
 ```
@@ -321,7 +304,7 @@ grep "=" backend/.env | head -5
 
 # Verify what Python sees
 cd backend
-uv run python -c "from src.infrastructure.config.settings import get_settings; s = get_settings(); print(s.APP_NAME, s.ENVIRONMENT)"
+uv run --no-sync python -c "from src.infrastructure.config.settings import get_settings; s = get_settings(); print(s.APP_NAME, s.ENVIRONMENT)"
 ```
 
 ### Database Connection Failed

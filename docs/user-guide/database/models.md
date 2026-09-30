@@ -244,9 +244,9 @@ await crud_users.get_multi(db=db, is_deleted=False)
 1. **Create the module folder** (if it doesn't exist): `mkdir -p backend/src/modules/widgets`
 2. **Define the model** in `modules/widgets/models.py`
 3. **Register it** in `modules/__init__.py` so Alembic sees it
-4. **Generate a migration**: `cd backend && uv run alembic revision --autogenerate -m "add widgets"`
+4. **Generate a migration**: `cd backend && uv run --no-sync alembic revision --autogenerate -m "add widgets"`
 5. **Review the migration** in `migrations/versions/...` (autogenerate isn't always perfect)
-6. **Apply**: `uv run alembic upgrade head`
+6. **Apply**: `uv run --no-sync alembic upgrade head`
 
 ### Example: a `Widget` model
 

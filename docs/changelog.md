@@ -8,6 +8,103 @@ For the full narrative on each release — rationale, decisions, migration guide
 
 ___
 
+## Unreleased - Composable Features
+
+Every feature in the boilerplate can now be removed: its routes, models, settings, admin views,
+seeders and tests come out together, and the project still imports, lints, type-checks and passes
+the remaining tests. `tools/removal_drill.py` proves it for six presets, and CI runs them as a
+matrix. The round that followed fixed what a re-review of the refactor found.
+
+---
+
+#### Added
+
+- **`src/wiring/`, the composition root.** `app.py`, `settings.py`, `hooks.py`, `models.py` and
+  `admin.py` list what this project selected; `backend/scripts/seeders.py` and
+  `backend/tests/wiring.py` do the same for seeders and fixtures. See
+  [Composable Features](user-guide/composable-features.md).
+- **Contribution shapes** in `infrastructure/composition.py`: `RouterMount`, `Lifecycle`,
+  `PermissionSource`, `RateLimitResolver`, `TierDeleteGuard`, `ReadinessCheck`.
+- **`tools/removal_drill.py`** — builds the repository without each feature and runs five checks
+  (the app imports, every module imports, ruff, mypy, tests) per preset.
+- **`GET /health/ready`** — answers `503` while a dependency the project selected is unreachable:
+  the database, and the cache, the login lockout's Redis, the session store and the task broker for
+  the features it has. Checks run together, each with a two-second timeout; the report is reused for
+  a couple of seconds, and two checks pointed at one server are asked once. `GET /health` stays a
+  liveness probe that touches nothing.
+- **`FORWARDED_ALLOW_IPS`** is now documented, and the generated nginx stack puts the containers on
+  a fixed subnet and trusts forwarded headers only from it
+  (`bp deploy generate nginx --internal-subnet …`).
+- **`LOG_FORMAT`** now decides the formatter, with each environment's format as the default.
+
+#### Changed
+
+- **Emails are stored canonically** (lowercased, as crudauth looks them up), on signup, on update and
+  in the admin panel. `UserService.get_by_email` canonicalises its lookup, so seeding a superuser
+  with a mixed-case `ADMIN_EMAIL` is idempotent.
+- **Tier rate limits match the route template** the request hit (`/api/v1/users/{username}`), not the
+  concrete path, and soft-deleted rows no longer apply.
+- **Page sizes are bounded**: every listing takes `page` and `items_per_page` from one shared
+  dependency, capped at 100, and sorts with an id tie-break.
+- **An API key's `expires_at` must carry a UTC offset.**
+- **API-key routes answer through schemas** — creating a key no longer returns its hash.
+- **An explicit `null`** for a column the row requires is refused with `422`; the guarded names come
+  from the model, so a new column can't be forgotten.
+- **Creating tables imports every model first**, so `scripts/create_tables.py` and
+  `scripts/setup_initial_data.py` create the whole schema.
+- **`get_logger()` names the logger after its caller's module**, so per-module levels and the
+  structured `module` field work.
+- **Structured log lines escape quoted values**, so client text can't forge a field.
+- **The admin panel's session cookie** is its own middleware, scoped to `/admin`, `Secure` outside
+  local and development, and valid for 8 hours. Changing a user's address in the panel clears
+  `email_verified`.
+- **The secret-key check** measures placeholders, hand-written words, repeated blocks, ordered runs
+  and entropy against a share of the whole value: `token_hex(32)` and `token_urlsafe(32)` always
+  pass, and values like `"12345678" * 4` or `my-company-api-signing-key-for-prod` never do.
+- **The API metadata defaults are empty**, so a generated project's OpenAPI document carries no
+  contact, licence or URL it didn't configure, and emits a licence `identifier` or `url`, never both.
+- **The database name, the RabbitMQ vhost and every Redis URL** are escaped or refused rather than
+  rendered raw.
+- **CI** lints and type-checks `backend/scripts` and `backend/migrations`, type-checks `tools`, pins
+  Python on the sync step, and runs the removal drills.
+
+#### Removed
+
+- `CSRFException`, which nothing raised.
+- Settings nothing read: `LOG_CORRELATION_ID`, `LOG_INCLUDE_STACKTRACE`, `LOG_PERFORMANCE_METRICS`,
+  `LOG_SQL_QUERIES`, `LOG_STRUCTURED_CONTEXT`, `DEFAULT_CACHE_EXPIRATION`,
+  `TASKIQ_WORKER_CONCURRENCY`, `TASKIQ_MAX_TASKS_PER_WORKER`, `POSTGRES_SYNC_PREFIX`,
+  `PRODUCTION_SECURITY_STRICT_MODE`, `TASKIQ_ENABLED`.
+- `handle_exception`: routes let domain errors propagate to the global handler.
+- The `env` option in the pytest config, which needed a plugin the project doesn't install.
+
+#### Breaking Changes
+
+- **The caller-resolving dependency aliases moved** from `infrastructure/dependencies.py` to
+  `infrastructure/auth/deps.py`: `CurrentUserDep`, `CurrentSuperUserDep`, `OptionalUserDep`,
+  `CurrentPrincipalDep`, `CurrentPermissionsDep`, `OAuth2FormDep`. `AsyncSessionDep` stays.
+- **An empty `CORS_ORIGINS` now allows no cross-origin request**, where it used to mean "any origin".
+  A `*` origin never gets credentials, and is refused outright in production.
+- **Rate-limit rows that name a concrete path stop matching.** Rewrite them as the route template
+  the router declares (`/api/v1/users/{username}`); a row for `/api/v1/users/42` will never apply.
+- **`items_per_page` above 100 answers `422`** on every listing, including the API-key usage history,
+  which allowed 1000.
+- **A naive `expires_at` on an API key answers `422`.** Send an offset (`2030-01-01T00:00:00+00:00`).
+- **Emails are stored lowercased.** Rows written before this change keep their original case; the
+  uniqueness check and the login lookup both use the canonical form, so a mixed-case row can still be
+  matched by a differently-cased signup. A data migration for existing rows is a decision, not part
+  of this change.
+- **`API_CONTACT_URL`, `API_LICENSE_IDENTIFIER`, `CONTACT_NAME`, `CONTACT_EMAIL`, `LICENSE_NAME` and
+  `API_SUMMARY` default to empty.** Set them to put your own identity in the OpenAPI document.
+- **`HTTPException` and friends** import from `infrastructure/http_exceptions.py`
+  (was `infrastructure/auth/http_exceptions.py`).
+- **The settings listed under Removed are gone.** An `.env` that still sets them is ignored; nothing
+  read them.
+- **`POSTGRES_DB` may not contain `/`, `?`, `#` or `@`.** SQLAlchemy reads the name literally, so such
+  a name would have connected somewhere else; set `DATABASE_URL` instead.
+
+___
+
 ## 0.19.0 - June 23, 2026 - The crudauth Migration
 
 Three changes since v0.18.0: route dependency injection moved to centralized `Annotated[...]` type aliases ([#261](https://github.com/benavlabs/FastAPI-boilerplate/pull/261)), the app metadata (`APP_NAME` / `APP_DESCRIPTION` / `VERSION`) became environment-configurable, and — the headline — the vendored authentication stack was replaced with the [`crudauth`](https://pypi.org/project/crudauth/) library.
@@ -123,7 +220,7 @@ For the full migration guide and per-section detail, see the [full release notes
 
 - **Production security validator** by [@igorbenav](https://github.com/igorbenav)
   - Startup gate that refuses to boot prod with insecure defaults
-  - Checks `SECRET_KEY`, DB credentials, CORS policy, session flags, debug mode, `CREATE_TABLES_ON_STARTUP`
+  - Checks `SECRET_KEY`, DB credentials, CORS policy, session flags, debug mode, admin credentials and Redis passwords
   - `bp env validate` runs the same checks against any config
 
 - **Server-side sessions** by [@igorbenav](https://github.com/igorbenav)
@@ -237,7 +334,7 @@ For the full migration guide and per-section detail, see the [full release notes
 | API key hash format | Existing keys won't validate | Users must regenerate |
 | Settings composition | Env var names mostly stable; a few moved | Diff `.env.example` |
 | Sync command | `cd backend && uv sync --extra dev` produces broken venv | Use `uv sync --all-packages --all-extras` from repo root |
-| Deployment scaffolder | `./setup.py local` removed | `uv run bp deploy generate {local,prod,nginx}` |
+| Deployment scaffolder | `./setup.py local` removed | `uv run --no-sync bp deploy generate {local,prod,nginx}` |
 
 For brand-new projects, v0.18.0 is the better starting point. For existing apps with significant custom code on v0.17.0, **pinning to v0.17.0 may be the right call** — that tag stays supported.
 

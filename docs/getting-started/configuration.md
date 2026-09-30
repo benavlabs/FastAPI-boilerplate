@@ -46,7 +46,7 @@ ENVIRONMENT=development
 POSTGRES_USER=postgres
 POSTGRES_PASSWORD=changeme
 POSTGRES_DB=postgres
-POSTGRES_SERVER=db          # use "localhost" without Docker
+POSTGRES_SERVER=postgres    # use "localhost" without Docker
 POSTGRES_PORT=5432
 CREATE_TABLES_ON_STARTUP=true
 ```
@@ -64,7 +64,6 @@ SECRET_KEY=your-generated-secret-key-here
 
 # Production security validation (enabled by default in production)
 PRODUCTION_SECURITY_VALIDATION_ENABLED=true
-PRODUCTION_SECURITY_STRICT_MODE=false
 ```
 
 ### Sessions
@@ -109,7 +108,7 @@ ADMIN_PASSWORD=your-secure-password
 Then run:
 
 ```bash
-uv run python -m scripts.setup_initial_data
+uv run --no-sync python -m scripts.setup_initial_data
 ```
 
 ### Cache (Redis or Memcached)
@@ -117,7 +116,6 @@ uv run python -m scripts.setup_initial_data
 ```env
 CACHE_ENABLED=true
 CACHE_BACKEND=redis             # or "memcached"
-DEFAULT_CACHE_EXPIRATION=3600
 
 # Client-side cache (Cache-Control headers)
 CLIENT_CACHE_ENABLED=true
@@ -152,7 +150,6 @@ requests are keyed by user ID; anonymous requests are keyed by the client IP, ho
 ### Background Tasks (Taskiq)
 
 ```env
-TASKIQ_ENABLED=true
 TASKIQ_BROKER_TYPE=redis        # or "rabbitmq"
 
 # Redis broker (uses DB 3 by default)
@@ -160,9 +157,6 @@ TASKIQ_REDIS_HOST=redis         # use "localhost" without Docker
 TASKIQ_REDIS_PORT=6379
 TASKIQ_REDIS_DB=3
 TASKIQ_REDIS_PASSWORD=
-
-TASKIQ_WORKER_CONCURRENCY=2
-TASKIQ_MAX_TASKS_PER_WORKER=1000
 ```
 
 ### CORS
@@ -217,7 +211,7 @@ ADMIN_ENABLED=true              # enables SQLAdmin at /admin
 When running with Docker Compose, services reach each other by service name. Use these hosts in `.env`:
 
 ```env
-POSTGRES_SERVER=db
+POSTGRES_SERVER=postgres
 CACHE_REDIS_HOST=redis
 RATE_LIMITER_REDIS_HOST=redis
 TASKIQ_REDIS_HOST=redis
@@ -230,7 +224,7 @@ With these settings, start the app:
 === "Local with uv"
 
     ```bash
-    uv run fastapi dev src/interfaces/main.py
+    uv run --no-sync fastapi dev src/interfaces/main.py
     ```
 
 === "Docker Compose"

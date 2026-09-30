@@ -68,7 +68,7 @@ The actual classes that ship with the boilerplate, all in `src/infrastructure/co
 | `AppSettings` | `APP_NAME`, `APP_DESCRIPTION`, `VERSION`, `DEBUG`, contact info |
 | `AdminSettings` | `ADMIN_NAME`, `ADMIN_EMAIL`, `ADMIN_USERNAME`, `ADMIN_PASSWORD`, `DEFAULT_TIER_NAME` |
 | `SQLAdminSettings` | `ADMIN_ENABLED` |
-| `SecuritySettings` | `PRODUCTION_SECURITY_VALIDATION_ENABLED`, `PRODUCTION_SECURITY_STRICT_MODE` |
+| `SecuritySettings` | `SECRET_KEY`, `PRODUCTION_SECURITY_VALIDATION_ENABLED`, `SECURITY_HEADERS_ENABLED` |
 | `LoggingSettings` | All `LOG_*` |
 | `TaskiqSettings` | `TASKIQ_*` (Redis + RabbitMQ + worker tuning) |
 

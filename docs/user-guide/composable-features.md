@@ -23,8 +23,11 @@ plain objects at stable paths, and one package collects them.
 Two more live beside the code they drive: `backend/scripts/seeders.py` lists
 `SEEDERS`, and `backend/tests/wiring.py` lists the fixture modules pytest loads.
 
-Every one of these files is imports and literals. There is no logic in them, so
-ruff, mypy and an IDE see exactly what a project wired.
+Every one of these files is imports and names: each entry is either a value a
+feature exposes or a literal naming where to mount it. No decisions are taken
+here, so ruff, mypy and an IDE see exactly what a project wired. Anything
+conditional — whether the OAuth router exists, for instance — belongs to the
+feature that owns it, which exposes the answer for the wiring to list.
 
 !!! note "Hand-maintained for now"
     A generator that writes these files from a catalog is planned. Until it exists,
