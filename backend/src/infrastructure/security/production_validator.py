@@ -4,6 +4,9 @@ This module provides comprehensive security validation for production environmen
 checking for common misconfigurations that could lead to security vulnerabilities.
 """
 
+import math
+import re
+from collections import Counter
 from typing import Any
 from urllib.parse import unquote, urlsplit
 
@@ -13,7 +16,11 @@ from ..logging import get_logger
 logger = get_logger()
 
 MINIMUM_SECRET_KEY_LENGTH = 32
-MINIMUM_SECRET_KEY_ALPHABET = 8
+MINIMUM_SECRET_KEY_ENTROPY_BITS = 64
+LONGEST_REPEATED_BLOCK = 16
+LONGEST_ORDERED_RUN = 7
+DOMINANT_FRAGMENT_SHARE = 0.4
+DOMINANT_WORD_SHARE = 0.25
 
 PLACEHOLDER_FRAGMENTS = (
     "insecure",
@@ -28,7 +35,119 @@ PLACEHOLDER_FRAGMENTS = (
     "example",
     "placeholder",
     "test",
+    "development",
 )
+
+WEAK_WORDS = frozenset(
+    (
+        *PLACEHOLDER_FRAGMENTS,
+        "abc123",
+        "admin",
+        "api",
+        "app",
+        "change",
+        "demo",
+        "dev",
+        "jwt",
+        "key",
+        "local",
+        "prod",
+        "production",
+        "sample",
+        "session",
+        "signing",
+        "staging",
+        "token",
+        "123456",
+    )
+)
+
+
+def _entropy_bits(value: str) -> float:
+    """The value's Shannon entropy in bits, from the symbols it actually uses."""
+    counts = Counter(value)
+    share = [count / len(value) for count in counts.values()]
+
+    return -sum(part * math.log2(part) for part in share) * len(value)
+
+
+def _repeats_a_short_block(value: str) -> bool:
+    """Whether the value is one block of at most 16 characters, written out again."""
+    for size in range(1, min(LONGEST_REPEATED_BLOCK, len(value) // 2) + 1):
+        if len(value) % size == 0 and value == value[:size] * (len(value) // size):
+            return True
+
+    return False
+
+
+def _longest_ordered_run(value: str) -> int:
+    """The longest run of characters whose code points step by one, up or down."""
+    longest = run = 1
+    for step in (1, -1):
+        run = 1
+        for previous, current in zip(value, value[1:], strict=False):
+            run = run + 1 if ord(current) - ord(previous) == step else 1
+            longest = max(longest, run)
+
+    return longest
+
+
+def _words(value: str) -> list[str]:
+    """The alphanumeric words a value is written from."""
+    return [word for word in re.split(r"[^a-z0-9]+", value.lower()) if word]
+
+
+def _weak_word_share(value: str) -> float:
+    """How much of the value is spelled out of words that say it was typed by hand."""
+    words = _words(value)
+    if not words:
+        return 0.0
+
+    written = sum(len(word) for word in words)
+
+    return sum(len(word) for word in words if word in WEAK_WORDS) / written
+
+
+def is_weak_secret_key(secret: str) -> bool:
+    """Whether a secret key is empty, too short, or reads as something other than random.
+
+    A key is refused when it is empty, shorter than 32 characters, spells out a
+    placeholder or hand-written words over a large part of its length, repeats one
+    short block, runs through eight consecutive code points, or carries less than
+    64 bits of entropy across the symbols it uses.
+
+    Each rule is measured against a share of the whole value, so a generated key
+    that happens to contain "test" or "1234" still passes.
+    """
+    if not secret:
+        return True
+
+    if len(secret) < MINIMUM_SECRET_KEY_LENGTH:
+        return True
+
+    if _dominant_fragment_share(secret) >= DOMINANT_FRAGMENT_SHARE:
+        return True
+
+    if _weak_word_share(secret) >= DOMINANT_WORD_SHARE:
+        return True
+
+    if _repeats_a_short_block(secret):
+        return True
+
+    if _longest_ordered_run(secret) > LONGEST_ORDERED_RUN:
+        return True
+
+    return _entropy_bits(secret) < MINIMUM_SECRET_KEY_ENTROPY_BITS
+
+
+def _dominant_fragment_share(value: str) -> float:
+    """How much of the value the largest placeholder fragment covers."""
+    lowered = value.lower()
+
+    return max(
+        (lowered.count(fragment) * len(fragment) / len(lowered) for fragment in PLACEHOLDER_FRAGMENTS),
+        default=0.0,
+    )
 
 
 class ProductionSecurityError(Exception):
@@ -239,8 +358,8 @@ class ProductionSecurityValidator:
 
         if self._is_cors_too_permissive():
             credentials_note = (
-                " Combined with CORS_ALLOW_CREDENTIALS=true, this lets any browser origin "
-                "make authenticated cross-origin requests with the user's session cookie."
+                " The app drops CORS_ALLOW_CREDENTIALS while '*' is listed, so cookies and "
+                "Authorization headers stop reaching your frontend too."
                 if getattr(self.settings, "CORS_ALLOW_CREDENTIALS", True)
                 else ""
             )
@@ -336,26 +455,10 @@ class ProductionSecurityValidator:
             True if the secret key is insecure, False otherwise.
 
         Note:
-            A key is refused when it is empty, reads as a placeholder, is shorter
-            than 32 characters, or draws on too small an alphabet to be random.
-
-            Sequence and repetition heuristics are deliberately absent: a run of
-            four identical characters, or "1234", appears in about one generated
-            hex key in sixty, and refusing those would keep a correctly generated
-            key out of production.
+            The rules live in ``is_weak_secret_key``, which the Alembic
+            production gate uses too.
         """
-        secret = self.settings.SECRET_KEY
-
-        if not secret:
-            return True
-
-        if any(fragment in secret.lower() for fragment in PLACEHOLDER_FRAGMENTS):
-            return True
-
-        if len(secret) < MINIMUM_SECRET_KEY_LENGTH:
-            return True
-
-        return len(set(secret)) < MINIMUM_SECRET_KEY_ALPHABET
+        return is_weak_secret_key(self.settings.SECRET_KEY)
 
     def _is_admin_access_completely_open(self) -> bool:
         """Check if admin interface has no access restrictions.

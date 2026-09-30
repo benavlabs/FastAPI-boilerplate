@@ -99,6 +99,8 @@ class TestProductionSecurityValidator:
             "",  # Empty
             "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",  # Repeated chars
             "abcd1234qwerty",  # Predictable patterns
+            "my-company-api-signing-key-for-prod",  # Written by hand
+            "0123456789abcdef" * 2,  # One block, twice
         ]
 
         for insecure_key in test_cases:
@@ -316,7 +318,7 @@ class TestProductionSecurityValidator:
 
         message = str(exc_info.value)
         assert "CORS_ORIGINS contains '*'" in message
-        assert ("CORS_ALLOW_CREDENTIALS=true" in message) is expect_note
+        assert ("drops CORS_ALLOW_CREDENTIALS" in message) is expect_note
 
     def test_debug_enabled_logs_warning(self, caplog):
         """Test that debug mode enabled logs warning."""
@@ -455,23 +457,43 @@ class TestTheSecretKeyRule:
     def _validator(self, secret: str) -> ProductionSecurityValidator:
         return ProductionSecurityValidator(Settings(SECRET_KEY=secret, ENVIRONMENT=EnvironmentOption.PRODUCTION))
 
-    def test_every_generated_key_is_accepted(self):
+    @pytest.mark.parametrize("generate", [lambda: secrets.token_hex(32), lambda: secrets.token_urlsafe(32)])
+    def test_every_generated_key_is_accepted(self, generate):
         """A key from `bp env gen-secret` must never keep production from starting."""
-        refused = [key for _ in range(10_000) if self._validator(key := secrets.token_hex(32))._is_insecure_secret_key()]
+        refused = [key for _ in range(10_000) if self._validator(key := generate())._is_insecure_secret_key()]
 
         assert refused == []
+
+    def test_a_key_of_random_bytes_at_the_minimum_length_is_accepted(self):
+        """32 hex characters is 128 bits; the rules must not read that as too little."""
+        refused = [key for _ in range(2_000) if self._validator(key := secrets.token_hex(16))._is_insecure_secret_key()]
+
+        assert refused == []
+
+    def test_a_passphrase_of_unrelated_words_is_accepted(self):
+        assert not self._validator("brook-mellow-tundra-quartz-ripple-42")._is_insecure_secret_key()
 
     @pytest.mark.parametrize(
         "secret",
         [
             "",
+            "short",
             "insecure-secret-key-change-this",
             "change-me-please-change-me-please-change",
             "my-super-secret-production-key-value",
-            "short",
+            "my-company-api-signing-key-for-prod",
+            "developmentdevelopmentdevelopment1",
+            "12345678" * 4,
+            "0123456789abcdef" * 2,
+            "abcdefgh" * 4,
+            "0123456789abcdefghijklmnopqrstuv",
             "a" * 64,
             "abababababababababababababababababababab",
         ],
     )
     def test_a_weak_key_is_refused(self, secret: str):
         assert self._validator(secret)._is_insecure_secret_key()
+
+    def test_a_generated_key_that_happens_to_spell_a_weak_word_is_accepted(self):
+        """The rules measure a share of the whole value, not any occurrence."""
+        assert not self._validator("Kq7-test-2mZr9XbW4nHt6LyPv8CdFgJs1AuEoQiRzN")._is_insecure_secret_key()
