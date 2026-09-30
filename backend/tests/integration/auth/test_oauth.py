@@ -278,6 +278,8 @@ async def test_a_provider_login_claims_an_account_whose_address_was_changed(
         headers={"X-CSRF-Token": login.json()["csrf_token"]},
     )
     assert moved.status_code == 200
+    assert (await client.get("/api/v1/users/me")).status_code == 200
+    old_session = dict(client.cookies)
     client.cookies.clear()
 
     _stub_google(
@@ -293,11 +295,17 @@ async def test_a_provider_login_claims_an_account_whose_address_was_changed(
     assert callback.status_code == 307
     client.cookies.clear()
 
+    for name, value in old_session.items():
+        client.cookies.set(name, value)
+    with_the_old_session = await client.get("/api/v1/users/me")
+    client.cookies.clear()
+
     refused = await client.post(
         "/api/v1/auth/login",
         data={"username": test_user["username"], "password": test_user["password"]},
     )
 
+    assert with_the_old_session.status_code == 401
     assert refused.status_code == 401
     claimed = (await db_session.execute(select(User).where(User.id == test_user["id"]))).scalar_one()
     await db_session.refresh(claimed)

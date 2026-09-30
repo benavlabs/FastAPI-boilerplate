@@ -4,7 +4,8 @@ from src.infrastructure.auth.password_policy import password_policy
 from src.infrastructure.auth.setup import auth
 from src.infrastructure.config.settings import settings
 from src.modules.user import schemas as user_schemas
-from src.modules.user.schemas import UserCreate, UserProfileRead, UserRead
+from src.modules.user.models import User
+from src.modules.user.schemas import UserCreate, UserProfileRead, UserRead, UserUpdate
 
 
 def test_the_password_field_documents_the_configured_policy():
@@ -65,3 +66,21 @@ def test_the_profile_schema_reads_the_same_row():
     row = {"id": 1, "name": "A", "username": "x", "profile_image_url": "https://example.com/a.jpg"}
 
     assert UserProfileRead(**row).username == "x"
+
+
+def _required_columns(model) -> tuple[str, ...]:
+    return tuple(
+        attribute.key for attribute in model.__mapper__.column_attrs if not any(column.nullable for column in attribute.columns)
+    )
+
+
+def test_the_guarded_names_are_the_models_required_columns():
+    """``NOT_NULLABLE`` comes from the model, so a new column can't be forgotten."""
+    assert UserUpdate.NOT_NULLABLE == _required_columns(User)
+
+
+def test_reading_an_address_the_app_stored_is_not_validated_as_input():
+    """The admin panel can write a local address; a read that refused it would answer 500."""
+    row = UserRead(id=1, name="Ops", username="ops", email="ops@corp.local", profile_image_url="https://x/y.png")
+
+    assert row.email == "ops@corp.local"

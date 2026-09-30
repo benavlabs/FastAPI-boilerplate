@@ -1,11 +1,13 @@
 """Tests for the User admin view's password handling."""
 
 import threading
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import bcrypt
 import pytest
 from crudauth.exceptions import PasswordPolicyException
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.modules.user.admin import UserAdmin
 
@@ -46,6 +48,71 @@ async def test_the_admin_panel_stores_the_address_in_canonical_form():
     """A row written in the panel is signed in to through crudauth, which lowercases."""
     data = {"name": "Mixed Case", "username": "mixedcase", "email": "Admin@Example.COM"}
 
-    await UserAdmin().on_model_change(data, None, False, None)
+    await UserAdmin().on_model_change(data, SimpleNamespace(email="admin@example.com"), False, None)
 
     assert data["email"] == "admin@example.com"
+
+
+async def test_changing_the_address_in_the_panel_clears_the_verification():
+    """The new address hasn't been proven, whoever typed it."""
+    data = {"email": "new@example.com"}
+
+    await UserAdmin().on_model_change(data, SimpleNamespace(email="old@example.com"), False, None)
+
+    assert data["email_verified"] is False
+
+
+async def test_saving_the_same_address_in_another_case_keeps_the_verification():
+    """A row stored before addresses were canonicalised must not lose its flag on every save."""
+    data = {"email": "Legacy@Example.com"}
+
+    await UserAdmin().on_model_change(data, SimpleNamespace(email="Legacy@Example.com"), False, None)
+
+    assert "email_verified" not in data
+
+
+async def test_creating_a_row_says_nothing_about_verification():
+    data = {"email": "fresh@example.com", "hashed_password": "Str1ngst!"}
+
+    await UserAdmin().on_model_change(data, None, True, None)
+
+    assert "email_verified" not in data
+
+
+class TestWhatThePanelShows:
+    """The password hash never reaches a page, and the tier selector has to render."""
+
+    def test_the_password_hash_is_in_neither_the_list_nor_the_detail_view(self):
+        view = UserAdmin()
+
+        assert "hashed_password" not in view._list_prop_names
+        assert "hashed_password" not in view._details_prop_names
+        assert "hashed_password" not in view._export_prop_names
+
+    async def test_the_tier_field_renders_on_both_forms(self, db_session: AsyncSession):
+        """sqladmin drops foreign-key columns from forms, so the rule names the relationship."""
+        view = UserAdmin()
+        view.session_maker = async_sessionmaker(bind=db_session.bind, class_=AsyncSession, expire_on_commit=False)
+
+        create_fields = (await view.scaffold_form(view.form_create_rules))()._fields
+        edit_fields = (await view.scaffold_form(view.form_edit_rules))()._fields
+
+        assert "tier" in create_fields
+        assert "tier" in edit_fields
+        assert "hashed_password" not in edit_fields
+
+
+async def test_the_panel_refuses_to_put_a_user_on_a_deleted_tier():
+    """The form's tier list comes from sqladmin and includes deleted rows."""
+    data = {"tier": SimpleNamespace(id=7, is_deleted=True)}
+
+    with pytest.raises(ValueError, match="deleted"):
+        await UserAdmin().on_model_change(data, SimpleNamespace(email="x@example.com"), False, None)
+
+
+async def test_the_panel_accepts_a_live_tier():
+    data = {"tier": SimpleNamespace(id=7, is_deleted=False)}
+
+    await UserAdmin().on_model_change(data, SimpleNamespace(email="x@example.com"), False, None)
+
+    assert data["tier"].id == 7

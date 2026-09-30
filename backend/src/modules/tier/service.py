@@ -1,6 +1,7 @@
 from typing import Any, cast
 
 from fastcrud.types import GetMultiResponseDict
+from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...wiring.hooks import TIER_DELETE_GUARDS
@@ -11,6 +12,7 @@ from ..common.exceptions import (
 )
 from ..user.crud import crud_users
 from ..user.exceptions import UserNotFoundError
+from ..user.models import User
 from ..user.schemas import User as UserSchema
 from ..user.schemas import UserRead
 from .crud import crud_tiers
@@ -66,7 +68,7 @@ class TierService:
 
     async def update(self, name: str, tier_update: TierUpdate, db: AsyncSession) -> None:
         """Update a tier by name."""
-        existing_tier = await crud_tiers.get(db=db, name=name, schema_to_select=TierRead)
+        existing_tier = await crud_tiers.get(db=db, name=name, schema_to_select=TierRead, is_deleted=False)
         if not existing_tier:
             raise TierNotFoundError(f"Tier with name '{name}' not found")
 
@@ -83,6 +85,7 @@ class TierService:
         if not existing_tier:
             raise TierNotFoundError(f"Tier with name '{name}' not found")
 
+        await self._release_deleted_users(existing_tier, db)
         await self._ensure_unreferenced(existing_tier, db)
         await crud_tiers.delete(db=db, name=name)
 
@@ -92,8 +95,17 @@ class TierService:
         if not existing_tier:
             raise TierNotFoundError(f"Tier with name '{name}' not found")
 
+        await self._release_deleted_users(existing_tier, db)
         await self._ensure_unreferenced(existing_tier, db)
         await crud_tiers.db_delete(db=db, name=name)
+
+    async def _release_deleted_users(self, tier: dict[str, Any], db: AsyncSession) -> None:
+        """Take the tier off the users a soft delete already removed.
+
+        ``user.tier_id`` has no ``ondelete``, so a row still pointing at the tier
+        would refuse the delete at the database.
+        """
+        await db.execute(update(User).where(User.tier_id == tier["id"], User.is_deleted.is_(True)).values(tier_id=None))
 
     async def _ensure_unreferenced(self, tier: dict[str, Any], db: AsyncSession) -> None:
         if await crud_users.exists(db=db, tier_id=tier["id"]):
@@ -196,6 +208,7 @@ class TierService:
             join_prefix="tier_",
             schema_to_select=UserRead,
             join_schema_to_select=TierRead,
+            join_filters={"is_deleted": False},
             id=user_id,
             nest_joins=True,
         )

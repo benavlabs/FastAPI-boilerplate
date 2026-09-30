@@ -1,9 +1,10 @@
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, ClassVar
 
 from pydantic import BaseModel, Field
 
-from ..common.schemas import TimestampSchema
+from ..common.schemas import PartialUpdate, TimestampSchema, not_nullable_columns
+from .models import Tier as TierModel
 
 
 class TierBase(BaseModel):
@@ -33,10 +34,15 @@ class TierSelect(BaseModel):
     name: str
 
 
-class TierRead(TierBase):
-    """Schema for reading tier data."""
+class TierRead(BaseModel):
+    """Schema for reading tier data.
+
+    The name's length rule belongs to the create schema; a read that repeated it
+    would answer 500 for a row the app already holds.
+    """
 
     id: int
+    name: str
     created_at: datetime
     description: str | None = None
     is_deleted: bool = False
@@ -61,8 +67,10 @@ class TierCreateInternal(TierCreate):
     pass
 
 
-class TierUpdate(BaseModel):
+class TierUpdate(PartialUpdate):
     """Schema for updating tier information."""
+
+    NOT_NULLABLE: ClassVar[tuple[str, ...]] = not_nullable_columns(TierModel)
 
     name: Annotated[
         str | None,

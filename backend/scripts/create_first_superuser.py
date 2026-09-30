@@ -5,12 +5,15 @@ from pathlib import Path
 backend_dir = Path(__file__).parent.parent
 sys.path.append(str(backend_dir))
 
+from crudauth.exceptions import PasswordPolicyException  # noqa: E402
 from sqlalchemy import update  # noqa: E402
 
+from scripts.seed_errors import SeedError  # noqa: E402
 from src.infrastructure.config.settings import settings  # noqa: E402
 from src.infrastructure.database.initialize import close_database  # noqa: E402
 from src.infrastructure.database.session import local_session  # noqa: E402
 from src.infrastructure.logging import get_logger  # noqa: E402
+from src.modules.common.exceptions import DomainError  # noqa: E402
 from src.modules.user.exceptions import UserNotFoundError  # noqa: E402
 from src.modules.user.models import User  # noqa: E402
 from src.modules.user.schemas import UserCreate  # noqa: E402
@@ -19,8 +22,9 @@ from src.modules.user.service import UserService  # noqa: E402
 logger = get_logger()
 
 
-class SeedError(RuntimeError):
-    """Raised when the environment can't produce the row this script is meant to seed."""
+def _policy_failures(error: PasswordPolicyException) -> str:
+    """The unmet rules, as one line."""
+    return "; ".join(str(entry.get("msg", entry.get("type"))) for entry in error.errors)
 
 
 async def create_first_superuser() -> None:
@@ -59,7 +63,14 @@ async def create_first_superuser() -> None:
                 "Choose another ADMIN_EMAIL, or promote that account deliberately."
             )
 
-        created = await user_service.create(UserCreate(name=name, email=email, username=username, password=password), session)
+        try:
+            created = await user_service.create(
+                UserCreate(name=name, email=email, username=username, password=password), session
+            )
+        except PasswordPolicyException as error:
+            raise SeedError(f"ADMIN_PASSWORD doesn't meet the password policy: {_policy_failures(error)}") from error
+        except DomainError as error:
+            raise SeedError(f"Could not seed the superuser: {error}") from error
 
         await session.execute(update(User).where(User.id == created["id"]).values(is_superuser=True))
         await session.commit()

@@ -1,10 +1,11 @@
 from typing import Any
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter
 from fastcrud import PaginatedListResponse, compute_offset, paginated_response
 
 from ...infrastructure.auth.deps import CurrentSuperUserDep, CurrentUserDep
 from ...infrastructure.dependencies import AsyncSessionDep
+from ..common.pagination import ItemsPerPageDep, PageDep
 from ..user.dependencies import UserServiceDep
 from .dependencies import TierServiceDep
 from .schemas import TierRead, UserTierUpdate
@@ -23,8 +24,8 @@ async def get_tiers(
     db: AsyncSessionDep,
     _: CurrentUserDep,
     tier_service: TierServiceDep,
-    page: int = Query(1, ge=1, description="Page number"),
-    items_per_page: int = Query(10, ge=1, le=100, description="Items per page"),
+    page: PageDep = 1,
+    items_per_page: ItemsPerPageDep = 10,
 ) -> dict:
     """Paginated list of tiers (authenticated)."""
     tiers_data = await tier_service.get_all(

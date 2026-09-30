@@ -47,7 +47,7 @@ class UserAdmin(DataclassModelMixin, ModelView, model=User):
 
     column_labels = {"hashed_password": "Password"}
 
-    _tier_rules = ["tier_id"] if hasattr(User, "tier") else []
+    _tier_rules = ["tier"] if hasattr(User, "tier") else []
     form_create_rules = ["name", "username", "email", "hashed_password", *_tier_rules, "is_superuser"]
     form_edit_rules = [*UserAdminUpdate.model_fields.keys(), *_tier_rules, "is_superuser"]
 
@@ -65,8 +65,12 @@ class UserAdmin(DataclassModelMixin, ModelView, model=User):
             data["hashed_password"] = await get_password_hash_async(data["hashed_password"])
         if data.get("email"):
             data["email"] = canonical_email(data["email"])
+            if not is_created and data["email"] != canonical_email(model.email):
+                data["email_verified"] = False
         if "oauth_provider" in data and data["oauth_provider"] == "":
             data["oauth_provider"] = None
+        if data.get("tier") is not None and getattr(data["tier"], "is_deleted", False):
+            raise ValueError("That tier has been deleted. Pick another one, or restore it first.")
 
     async def delete_model(self, request: Request, pk: str) -> None:
         """Override delete to anonymize user instead of removing.

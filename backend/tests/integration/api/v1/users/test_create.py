@@ -65,8 +65,7 @@ async def test_create_user_duplicate_username(client: AsyncClient, db_session: A
     response = await client.post("/api/v1/users/", json=user_data)
 
     assert response.status_code == 422
-    data = response.json()
-    assert "detail" in data
+    assert response.json()["detail"] == "A user with this email or username already exists."
 
 
 async def test_create_user_duplicate_email(client: AsyncClient, db_session: AsyncSession, test_user: dict):
@@ -78,8 +77,7 @@ async def test_create_user_duplicate_email(client: AsyncClient, db_session: Asyn
     response = await client.post("/api/v1/users/", json=user_data)
 
     assert response.status_code == 422
-    data = response.json()
-    assert "detail" in data
+    assert response.json()["detail"] == "A user with this email or username already exists."
 
 
 async def test_create_superuser(superuser_auth_client: AsyncClient, db_session: AsyncSession):

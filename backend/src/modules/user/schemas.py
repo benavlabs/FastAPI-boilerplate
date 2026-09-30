@@ -5,12 +5,13 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 from ...infrastructure.auth.password_policy import password_policy
 from ...wiring.models import UserSchemaExtensions
-from ..common.schemas import PartialUpdate, PersistentDeletion, TimestampSchema
+from ..common.schemas import PartialUpdate, PersistentDeletion, TimestampSchema, not_nullable_columns
 from .constants import (
     NAME_MAX_LENGTH,
     USERNAME_MAX_LENGTH,
     USERNAME_PATTERN,
 )
+from .models import User as UserModel
 
 
 class UserBase(BaseModel):
@@ -68,7 +69,7 @@ class UserRead(UserSchemaExtensions):
     id: int
     name: Annotated[str, Field(examples=["User Userson"])]
     username: Annotated[str, Field(examples=["userson"])]
-    email: Annotated[EmailStr, Field(examples=["user.userson@example.com"])]
+    email: Annotated[str, Field(examples=["user.userson@example.com"])]
     profile_image_url: str
     is_deleted: bool = False
     is_superuser: bool = False
@@ -107,7 +108,7 @@ class UserUpdate(PartialUpdate):
 
     model_config = ConfigDict(extra="forbid")
 
-    NOT_NULLABLE: ClassVar[tuple[str, ...]] = ("name", "username", "email", "profile_image_url")
+    NOT_NULLABLE: ClassVar[tuple[str, ...]] = not_nullable_columns(UserModel)
 
     name: Annotated[
         str | None,

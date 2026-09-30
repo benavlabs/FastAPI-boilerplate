@@ -230,11 +230,11 @@ class UserService:
         user = await crud_users.get(
             db=db,
             schema_to_select=UserRead,
-            email=email,
+            email=canonical_email(email),
             is_deleted=False,
         )
         if not user:
-            raise UserNotFoundError(f"User with email '{email}' not found")
+            raise UserNotFoundError("No user with that email")
         return user
 
     async def update(self, user_id: int, user_update: UserUpdate, db: AsyncSession) -> dict[str, Any]:

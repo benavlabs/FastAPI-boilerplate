@@ -1,6 +1,7 @@
 """Admin view for Tier model."""
 
 from sqladmin import ModelView
+from sqlalchemy import Select
 from starlette.requests import Request
 
 from ...infrastructure.database.session import local_session
@@ -33,6 +34,10 @@ class TierAdmin(DataclassModelMixin, ModelView, model=Tier):
     form_create_rules = list(TierCreate.model_fields.keys())
     form_edit_rules = list(TierUpdate.model_fields.keys())
     form_excluded_columns = [Tier.users]
+
+    def list_query(self, request: Request) -> Select:
+        """The listing, without the tiers a soft delete has already taken out."""
+        return super().list_query(request).filter(Tier.is_deleted.is_(False))
 
     async def delete_model(self, request: Request, pk: str) -> None:
         """Override delete to permanently remove tier from database.

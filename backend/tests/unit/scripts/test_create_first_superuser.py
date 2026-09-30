@@ -70,3 +70,43 @@ async def test_seeding_twice_leaves_the_superuser_alone(admin_environment, db_se
 
     seeded = await crud_users.get(db=db_session, email=COMPLETE["ADMIN_EMAIL"])
     assert seeded["is_superuser"] is True
+
+
+async def test_a_mixed_case_address_seeds_once_and_is_then_found(admin_environment, monkeypatch, db_session: AsyncSession):
+    """Addresses are stored canonically, so the lookup has to canonicalise too."""
+    monkeypatch.setattr(settings, "ADMIN_EMAIL", "Admin@Example.COM")
+
+    await create_first_superuser()
+    await create_first_superuser()
+
+    seeded = await crud_users.get(db=db_session, email="admin@example.com")
+    assert seeded["is_superuser"] is True
+    assert await crud_users.count(db=db_session, email="admin@example.com") == 1
+
+
+async def test_a_mixed_case_address_held_by_a_plain_user_is_refused(
+    admin_environment, monkeypatch, db_session: AsyncSession, test_user: dict
+):
+    monkeypatch.setattr(settings, "ADMIN_EMAIL", "Admin@Example.COM")
+    await crud_users.update(db=db_session, object={"email": "admin@example.com"}, id=test_user["id"])
+
+    with pytest.raises(SeedError, match="not a superuser"):
+        await create_first_superuser()
+
+
+async def test_a_weak_password_is_reported_without_a_traceback(admin_environment, monkeypatch):
+    monkeypatch.setattr(settings, "ADMIN_PASSWORD", "short")
+
+    with pytest.raises(SeedError, match="ADMIN_PASSWORD doesn't meet the password policy") as failure:
+        await create_first_superuser()
+
+    assert "Traceback" not in str(failure.value)
+
+
+async def test_a_taken_username_is_reported_as_a_seed_failure(
+    admin_environment, monkeypatch, db_session: AsyncSession, test_user: dict
+):
+    monkeypatch.setattr(settings, "ADMIN_USERNAME", test_user["username"])
+
+    with pytest.raises(SeedError, match="Could not seed the superuser"):
+        await create_first_superuser()
