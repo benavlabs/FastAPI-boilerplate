@@ -118,7 +118,7 @@ def _detect_calling_module() -> str:
     frame = inspect.currentframe()
 
     try:
-        for _ in range(3):
+        for _ in range(2):
             if frame is None:
                 break
             frame = frame.f_back

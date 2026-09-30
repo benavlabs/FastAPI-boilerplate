@@ -17,6 +17,13 @@ import traceback
 from datetime import UTC, datetime
 
 
+def _quoted(value: str) -> str:
+    """``value`` as a quoted field, with the characters that would end it escaped."""
+    escaped = value.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n").replace("\r", "\\r")
+
+    return f'"{escaped}"'
+
+
 class SimpleFormatter(logging.Formatter):
     """Simple formatter for basic console output.
 
@@ -59,7 +66,7 @@ class StructuredFormatter(logging.Formatter):
             f"timestamp={timestamp}",
             f"level={record.levelname}",
             f"module={record.name}",
-            f'message="{record.getMessage()}"',
+            f"message={_quoted(record.getMessage())}",
         ]
 
         if hasattr(record, "__dict__"):
@@ -87,17 +94,13 @@ class StructuredFormatter(logging.Formatter):
                     "exc_text",
                     "stack_info",
                 ]:
-                    if isinstance(value, str):
-                        parts.append(f'{key}="{value}"')
-                    elif isinstance(value, int | float | bool):
+                    if isinstance(value, int | float | bool):
                         parts.append(f"{key}={value}")
                     else:
-                        parts.append(f'{key}="{str(value)}"')
+                        parts.append(f"{key}={_quoted(str(value))}")
 
         if record.exc_info:
-            exc_text = self.formatException(record.exc_info)
-            exc_text_escaped = exc_text.replace("\n", "\\n")
-            parts.append(f'exception="{exc_text_escaped}"')
+            parts.append(f"exception={_quoted(self.formatException(record.exc_info))}")
 
         return " ".join(parts)
 
