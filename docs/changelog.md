@@ -72,6 +72,10 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   Python on the sync step, and runs the removal drills.
 - **The generated local stack publishes Postgres and Redis on `127.0.0.1` only**, and the Taskiq
   Redis result backend stores results as JSON instead of pickles.
+- **Another user's public profile carries the display fields only.** `GET /api/v1/users/{username}`
+  answers with `id`, `name`, `username` and `profile_image_url`; the fields features add to the read
+  schemas, such as `tier_id`, stay on `/users/me`, on `/users/{username}/tier` for the owner or a
+  superuser, and on the superuser endpoints.
 - **The admin panel's CSV export writes formula-like cells as text.** Text starting with `=`, `+`,
   `-`, `@`, a tab or a carriage return is prefixed with an apostrophe, so a name typed at signup
   can't become a formula in a spreadsheet. Numbers, dates and `None` are written unchanged.
@@ -128,6 +132,10 @@ matrix. The round that followed fixed what a re-review of the refactor found.
 - **Regenerate a local stack** (`bp deploy generate local`) to publish Postgres and Redis on
   `127.0.0.1` only. An existing `docker-compose.yml` keeps offering a password-less database to
   everyone on the network.
+- **`GET /api/v1/users/{username}` no longer returns `tier_id`.** A user's tier is now visible only
+  to that user, through `/users/me` or `GET /api/v1/users/{username}/tier`, and to superusers, who
+  can read any user's tier through the same route. A client that read another user's tier from their
+  profile can no longer see it.
 
 ___
 

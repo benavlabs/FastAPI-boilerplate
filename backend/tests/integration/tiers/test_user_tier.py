@@ -38,10 +38,9 @@ async def test_update_user_tier_superuser(
     assert "message" in data
     assert data["message"] == "User tier updated successfully"
 
-    get_response = await superuser_auth_client.get(f"/api/v1/users/{username}")
+    get_response = await superuser_auth_client.get(f"/api/v1/users/{username}/tier")
     assert get_response.status_code == 200
-    user_data = get_response.json()
-    assert user_data["tier_id"] == second_test_tier["id"]
+    assert get_response.json()["tier"]["id"] == second_test_tier["id"]
 
 
 async def test_update_user_tier_regular_user(
@@ -60,3 +59,25 @@ async def test_update_user_tier_regular_user(
     assert response.status_code == 403
     data = response.json()
     assert any(word in data["detail"].lower() for word in ["permission", "privileges", "authorized"])
+
+
+async def test_a_public_profile_does_not_name_the_users_tier(auth_client: AsyncClient, tiered_user: dict):
+    """A tier is read through the tier route, by the owner or a superuser."""
+    response = await auth_client.get(f"/api/v1/users/{tiered_user['username']}")
+
+    assert response.status_code == 200
+    assert "tier_id" not in response.json()
+
+
+@pytest.mark.usefixtures("fresh_login_lockout")
+async def test_the_owners_own_record_still_names_their_tier(client: AsyncClient, tiered_user: dict):
+    login = await client.post(
+        "/api/v1/auth/login",
+        data={"username": tiered_user["username"], "password": tiered_user["password"]},
+    )
+    assert login.status_code == 200
+
+    response = await client.get("/api/v1/users/me")
+
+    assert response.status_code == 200
+    assert response.json()["tier_id"] == tiered_user["tier_id"]

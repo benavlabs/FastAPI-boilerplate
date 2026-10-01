@@ -139,3 +139,11 @@ async def test_openapi_advertises_the_gate(client: AsyncClient, path: str, metho
     operation = schema["paths"][path][method]
 
     assert expected <= set(operation["responses"])
+
+
+async def test_a_profile_carries_the_display_fields_only(auth_client: AsyncClient, test_user: dict):
+    """The profile route answers with the four display fields, whatever features are wired."""
+    response = await auth_client.get(f"/api/v1/users/{test_user['username']}")
+
+    assert response.status_code == 200
+    assert set(response.json()) == {"id", "name", "username", "profile_image_url"}

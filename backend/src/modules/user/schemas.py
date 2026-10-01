@@ -42,12 +42,12 @@ class User(TimestampSchema, UserBase, PersistentDeletion, UserSchemaExtensions):
     oauth_updated_at: datetime | None = None
 
 
-class UserProfileRead(UserSchemaExtensions):
-    """Another user's profile: the fields any signed-in user may see.
+class UserProfileRead(BaseModel):
+    """Another user's profile: the display fields any signed-in user may see.
 
-    No email address, so looking someone up by username can't be used to collect
-    addresses. The owner reads their own record through ``/users/me``, and a
-    superuser through the list and active-and-inactive endpoints.
+    No email address, and none of the fields other features add to the user read
+    schemas. The owner reads their own record through ``/users/me``, and a superuser
+    through the list and active-and-inactive endpoints.
     """
 
     id: int

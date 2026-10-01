@@ -68,6 +68,11 @@ def test_the_profile_schema_reads_the_same_row():
     assert UserProfileRead(**row).username == "x"
 
 
+def test_the_profile_schema_carries_only_the_display_fields():
+    """Another user's profile has no email address and none of the fields features contribute."""
+    assert set(UserProfileRead.model_fields) == {"id", "name", "username", "profile_image_url"}
+
+
 def _required_columns(model) -> tuple[str, ...]:
     return tuple(
         attribute.key for attribute in model.__mapper__.column_attrs if not any(column.nullable for column in attribute.columns)
