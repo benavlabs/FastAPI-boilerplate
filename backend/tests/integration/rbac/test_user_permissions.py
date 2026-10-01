@@ -21,7 +21,7 @@ from src.infrastructure.database.session import async_session
 from src.modules.role.models import Role, RolePermission, UserRole
 from src.modules.user.models import User
 
-pytestmark = pytest.mark.asyncio
+pytestmark = [pytest.mark.asyncio, pytest.mark.usefixtures("fresh_login_lockout")]
 
 
 async def _grant(db: AsyncSession, user_id: int, name: str, *permissions: str) -> Role:

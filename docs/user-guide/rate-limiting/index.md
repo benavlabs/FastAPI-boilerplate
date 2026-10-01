@@ -199,6 +199,13 @@ A 429 also carries `Retry-After`, the seconds until the window resets. A request
 the limiter counted it - a 401 from authentication, a 404, a 422 - still reports the budget it
 spent, through crudauth's `RateLimitHeadersMiddleware`, which the app factory installs.
 
+A per-action budget - the five password checks an hour an account gets for changing its password or
+its address - reports itself per route. On `POST /api/v1/auth/change-password`, crudauth's own guard
+counts the request, and every response carries that budget: a wrong password answers `401` with
+`X-RateLimit-Limit: 5` and the checks left in the window. On the email change, `PATCH
+/api/v1/users/{username}`, the budget is counted beside the path's allowance: the `200` and the `403`
+for a wrong password report the path's limit, and only the `429` reports `5`, `0` and `Retry-After`.
+
 These are standard-ish (formatted like the GitHub / Stripe convention, not RFC 6585). Frontends can read them to surface graceful "you're approaching your limit" UI.
 
 ## Production Considerations

@@ -11,15 +11,17 @@ PASSWORD_ATTEMPT_ACTION = "change_password"
 async def count_password_attempt(request: Request, user_id: int) -> None:
     """Count one password check for ``user_id``, answering 429 past the configured budget.
 
-    The headers the limiter computes go to a response of their own, so the caller's
-    reply keeps the ones the API throttle wrote.
+    The limiter records its headers on a request and a response of its own; its 429
+    carries them itself.
 
     Raises:
         RateLimitException: The account has spent its budget for the window.
     """
+    counted = Request({**request.scope, "state": {}}, request.receive)
+
     await enforce_rate_limit(
         auth.rate_limiter,
-        request,
+        counted,
         Response(),
         action=PASSWORD_ATTEMPT_ACTION,
         identity=str(user_id),

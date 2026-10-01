@@ -235,13 +235,3 @@ class TestAnEmailChangeIsReauthenticated:
         stored = await db_session.get_one(User, test_user["id"])
         await db_session.refresh(stored)
         assert stored.hashed_password.startswith("$2b$")
-
-
-async def test_a_refused_email_change_reports_the_password_budget(auth_client: AsyncClient, test_user: dict):
-    response = await auth_client.patch(
-        f"/api/v1/users/{test_user['username']}",
-        json={"email": "moved@example.com", "current_password": "WrongPassword1!"},
-    )
-
-    assert response.status_code == 403
-    assert response.headers["X-RateLimit-Limit"] == "5"

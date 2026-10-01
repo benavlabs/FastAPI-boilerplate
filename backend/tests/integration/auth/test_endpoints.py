@@ -19,6 +19,8 @@ from src.infrastructure.auth.setup import auth as crud_auth
 from src.interfaces.main import app
 from src.modules.user.models import User
 
+pytestmark = pytest.mark.usefixtures("fresh_login_lockout")
+
 
 @pytest.mark.asyncio
 async def test_login_success(client: AsyncClient, test_user: dict):

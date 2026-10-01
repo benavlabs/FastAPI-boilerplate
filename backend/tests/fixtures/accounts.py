@@ -34,6 +34,8 @@ async def test_user(db_session: AsyncSession):
     )
     db_session.add(user)
     await db_session.commit()
+    await reset_password_budget(user.id)
+
     return {
         "id": user.id,
         "name": user.name,
@@ -59,6 +61,8 @@ async def test_user_2(db_session: AsyncSession):
     )
     db_session.add(user)
     await db_session.commit()
+    await reset_password_budget(user.id)
+
     return {
         "id": user.id,
         "name": user.name,
@@ -83,6 +87,8 @@ async def test_superuser(db_session: AsyncSession):
     )
     db_session.add(user)
     await db_session.commit()
+    await reset_password_budget(user.id)
+
     return {
         "id": user.id,
         "name": user.name,
@@ -166,42 +172,33 @@ def mock_oauth_settings(monkeypatch):
     monkeypatch.setenv("OAUTH_GITHUB_CLIENT_SECRET", "mock-github-client-secret")
 
 
-BUDGETED_USER_IDS = range(1, 11)
 TEST_CLIENT_IP = "127.0.0.1"
 
 
-async def reset_rate_limits(*user_ids: int) -> None:
-    """Clear the change-password budgets of ``user_ids`` and the login lockout of the test client.
-
-    crudauth keys the budget ``ratelimit:{action}:{user_id}`` with the window stamped
-    on the end, and the lockout ``login:{dimension}:{value}``. Its backends expose no
-    way to clear one action, so the keys are spelled out here.
-    """
+async def _reset_limiter_keys(*keys: str) -> None:
+    """Clear ``keys`` in the limiter, if one is configured."""
     limiter = crud_auth.rate_limiter
     if limiter is None:
         return
 
-    period = crud_auth.rate_limits[PASSWORD_ATTEMPT_ACTION].seconds
-    window = int(time.time()) // period * period
-
-    for user_id in user_ids:
-        key = f"ratelimit:{PASSWORD_ATTEMPT_ACTION}:{user_id}"
+    for key in keys:
         await limiter.reset(key)
-        await limiter.reset(f"{key}:{window}")
 
-    for key in (
+
+async def reset_password_budget(user_id: int) -> None:
+    """Clear one account's change-password budget, the current window included."""
+    limit = crud_auth.rate_limits[PASSWORD_ATTEMPT_ACTION]
+    window = int(time.time()) // limit.seconds * limit.seconds
+    key = f"ratelimit:{PASSWORD_ATTEMPT_ACTION}:{user_id}"
+
+    await _reset_limiter_keys(key, f"{key}:{window}")
+
+
+@pytest_asyncio.fixture
+async def fresh_login_lockout():
+    """Clear the login lockout counted against the test client's address."""
+    await _reset_limiter_keys(
         f"login:ip:{TEST_CLIENT_IP}",
         f"login:lock:ip:{TEST_CLIENT_IP}",
         f"login:rounds:ip:{TEST_CLIENT_IP}",
-    ):
-        await limiter.reset(key)
-
-
-@pytest_asyncio.fixture(autouse=True)
-async def fresh_rate_limits():
-    """Start every test with the limiter counters the suite's accounts share unspent.
-
-    The suite recreates the tables per test, so user ids repeat, while the limiter
-    keeps its counters for the whole process.
-    """
-    await reset_rate_limits(*BUDGETED_USER_IDS)
+    )

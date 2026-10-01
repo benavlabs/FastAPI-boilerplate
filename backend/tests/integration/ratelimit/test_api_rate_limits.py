@@ -8,7 +8,7 @@ import itertools
 
 import pytest
 from fastapi.routing import APIRoute
-from httpx import AsyncClient
+from httpx import AsyncClient, Response
 
 from src.infrastructure.config.settings import settings
 from src.infrastructure.ratelimit.dependency import api_rate_limit_dependency
@@ -85,14 +85,16 @@ async def test_a_path_parameter_does_not_hand_out_a_fresh_budget(client: AsyncCl
     assert responses[3] == 429
 
 
+@pytest.fixture
+def throttled(monkeypatch):
+    """The API throttle on, with a limit no test is meant to reach."""
+    monkeypatch.setattr(settings, "RATE_LIMITER_ENABLED", True)
+    monkeypatch.setattr(settings, "DEFAULT_RATE_LIMIT_LIMIT", 100)
+    monkeypatch.setattr(settings, "DEFAULT_RATE_LIMIT_PERIOD", 3600)
+
+
 class TestTheHeadersOnACountedEmailChange:
     """The email-change guard counts without taking over the API throttle's headers."""
-
-    @pytest.fixture
-    def throttled(self, monkeypatch):
-        monkeypatch.setattr(settings, "RATE_LIMITER_ENABLED", True)
-        monkeypatch.setattr(settings, "DEFAULT_RATE_LIMIT_LIMIT", 100)
-        monkeypatch.setattr(settings, "DEFAULT_RATE_LIMIT_PERIOD", 3600)
 
     async def test_a_successful_change_reports_the_api_budget(self, auth_client: AsyncClient, test_user: dict, throttled: None):
         response = await auth_client.patch(
@@ -102,3 +104,52 @@ class TestTheHeadersOnACountedEmailChange:
 
         assert response.status_code == 200
         assert response.headers["X-RateLimit-Limit"] == "100"
+
+    async def test_a_refused_change_reports_the_api_budget(self, auth_client: AsyncClient, test_user: dict, throttled: None):
+        response = await auth_client.patch(
+            f"/api/v1/users/{test_user['username']}",
+            json={"email": "moved@example.com", "current_password": "WrongPassword1!"},
+        )
+
+        assert response.status_code == 403
+        assert response.headers["X-RateLimit-Limit"] == "100"
+
+    async def test_the_guess_that_runs_out_of_budget_reports_that_budget(
+        self, auth_client: AsyncClient, test_user: dict, throttled: None
+    ):
+        async def guess() -> Response:
+            return await auth_client.patch(
+                f"/api/v1/users/{test_user['username']}",
+                json={"email": "moved@example.com", "current_password": "WrongPassword1!"},
+            )
+
+        refused = [await guess() for _ in range(5)]
+        out_of_budget = await guess()
+
+        assert [response.status_code for response in refused] == [403] * 5
+        assert out_of_budget.status_code == 429
+        assert out_of_budget.headers["X-RateLimit-Limit"] == "5"
+        assert out_of_budget.headers["X-RateLimit-Remaining"] == "0"
+        assert out_of_budget.headers["Retry-After"]
+
+
+@pytest.mark.usefixtures("fresh_login_lockout")
+class TestTheHeadersOnAPasswordChange:
+    """The change-password route carries the budget's headers on every response."""
+
+    async def test_a_wrong_password_reports_the_budget(self, client: AsyncClient, test_user: dict, throttled: None):
+        login = await client.post(
+            "/api/v1/auth/login",
+            data={"username": test_user["username"], "password": test_user["password"]},
+        )
+        assert login.status_code == 200
+
+        refused = await client.post(
+            "/api/v1/auth/change-password",
+            json={"current_password": "WrongPassword1!", "new_password": "An0therPassword!"},
+            headers={"X-CSRF-Token": login.json()["csrf_token"]},
+        )
+
+        assert refused.status_code == 401
+        assert refused.headers["X-RateLimit-Limit"] == "5"
+        assert refused.headers["X-RateLimit-Remaining"] == "4"

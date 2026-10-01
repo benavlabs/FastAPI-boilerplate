@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.infrastructure.auth import authorization as authz
 from src.modules.user.models import User
 
-pytestmark = pytest.mark.asyncio
+pytestmark = [pytest.mark.asyncio, pytest.mark.usefixtures("fresh_login_lockout")]
 
 
 async def _login(client: AsyncClient, user: dict) -> str:

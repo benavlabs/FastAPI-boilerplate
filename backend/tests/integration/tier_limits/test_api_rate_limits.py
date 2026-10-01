@@ -11,7 +11,7 @@ from src.infrastructure.auth.setup import auth
 from src.infrastructure.config.settings import settings
 from src.modules.rate_limit.models import RateLimit
 
-pytestmark = pytest.mark.asyncio
+pytestmark = [pytest.mark.asyncio, pytest.mark.usefixtures("fresh_login_lockout")]
 
 _addresses = (f"198.51.100.{n}" for n in itertools.count(100))
 

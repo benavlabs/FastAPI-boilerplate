@@ -206,6 +206,7 @@ async def test_the_auth_paths_keep_their_existing_contract():
         assert path in paths
 
 
+@pytest.mark.usefixtures("fresh_login_lockout")
 async def test_a_provider_login_claims_an_account_that_was_signed_up_for(
     client: AsyncClient, db_session: AsyncSession, monkeypatch
 ):
@@ -255,6 +256,7 @@ async def test_a_provider_login_claims_an_account_that_was_signed_up_for(
     assert claimed.email_verified is True
 
 
+@pytest.mark.usefixtures("fresh_login_lockout")
 async def test_a_provider_login_claims_an_account_whose_address_was_changed(
     client: AsyncClient, db_session: AsyncSession, test_user: dict, monkeypatch
 ):

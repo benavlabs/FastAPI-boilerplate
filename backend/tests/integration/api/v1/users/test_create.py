@@ -181,6 +181,7 @@ async def test_signup_leaves_the_address_unverified(client: AsyncClient, db_sess
     assert stored.oauth_provider is None
 
 
+@pytest.mark.usefixtures("fresh_login_lockout")
 async def test_an_address_typed_in_mixed_case_can_sign_in(client: AsyncClient):
     """crudauth looks accounts up in lowercase, so signup has to store them that way."""
     signup = await client.post(

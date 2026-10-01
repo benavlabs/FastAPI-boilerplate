@@ -6,7 +6,7 @@ from httpx import ASGITransport, AsyncClient
 
 from src.interfaces.main import app
 
-pytestmark = pytest.mark.asyncio
+pytestmark = [pytest.mark.asyncio, pytest.mark.usefixtures("fresh_login_lockout")]
 
 NEW_PASSWORD = "An0therPassword!"
 
@@ -223,7 +223,7 @@ async def test_the_account_routes_appear_once_in_the_api_docs():
 
 
 class TestASuperuserCorrectingAnotherAccountsAddress:
-    """No password is checked on that path, so nothing is counted."""
+    """A superuser moving another account's address, which spends no budget."""
 
     async def _patch_email(self, client: AsyncClient, username: str, csrf: str, email: str) -> int:
         response = await client.patch(
