@@ -235,3 +235,15 @@ class TestAnEmailChangeIsReauthenticated:
         stored = await db_session.get_one(User, test_user["id"])
         await db_session.refresh(stored)
         assert stored.hashed_password.startswith("$2b$")
+
+
+async def test_an_email_longer_than_the_column_is_refused(auth_client: AsyncClient, test_user: dict):
+    over_the_column = f"{'a' * 48}@example.com"
+
+    response = await auth_client.patch(
+        f"/api/v1/users/{test_user['username']}",
+        json={"email": over_the_column, "current_password": test_user["password"]},
+    )
+
+    assert response.status_code == 422
+    assert over_the_column not in response.text

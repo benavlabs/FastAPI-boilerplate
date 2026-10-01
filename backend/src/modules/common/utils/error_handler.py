@@ -50,9 +50,9 @@ class CatchAllErrorMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         try:
             return await call_next(request)
-        except Exception as exc:
+        except Exception:
             support_id = _generate_support_id()
-            logger.exception(f"Unhandled error [{support_id}] on {request.method} {request.url.path}: {exc}")
+            logger.exception(f"Unhandled error [{support_id}] on {request.method} {request.url.path}")
             return JSONResponse(
                 status_code=500,
                 content={"detail": GENERIC_ERROR_MESSAGE, "support_id": support_id},

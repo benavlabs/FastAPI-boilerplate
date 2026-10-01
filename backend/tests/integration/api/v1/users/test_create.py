@@ -1,4 +1,5 @@
 import logging
+import traceback
 import uuid
 
 import pytest
@@ -7,6 +8,7 @@ from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.modules.user.crud import crud_users
 from src.modules.user.models import User
 
 logging.basicConfig(level=logging.INFO)
@@ -216,3 +218,54 @@ async def test_the_same_address_in_another_case_cannot_register_twice(client: As
     )
 
     assert second.status_code == 422
+
+
+class TestAnAddressTheColumnCannotHold:
+    """An email longer than the column is refused before it reaches the database."""
+
+    async def test_a_sixty_character_address_is_refused(self, client: AsyncClient):
+        over_the_column = f"{'a' * 48}@example.com"
+
+        response = await client.post("/api/v1/users/", json={**generate_unique_user_data(), "email": over_the_column})
+
+        assert response.status_code == 422
+        assert over_the_column not in response.text
+
+    async def test_the_longest_address_the_column_holds_is_accepted(self, client: AsyncClient):
+        at_the_column = f"{'a' * 38}@example.com"
+
+        response = await client.post("/api/v1/users/", json={**generate_unique_user_data(), "email": at_the_column})
+
+        assert response.status_code == 201
+        assert response.json()["email"] == at_the_column
+
+
+async def test_a_failed_insert_logs_neither_the_hash_nor_the_address(
+    client: AsyncClient, db_session: AsyncSession, monkeypatch, caplog
+):
+    """The statement's parameters stay out of the error the catch-all logs."""
+    first = generate_unique_user_data()
+    assert (await client.post("/api/v1/users/", json=first)).status_code == 201
+
+    async def never_exists(*args, **kwargs):
+        return False
+
+    monkeypatch.setattr(crud_users, "exists", never_exists)
+    same_username = {**generate_unique_user_data(), "username": first["username"]}
+
+    with caplog.at_level(logging.ERROR):
+        response = await client.post("/api/v1/users/", json=same_username)
+
+    await db_session.rollback()
+    stored = (await db_session.execute(select(User).where(User.username == first["username"]))).scalar_one()
+    logged = "\n".join(
+        record.getMessage() + ("".join(traceback.format_exception(*record.exc_info)) if record.exc_info else "")
+        for record in caplog.records
+    )
+
+    assert response.status_code == 500
+    assert "IntegrityError" in logged
+    assert "hide_parameters" in logged
+    assert stored.hashed_password not in logged
+    assert "$2b$" not in logged
+    assert same_username["email"] not in logged

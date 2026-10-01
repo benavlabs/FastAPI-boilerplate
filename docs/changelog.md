@@ -70,6 +70,10 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   rendered raw.
 - **CI** lints and type-checks `backend/scripts` and `backend/migrations`, type-checks `tools`, pins
   Python on the sync step, and runs the removal drills.
+- **Failed statements report their SQL without their values.** The engine is built with
+  `hide_parameters=True`, and the catch-all handler logs the method, path and support id without the
+  exception text, so a failing insert no longer writes a password hash to the log. An email address
+  longer than the column (50 characters) answers `422` instead of `500`.
 
 #### Removed
 

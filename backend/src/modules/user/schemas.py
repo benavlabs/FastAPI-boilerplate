@@ -7,6 +7,7 @@ from ...infrastructure.auth.password_policy import password_policy
 from ...wiring.models import UserSchemaExtensions
 from ..common.schemas import PartialUpdate, PersistentDeletion, TimestampSchema, not_nullable_columns
 from .constants import (
+    EMAIL_MAX_LENGTH,
     NAME_MAX_LENGTH,
     USERNAME_MAX_LENGTH,
     USERNAME_PATTERN,
@@ -20,7 +21,7 @@ class UserBase(BaseModel):
         str,
         Field(min_length=2, max_length=USERNAME_MAX_LENGTH, pattern=USERNAME_PATTERN, examples=["userson"]),
     ]
-    email: Annotated[EmailStr, Field(examples=["user.userson@example.com"])]
+    email: Annotated[EmailStr, Field(max_length=EMAIL_MAX_LENGTH, examples=["user.userson@example.com"])]
 
 
 class User(TimestampSchema, UserBase, PersistentDeletion, UserSchemaExtensions):
@@ -120,7 +121,10 @@ class UserUpdate(PartialUpdate):
             examples=["userberg"],
         ),
     ] = None
-    email: Annotated[EmailStr | None, Field(examples=["user.userberg@example.com"])] = None
+    email: Annotated[
+        EmailStr | None,
+        Field(max_length=EMAIL_MAX_LENGTH, examples=["user.userberg@example.com"]),
+    ] = None
     profile_image_url: Annotated[
         str | None,
         Field(

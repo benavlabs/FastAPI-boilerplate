@@ -165,3 +165,19 @@ async def test_a_validation_failure_does_not_log_what_was_submitted(caplog):
     assert "hunter2-secret" not in caplog.text
     assert "username" in caplog.text
     assert "missing" in caplog.text
+
+
+async def test_the_catch_all_message_does_not_repeat_the_exception(caplog):
+    """The message carries the support id, method and path; the exception goes to the traceback."""
+    app = _create_test_app()
+
+    with caplog.at_level(logging.ERROR):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            response = await client.get("/unhandled")
+
+    unhandled = [record for record in caplog.records if "Unhandled error" in record.getMessage()]
+
+    assert response.status_code == 500
+    assert unhandled
+    assert all("GET /unhandled" in record.getMessage() for record in unhandled)
+    assert all("unexpected internal failure" not in record.getMessage() for record in unhandled)

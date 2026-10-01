@@ -12,12 +12,13 @@ _engine: AsyncEngine | None = None
 _session_factory: async_sessionmaker[AsyncSession] | None = None
 
 
-def build_engine(**overrides: Any) -> AsyncEngine:
-    """Create an engine for the configured database, passing ``overrides`` to ``create_async_engine``."""
+def build_engine(url: str | None = None, **overrides: Any) -> AsyncEngine:
+    """Create an engine for ``url`` or the configured database, passing ``overrides`` to ``create_async_engine``."""
     settings = get_settings()
     options: dict[str, Any] = {
         "echo": False,
         "future": True,
+        "hide_parameters": True,
         "pool_pre_ping": settings.POSTGRES_POOL_PRE_PING,
         "pool_recycle": settings.POSTGRES_POOL_RECYCLE,
     }
@@ -26,7 +27,7 @@ def build_engine(**overrides: Any) -> AsyncEngine:
         options["max_overflow"] = settings.POSTGRES_MAX_OVERFLOW
     options.update(overrides)
 
-    return create_async_engine(settings.DATABASE_URL, **options)
+    return create_async_engine(url or settings.DATABASE_URL, **options)
 
 
 def get_engine() -> AsyncEngine:

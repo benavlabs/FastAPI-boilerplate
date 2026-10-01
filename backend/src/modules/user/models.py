@@ -6,7 +6,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from ...infrastructure.database.models import SoftDeleteMixin, TimestampMixin
 from ...infrastructure.database.session import Base
 from ...wiring.models import UserModelExtensions
-from .constants import NAME_MAX_LENGTH, USERNAME_MAX_LENGTH
+from .constants import EMAIL_MAX_LENGTH, NAME_MAX_LENGTH, USERNAME_MAX_LENGTH
 
 
 class User(Base, TimestampMixin, SoftDeleteMixin, UserModelExtensions):
@@ -28,7 +28,7 @@ class User(Base, TimestampMixin, SoftDeleteMixin, UserModelExtensions):
 
     name: Mapped[str] = mapped_column(String(NAME_MAX_LENGTH))
     username: Mapped[str] = mapped_column(String(USERNAME_MAX_LENGTH), unique=True, index=True)
-    email: Mapped[str] = mapped_column(String(50), unique=True, index=True)
+    email: Mapped[str] = mapped_column(String(EMAIL_MAX_LENGTH), unique=True, index=True)
     hashed_password: Mapped[str] = mapped_column(String(100))
 
     profile_image_url: Mapped[str] = mapped_column(String, default="https://profileimageurl.com")
