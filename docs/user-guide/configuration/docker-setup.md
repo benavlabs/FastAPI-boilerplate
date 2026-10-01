@@ -65,14 +65,14 @@ services:
     volumes:
       - postgres-data:/var/lib/postgresql/data
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
 
   redis:
     image: redis:7-alpine
     volumes:
       - redis-data:/data
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
 
 volumes:
   postgres-data:
@@ -91,7 +91,7 @@ RATE_LIMITER_REDIS_HOST=redis
 TASKIQ_REDIS_HOST=redis
 ```
 
-If you also use the host machine to reach Postgres/Redis directly (e.g. for a local dev tool), keep `localhost` working by exposing those ports as the example does (`5432:5432`, `6379:6379`).
+If you also use the host machine to reach Postgres/Redis directly (e.g. for a local dev tool), keep `localhost` working by exposing those ports as the example does (`127.0.0.1:5432:5432`, `127.0.0.1:6379:6379`). The `127.0.0.1:` prefix keeps a password-less dev database off the rest of the network.
 
 ## Service Reference
 

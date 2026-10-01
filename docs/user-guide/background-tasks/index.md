@@ -129,6 +129,9 @@ A few important constraints:
 - **All kwargs must be JSON-serializable.** Pass IDs, not ORM objects. Pass dicts, not Pydantic models that contain `datetime` (or convert via `.model_dump(mode="json")` first).
 - **Don't pass database sessions.** The task gets its own via `DBSession`.
 - **Don't pass HTTP request objects.** They don't survive serialization, and tasks shouldn't need them.
+- **Return values go through the same JSON step.** `datetime`, `UUID` and Pydantic models come back
+  as their JSON forms - a `datetime` returns as an ISO string, not a `datetime` - and an arbitrary
+  object such as an ORM row fails with `PydanticSerializationError` when the worker writes its result.
 
 ### Awaiting Results
 

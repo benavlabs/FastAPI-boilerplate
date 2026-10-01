@@ -77,3 +77,11 @@ def test_the_local_compose_does_not_claim_a_proxy():
     api = _compose("local")["services"]["api"]
 
     assert "TRUSTED_PROXY_HOPS" not in api.get("environment", {})
+
+
+def test_the_local_compose_publishes_its_databases_to_the_host_only():
+    """Both database ports are bound to the loopback address."""
+    services = _compose("local")["services"]
+
+    assert services["postgres"]["ports"] == ["127.0.0.1:5432:5432"]
+    assert services["redis"]["ports"] == ["127.0.0.1:6379:6379"]

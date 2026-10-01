@@ -70,6 +70,8 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   rendered raw.
 - **CI** lints and type-checks `backend/scripts` and `backend/migrations`, type-checks `tools`, pins
   Python on the sync step, and runs the removal drills.
+- **The generated local stack publishes Postgres and Redis on `127.0.0.1` only**, and the Taskiq
+  Redis result backend stores results as JSON instead of pickles.
 - **Failed statements report their SQL without their values.** The engine is built with
   `hide_parameters=True`, and the catch-all handler logs the method, path and support id without the
   exception text, so a failing insert no longer writes a password hash to the log. An email address
@@ -117,6 +119,12 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   read them.
 - **`POSTGRES_DB` may not contain `/`, `?`, `#` or `@`.** SQLAlchemy reads the name literally, so such
   a name would have connected somewhere else; set `DATABASE_URL` instead.
+- **Task results are stored as JSON**, not pickles. The Redis result backend no longer unpickles what
+  it reads, so a result key written by an older worker can't be read back. Drain the queue and clear
+  the result keys before deploying both sides.
+- **Regenerate a local stack** (`bp deploy generate local`) to publish Postgres and Redis on
+  `127.0.0.1` only. An existing `docker-compose.yml` keeps offering a password-less database to
+  everyone on the network.
 
 ___
 

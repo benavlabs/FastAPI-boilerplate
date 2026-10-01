@@ -1,6 +1,7 @@
 """Taskiq broker configuration and initialization."""
 
 from taskiq import AsyncBroker
+from taskiq.serializers import JSONSerializer
 from taskiq_aio_pika import AioPikaBroker
 from taskiq_redis import ListQueueBroker, RedisAsyncResultBackend
 
@@ -34,7 +35,9 @@ def _create_redis_broker() -> AsyncBroker:
 
     url = redis_url(redis_host, redis_port, redis_db, redis_password)
 
-    broker = ListQueueBroker(url=url, queue_name="default").with_result_backend(RedisAsyncResultBackend(redis_url=url))
+    broker = ListQueueBroker(url=url, queue_name="default").with_result_backend(
+        RedisAsyncResultBackend(redis_url=url, serializer=JSONSerializer())
+    )
 
     return broker
 
