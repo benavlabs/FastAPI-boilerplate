@@ -5,14 +5,14 @@ from sqlalchemy import Select
 from starlette.requests import Request
 
 from ...infrastructure.database.session import local_session
-from ...interfaces.admin.mixins import DataclassModelMixin
+from ...interfaces.admin.mixins import DataclassModelMixin, TextCsvExportMixin
 from .crud import crud_tiers
 from .models import Tier
 from .schemas import TierCreate, TierUpdate
 from .service import TierService
 
 
-class TierAdmin(DataclassModelMixin, ModelView, model=Tier):
+class TierAdmin(DataclassModelMixin, TextCsvExportMixin, ModelView, model=Tier):
     """Admin view for Tier model."""
 
     name = "Tier"

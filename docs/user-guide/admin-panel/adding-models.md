@@ -19,6 +19,27 @@ class MyModelAdmin(DataclassModelMixin, ModelView, model=MyModel):
 
 **Every admin view in the codebase uses this mixin.** If you forget it, you'll get an `AttributeError` (or worse, a silent NULL) when creating records.
 
+## The TextCsvExportMixin
+
+SQLAdmin writes `str(value)` for every column of a CSV export, so a name a user typed at signup
+reaches the file as it was stored. A spreadsheet runs a cell that starts with `=`, `+`, `-`, `@`, a
+tab or a carriage return as a formula, so `TextCsvExportMixin` (same module) prefixes those cells
+with an apostrophe. Add it to any view with `can_export = True`:
+
+```python
+from ..mixins import DataclassModelMixin, TextCsvExportMixin
+
+class MyModelAdmin(DataclassModelMixin, TextCsvExportMixin, ModelView, model=MyModel):
+    can_export = True
+```
+
+It covers both CSV paths — the plain one and the one `use_pretty_export = True` takes. Numbers,
+dates and `None` are written as SQLAdmin writes them, so a negative number stays a number; only
+text gets the apostrophe. JSON exports go to SQLAdmin unchanged.
+
+If your view implements `custom_export_cell` itself, pass what it returns through
+`as_spreadsheet_text` from the same module — a method defined on the view replaces the mixin's.
+
 ## Adding a New Model View
 
 ### 1. Create the View File
@@ -30,12 +51,12 @@ its admin view with it.
 # backend/src/modules/widgets/admin.py
 from sqladmin import ModelView
 
-from ...interfaces.admin.mixins import DataclassModelMixin
+from ...interfaces.admin.mixins import DataclassModelMixin, TextCsvExportMixin
 from .models import Widget
 from .schemas import WidgetCreate, WidgetUpdate
 
 
-class WidgetAdmin(DataclassModelMixin, ModelView, model=Widget):
+class WidgetAdmin(DataclassModelMixin, TextCsvExportMixin, ModelView, model=Widget):
     name = "Widget"
     name_plural = "Widgets"
     icon = "fa-solid fa-cube"
@@ -158,7 +179,7 @@ class Widget(Base, ...):
 ### `column_list` Uses the Relationship
 
 ```python
-class WidgetAdmin(DataclassModelMixin, ModelView, model=Widget):
+class WidgetAdmin(DataclassModelMixin, TextCsvExportMixin, ModelView, model=Widget):
     # Use Widget.owner (relationship), not Widget.owner_id (FK column).
     # This shows "user@example.com" instead of just an integer.
     column_list = [Widget.id, Widget.name, Widget.owner, Widget.created_at]
@@ -280,7 +301,7 @@ from starlette.requests import Request
 from starlette.responses import RedirectResponse
 
 
-class WidgetAdmin(DataclassModelMixin, ModelView, model=Widget):
+class WidgetAdmin(DataclassModelMixin, TextCsvExportMixin, ModelView, model=Widget):
     @action(
         name="deactivate",
         label="Deactivate Selected",

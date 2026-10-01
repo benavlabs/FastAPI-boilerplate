@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.modules.user.admin import UserAdmin
 from src.modules.user.models import User
+from tests.unit.interfaces.admin.helpers import exported_rows
 
 
 def _no_request() -> Request:
@@ -98,7 +99,7 @@ class TestWhatThePanelShows:
         assert "hashed_password" not in view._export_prop_names
 
     async def test_the_tier_field_renders_on_both_forms(self, db_session: AsyncSession, monkeypatch):
-        """sqladmin drops foreign-key columns from forms, so the rule names the relationship."""
+        """The form rule names the ``tier`` relationship, which sqladmin scaffolds into a field."""
         view = UserAdmin()
         maker = async_sessionmaker(bind=db_session.bind, class_=AsyncSession, expire_on_commit=False)
         monkeypatch.setattr(UserAdmin, "session_maker", maker, raising=False)
@@ -134,3 +135,50 @@ def test_the_form_rules_name_only_fields_the_model_has():
 
     assert set(UserAdmin.form_edit_rules) <= known
     assert set(UserAdmin.form_create_rules) <= known
+
+
+class TestTheCsvExport:
+    """Cells a spreadsheet would run as a formula leave the panel as text."""
+
+    @pytest.fixture
+    def view(self, db_session: AsyncSession, monkeypatch) -> UserAdmin:
+        maker = async_sessionmaker(bind=db_session.bind, class_=AsyncSession, expire_on_commit=False)
+        monkeypatch.setattr(UserAdmin, "session_maker", maker, raising=False)
+
+        return UserAdmin()
+
+    async def _user(self, db_session: AsyncSession, name: str, username: str) -> User:
+        user = User(
+            name=name,
+            username=username,
+            email=f"{username}@example.com",
+            hashed_password="not-a-hash",
+            is_superuser=False,
+        )
+        db_session.add(user)
+        await db_session.commit()
+
+        return user
+
+    async def test_a_name_that_looks_like_a_formula_is_exported_as_text(self, view: UserAdmin, db_session: AsyncSession):
+        user = await self._user(db_session, "=cmd|' /C calc'!A0", "formula")
+
+        header, row = await exported_rows(view, [user])
+
+        assert row[header.index("name")] == "'=cmd|' /C calc'!A0"
+
+    async def test_an_ordinary_name_is_exported_unchanged(self, view: UserAdmin, db_session: AsyncSession):
+        user = await self._user(db_session, "Ada Lovelace", "ada")
+
+        header, row = await exported_rows(view, [user])
+
+        assert row[header.index("name")] == "Ada Lovelace"
+
+    async def test_the_pretty_export_writes_it_as_text_too(self, view: UserAdmin, db_session: AsyncSession, monkeypatch):
+        monkeypatch.setattr(UserAdmin, "use_pretty_export", True)
+        user = await self._user(db_session, "=cmd|' /C calc'!A0", "prettyformula")
+
+        header, row = await exported_rows(view, [user])
+
+        assert "'=cmd|' /C calc'!A0" in row
+        assert row[header.index("id")] == str(user.id)

@@ -1,7 +1,7 @@
 """Admin view for the User model.
 
 The tier column and form field appear only when the tiers feature contributed
-them to the model, so the panel works in a project without tiers.
+them to the model.
 """
 
 from typing import Any
@@ -14,7 +14,7 @@ from wtforms import SelectField
 
 from ...infrastructure.auth.setup import auth
 from ...infrastructure.database.session import local_session
-from ...interfaces.admin.mixins import DataclassModelMixin
+from ...interfaces.admin.mixins import DataclassModelMixin, TextCsvExportMixin
 from .enums import OAuthProvider
 from .models import User
 from .schemas import UserAdminUpdate
@@ -23,7 +23,7 @@ from .service import UserService
 OAUTH_PROVIDER_CHOICES = [("", "None")] + [(p.value, p.value.title()) for p in OAuthProvider]
 
 
-class UserAdmin(DataclassModelMixin, ModelView, model=User):
+class UserAdmin(DataclassModelMixin, TextCsvExportMixin, ModelView, model=User):
     """Admin view for User model with password hashing."""
 
     name = "User"

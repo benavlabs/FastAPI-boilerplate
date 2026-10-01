@@ -72,6 +72,9 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   Python on the sync step, and runs the removal drills.
 - **The generated local stack publishes Postgres and Redis on `127.0.0.1` only**, and the Taskiq
   Redis result backend stores results as JSON instead of pickles.
+- **The admin panel's CSV export writes formula-like cells as text.** Text starting with `=`, `+`,
+  `-`, `@`, a tab or a carriage return is prefixed with an apostrophe, so a name typed at signup
+  can't become a formula in a spreadsheet. Numbers, dates and `None` are written unchanged.
 - **Failed statements report their SQL without their values.** The engine is built with
   `hide_parameters=True`, and the catch-all handler logs the method, path and support id without the
   exception text, so a failing insert no longer writes a password hash to the log. An email address
