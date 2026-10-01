@@ -1,6 +1,7 @@
 """Tests for production security validator."""
 
 import secrets
+from typing import cast
 from unittest.mock import Mock
 
 import pytest
@@ -436,7 +437,7 @@ class TestAProjectWithoutTheseFeatures:
     """
 
     def test_it_validates_settings_that_carry_no_feature(self):
-        validator = ProductionSecurityValidator(CoreSettings(ENVIRONMENT=EnvironmentOption.PRODUCTION))
+        validator = ProductionSecurityValidator(cast(Settings, CoreSettings(ENVIRONMENT=EnvironmentOption.PRODUCTION)))
 
         assert validator._check_session_security() == []
         assert validator._check_admin_credentials() == []
@@ -444,7 +445,7 @@ class TestAProjectWithoutTheseFeatures:
 
     def test_the_core_checks_still_run(self):
         """Dropping features must not drop the checks that hold for every project."""
-        validator = ProductionSecurityValidator(CoreSettings(ENVIRONMENT=EnvironmentOption.PRODUCTION))
+        validator = ProductionSecurityValidator(cast(Settings, CoreSettings(ENVIRONMENT=EnvironmentOption.PRODUCTION)))
 
         errors = validator._validate_critical_security()
 

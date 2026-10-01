@@ -1,6 +1,7 @@
 """An API key's expiry must carry an offset, so it can be compared with the stored one."""
 
 import logging
+from typing import Any
 
 import pytest
 from httpx import AsyncClient
@@ -8,10 +9,12 @@ from httpx import AsyncClient
 pytestmark = pytest.mark.asyncio
 
 
-async def _create(auth_client: AsyncClient, **extra) -> dict:
+async def _create(auth_client: AsyncClient, **extra: str) -> dict[str, Any]:
     response = await auth_client.post("/api/v1/api-keys/", json={"name": "Expiring Key", **extra})
     assert response.status_code == 201, response.text
-    return response.json()
+    created: dict[str, Any] = response.json()
+
+    return created
 
 
 async def test_a_naive_expiry_is_refused_on_create(auth_client: AsyncClient, caplog):

@@ -30,11 +30,8 @@ class User(TimestampSchema, UserBase, PersistentDeletion, UserSchemaExtensions):
     is_superuser: bool = False
     profile_image_url: Annotated[
         str,
-        Field(
-            default="https://www.profileimageurl.com",
-            description="URL of the user's profile image",
-        ),
-    ]
+        Field(description="URL of the user's profile image"),
+    ] = "https://www.profileimageurl.com"
 
     google_id: str | None = None
     github_id: str | None = None
@@ -112,8 +109,8 @@ class UserUpdate(PartialUpdate):
 
     name: Annotated[
         str | None,
-        Field(min_length=2, max_length=NAME_MAX_LENGTH, examples=["User Userberg"], default=None),
-    ]
+        Field(min_length=2, max_length=NAME_MAX_LENGTH, examples=["User Userberg"]),
+    ] = None
     username: Annotated[
         str | None,
         Field(
@@ -121,18 +118,16 @@ class UserUpdate(PartialUpdate):
             max_length=USERNAME_MAX_LENGTH,
             pattern=USERNAME_PATTERN,
             examples=["userberg"],
-            default=None,
         ),
-    ]
-    email: Annotated[EmailStr | None, Field(examples=["user.userberg@example.com"], default=None)]
+    ] = None
+    email: Annotated[EmailStr | None, Field(examples=["user.userberg@example.com"])] = None
     profile_image_url: Annotated[
         str | None,
         Field(
             pattern=r"^(https?|ftp)://[^\s/$.?#].[^\s]*$",
             examples=["https://www.profileimageurl.com"],
-            default=None,
         ),
-    ]
+    ] = None
 
 
 class UserSelfUpdate(UserUpdate):
@@ -140,8 +135,8 @@ class UserSelfUpdate(UserUpdate):
 
     current_password: Annotated[
         str | None,
-        Field(default=None, exclude=True, description="Required when the email changes"),
-    ]
+        Field(exclude=True, description="Required when the email changes"),
+    ] = None
 
 
 class UserAdminUpdate(UserUpdate):

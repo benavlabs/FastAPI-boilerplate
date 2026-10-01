@@ -337,7 +337,9 @@ class TestTheProjectsIdentity:
 
         app = app_factory.create_application(router=APIRouter(), settings=Settings(**{**blank, **overrides}))
 
-        return app.openapi()["info"]
+        info: dict[str, Any] = app.openapi()["info"]
+
+        return info
 
     def test_nothing_configured_means_no_contact_and_no_licence(self):
         info = self._info()

@@ -55,7 +55,7 @@ uv run --no-sync ruff format .
 uv run --no-sync ruff check --fix .          # auto-fix what ruff can
 
 # Type check
-uv run --no-sync mypy src
+uv run --no-sync mypy src scripts migrations tests
 
 # Tests
 uv run --no-sync pytest
@@ -70,7 +70,18 @@ Ruff is configured (`pyproject.toml:[tool.ruff]`) with:
 - Selected rule sets: `E`, `F`, `I`, `UP` (pyflakes, pycodestyle, isort, pyupgrade)
 - `known-first-party = ["src"]` so `src.*` imports are grouped correctly
 
-Mypy is intentionally relaxed (`disallow_untyped_defs = false`) — adopt strictness gradually as you add types to new modules.
+Mypy is intentionally relaxed about annotations (`disallow_untyped_defs = false`) — adopt strictness
+gradually as you add types to new modules. It does run over `src`, `scripts`, `migrations` and
+`tests`, in CI and in the pre-commit hook, and it loads the pydantic plugin
+(`plugins = ["pydantic.mypy"]`), which reads a schema's required fields. The plugin only sees a
+default that sits on the assignment side, so write
+
+```python
+name: Annotated[str | None, Field(max_length=50)] = None
+```
+
+rather than putting `default=None` inside `Field(...)`; otherwise every construction without that
+field reads as an error.
 
 ## Pre-Commit
 

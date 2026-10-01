@@ -36,4 +36,6 @@ async def test_an_unreachable_database_raises(monkeypatch):
 async def test_the_check_names_the_database_it_probes():
     assert readiness.name == "database"
     assert readiness.target is not None
-    assert readiness.target().startswith("postgresql+asyncpg://")
+    assert readiness.target is not None
+    target = readiness.target()
+    assert target is not None and target.startswith("postgresql+asyncpg://")

@@ -1,13 +1,14 @@
 """Every listing takes its page bounds from one place."""
 
 from fastapi.routing import APIRoute
+from pydantic.fields import FieldInfo
 
 from src.interfaces.main import app
 from src.modules.common.pagination import MAX_ITEMS_PER_PAGE
 
 
-def _page_size_fields() -> dict[str, object]:
-    fields: dict[str, object] = {}
+def _page_size_fields() -> dict[str, FieldInfo]:
+    fields: dict[str, FieldInfo] = {}
     for route in app.routes:
         if not isinstance(route, APIRoute):
             continue

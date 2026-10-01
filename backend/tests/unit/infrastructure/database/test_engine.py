@@ -4,7 +4,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from sqlalchemy.pool import NullPool
@@ -109,7 +109,7 @@ class TestLegacyEngineAttribute:
 
     def test_resolves_to_the_shared_engine(self, no_engine):
         """``session.engine`` is the engine ``get_engine()`` hands out."""
-        sentinel = object()
+        sentinel = MagicMock()
         session_module._engine = sentinel
 
         assert session_module.engine is sentinel

@@ -557,8 +557,10 @@ async def test_validate_api_key_with_underscore_in_prefix(api_key_service, db_se
     }
     await crud_api_keys.create(db=db_session, object=APIKeyCreateInternal(**key_dict))
 
+    forced_key = await crud_api_keys.get(db=db_session, key_prefix=forced_prefix)
+    assert forced_key is not None
     permission_data = KeyPermissionCreate(
-        api_key_id=(await crud_api_keys.get(db=db_session, key_prefix=forced_prefix))["id"],
+        api_key_id=forced_key["id"],
         resource=KeyPermissionResource.WILDCARD,
         action=KeyPermissionAction.WILDCARD,
         is_allowed=True,
@@ -661,7 +663,9 @@ async def test_validation_hashes_off_the_event_loop(api_key_service, db_session:
 
     def recording_verify(api_key: str, stored_hash: str) -> bool:
         threads.append(threading.current_thread().name)
-        return real_verify(api_key, stored_hash)
+        verified: bool = real_verify(api_key, stored_hash)
+
+        return verified
 
     with patch.object(api_key_service, "_verify_api_key", recording_verify):
         validation = await api_key_service.validate_api_key(

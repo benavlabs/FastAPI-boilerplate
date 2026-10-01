@@ -3,6 +3,7 @@
 from urllib.parse import parse_qs, urlparse
 
 import pytest
+from fastapi.routing import APIRoute
 from httpx import AsyncClient
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -43,7 +44,7 @@ async def _start(client: AsyncClient, **params) -> str:
 async def test_google_is_told_to_return_to_the_route_that_serves_the_callback():
     """The URI Google redirects to must be one the app actually routes."""
     assert auth.oauth_providers["google"].redirect_uri == CALLBACK
-    assert "/api/v1/auth/oauth/callback/{provider}" in {route.path for route in app.routes}
+    assert "/api/v1/auth/oauth/callback/{provider}" in {route.path for route in app.routes if isinstance(route, APIRoute)}
 
 
 async def test_authorize_sends_the_browser_to_google_with_pkce(client: AsyncClient):
@@ -191,7 +192,7 @@ async def test_a_provider_error_sends_the_browser_back_with_an_error(client: Asy
 
 async def test_the_auth_paths_keep_their_existing_contract():
     """The migration to crudauth must not move the URLs clients already call."""
-    paths = {route.path for route in app.routes}
+    paths = {route.path for route in app.routes if isinstance(route, APIRoute)}
 
     for path in (
         "/api/v1/auth/login",

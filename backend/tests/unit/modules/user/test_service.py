@@ -1,5 +1,7 @@
 """Unit tests for the user service's authorization rules."""
 
+from typing import Any
+
 import pytest
 from crudauth import make_unusable_password
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,6 +17,14 @@ from src.modules.user.schemas import UserCreate, UserUpdate
 from src.modules.user.service import UserService
 
 UPDATE = "user.update"
+
+
+async def _stored(db: AsyncSession, user_id: int) -> dict[str, Any]:
+    """The user's row, which each of these tests requires to be there."""
+    row = await crud_users.get(db=db, id=user_id)
+    assert row is not None
+
+    return row
 
 
 @pytest.fixture
@@ -145,7 +155,7 @@ async def test_changing_the_email_drops_the_verification(user_service: UserServi
         test_user["id"], UserUpdate(email="moved@example.com"), db_session, current_password=test_user["password"]
     )
 
-    moved = await crud_users.get(db=db_session, id=test_user["id"])
+    moved = await _stored(db_session, test_user["id"])
     assert moved["email"] == "moved@example.com"
     assert moved["email_verified"] is False
 
@@ -157,7 +167,7 @@ async def test_an_update_that_keeps_the_email_keeps_the_verification(
 
     await user_service.update(test_user["id"], UserUpdate(name="Same Address"), db_session)
 
-    unchanged = await crud_users.get(db=db_session, id=test_user["id"])
+    unchanged = await _stored(db_session, test_user["id"])
     assert unchanged["email_verified"] is True
 
 
@@ -169,7 +179,7 @@ async def test_resubmitting_the_same_email_keeps_the_verification(
 
     await user_service.update(test_user["id"], UserUpdate(email=test_user["email"]), db_session)
 
-    unchanged = await crud_users.get(db=db_session, id=test_user["id"])
+    unchanged = await _stored(db_session, test_user["id"])
     assert unchanged["email_verified"] is True
 
 
@@ -220,7 +230,7 @@ async def test_an_updated_address_is_stored_in_canonical_form(
         test_user["id"], UserUpdate(email="Moved@Example.COM"), db_session, current_password=test_user["password"]
     )
 
-    moved = await crud_users.get(db=db_session, id=test_user["id"])
+    moved = await _stored(db_session, test_user["id"])
     assert moved["email"] == "moved@example.com"
 
 
@@ -231,7 +241,7 @@ async def test_an_email_change_without_the_password_is_refused(
     with pytest.raises(EmailChangeNeedsPasswordError):
         await user_service.update(test_user["id"], UserUpdate(email="moved@example.com"), db_session)
 
-    unchanged = await crud_users.get(db=db_session, id=test_user["id"])
+    unchanged = await _stored(db_session, test_user["id"])
     assert unchanged["email"] == test_user["email"]
 
 
@@ -240,7 +250,7 @@ async def test_an_email_change_by_another_user_needs_no_password(
 ):
     await user_service.update(test_user["id"], UserUpdate(email="moved@example.com"), db_session, requester=test_superuser)
 
-    moved = await crud_users.get(db=db_session, id=test_user["id"])
+    moved = await _stored(db_session, test_user["id"])
     assert moved["email"] == "moved@example.com"
 
 
@@ -286,5 +296,5 @@ async def test_a_superuser_changing_their_own_address_needs_the_password(
         requester=test_superuser,
         current_password=test_superuser["password"],
     )
-    moved = await crud_users.get(db=db_session, id=test_superuser["id"])
+    moved = await _stored(db_session, test_superuser["id"])
     assert moved["email"] == "moved@example.com"

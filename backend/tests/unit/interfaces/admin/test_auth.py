@@ -1,10 +1,11 @@
 """Tests for the SQLAdmin authentication backend."""
 
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 from unittest.mock import patch
 
 import pytest
+from fastapi import Request
 
 from src.infrastructure.config.settings import EnvironmentOption, settings
 from src.interfaces.admin.auth import ADMIN_COOKIE_PATH, SESSION_MAX_AGE_SECONDS, AdminAuth
@@ -28,7 +29,7 @@ async def _login(configured: tuple[str, str], form: dict[str, Any]) -> tuple[boo
         ENVIRONMENT=EnvironmentOption.LOCAL,
     )
     with patch("src.interfaces.admin.auth.get_settings", return_value=configured_settings):
-        authenticated = await AdminAuth(secret_key="test").login(request)
+        authenticated = await AdminAuth(secret_key="test").login(cast(Request, request))
     return authenticated, request.session
 
 

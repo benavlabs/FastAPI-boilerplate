@@ -10,7 +10,7 @@ from unittest.mock import patch
 import bcrypt
 import pytest
 from crudauth import Principal, get_password_hash
-from httpx import AsyncClient
+from httpx import AsyncClient, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.infrastructure.auth import routes
@@ -194,7 +194,9 @@ async def _is_authenticated(client: AsyncClient, session_id: str | None = None) 
         client.cookies.set("session_id", session_id)
     response = await client.get("/api/v1/auth/check-auth")
     assert response.status_code == 200
-    return response.json()["authenticated"]
+    authenticated: bool = response.json()["authenticated"]
+
+    return authenticated
 
 
 @pytest.mark.asyncio
@@ -324,8 +326,10 @@ async def test_remember_me_makes_the_session_cookie_persistent(client: AsyncClie
     client.cookies.clear()
     forgotten = await client.post("/api/v1/auth/login", data=_credentials(test_user))
 
-    def session_cookie(response) -> str:
-        return next(c for c in response.headers.get_list("set-cookie") if c.startswith("session_id="))
+    def session_cookie(response: Response) -> str:
+        cookie: str = next(c for c in response.headers.get_list("set-cookie") if c.startswith("session_id="))
+
+        return cookie
 
     assert "max-age" in session_cookie(remembered).lower()
     assert "max-age" not in session_cookie(forgotten).lower()

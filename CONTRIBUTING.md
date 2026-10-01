@@ -64,7 +64,7 @@ uv run --no-sync pytest
 Use mypy for type checking:
 
 ```sh
-mypy src
+mypy src scripts migrations tests
 ```
 
 Use ruff for style:

@@ -11,7 +11,7 @@ import pytest
 from crudauth import Principal
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import select
+from sqlalchemy import insert, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.infrastructure.auth import authorization as authz
@@ -42,7 +42,9 @@ async def _login(client: AsyncClient, user: dict) -> str:
         data={"username": user["username"], "password": user["password"]},
     )
     assert response.status_code == 200, response.text
-    return response.json()["csrf_token"]
+    token: str = response.json()["csrf_token"]
+
+    return token
 
 
 async def test_a_role_granting_read_lists_users(client: AsyncClient, db_session: AsyncSession, test_user: dict):
@@ -69,7 +71,7 @@ async def test_an_update_holder_cannot_edit_a_superuser(
     )
 
     assert response.status_code == 403
-    target = await db_session.get(User, test_superuser["id"])
+    target = await db_session.get_one(User, test_superuser["id"])
     await db_session.refresh(target)
     assert target.name == test_superuser["name"]
 
@@ -103,7 +105,7 @@ async def test_an_update_holder_can_edit_a_weaker_user(
     )
 
     assert response.status_code == 200
-    target = await db_session.get(User, test_user_2["id"])
+    target = await db_session.get_one(User, test_user_2["id"])
     await db_session.refresh(target)
     assert target.name == "Renamed User"
 
@@ -122,7 +124,7 @@ async def test_an_update_holder_cannot_change_another_users_email(
     )
 
     assert response.status_code == 403
-    target = await db_session.get(User, test_user_2["id"])
+    target = await db_session.get_one(User, test_user_2["id"])
     await db_session.refresh(target)
     assert target.email == test_user_2["email"]
 
@@ -187,7 +189,7 @@ async def test_a_stale_stored_permission_grants_nothing(client: AsyncClient, db_
     db_session.add(UserRole(user_id=test_user["id"], role_id=role.id))
     await db_session.commit()
     await db_session.execute(
-        RolePermission.__table__.insert().values(
+        insert(RolePermission).values(
             role_id=role.id,
             permission_name="user.retired",
             created_at=datetime.now(UTC),

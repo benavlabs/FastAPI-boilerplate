@@ -90,6 +90,7 @@ async def test_a_tier_held_only_by_deleted_users_can_be_removed(
     await getattr(tier_service, method)(test_tier["name"], db_session)
 
     released = await crud_users.get(db=db_session, id=tiered_user["id"])
+    assert released is not None
     assert released["tier_id"] is None
     assert not await crud_tiers.exists(db=db_session, name=test_tier["name"], is_deleted=False)
 
@@ -101,4 +102,5 @@ async def test_a_live_user_still_keeps_the_tier(
         await tier_service.permanent_delete(test_tier["name"], db_session)
 
     held = await crud_users.get(db=db_session, id=tiered_user["id"])
+    assert held is not None
     assert held["tier_id"] == test_tier["id"]

@@ -23,7 +23,9 @@ async def _login(client: AsyncClient, user: dict) -> str:
         data={"username": user["username"], "password": user["password"]},
     )
     assert response.status_code == 200, response.text
-    return response.json()["csrf_token"]
+    token: str = response.json()["csrf_token"]
+
+    return token
 
 
 async def test_listing_users_needs_the_read_permission(client: AsyncClient, test_user: dict):
@@ -69,7 +71,7 @@ async def test_the_public_endpoint_refuses_the_oauth_fields(
     )
 
     assert response.status_code == 422
-    owner = await db_session.get(User, test_user["id"])
+    owner = await db_session.get_one(User, test_user["id"])
     await db_session.refresh(owner)
     assert owner.google_id is None
     assert owner.email_verified is False
@@ -85,7 +87,7 @@ async def test_a_user_still_edits_their_own_profile(client: AsyncClient, db_sess
     )
 
     assert response.status_code == 200
-    owner = await db_session.get(User, test_user["id"])
+    owner = await db_session.get_one(User, test_user["id"])
     await db_session.refresh(owner)
     assert owner.name == "My New Name"
 

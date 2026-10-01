@@ -40,7 +40,7 @@ async def test_update_user_profile_success(
     assert "message" in data
     assert data["message"] == "User updated successfully"
 
-    stored = await db_session.get(User, test_user["id"])
+    stored = await db_session.get_one(User, test_user["id"])
     await db_session.refresh(stored)
     assert stored.name == update_data["name"]
     assert stored.email == update_data["email"]
@@ -155,7 +155,7 @@ class TestAnEmailChangeIsReauthenticated:
 
         assert response.status_code == 403
         assert response.json()["detail"] == "Confirm this change with your current password."
-        stored = await db_session.get(User, test_user["id"])
+        stored = await db_session.get_one(User, test_user["id"])
         await db_session.refresh(stored)
         assert stored.email == test_user["email"]
 
@@ -169,7 +169,7 @@ class TestAnEmailChangeIsReauthenticated:
 
         assert response.status_code == 403
         assert response.json()["detail"] == "Confirm this change with your current password."
-        stored = await db_session.get(User, test_user["id"])
+        stored = await db_session.get_one(User, test_user["id"])
         await db_session.refresh(stored)
         assert stored.email == test_user["email"]
 
@@ -185,7 +185,7 @@ class TestAnEmailChangeIsReauthenticated:
         )
 
         assert response.status_code == 200
-        stored = await db_session.get(User, test_user["id"])
+        stored = await db_session.get_one(User, test_user["id"])
         await db_session.refresh(stored)
         assert stored.email == "moved@example.com"
         assert stored.email_verified is False
@@ -205,7 +205,7 @@ class TestAnEmailChangeIsReauthenticated:
 
         assert response.status_code == 403
         assert response.json()["detail"] == "This account signs in with a provider, so its address can't be changed here."
-        stored = await db_session.get(User, test_user["id"])
+        stored = await db_session.get_one(User, test_user["id"])
         await db_session.refresh(stored)
         assert stored.email == test_user["email"]
 
@@ -213,7 +213,7 @@ class TestAnEmailChangeIsReauthenticated:
         response = await auth_client.patch(f"/api/v1/users/{test_user['username']}", json={"name": "Renamed Only"})
 
         assert response.status_code == 200
-        stored = await db_session.get(User, test_user["id"])
+        stored = await db_session.get_one(User, test_user["id"])
         await db_session.refresh(stored)
         assert stored.name == "Renamed Only"
 
@@ -232,7 +232,7 @@ class TestAnEmailChangeIsReauthenticated:
 
         assert response.status_code == 200
         assert test_user["password"] not in response.text
-        stored = await db_session.get(User, test_user["id"])
+        stored = await db_session.get_one(User, test_user["id"])
         await db_session.refresh(stored)
         assert stored.hashed_password.startswith("$2b$")
 

@@ -56,9 +56,8 @@ class TierCreate(TierBase):
         Field(
             description="Description of the tier",
             max_length=500,
-            default=None,
         ),
-    ]
+    ] = None
 
 
 class TierCreateInternal(TierCreate):
@@ -78,17 +77,15 @@ class TierUpdate(PartialUpdate):
             description="Name of the tier",
             min_length=1,
             max_length=50,
-            default=None,
         ),
-    ]
+    ] = None
     description: Annotated[
         str | None,
         Field(
             description="Description of the tier",
             max_length=500,
-            default=None,
         ),
-    ]
+    ] = None
 
 
 class TierUpdateInternal(TierUpdate):

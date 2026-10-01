@@ -34,4 +34,5 @@ async def test_the_redis_broker_is_pinged(monkeypatch):
     await health.broker_is_reachable()
 
     assert pings == [True]
-    assert health.broker_target().startswith("redis://")
+    target = health.broker_target()
+    assert target is not None and target.startswith("redis://")

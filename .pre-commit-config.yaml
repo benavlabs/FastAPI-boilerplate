@@ -64,9 +64,9 @@ repos:
     - id: mypy_backend
       name: Mypy (backend)
       language: system
-      entry: bash -c 'cd backend && uv run --no-sync mypy src --config-file pyproject.toml'
+      entry: bash -c 'cd backend && uv run --no-sync mypy src scripts migrations tests --config-file pyproject.toml'
       pass_filenames: false
-      files: ^backend/src/
+      files: ^backend/(src|scripts|migrations|tests)/
       types: [python]
 
     - id: mypy_cli

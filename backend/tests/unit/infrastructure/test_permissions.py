@@ -106,7 +106,7 @@ def test_register_permissions_rejects_a_class_that_is_not_a_str_enum():
         READ = "plain.read"
 
     with pytest.raises(TypeError, match="StrEnum"):
-        register_permissions("plain")(NotAnEnum)  # type: ignore[arg-type]
+        register_permissions("plain")(NotAnEnum)
 
 
 def test_no_resource_can_claim_a_name_another_resource_owns():

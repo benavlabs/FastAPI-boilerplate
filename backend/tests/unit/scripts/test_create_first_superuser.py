@@ -53,6 +53,7 @@ async def test_an_existing_account_on_that_address_is_not_promoted(
         await create_first_superuser()
 
     untouched = await crud_users.get(db=db_session, id=test_user["id"])
+    assert untouched is not None
     assert untouched["is_superuser"] is False
 
 
@@ -60,6 +61,7 @@ async def test_a_complete_configuration_seeds_a_superuser(admin_environment, db_
     await create_first_superuser()
 
     seeded = await crud_users.get(db=db_session, email=COMPLETE["ADMIN_EMAIL"])
+    assert seeded is not None
     assert seeded["is_superuser"] is True
     assert seeded["username"] == COMPLETE["ADMIN_USERNAME"]
 
@@ -69,6 +71,7 @@ async def test_seeding_twice_leaves_the_superuser_alone(admin_environment, db_se
     await create_first_superuser()
 
     seeded = await crud_users.get(db=db_session, email=COMPLETE["ADMIN_EMAIL"])
+    assert seeded is not None
     assert seeded["is_superuser"] is True
 
 
@@ -80,6 +83,7 @@ async def test_a_mixed_case_address_seeds_once_and_is_then_found(admin_environme
     await create_first_superuser()
 
     seeded = await crud_users.get(db=db_session, email="admin@example.com")
+    assert seeded is not None
     assert seeded["is_superuser"] is True
     assert await crud_users.count(db=db_session, email="admin@example.com") == 1
 

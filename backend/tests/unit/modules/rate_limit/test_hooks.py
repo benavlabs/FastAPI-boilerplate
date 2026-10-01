@@ -1,8 +1,10 @@
 """The tier-limits resolver: the caller's configured limit for the path, if there is one."""
 
 from types import SimpleNamespace
+from typing import cast
 
 from crudauth import Principal
+from fastapi import Request
 
 from src.infrastructure.database.session import async_session
 from src.modules.rate_limit.crud import crud_rate_limits
@@ -11,12 +13,19 @@ from src.modules.rate_limit.hooks import tier_rate_limit
 _SENTINEL_DB = object()
 
 
-def _request_for(path: str, override, template: str | None = None):
-    return SimpleNamespace(
-        url=SimpleNamespace(path=path),
-        scope={"route": SimpleNamespace(path=template)} if template else {},
-        app=SimpleNamespace(dependency_overrides={async_session: override}),
+def _request_for(path: str, override, template: str | None = None) -> Request:
+    return cast(
+        Request,
+        SimpleNamespace(
+            url=SimpleNamespace(path=path),
+            scope={"route": SimpleNamespace(path=template)} if template else {},
+            app=SimpleNamespace(dependency_overrides={async_session: override}),
+        ),
     )
+
+
+def _request_without_a_tier() -> Request:
+    return cast(Request, SimpleNamespace(url=None, app=None))
 
 
 async def test_the_tier_row_comes_from_the_session_override(monkeypatch):
@@ -40,17 +49,18 @@ async def test_the_tier_row_comes_from_the_session_override(monkeypatch):
 
     assert entered == [True]
     assert seen["db"] is _SENTINEL_DB
+    assert result is not None
     assert (result.times, result.seconds) == (2, 3600)
 
 
 async def test_a_caller_without_a_tier_declines(monkeypatch):
-    assert await tier_rate_limit(SimpleNamespace(url=None, app=None), None) is None
+    assert await tier_rate_limit(_request_without_a_tier(), None) is None
 
 
 async def test_a_principal_without_a_loaded_user_declines(monkeypatch):
     principal = Principal(user_id=1, user=None, transport="session")
 
-    assert await tier_rate_limit(SimpleNamespace(url=None, app=None), principal) is None
+    assert await tier_rate_limit(_request_without_a_tier(), principal) is None
 
 
 async def test_a_tier_without_a_row_for_the_path_declines(monkeypatch):
@@ -87,6 +97,7 @@ async def test_the_lookup_uses_the_route_template(monkeypatch):
     result = await tier_rate_limit(request, principal)
 
     assert seen["path"] == "/api/v1/users/{username}"
+    assert result is not None
     assert (result.times, result.seconds) == (2, 3600)
 
 

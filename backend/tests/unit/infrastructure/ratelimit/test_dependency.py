@@ -1,6 +1,7 @@
 """The API throttle: how a budget is named, and which limit applies to a request."""
 
 from types import SimpleNamespace
+from typing import cast
 
 from crudauth import Principal
 from crudauth.ratelimit import RateLimit
@@ -8,6 +9,10 @@ from starlette.requests import Request
 
 from src.infrastructure.config.settings import settings
 from src.infrastructure.ratelimit import dependency
+
+
+def _request_without_a_route() -> Request:
+    return cast(Request, SimpleNamespace(url=None, app=None))
 
 
 def _request(path: str, client_host: str = "203.0.113.7") -> Request:
@@ -61,7 +66,7 @@ class TestResolveApiRateLimit:
     async def test_a_disabled_limiter_returns_no_limit(self, monkeypatch):
         monkeypatch.setattr(settings, "RATE_LIMITER_ENABLED", False)
 
-        assert await dependency.resolve_api_rate_limit(SimpleNamespace(url=None, app=None), None) is None
+        assert await dependency.resolve_api_rate_limit(_request_without_a_route(), None) is None
 
     async def test_without_a_resolver_the_default_limit_applies(self, monkeypatch):
         """A project with no tier-limits feature throttles everyone the same way."""
@@ -70,8 +75,9 @@ class TestResolveApiRateLimit:
         monkeypatch.setattr(settings, "DEFAULT_RATE_LIMIT_PERIOD", 99)
         monkeypatch.setattr(dependency, "RATE_LIMIT_RESOLVERS", ())
 
-        result = await dependency.resolve_api_rate_limit(SimpleNamespace(url=None, app=None), None)
+        result = await dependency.resolve_api_rate_limit(_request_without_a_route(), None)
 
+        assert result is not None
         assert (result.times, result.seconds) == (11, 99)
 
     async def test_the_first_resolver_that_answers_wins(self, monkeypatch):
@@ -88,8 +94,9 @@ class TestResolveApiRateLimit:
 
         monkeypatch.setattr(dependency, "RATE_LIMIT_RESOLVERS", (silent, answers, too_late))
 
-        result = await dependency.resolve_api_rate_limit(SimpleNamespace(url=None, app=None), None)
+        result = await dependency.resolve_api_rate_limit(_request_without_a_route(), None)
 
+        assert result is not None
         assert (result.times, result.seconds) == (2, 3600)
 
     async def test_a_resolver_that_declines_falls_through_to_the_default(self, monkeypatch):
@@ -102,6 +109,7 @@ class TestResolveApiRateLimit:
 
         monkeypatch.setattr(dependency, "RATE_LIMIT_RESOLVERS", (silent,))
 
-        result = await dependency.resolve_api_rate_limit(SimpleNamespace(url=None, app=None), None)
+        result = await dependency.resolve_api_rate_limit(_request_without_a_route(), None)
 
+        assert result is not None
         assert (result.times, result.seconds) == (11, 99)

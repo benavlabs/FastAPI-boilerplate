@@ -34,7 +34,7 @@ class RateLimit(TimestampSchema, RateLimitBase):
     """Complete rate limit schema."""
 
     tier_id: int
-    name: Annotated[str | None, Field(default=None, examples=["users:5:60"])]
+    name: Annotated[str | None, Field(examples=["users:5:60"])] = None
 
 
 class RateLimitSelect(BaseModel):
@@ -65,7 +65,7 @@ class RateLimitCreate(RateLimitBase):
     """Schema for creating a new rate limit."""
 
     model_config = ConfigDict(extra="forbid")
-    name: Annotated[str | None, Field(default=None, examples=["api_v1_users:5:60"])]
+    name: Annotated[str | None, Field(examples=["api_v1_users:5:60"])] = None
 
 
 class RateLimitCreateInternal(RateLimitCreate):

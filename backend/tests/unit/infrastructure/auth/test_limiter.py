@@ -3,7 +3,7 @@
 from typing import cast
 
 import pytest
-from crudauth.ratelimit import RateLimiterBackend
+from crudauth.ratelimit import RateLimiterBackend, RedisBackend
 
 from src.infrastructure.auth.limiter import build_rate_limiter, rate_limiter_redis_client
 from src.infrastructure.auth.setup import auth
@@ -38,7 +38,7 @@ class TestRateLimiterBackend:
 
         backend = build_rate_limiter()
 
-        assert backend is not None
+        assert isinstance(backend, RedisBackend)
         assert backend.client is rate_limiter_redis_client
 
     def test_memory_leaves_crudauth_its_in_process_limiter(self, monkeypatch):

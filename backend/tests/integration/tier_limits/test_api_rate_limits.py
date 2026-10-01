@@ -18,9 +18,11 @@ _addresses = (f"198.51.100.{n}" for n in itertools.count(100))
 
 async def _reset(key: str, period: int) -> None:
     """Clear a caller's counter for a path, including the current window's key."""
+    limiter = auth.rate_limiter
+    assert limiter is not None
     now = int(time.time())
-    await auth.rate_limiter.reset(key)
-    await auth.rate_limiter.reset(f"{key}:{now - now % period}")
+    await limiter.reset(key)
+    await limiter.reset(f"{key}:{now - now % period}")
 
 
 @pytest.fixture

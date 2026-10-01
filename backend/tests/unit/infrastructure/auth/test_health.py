@@ -33,7 +33,8 @@ async def test_the_limiters_redis_is_pinged(monkeypatch):
     await health.limiter_is_reachable()
 
     assert pings == [True]
-    assert health.limiter_target().startswith("redis://")
+    target = health.limiter_target()
+    assert target is not None and target.startswith("redis://")
 
 
 async def test_an_unreachable_limiter_raises(monkeypatch):

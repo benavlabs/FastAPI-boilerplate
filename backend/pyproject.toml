@@ -66,6 +66,7 @@ markers = [
 ]
 
 [tool.mypy]
+plugins = ["pydantic.mypy"]
 python_version = "3.11"
 warn_return_any = true
 warn_unused_configs = true
@@ -81,6 +82,10 @@ warn_no_return = true
 warn_unreachable = true
 namespace_packages = true
 explicit_package_bases = true
+
+[[tool.mypy.overrides]]
+module = "src.wiring.settings"
+disable_error_code = ["misc"]
 
 [[tool.mypy.overrides]]
 module = "aiomcache"

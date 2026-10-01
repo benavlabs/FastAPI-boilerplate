@@ -36,7 +36,8 @@ async def test_a_redis_cache_is_pinged(monkeypatch):
     await health.cache_is_reachable()
 
     assert pings == [True]
-    assert health.cache_target().startswith("redis://")
+    target = health.cache_target()
+    assert target is not None and target.startswith("redis://")
 
 
 async def test_an_unreachable_redis_cache_raises(monkeypatch):
@@ -70,4 +71,5 @@ async def test_a_memcached_cache_is_asked_for_its_version(monkeypatch):
     await health.cache_is_reachable()
 
     assert versions == [True]
-    assert health.cache_target().startswith("memcached://")
+    target = health.cache_target()
+    assert target is not None and target.startswith("memcached://")
