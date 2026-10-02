@@ -2,6 +2,7 @@
 
 import time
 from collections.abc import Mapping, Sequence
+from urllib.parse import urlsplit
 
 import anyio
 
@@ -16,8 +17,10 @@ REPORT_CACHE_SECONDS = 2.0
 READY = "ready"
 UNAVAILABLE = "unavailable"
 
-_cached: tuple[float, dict[str, str]] | None = None
-_in_flight: anyio.Event | None = None
+DEFAULT_PORTS = {"redis": 6379, "rediss": 6379, "memcached": 11211}
+
+_cached: dict[tuple[str, ...], tuple[float, dict[str, str]]] = {}
+_in_flight: dict[tuple[str, ...], anyio.Event] = {}
 
 
 async def _ask(check: ReadinessCheck, answers: dict[str, str]) -> None:
@@ -46,39 +49,69 @@ async def probe(checks: Sequence[ReadinessCheck]) -> dict[str, str]:
     return report
 
 
-def _remembered() -> dict[str, str] | None:
-    """The report from the last probe, while it is younger than ``REPORT_CACHE_SECONDS``."""
-    if _cached is None or time.monotonic() - _cached[0] >= REPORT_CACHE_SECONDS:
+def _key(checks: Sequence[ReadinessCheck]) -> tuple[str, ...]:
+    """What identifies a report: the names of the checks it was taken for."""
+    return tuple(check.name for check in checks)
+
+
+def _remembered(key: tuple[str, ...]) -> dict[str, str] | None:
+    """The report from the last probe of ``key``, while it is younger than ``REPORT_CACHE_SECONDS``."""
+    entry = _cached.get(key)
+    if entry is None or time.monotonic() - entry[0] >= REPORT_CACHE_SECONDS:
         return None
 
-    return dict(_cached[1])
+    return dict(entry[1])
 
 
 async def _probe(checks: Sequence[ReadinessCheck]) -> tuple[dict[str, str], bool]:
     """The report, and whether the checks ran for it rather than it coming from the cache."""
-    global _cached, _in_flight
+    key = _key(checks)
 
     while True:
-        remembered = _remembered()
+        remembered = _remembered(key)
         if remembered is not None:
             return remembered, False
 
-        if _in_flight is None:
+        waiting = _in_flight.get(key)
+        if waiting is None:
             break
 
-        await _in_flight.wait()
+        await waiting.wait()
 
-    _in_flight = anyio.Event()
-    probing = _in_flight
+    probing = anyio.Event()
+    _in_flight[key] = probing
 
     try:
         report = await _run(checks)
-        _cached = (time.monotonic(), report)
+        _cached[key] = (time.monotonic(), report)
     finally:
-        _in_flight = None
+        del _in_flight[key]
         probing.set()
 
     return dict(report), True
+
+
+def _server(check: ReadinessCheck) -> str | None:
+    """The server ``check`` probes, as scheme, host and port, with whatever follows dropped."""
+    if check.target is None:
+        return None
+
+    try:
+        target = check.target()
+    except Exception as error:
+        logger.warning(f"Readiness check {check.name} could not name its server: {type(error).__name__}")
+        return None
+
+    if target is None:
+        return None
+
+    parsed = urlsplit(target)
+    if parsed.hostname is None:
+        return target
+
+    port = parsed.port or DEFAULT_PORTS.get(parsed.scheme)
+
+    return f"{parsed.scheme}://{parsed.hostname}:{port}"
 
 
 async def _run(checks: Sequence[ReadinessCheck]) -> dict[str, str]:
@@ -89,13 +122,13 @@ async def _run(checks: Sequence[ReadinessCheck]) -> dict[str, str]:
 
     async with anyio.create_task_group() as group:
         for check in checks:
-            target = check.target() if check.target is not None else None
-            if target is not None and target in asked:
-                mirrors[check.name] = asked[target]
+            server = _server(check)
+            if server is not None and server in asked:
+                mirrors[check.name] = asked[server]
                 continue
 
-            if target is not None:
-                asked[target] = check.name
+            if server is not None:
+                asked[server] = check.name
 
             group.start_soon(_ask, check, answers)
 
@@ -130,6 +163,5 @@ def _unavailable(answers: Mapping[str, str], checks: Sequence[ReadinessCheck]) -
 
 
 def forget_cached_report() -> None:
-    """Drop the remembered report; the next probe asks the checks again."""
-    global _cached
-    _cached = None
+    """Drop every remembered report; the next probe asks the checks again."""
+    _cached.clear()

@@ -69,20 +69,6 @@ async def test_the_checks_run_together():
     assert report == {"first": READY, "second": READY}
 
 
-async def test_two_checks_on_one_server_are_asked_once():
-    calls: list[str] = []
-    checks = (
-        _answering("cache", calls=calls, target="redis://redis:6379/0"),
-        _answering("sessions", calls=calls, target="redis://redis:6379/0"),
-        _answering("broker", calls=calls, target="redis://redis:6379/3"),
-    )
-
-    report = await probe(checks)
-
-    assert calls == ["cache", "broker"]
-    assert report == {"cache": READY, "sessions": READY, "broker": READY}
-
-
 async def test_a_shared_server_that_is_down_marks_both_checks():
     calls: list[str] = []
     checks = (
@@ -211,3 +197,111 @@ class TestOneProbeAtATime:
                 group.start_soon(lambda: _collect(checks, reports))
 
         assert reports == [{"cache": UNAVAILABLE}] * 5
+
+
+class TestWhatCountsAsOneServer:
+    """Two checks on one server are asked once, whatever they name after the port."""
+
+    async def test_two_redis_databases_on_one_server_are_asked_once(self):
+        calls: list[str] = []
+        checks = (
+            _answering("cache", calls=calls, target="redis://redis:6379/0"),
+            _answering("sessions", calls=calls, target="redis://redis:6379/1"),
+            _answering("broker", calls=calls, target="redis://redis:6379/3"),
+        )
+
+        report = await probe(checks)
+
+        assert calls == ["cache"]
+        assert report == {"cache": READY, "sessions": READY, "broker": READY}
+
+    async def test_the_same_server_with_and_without_a_password_is_one_server(self):
+        calls: list[str] = []
+        checks = (
+            _answering("cache", calls=calls, target="redis://:secret@redis:6379/0"),
+            _answering("sessions", calls=calls, target="redis://redis:6379/1"),
+        )
+
+        report = await probe(checks)
+
+        assert calls == ["cache"]
+        assert report == {"cache": READY, "sessions": READY}
+
+    async def test_a_url_without_a_port_is_the_same_server_as_one_with_the_default(self):
+        calls: list[str] = []
+        checks = (
+            _answering("cache", calls=calls, target="redis://redis/0"),
+            _answering("sessions", calls=calls, target="redis://redis:6379/1"),
+            _answering("memcached", calls=calls, target="memcached://cache"),
+            _answering("memcached_again", calls=calls, target="memcached://cache:11211"),
+        )
+
+        await probe(checks)
+
+        assert calls == ["cache", "memcached"]
+
+    async def test_targets_that_are_not_urls_are_matched_whole(self):
+        calls: list[str] = []
+        checks = (
+            _answering("first", calls=calls, target="a-queue"),
+            _answering("second", calls=calls, target="another-queue"),
+            _answering("third", calls=calls, target="a-queue"),
+        )
+
+        await probe(checks)
+
+        assert calls == ["first", "second"]
+
+    async def test_different_servers_are_each_asked(self):
+        calls: list[str] = []
+        checks = (
+            _answering("cache", calls=calls, target="redis://redis:6379/0"),
+            _answering("sessions", calls=calls, target="redis://sessions:6379/0"),
+            _answering("memcached", calls=calls, target="memcached://redis:11211"),
+        )
+
+        await probe(checks)
+
+        assert calls == ["cache", "sessions", "memcached"]
+
+
+class TestTheRememberedReportBelongsToItsChecks:
+    """A report answers only for the checks it was taken for."""
+
+    async def test_another_set_of_checks_is_asked_for_itself(self):
+        calls: list[str] = []
+
+        first = await probe((_answering("database", calls=calls),))
+        second = await probe((_answering("cache", calls=calls),))
+
+        assert first == {"database": READY}
+        assert second == {"cache": READY}
+        assert calls == ["database", "cache"]
+
+    async def test_the_same_checks_are_remembered(self):
+        calls: list[str] = []
+        checks = (_answering("database", calls=calls),)
+
+        await probe(checks)
+        await probe(checks)
+
+        assert calls == ["database"]
+
+
+class TestATargetThatCannotBeNamed:
+    """A check whose target raises is still asked, and nothing escapes the probe."""
+
+    async def test_the_probe_still_answers(self, caplog):
+        calls: list[str] = []
+
+        def explode() -> str:
+            raise ValueError("POSTGRES_DB cannot contain /")
+
+        check = ReadinessCheck("database", _answering("database", calls=calls).check, target=explode)
+
+        with caplog.at_level("WARNING"):
+            report = await probe((check,))
+
+        assert report == {"database": READY}
+        assert calls == ["database"]
+        assert "ValueError" in caplog.text

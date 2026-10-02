@@ -300,9 +300,11 @@ ERROR   Readiness: database unavailable, holding traffic back
 ```
 
 Each check runs with its own two-second timeout, and they all run together, so one blackholed
-server can't hold the probe open. Two checks pointed at the same server are asked once. Probes that
-arrive together share one run of the checks, and its report is reused for a couple of seconds, so a
-flood of probes can't take the database pool away from real requests.
+server can't hold the probe open. Two checks pointed at the same server are asked once - the server
+is the scheme, host and port, so a cache on Redis database 0 and sessions on database 1 of one
+server count as one. Probes that arrive together share one run of the checks, and its report is
+reused for a couple of seconds, so a flood of probes can't take the database pool away from real
+requests.
 
 Neither health route is throttled, and both stay out of the API prefix so an API-wide rate limit or auth dependency can't take your probes down. To report on something else this project needs, contribute a `ReadinessCheck` from the feature that owns it and list it in `src/wiring/hooks.py` — under `CRITICAL_READINESS_CHECKS` when a request can't be served without it, under `INFORMATIONAL_READINESS_CHECKS` otherwise. See [Composable Features](composable-features.md).
 
