@@ -17,6 +17,11 @@ def forget_between_tests():
     forget_cached_report()
 
 
+async def _collect(checks, reports: list[dict[str, str]]) -> None:
+    """Probe and keep the report, for tests that probe from several tasks at once."""
+    reports.append(await probe(checks))
+
+
 def _answering(name: str, *, calls: list[str], fails: bool = False, target: str | None = None) -> ReadinessCheck:
     async def check() -> None:
         calls.append(name)
@@ -135,29 +140,29 @@ class TestWhichChecksGateTraffic:
         informational = (_answering("cache", calls=calls, fails=True),)
 
         with caplog.at_level("WARNING"):
-            ready, answers = await readiness_report(critical, informational)
+            ready = await readiness_report(critical, informational)
 
         assert ready is True
-        assert answers == {"database": READY, "cache": UNAVAILABLE}
-        assert "cache" in caplog.text
+        assert "cache unavailable, which does not hold traffic back" in caplog.text
 
-    async def test_a_critical_failure_holds_traffic_back(self):
+    async def test_a_critical_failure_holds_traffic_back(self, caplog):
         calls: list[str] = []
         critical = (_answering("database", calls=calls, fails=True),)
         informational = (_answering("cache", calls=calls),)
 
-        ready, answers = await readiness_report(critical, informational)
+        with caplog.at_level("WARNING"):
+            ready = await readiness_report(critical, informational)
 
         assert ready is False
-        assert answers == {"database": UNAVAILABLE, "cache": READY}
+        assert "database unavailable, holding traffic back" in caplog.text
 
     async def test_everything_reachable_is_ready(self):
         calls: list[str] = []
 
-        ready, answers = await readiness_report((_answering("database", calls=calls),), (_answering("cache", calls=calls),))
+        ready = await readiness_report((_answering("database", calls=calls),), (_answering("cache", calls=calls),))
 
         assert ready is True
-        assert answers == {"database": READY, "cache": READY}
+        assert calls == ["database", "cache"]
 
     async def test_the_informational_warning_is_logged_once_per_probe(self, caplog):
         """A probe answered from the remembered report logs nothing of its own."""
@@ -166,8 +171,43 @@ class TestWhichChecksGateTraffic:
         informational = (_answering("cache", calls=calls, fails=True),)
 
         with caplog.at_level("WARNING"):
-            await readiness_report(critical, informational)
-            await readiness_report(critical, informational)
+            assert await readiness_report(critical, informational) is True
+            assert await readiness_report(critical, informational) is True
 
         assert calls == ["database", "cache"]
         assert caplog.text.count("which does not hold traffic back") == 1
+
+
+class TestOneProbeAtATime:
+    """Probes that arrive together share the one check, and the slow one isn't repeated."""
+
+    async def test_fifty_probes_at_once_ask_once(self):
+        calls: list[str] = []
+
+        async def slow() -> None:
+            calls.append("asked")
+            await anyio.sleep(0.05)
+
+        checks = (ReadinessCheck("database", slow),)
+        reports: list[dict[str, str]] = []
+
+        async with anyio.create_task_group() as group:
+            for _ in range(50):
+                group.start_soon(lambda: _collect(checks, reports))
+
+        assert calls == ["asked"]
+        assert reports == [{"database": READY}] * 50
+
+    async def test_a_waiter_gets_the_answer_the_probe_found(self):
+        async def slow_and_unreachable() -> None:
+            await anyio.sleep(0.05)
+            raise ConnectionRefusedError("nothing listening")
+
+        checks = (ReadinessCheck("cache", slow_and_unreachable),)
+        reports: list[dict[str, str]] = []
+
+        async with anyio.create_task_group() as group:
+            for _ in range(5):
+                group.start_soon(lambda: _collect(checks, reports))
+
+        assert reports == [{"cache": UNAVAILABLE}] * 5

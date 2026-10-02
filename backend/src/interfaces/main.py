@@ -1,6 +1,5 @@
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from typing import Any
 
 from fastapi import FastAPI, Response, status
 
@@ -51,14 +50,14 @@ async def health_check() -> dict[str, str]:
 
 
 @app.get("/health/ready", tags=["System"])
-async def readiness_check(response: Response) -> dict[str, Any]:
+async def readiness_check(response: Response) -> dict[str, str]:
     """Readiness: whether every dependency a request needs answers.
 
-    Answers 503 while a critical dependency is unreachable, and 200 otherwise. An
-    informational dependency, such as the cache or the broker, is reported and leaves
-    the answer ready.
+    Answers 503 while a critical dependency is unreachable, and 200 otherwise. The body
+    carries the overall status; which dependency answered what is in the log. An
+    informational dependency, such as the cache or the broker, leaves the answer ready.
     """
-    ready, dependencies = await readiness_report(CRITICAL_READINESS_CHECKS, INFORMATIONAL_READINESS_CHECKS)
+    ready = await readiness_report(CRITICAL_READINESS_CHECKS, INFORMATIONAL_READINESS_CHECKS)
     response.status_code = status.HTTP_200_OK if ready else status.HTTP_503_SERVICE_UNAVAILABLE
 
-    return {"status": "ready" if ready else "not ready", "dependencies": dependencies}
+    return {"status": "ready" if ready else "not ready"}

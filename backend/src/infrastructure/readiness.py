@@ -17,6 +17,7 @@ READY = "ready"
 UNAVAILABLE = "unavailable"
 
 _cached: tuple[float, dict[str, str]] | None = None
+_in_flight: anyio.Event | None = None
 
 
 async def _ask(check: ReadinessCheck, answers: dict[str, str]) -> None:
@@ -37,21 +38,51 @@ async def probe(checks: Sequence[ReadinessCheck]) -> dict[str, str]:
     """What every check answers, one line per check, in the order the wiring lists them.
 
     The checks run together, each bounded by its own timeout; two checks pointed at one
-    server are asked once; and the report is reused for ``REPORT_CACHE_SECONDS``.
+    server are asked once; one probe runs at a time, with the rest awaiting its report;
+    and that report is reused for ``REPORT_CACHE_SECONDS``.
     """
     report, _ = await _probe(checks)
 
     return report
 
 
+def _remembered() -> dict[str, str] | None:
+    """The report from the last probe, while it is younger than ``REPORT_CACHE_SECONDS``."""
+    if _cached is None or time.monotonic() - _cached[0] >= REPORT_CACHE_SECONDS:
+        return None
+
+    return dict(_cached[1])
+
+
 async def _probe(checks: Sequence[ReadinessCheck]) -> tuple[dict[str, str], bool]:
     """The report, and whether the checks ran for it rather than it coming from the cache."""
-    global _cached
+    global _cached, _in_flight
 
-    now = time.monotonic()
-    if _cached is not None and now - _cached[0] < REPORT_CACHE_SECONDS:
-        return dict(_cached[1]), False
+    while True:
+        remembered = _remembered()
+        if remembered is not None:
+            return remembered, False
 
+        if _in_flight is None:
+            break
+
+        await _in_flight.wait()
+
+    _in_flight = anyio.Event()
+    probing = _in_flight
+
+    try:
+        report = await _run(checks)
+        _cached = (time.monotonic(), report)
+    finally:
+        _in_flight = None
+        probing.set()
+
+    return dict(report), True
+
+
+async def _run(checks: Sequence[ReadinessCheck]) -> dict[str, str]:
+    """Ask every check, together, asking one server once."""
     answers: dict[str, str] = {}
     asked: dict[str, str] = {}
     mirrors: dict[str, str] = {}
@@ -71,26 +102,26 @@ async def _probe(checks: Sequence[ReadinessCheck]) -> tuple[dict[str, str], bool
     for name, source in mirrors.items():
         answers[name] = answers[source]
 
-    report = {check.name: answers[check.name] for check in checks}
-    _cached = (time.monotonic(), report)
-
-    return dict(report), True
+    return {check.name: answers[check.name] for check in checks}
 
 
-async def readiness_report(
-    critical: Sequence[ReadinessCheck], informational: Sequence[ReadinessCheck]
-) -> tuple[bool, dict[str, str]]:
-    """Whether every critical dependency answered ready, and what each dependency answered.
+async def readiness_report(critical: Sequence[ReadinessCheck], informational: Sequence[ReadinessCheck]) -> bool:
+    """Whether every critical dependency answered ready.
 
-    An unavailable informational dependency leaves the first value ``True``, and is
-    logged by the probe that found it, not by a report the cache answered.
+    Which dependency answered what goes to the log, and only the probe that ran the
+    checks writes those lines. An unavailable informational dependency leaves the
+    answer ``True``.
     """
     answers, probed = await _probe((*critical, *informational))
-    unavailable = _unavailable(answers, informational)
-    if probed and unavailable:
-        logger.warning(f"Readiness: {', '.join(unavailable)} unavailable, which does not hold traffic back")
+    held_back = _unavailable(answers, critical)
+    reported = _unavailable(answers, informational)
 
-    return not _unavailable(answers, critical), answers
+    if probed and reported:
+        logger.warning(f"Readiness: {', '.join(reported)} unavailable, which does not hold traffic back")
+    if probed and held_back:
+        logger.error(f"Readiness: {', '.join(held_back)} unavailable, holding traffic back")
+
+    return not held_back
 
 
 def _unavailable(answers: Mapping[str, str], checks: Sequence[ReadinessCheck]) -> list[str]:

@@ -75,8 +75,10 @@ matrix. The round that followed fixed what a re-review of the refactor found.
 - **`GET /health/ready` gates on the dependencies a request needs.** The wiring lists them in
   `CRITICAL_READINESS_CHECKS` (the database, and the login lockout's Redis and the session store
   with accounts) and `INFORMATIONAL_READINESS_CHECKS` (the cache and the task broker). A critical
-  check that fails answers `503`; an informational one is logged and reported, and leaves the
-  answer `200`.
+  check that fails answers `503`; an informational one is logged and leaves the answer `200`.
+- **The readiness body carries the overall status only**, and probes that arrive together share one
+  run of the checks. Which dependency answered what goes to the log, written by the probe that ran
+  them.
 - **The seed scripts run on their own.** `python scripts/create_first_superuser.py` and
   `python scripts/create_first_tier.py` import the models before touching the ORM, and report a
   failure as one line with exit code `1` - admin settings that don't describe an account, a password
@@ -139,6 +141,9 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   read them.
 - **`POSTGRES_DB` may not contain `/`, `?`, `#` or `@`.** SQLAlchemy reads the name literally, so such
   a name would have connected somewhere else; set `DATABASE_URL` instead.
+- **`GET /health/ready` answers `{"status": "ready"}` or `{"status": "not ready"}` and no longer
+  lists the dependencies.** A dashboard that read `dependencies` from the body reads the log instead;
+  the probe that runs the checks names whatever it found unreachable.
 - **`READINESS_CHECKS` is now two tuples**, `CRITICAL_READINESS_CHECKS` and
   `INFORMATIONAL_READINESS_CHECKS` (`src/wiring/hooks.py`). A project that added its own check
   lists it in whichever group fits. A cache or broker outage no longer answers `503`, so an alert
