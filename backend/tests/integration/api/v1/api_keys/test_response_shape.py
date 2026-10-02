@@ -3,19 +3,40 @@
 import pytest
 from httpx import AsyncClient
 
-from src.modules.api_keys.schemas import APIKeyRead, APIKeyResponse, KeyUsageAnalytics, UserAPIKeySummary
+from src.modules.api_keys.schemas import APIKeyRead, KeyUsageAnalytics, UserAPIKeySummary
 
 pytestmark = pytest.mark.asyncio
 
+WITHHELD_FROM_THE_CREATE_RESPONSE = {"key_metadata", "last_used_ip"}
 
-async def test_creating_a_key_never_returns_its_hash(auth_client: AsyncClient):
-    response = await auth_client.post("/api/v1/api-keys/", json={"name": "Shape Key"})
+
+async def test_creating_a_key_returns_the_key_and_nothing_stored_about_its_use(auth_client: AsyncClient):
+    response = await auth_client.post(
+        "/api/v1/api-keys/",
+        json={"name": "Shape Key", "key_metadata": {"team": "platform"}},
+    )
 
     assert response.status_code == 201
     body = response.json()
     assert "key_hash" not in body
-    assert set(body) == set(APIKeyResponse.model_fields)
+    assert "last_used_ip" not in body
+    assert "key_metadata" not in body
     assert body["api_key"].startswith("fai_")
+
+
+async def test_the_create_response_is_the_read_schema_minus_those_two(auth_client: AsyncClient):
+    """A field added to the read schema reaches the create response too."""
+    response = await auth_client.post("/api/v1/api-keys/", json={"name": "Fields Key"})
+
+    body = response.json()
+
+    assert set(body) == (set(APIKeyRead.model_fields) | {"api_key"}) - WITHHELD_FROM_THE_CREATE_RESPONSE
+    assert body["name"] == "Fields Key"
+    assert body["api_key"].startswith(f"fai_{body['key_prefix']}_")
+    assert body["is_active"] is True
+    assert body["permissions"] == {}
+    assert body["usage_limits"] == {}
+    assert body["expires_at"] is None
 
 
 async def test_reading_and_updating_answer_the_read_schema(auth_client: AsyncClient):

@@ -116,10 +116,12 @@ curl -X POST "http://localhost:8000/api/v1/api-keys/" \
   -H "Content-Type: application/json" \
   -b cookies.txt \
   -d '{"name": "Integration Key", "permissions": {}, "usage_limits": {}}'
-# → { "key": "shown ONCE — store securely", ... }
+# → { "api_key": "shown ONCE — store securely", "id": 1, "key_prefix": "...", ... }
 ```
 
-The full key is returned only on creation. Each key has its own permissions, usage limits, and audit trail (`KeyUsage` rows).
+The full key is returned only on creation, in `api_key`. The rest of the response is what
+`GET /api/v1/api-keys/{id}` reports, minus `key_metadata` and `last_used_ip`, which that route still
+carries. Each key has its own permissions, usage limits, and audit trail (`KeyUsage` rows).
 
 ## Key Features
 

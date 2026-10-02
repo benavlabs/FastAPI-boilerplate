@@ -63,8 +63,14 @@ class APIKeyRead(TimestampSchema, APIKeyBase):
 
 
 class APIKeyResponse(APIKeyRead):
-    """Schema for API key creation response (includes full key)."""
+    """Schema for API key creation response: the key itself, and the row as read.
 
+    Follows ``APIKeyRead``, with ``key_metadata`` and ``last_used_ip`` excluded from
+    the response.
+    """
+
+    key_metadata: dict[str, Any] | None = Field(default=None, exclude=True)
+    last_used_ip: str | None = Field(default=None, exclude=True)
     api_key: str = Field(description="Full API key - only shown once during creation")
 
 
