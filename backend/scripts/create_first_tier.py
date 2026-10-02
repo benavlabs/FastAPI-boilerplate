@@ -12,6 +12,7 @@ from sqlalchemy.exc import SQLAlchemyError  # noqa: E402
 from scripts.seed_errors import SeedError  # noqa: E402
 from src.infrastructure.config.settings import settings  # noqa: E402
 from src.infrastructure.database.initialize import close_database  # noqa: E402
+from src.infrastructure.database.registry import import_models  # noqa: E402
 from src.infrastructure.database.session import local_session  # noqa: E402
 from src.infrastructure.logging import get_logger  # noqa: E402
 from src.modules.tier.models import Tier  # noqa: E402
@@ -22,6 +23,8 @@ logger = get_logger()
 async def create_first_tier() -> None:
     """Create the default tier named by DEFAULT_TIER_NAME, if it isn't there yet."""
     tier_name = settings.DEFAULT_TIER_NAME
+
+    import_models()
 
     async with local_session() as session:
         query = select(Tier).where(Tier.name == tier_name)
@@ -38,7 +41,7 @@ async def create_first_tier() -> None:
             session.add(tier)
             await session.commit()
             await session.refresh(tier)
-        except SQLAlchemyError as error:
+        except (OSError, SQLAlchemyError) as error:
             raise SeedError(f"Could not seed the tier '{tier_name}': {type(error).__name__}") from error
 
         logger.info(f"Tier '{tier_name}' created successfully with ID {tier.id}")

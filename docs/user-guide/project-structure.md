@@ -201,6 +201,17 @@ The most common entry point is `setup_initial_data` which calls all three.
 uv run --no-sync python -m scripts.setup_initial_data
 ```
 
+Each script also runs on its own, from `backend/`:
+
+```bash
+uv run --no-sync python scripts/create_first_tier.py
+uv run --no-sync python scripts/create_first_superuser.py
+```
+
+A script that can't do its job - admin settings that don't describe an account, a password the
+policy refuses, a username someone already has, a database it can't reach - logs one line and exits
+`1`.
+
 ## Tests (`backend/tests/`)
 
 ```text

@@ -1,12 +1,17 @@
 """Seeding a superuser: only from complete configuration, and never by promotion."""
 
+import logging
+import re
+
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import scripts.create_first_superuser as script
 from scripts.create_first_superuser import SeedError, create_first_superuser
 from src.infrastructure.config.settings import settings
+from src.infrastructure.database import session as session_module
 from src.modules.user.crud import crud_users
+from tests.unit.scripts.seed_helpers import no_cached_engine, run_script, script_environment
 
 pytestmark = pytest.mark.asyncio
 
@@ -114,3 +119,80 @@ async def test_a_taken_username_is_reported_as_a_seed_failure(
 
     with pytest.raises(SeedError, match="Could not seed the superuser"):
         await create_first_superuser()
+
+
+class TestTheScriptRunOnItsOwn:
+    """``python scripts/create_first_superuser.py``, with no app to import the models for it."""
+
+    async def test_it_seeds_a_superuser(self, test_db_url: str, test_db_engine, db_session: AsyncSession):
+        completed = run_script("create_first_superuser", script_environment(test_db_url, **COMPLETE))
+
+        assert completed.returncode == 0, completed.stdout + completed.stderr
+        assert "Traceback" not in completed.stderr
+        await db_session.rollback()
+        seeded = await crud_users.get(db=db_session, email=COMPLETE["ADMIN_EMAIL"])
+        assert seeded is not None
+        assert seeded["is_superuser"] is True
+
+    async def test_a_database_it_cannot_reach_reports_one_line(self, test_db_url: str):
+        environment = script_environment(test_db_url, **COMPLETE)
+        environment["POSTGRES_PORT"] = "1"
+        environment["POSTGRES_SERVER"] = "localhost"
+
+        completed = run_script("create_first_superuser", environment)
+
+        assert completed.returncode == 1
+        assert "Traceback" not in completed.stderr
+        assert re.search(r"Could not seed the superuser: \w+Error", completed.stdout + completed.stderr)
+
+
+class TestWhatMainReportsForAFailure:
+    """Each failure leaves exit code 1 and a single logged line."""
+
+    @pytest.fixture
+    def logged(self, caplog):
+        caplog.set_level(logging.ERROR)
+
+        return caplog
+
+    async def test_an_address_that_is_not_an_address(self, admin_environment, monkeypatch, logged):
+        monkeypatch.setattr(settings, "ADMIN_EMAIL", "not-an-address")
+
+        with pytest.raises(SystemExit) as exit_code:
+            await script.main()
+
+        assert exit_code.value.code == 1
+        assert "Traceback" not in logged.text
+        assert "ADMIN_EMAIL" in logged.text
+
+    async def test_a_password_the_policy_refuses(self, admin_environment, monkeypatch, logged):
+        monkeypatch.setattr(settings, "ADMIN_PASSWORD", "short")
+
+        with pytest.raises(SystemExit) as exit_code:
+            await script.main()
+
+        assert exit_code.value.code == 1
+        assert "Traceback" not in logged.text
+        assert "password policy" in logged.text
+
+    async def test_a_username_someone_already_has(self, admin_environment, monkeypatch, logged, test_user: dict):
+        monkeypatch.setattr(settings, "ADMIN_USERNAME", test_user["username"])
+
+        with pytest.raises(SystemExit) as exit_code:
+            await script.main()
+
+        assert exit_code.value.code == 1
+        assert "Traceback" not in logged.text
+        assert "Could not seed the superuser" in logged.text
+
+    async def test_a_database_that_is_down(self, admin_environment, monkeypatch, logged):
+        monkeypatch.setattr(settings, "POSTGRES_SERVER", "localhost")
+        monkeypatch.setattr(settings, "POSTGRES_PORT", 1)
+        monkeypatch.setattr(script, "local_session", session_module.local_session)
+
+        with no_cached_engine(), pytest.raises(SystemExit) as exit_code:
+            await script.main()
+
+        assert exit_code.value.code == 1
+        assert "Traceback" not in logged.text
+        assert re.search(r"Could not seed the superuser: \w+Error", logged.text)

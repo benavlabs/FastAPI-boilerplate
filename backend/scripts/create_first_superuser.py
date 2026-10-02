@@ -6,11 +6,14 @@ backend_dir = Path(__file__).parent.parent
 sys.path.append(str(backend_dir))
 
 from crudauth.exceptions import PasswordPolicyException  # noqa: E402
+from pydantic import ValidationError  # noqa: E402
 from sqlalchemy import update  # noqa: E402
+from sqlalchemy.exc import SQLAlchemyError  # noqa: E402
 
 from scripts.seed_errors import SeedError  # noqa: E402
 from src.infrastructure.config.settings import settings  # noqa: E402
 from src.infrastructure.database.initialize import close_database  # noqa: E402
+from src.infrastructure.database.registry import import_models  # noqa: E402
 from src.infrastructure.database.session import local_session  # noqa: E402
 from src.infrastructure.logging import get_logger  # noqa: E402
 from src.modules.common.exceptions import DomainError  # noqa: E402
@@ -22,9 +25,24 @@ from src.modules.user.service import UserService  # noqa: E402
 logger = get_logger()
 
 
+SETTING_FOR_FIELD = {
+    "name": "ADMIN_NAME",
+    "email": "ADMIN_EMAIL",
+    "username": "ADMIN_USERNAME",
+    "password": "ADMIN_PASSWORD",
+}
+
+
 def _policy_failures(error: PasswordPolicyException) -> str:
     """The unmet rules, as one line."""
     return "; ".join(str(entry.get("msg", entry.get("type"))) for entry in error.errors)
+
+
+def _setting_failures(error: ValidationError) -> str:
+    """The admin settings the user payload refused, named as settings, as one line."""
+    return "; ".join(
+        f"{SETTING_FOR_FIELD.get(str(entry['loc'][0]), str(entry['loc'][0]))}: {entry['msg']}" for entry in error.errors()
+    )
 
 
 async def create_first_superuser() -> None:
@@ -45,6 +63,18 @@ async def create_first_superuser() -> None:
     if not all([name, email, username, password]):
         raise SeedError("Set ADMIN_NAME, ADMIN_EMAIL, ADMIN_USERNAME and ADMIN_PASSWORD before seeding a superuser.")
 
+    import_models()
+
+    try:
+        await _seed_superuser(name, email, username, password)
+    except ValidationError as error:
+        raise SeedError(f"The admin settings don't describe a valid account: {_setting_failures(error)}") from error
+    except (OSError, SQLAlchemyError) as error:
+        raise SeedError(f"Could not seed the superuser: {type(error).__name__}") from error
+
+
+async def _seed_superuser(name: str, email: str, username: str, password: str) -> None:
+    """Write the superuser row, or report what stopped it."""
     async with local_session() as session:
         user_service = UserService()
 
@@ -59,7 +89,7 @@ async def create_first_superuser() -> None:
                 return
 
             raise SeedError(
-                f"{email} already belongs to user {existing['username']}, who is not a superuser. "
+                f"ADMIN_EMAIL already belongs to user {existing['username']}, who is not a superuser. "
                 "Choose another ADMIN_EMAIL, or promote that account deliberately."
             )
 

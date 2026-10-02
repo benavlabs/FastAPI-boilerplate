@@ -72,6 +72,11 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   Python on the sync step, and runs the removal drills.
 - **The generated local stack publishes Postgres and Redis on `127.0.0.1` only**, and the Taskiq
   Redis result backend stores results as JSON instead of pickles.
+- **The seed scripts run on their own.** `python scripts/create_first_superuser.py` and
+  `python scripts/create_first_tier.py` import the models before touching the ORM, and report a
+  failure as one line with exit code `1` - admin settings that don't describe an account, a password
+  the policy refuses, a taken username, or a database they can't reach. The message for a taken
+  `ADMIN_EMAIL` names the setting rather than the address.
 - **Creating an API key answers with its own schema.** The response carries the row as the read
   schema reports it plus the full key, with `key_metadata` and `last_used_ip` excluded;
   `GET /api/v1/api-keys/{id}` still reports both.
