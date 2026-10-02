@@ -7,11 +7,11 @@ from fastapi import FastAPI, Response, status
 from ..infrastructure.app_factory import create_application, lifespan_factory
 from ..infrastructure.config.settings import get_settings
 from ..infrastructure.logging import get_logger
-from ..infrastructure.readiness import READY, probe
+from ..infrastructure.readiness import readiness_report
 from ..infrastructure.security import validate_production_security
 from ..interfaces.api import router
 from ..wiring.app import DOCS_GUARD, INSTALLERS, LIFECYCLES, ROOT_ROUTERS
-from ..wiring.hooks import READINESS_CHECKS
+from ..wiring.hooks import CRITICAL_READINESS_CHECKS, INFORMATIONAL_READINESS_CHECKS
 
 logger = get_logger()
 settings = get_settings()
@@ -21,8 +21,7 @@ settings = get_settings()
 async def lifespan_with_security(app: FastAPI) -> AsyncGenerator[None, None]:
     """The app's lifespan, with the production security validation in front of it.
 
-    Passing a lifespan of its own means the factory never builds one, so the
-    startup settings this app honours have to be read here.
+    Builds the factory's lifespan here, reading the startup settings this app honours.
     """
     if settings.PRODUCTION_SECURITY_VALIDATION_ENABLED:
         validate_production_security(settings)
@@ -53,13 +52,13 @@ async def health_check() -> dict[str, str]:
 
 @app.get("/health/ready", tags=["System"])
 async def readiness_check(response: Response) -> dict[str, Any]:
-    """Readiness: every dependency this project selected answers.
+    """Readiness: whether every dependency a request needs answers.
 
-    Answers 503 while something it needs is unreachable, so a load balancer holds
-    traffic back instead of sending it into failing requests.
+    Answers 503 while a critical dependency is unreachable, and 200 otherwise. An
+    informational dependency, such as the cache or the broker, is reported and leaves
+    the answer ready.
     """
-    dependencies = await probe(READINESS_CHECKS)
-    ready = all(answer == READY for answer in dependencies.values())
+    ready, dependencies = await readiness_report(CRITICAL_READINESS_CHECKS, INFORMATIONAL_READINESS_CHECKS)
     response.status_code = status.HTTP_200_OK if ready else status.HTTP_503_SERVICE_UNAVAILABLE
 
     return {"status": "ready" if ready else "not ready", "dependencies": dependencies}

@@ -162,7 +162,7 @@ Each module is **self-contained**: drop it in, drop it out, with minimal blast r
 wiring/
 ├── app.py                    # ROUTER_MOUNTS, ROOT_ROUTERS, API_THROTTLE, LIFECYCLES, INSTALLERS, DOCS_GUARD
 ├── settings.py               # Each feature's settings mixin, core last
-├── hooks.py                  # PERMISSION_SOURCES, RATE_LIMIT_RESOLVERS, TIER_DELETE_GUARDS, READINESS_CHECKS
+├── hooks.py                  # PERMISSION_SOURCES, RATE_LIMIT_RESOLVERS, TIER_DELETE_GUARDS, the readiness checks
 ├── models.py                 # What features add to the User model and its schemas
 └── admin.py                  # ADMIN_VIEWS
 ```

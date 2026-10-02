@@ -301,7 +301,8 @@ def _wiring_hooks(chosen: set[str]) -> str:
     sources = "()"
     resolvers = "()"
     guards = "()"
-    readiness = ["database_readiness"]
+    critical = ["database_readiness"]
+    informational: list[str] = []
 
     if "rbac" in chosen:
         imports.append("from ..modules.role.sources import role_permissions")
@@ -310,11 +311,18 @@ def _wiring_hooks(chosen: set[str]) -> str:
         imports.append("from ..modules.rate_limit.hooks import rate_limits_reference_tier, tier_rate_limit")
         resolvers = "(tier_rate_limit,)"
         guards = "(rate_limits_reference_tier,)"
+    if "accounts" in chosen:
+        imports.append("from ..infrastructure.auth.health import limiter_readiness, sessions_readiness")
+        critical.extend(["limiter_readiness", "sessions_readiness"])
     if "cache" in chosen:
         imports.append("from ..infrastructure.cache.health import readiness as cache_readiness")
-        readiness.append("cache_readiness")
+        informational.append("cache_readiness")
+    if "taskiq" in chosen:
+        imports.append("from ..infrastructure.taskiq.health import readiness as broker_readiness")
+        informational.append("broker_readiness")
 
-    checks = "(" + ", ".join(readiness) + ",)"
+    critical_checks = "(" + ", ".join(critical) + ",)"
+    informational_checks = ("(" + ", ".join(informational) + ",)") if informational else "()"
 
     return (
         '''"""The contributions features make to each other\'s extension points."""\n\n'''
@@ -322,7 +330,8 @@ def _wiring_hooks(chosen: set[str]) -> str:
         + f"\n\nPERMISSION_SOURCES: tuple[PermissionSource, ...] = {sources}\n"
         f"RATE_LIMIT_RESOLVERS: tuple[RateLimitResolver, ...] = {resolvers}\n"
         f"TIER_DELETE_GUARDS: tuple[TierDeleteGuard, ...] = {guards}\n"
-        f"READINESS_CHECKS: tuple[ReadinessCheck, ...] = {checks}\n"
+        f"CRITICAL_READINESS_CHECKS: tuple[ReadinessCheck, ...] = {critical_checks}\n"
+        f"INFORMATIONAL_READINESS_CHECKS: tuple[ReadinessCheck, ...] = {informational_checks}\n"
     )
 
 

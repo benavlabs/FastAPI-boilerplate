@@ -50,7 +50,8 @@ async def test_readiness_reports_every_dependency(monkeypatch):
     async def reachable() -> None:
         checked.append("asked")
 
-    monkeypatch.setattr(main, "READINESS_CHECKS", (ReadinessCheck("database", reachable),))
+    monkeypatch.setattr(main, "CRITICAL_READINESS_CHECKS", (ReadinessCheck("database", reachable),))
+    monkeypatch.setattr(main, "INFORMATIONAL_READINESS_CHECKS", ())
 
     async with AsyncClient(transport=ASGITransport(app=main.app), base_url="http://test") as client:
         response = await client.get("/health/ready")
@@ -60,7 +61,7 @@ async def test_readiness_reports_every_dependency(monkeypatch):
     assert checked == ["asked"]
 
 
-async def test_readiness_holds_traffic_back_when_a_dependency_is_down(monkeypatch):
+async def test_readiness_holds_traffic_back_when_a_critical_dependency_is_down(monkeypatch):
     async def reachable() -> None:
         return None
 
@@ -69,24 +70,44 @@ async def test_readiness_holds_traffic_back_when_a_dependency_is_down(monkeypatc
 
     monkeypatch.setattr(
         main,
-        "READINESS_CHECKS",
-        (ReadinessCheck("database", reachable), ReadinessCheck("cache", unreachable)),
+        "CRITICAL_READINESS_CHECKS",
+        (ReadinessCheck("database", unreachable), ReadinessCheck("sessions", reachable)),
     )
+    monkeypatch.setattr(main, "INFORMATIONAL_READINESS_CHECKS", ())
 
     async with AsyncClient(transport=ASGITransport(app=main.app), base_url="http://test") as client:
         response = await client.get("/health/ready")
 
     assert response.status_code == 503
-    assert response.json()["dependencies"] == {"database": "ready", "cache": "unavailable"}
+    assert response.json()["dependencies"] == {"database": "unavailable", "sessions": "ready"}
 
 
 async def test_liveness_answers_without_touching_a_dependency(monkeypatch):
     async def explode() -> None:
         raise AssertionError("liveness must not reach for anything")
 
-    monkeypatch.setattr(main, "READINESS_CHECKS", (ReadinessCheck("database", explode),))
+    monkeypatch.setattr(main, "CRITICAL_READINESS_CHECKS", (ReadinessCheck("database", explode),))
 
     async with AsyncClient(transport=ASGITransport(app=main.app), base_url="http://test") as client:
         response = await client.get("/health")
 
     assert response.status_code == 200
+
+
+async def test_an_informational_dependency_that_is_down_still_answers_ready(monkeypatch):
+    """A cache or broker outage must not take an instance out of rotation."""
+
+    async def reachable() -> None:
+        return None
+
+    async def unreachable() -> None:
+        raise ConnectionError("no route to host")
+
+    monkeypatch.setattr(main, "CRITICAL_READINESS_CHECKS", (ReadinessCheck("database", reachable),))
+    monkeypatch.setattr(main, "INFORMATIONAL_READINESS_CHECKS", (ReadinessCheck("cache", unreachable),))
+
+    async with AsyncClient(transport=ASGITransport(app=main.app), base_url="http://test") as client:
+        response = await client.get("/health/ready")
+
+    assert response.status_code == 200
+    assert response.json()["dependencies"] == {"database": "ready", "cache": "unavailable"}

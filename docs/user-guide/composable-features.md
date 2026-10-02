@@ -16,7 +16,7 @@ plain objects at stable paths, and one package collects them.
 |------|---------------|
 | `app.py` | `ROUTER_MOUNTS`, `ROOT_ROUTERS`, `API_THROTTLE`, `LIFECYCLES`, `INSTALLERS`, `DOCS_GUARD` |
 | `settings.py` | each feature's settings mixin, with the core last |
-| `hooks.py` | `PERMISSION_SOURCES`, `RATE_LIMIT_RESOLVERS`, `TIER_DELETE_GUARDS`, `READINESS_CHECKS` |
+| `hooks.py` | `PERMISSION_SOURCES`, `RATE_LIMIT_RESOLVERS`, `TIER_DELETE_GUARDS`, `CRITICAL_READINESS_CHECKS`, `INFORMATIONAL_READINESS_CHECKS` |
 | `models.py` | `UserModelExtensions`, `UserSchemaExtensions` |
 | `admin.py` | `ADMIN_VIEWS` |
 

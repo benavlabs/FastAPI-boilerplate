@@ -14,10 +14,12 @@ from ..modules.role.sources import role_permissions
 PERMISSION_SOURCES: tuple[PermissionSource, ...] = (role_permissions,)
 RATE_LIMIT_RESOLVERS: tuple[RateLimitResolver, ...] = (tier_rate_limit,)
 TIER_DELETE_GUARDS: tuple[TierDeleteGuard, ...] = (rate_limits_reference_tier,)
-READINESS_CHECKS: tuple[ReadinessCheck, ...] = (
+CRITICAL_READINESS_CHECKS: tuple[ReadinessCheck, ...] = (
     database_readiness,
-    cache_readiness,
     limiter_readiness,
     sessions_readiness,
+)
+INFORMATIONAL_READINESS_CHECKS: tuple[ReadinessCheck, ...] = (
+    cache_readiness,
     broker_readiness,
 )

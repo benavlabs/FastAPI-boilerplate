@@ -72,6 +72,11 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   Python on the sync step, and runs the removal drills.
 - **The generated local stack publishes Postgres and Redis on `127.0.0.1` only**, and the Taskiq
   Redis result backend stores results as JSON instead of pickles.
+- **`GET /health/ready` gates on the dependencies a request needs.** The wiring lists them in
+  `CRITICAL_READINESS_CHECKS` (the database, and the login lockout's Redis and the session store
+  with accounts) and `INFORMATIONAL_READINESS_CHECKS` (the cache and the task broker). A critical
+  check that fails answers `503`; an informational one is logged and reported, and leaves the
+  answer `200`.
 - **The seed scripts run on their own.** `python scripts/create_first_superuser.py` and
   `python scripts/create_first_tier.py` import the models before touching the ORM, and report a
   failure as one line with exit code `1` - admin settings that don't describe an account, a password
@@ -134,6 +139,11 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   read them.
 - **`POSTGRES_DB` may not contain `/`, `?`, `#` or `@`.** SQLAlchemy reads the name literally, so such
   a name would have connected somewhere else; set `DATABASE_URL` instead.
+- **`READINESS_CHECKS` is now two tuples**, `CRITICAL_READINESS_CHECKS` and
+  `INFORMATIONAL_READINESS_CHECKS` (`src/wiring/hooks.py`). A project that added its own check
+  lists it in whichever group fits. A cache or broker outage no longer answers `503`, so an alert
+  that watched `/health/ready` for one needs to watch the log line or the reported dependencies
+  instead.
 - **Task results are stored as JSON**, not pickles. The Redis result backend no longer unpickles what
   it reads, so a result key written by an older worker can't be read back. Drain the queue and clear
   the result keys before deploying both sides.

@@ -1,7 +1,7 @@
 """Running the readiness checks a project selected."""
 
 import time
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 
 import anyio
 
@@ -36,15 +36,21 @@ async def _ask(check: ReadinessCheck, answers: dict[str, str]) -> None:
 async def probe(checks: Sequence[ReadinessCheck]) -> dict[str, str]:
     """What every check answers, one line per check, in the order the wiring lists them.
 
-    The checks run together, each bounded by its own timeout, and two checks pointed
-    at one server are asked once. The report is reused for a couple of seconds, so a
-    flood of probes can't take the database pool away from real requests.
+    The checks run together, each bounded by its own timeout; two checks pointed at one
+    server are asked once; and the report is reused for ``REPORT_CACHE_SECONDS``.
     """
+    report, _ = await _probe(checks)
+
+    return report
+
+
+async def _probe(checks: Sequence[ReadinessCheck]) -> tuple[dict[str, str], bool]:
+    """The report, and whether the checks ran for it rather than it coming from the cache."""
     global _cached
 
     now = time.monotonic()
     if _cached is not None and now - _cached[0] < REPORT_CACHE_SECONDS:
-        return dict(_cached[1])
+        return dict(_cached[1]), False
 
     answers: dict[str, str] = {}
     asked: dict[str, str] = {}
@@ -68,10 +74,31 @@ async def probe(checks: Sequence[ReadinessCheck]) -> dict[str, str]:
     report = {check.name: answers[check.name] for check in checks}
     _cached = (time.monotonic(), report)
 
-    return dict(report)
+    return dict(report), True
+
+
+async def readiness_report(
+    critical: Sequence[ReadinessCheck], informational: Sequence[ReadinessCheck]
+) -> tuple[bool, dict[str, str]]:
+    """Whether every critical dependency answered ready, and what each dependency answered.
+
+    An unavailable informational dependency leaves the first value ``True``, and is
+    logged by the probe that found it, not by a report the cache answered.
+    """
+    answers, probed = await _probe((*critical, *informational))
+    unavailable = _unavailable(answers, informational)
+    if probed and unavailable:
+        logger.warning(f"Readiness: {', '.join(unavailable)} unavailable, which does not hold traffic back")
+
+    return not _unavailable(answers, critical), answers
+
+
+def _unavailable(answers: Mapping[str, str], checks: Sequence[ReadinessCheck]) -> list[str]:
+    """The names among ``checks`` that did not answer ready."""
+    return [check.name for check in checks if answers.get(check.name) != READY]
 
 
 def forget_cached_report() -> None:
-    """Drop the remembered report, so the next probe asks again."""
+    """Drop the remembered report; the next probe asks the checks again."""
     global _cached
     _cached = None

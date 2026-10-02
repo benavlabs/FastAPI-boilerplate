@@ -198,7 +198,7 @@ What ships out of the box:
 | `GET /admin/*` | `interfaces/admin/initialize.py` | SQLAdmin UI |
 | `GET /docs`, `/redoc`, `/openapi.json` | App factory (protected when gated) | Disabled in production unless `ENABLE_DOCS_IN_PRODUCTION=true`; when enabled in production or running in staging, requires superuser authentication |
 | `GET /health` | `interfaces/main.py` | Liveness: the process is serving |
-| `GET /health/ready` | `interfaces/main.py` | Readiness: every dependency the wiring lists, `503` while one is unreachable |
+| `GET /health/ready` | `interfaces/main.py` | Readiness: every dependency the wiring lists, `503` while a critical one is unreachable |
 
 ## What's Next
 

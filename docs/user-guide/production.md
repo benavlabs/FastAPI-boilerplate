@@ -269,7 +269,10 @@ livenessProbe:
   periodSeconds: 10
 ```
 
-For a **readiness** probe (does the app actually have working DB / Redis connections?), use `GET /health/ready`. It runs the checks the project's wiring lists in `READINESS_CHECKS` — the database, and the cache, the login lockout's Redis, the session store and the task broker for the features it selected — and answers `503` while any of them is unreachable, so a load balancer holds traffic back instead of sending it into failing requests:
+For a **readiness** probe (does the app actually have working DB / Redis connections?), use `GET /health/ready`. It runs the checks the project's wiring lists, in two groups:
+
+- `CRITICAL_READINESS_CHECKS` — the database, plus the login lockout's Redis and the session store when accounts is wired. A request can't be served without these, so one of them being unreachable answers `503` and a load balancer holds traffic back.
+- `INFORMATIONAL_READINESS_CHECKS` — the cache and the task broker. No request waits on either, so an outage there is logged and reported, and the answer stays `200`.
 
 ```yaml
 readinessProbe:
@@ -282,23 +285,26 @@ readinessProbe:
 
 ```json
 {
-  "status": "not ready",
+  "status": "ready",
   "dependencies": {
     "database": "ready",
-    "cache": "unavailable",
     "rate_limiter": "ready",
     "sessions": "ready",
+    "cache": "unavailable",
     "task_broker": "ready"
   }
 }
 ```
+
+That one answers `200`: only the cache is down. A `database`, `rate_limiter` or `sessions` outage
+answers `503` with `"status": "not ready"`.
 
 Each check runs with its own two-second timeout, and they all run together, so one blackholed
 server can't hold the probe open. Two checks pointed at the same server are asked once, and the
 report is reused for a couple of seconds, so a flood of probes can't take the database pool away
 from real requests.
 
-Neither health route is throttled, and both stay out of the API prefix so an API-wide rate limit or auth dependency can't take your probes down. To report on something else this project needs, contribute a `ReadinessCheck` from the feature that owns it and list it in `src/wiring/hooks.py` — see [Composable Features](composable-features.md).
+Neither health route is throttled, and both stay out of the API prefix so an API-wide rate limit or auth dependency can't take your probes down. To report on something else this project needs, contribute a `ReadinessCheck` from the feature that owns it and list it in `src/wiring/hooks.py` — under `CRITICAL_READINESS_CHECKS` when a request can't be served without it, under `INFORMATIONAL_READINESS_CHECKS` otherwise. See [Composable Features](composable-features.md).
 
 ## Hardening Checklist
 

@@ -5,7 +5,7 @@ import pytest
 
 from src.infrastructure import readiness as readiness_module
 from src.infrastructure.composition import ReadinessCheck
-from src.infrastructure.readiness import READY, UNAVAILABLE, forget_cached_report, probe
+from src.infrastructure.readiness import READY, UNAVAILABLE, forget_cached_report, probe, readiness_report
 
 pytestmark = pytest.mark.asyncio
 
@@ -124,3 +124,50 @@ async def test_a_failure_logs_the_name_and_the_exception_type_only(caplog):
 
     assert "ConnectionRefusedError" in caplog.text
     assert "s3cret" not in caplog.text
+
+
+class TestWhichChecksGateTraffic:
+    """A critical dependency decides the answer; an informational one is only reported."""
+
+    async def test_an_informational_failure_leaves_the_app_ready(self, caplog):
+        calls: list[str] = []
+        critical = (_answering("database", calls=calls),)
+        informational = (_answering("cache", calls=calls, fails=True),)
+
+        with caplog.at_level("WARNING"):
+            ready, answers = await readiness_report(critical, informational)
+
+        assert ready is True
+        assert answers == {"database": READY, "cache": UNAVAILABLE}
+        assert "cache" in caplog.text
+
+    async def test_a_critical_failure_holds_traffic_back(self):
+        calls: list[str] = []
+        critical = (_answering("database", calls=calls, fails=True),)
+        informational = (_answering("cache", calls=calls),)
+
+        ready, answers = await readiness_report(critical, informational)
+
+        assert ready is False
+        assert answers == {"database": UNAVAILABLE, "cache": READY}
+
+    async def test_everything_reachable_is_ready(self):
+        calls: list[str] = []
+
+        ready, answers = await readiness_report((_answering("database", calls=calls),), (_answering("cache", calls=calls),))
+
+        assert ready is True
+        assert answers == {"database": READY, "cache": READY}
+
+    async def test_the_informational_warning_is_logged_once_per_probe(self, caplog):
+        """A probe answered from the remembered report logs nothing of its own."""
+        calls: list[str] = []
+        critical = (_answering("database", calls=calls),)
+        informational = (_answering("cache", calls=calls, fails=True),)
+
+        with caplog.at_level("WARNING"):
+            await readiness_report(critical, informational)
+            await readiness_report(critical, informational)
+
+        assert calls == ["database", "cache"]
+        assert caplog.text.count("which does not hold traffic back") == 1
