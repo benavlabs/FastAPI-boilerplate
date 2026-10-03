@@ -27,7 +27,7 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   `backend/tests/wiring.py` do the same for seeders and fixtures. See
   [Composable Features](user-guide/composable-features.md).
 - **Contribution shapes** in `infrastructure/composition.py`: `RouterMount`, `Lifecycle`,
-  `PermissionSource`, `RateLimitResolver`, `TierDeleteGuard`, `ReadinessCheck`.
+  `PermissionSource`, `RateLimitResolver`, `TierDeleteGuard`, `TierDeleteRelease`, `ReadinessCheck`.
 - **`tools/removal_drill.py`** — builds the repository without each feature and runs five checks
   (the app imports, every module imports, ruff, mypy, tests) per preset.
 - **`GET /health/ready`** — answers `503` while a dependency the project selected is unreachable:
@@ -83,6 +83,12 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   the path each request arrived through, prefix included (`--root-path /svc` gives `/svc/admin`).
   Moving the panel, or serving the app under a prefix, no longer leaves every admin request bouncing
   back to the login form.
+- **A soft-deleted tier keeps its soft-deleted users.** `TierService.delete` no longer clears
+  `user.tier_id` on rows a soft delete had already removed - only `permanent_delete` does, where the
+  foreign key requires it - and a soft-deleted user no longer blocks either delete. A soft-deleted
+  rate limit no longer blocks a tier delete either; a permanent delete removes those rows through
+  `TIER_DELETE_RELEASES`, a new contribution point in `src/wiring/hooks.py` for whatever a feature
+  keeps for a tier.
 - **The admin panel really refuses a deleted tier.** sqladmin hands the form's selection over as a
   primary key, so the old check never fired: the panel now loads the tier and refuses a soft-deleted
   one, the picker lists only live tiers, and the Tiers listing counts what it shows.

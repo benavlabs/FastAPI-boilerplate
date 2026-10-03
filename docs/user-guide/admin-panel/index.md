@@ -61,7 +61,11 @@ deleted one is refused with "That tier has been deleted. Pick another one."
 
 ### Deleting a Tier
 
-The Tier delete button calls `TierService.permanent_delete`, which **fails** if any users or rate limits still reference the tier. This prevents dangling foreign keys. Reassign or remove the dependents first.
+The Tier delete button calls `TierService.permanent_delete`, which **fails** if any live user or
+rate limit still references the tier. This prevents dangling foreign keys. Reassign or remove the
+dependents first. Users a soft delete already removed are released from the tier as part of the
+permanent delete; a *soft* delete of a tier (`DELETE /api/v1/tiers/{name}`) leaves them on it, so a
+restore finds them where they were.
 
 ## How Authentication Works
 

@@ -80,19 +80,32 @@ async def test_a_deleted_tier_cannot_be_renamed(tier_service: TierService, db_se
     assert await crud_tiers.exists(db=db_session, name=test_tier["name"])
 
 
-@pytest.mark.parametrize("method", DELETE_METHODS)
-async def test_a_tier_held_only_by_deleted_users_can_be_removed(
-    tier_service: TierService, db_session: AsyncSession, tiered_user: dict, test_tier: dict, method: str
+async def test_a_soft_delete_leaves_a_deleted_users_tier_alone(
+    tier_service: TierService, db_session: AsyncSession, tiered_user: dict, test_tier: dict
 ):
-    """user.tier_id has no ondelete, so the rows have to be released first."""
+    """A soft delete is reversible, and keeps what a restore would need."""
     await crud_users.delete(db=db_session, id=tiered_user["id"])
 
-    await getattr(tier_service, method)(test_tier["name"], db_session)
+    await tier_service.delete(test_tier["name"], db_session)
+
+    kept = await crud_users.get(db=db_session, id=tiered_user["id"])
+    assert kept is not None
+    assert kept["tier_id"] == test_tier["id"]
+    assert not await crud_tiers.exists(db=db_session, name=test_tier["name"], is_deleted=False)
+
+
+async def test_a_permanent_delete_releases_a_deleted_users_tier(
+    tier_service: TierService, db_session: AsyncSession, tiered_user: dict, test_tier: dict
+):
+    """``user.tier_id`` has no ``ondelete``, so the rows have to be released first."""
+    await crud_users.delete(db=db_session, id=tiered_user["id"])
+
+    await tier_service.permanent_delete(test_tier["name"], db_session)
 
     released = await crud_users.get(db=db_session, id=tiered_user["id"])
     assert released is not None
     assert released["tier_id"] is None
-    assert not await crud_tiers.exists(db=db_session, name=test_tier["name"], is_deleted=False)
+    assert not await crud_tiers.exists(db=db_session, name=test_tier["name"])
 
 
 async def test_a_live_user_still_keeps_the_tier(

@@ -16,7 +16,7 @@ plain objects at stable paths, and one package collects them.
 |------|---------------|
 | `app.py` | `ROUTER_MOUNTS`, `ROOT_ROUTERS`, `API_THROTTLE`, `LIFECYCLES`, `INSTALLERS`, `DOCS_GUARD` |
 | `settings.py` | each feature's settings mixin, with the core last |
-| `hooks.py` | `PERMISSION_SOURCES`, `RATE_LIMIT_RESOLVERS`, `TIER_DELETE_GUARDS`, `CRITICAL_READINESS_CHECKS`, `INFORMATIONAL_READINESS_CHECKS` |
+| `hooks.py` | `PERMISSION_SOURCES`, `RATE_LIMIT_RESOLVERS`, `TIER_DELETE_GUARDS`, `TIER_DELETE_RELEASES`, `CRITICAL_READINESS_CHECKS`, `INFORMATIONAL_READINESS_CHECKS` |
 | `models.py` | `UserModelExtensions`, `UserSchemaExtensions` |
 | `admin.py` | `ADMIN_VIEWS` |
 
@@ -43,6 +43,8 @@ feature that owns it, which exposes the answer for the wiring to list.
 - `PermissionSource` — answers which permissions a user holds.
 - `RateLimitResolver` — answers the limit for a request, or `None` to decline.
 - `TierDeleteGuard` — answers why a tier can't be deleted, or `None` to allow it.
+- `TierDeleteRelease` — removes the rows a feature keeps for a tier that a soft delete already took
+  out, before the tier is permanently deleted.
 - `ReadinessCheck(name, check)` — a dependency the app needs before it can serve.
 
 A feature that wants to extend the `User` model contributes a mixin instead: see

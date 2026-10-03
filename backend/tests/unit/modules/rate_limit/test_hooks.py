@@ -5,10 +5,12 @@ from typing import cast
 
 from crudauth import Principal
 from fastapi import Request
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.infrastructure.database.session import async_session
 from src.modules.rate_limit.crud import crud_rate_limits
-from src.modules.rate_limit.hooks import tier_rate_limit
+from src.modules.rate_limit.hooks import rate_limits_reference_tier, tier_rate_limit
+from src.modules.rate_limit.models import RateLimit
 
 _SENTINEL_DB = object()
 
@@ -116,3 +118,26 @@ async def test_the_lookup_ignores_soft_deleted_rows(monkeypatch):
 
     assert await tier_rate_limit(_request_for("/api/v1/tiers/", override_session), principal) is None
     assert seen["is_deleted"] is False
+
+
+class TestWhatHoldsATierBack:
+    """The guard a tier delete asks, and which rows it counts."""
+
+    async def test_a_live_rate_limit_holds_the_tier(self, db_session: AsyncSession, test_tier: dict):
+        db_session.add(RateLimit(tier_id=test_tier["id"], name="live", path="/api/v1/users/", limit=2, period=3600))
+        await db_session.commit()
+
+        refusal = await rate_limits_reference_tier(test_tier, db_session)
+
+        assert refusal is not None
+        assert "rate limits" in refusal
+
+    async def test_a_soft_deleted_rate_limit_does_not(self, db_session: AsyncSession, test_tier: dict):
+        db_session.add(RateLimit(tier_id=test_tier["id"], name="gone", path="/api/v1/users/", limit=2, period=3600))
+        await db_session.commit()
+        await crud_rate_limits.delete(db=db_session, name="gone")
+
+        assert await rate_limits_reference_tier(test_tier, db_session) is None
+
+    async def test_a_tier_with_no_rate_limits_at_all_is_free(self, db_session: AsyncSession, test_tier: dict):
+        assert await rate_limits_reference_tier(test_tier, db_session) is None

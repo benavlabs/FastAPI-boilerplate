@@ -4,7 +4,7 @@ from fastcrud.types import GetMultiResponseDict
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...wiring.hooks import TIER_DELETE_GUARDS
+from ...wiring.hooks import TIER_DELETE_GUARDS, TIER_DELETE_RELEASES
 from ..common.exceptions import (
     PersistenceError,
     ResourceExistsError,
@@ -80,12 +80,14 @@ class TierService:
         await crud_tiers.update(db=db, object=tier_update, name=name)
 
     async def delete(self, name: str, db: AsyncSession) -> None:
-        """Soft delete a tier that no users or rate limits reference."""
+        """Soft delete a tier that no live user or rate limit references.
+
+        Leaves the tier on the users and rate limits a soft delete already took out.
+        """
         existing_tier = await crud_tiers.get(db=db, name=name, schema_to_select=TierRead, is_deleted=False)
         if not existing_tier:
             raise TierNotFoundError(f"Tier with name '{name}' not found")
 
-        await self._release_deleted_users(existing_tier, db)
         await self._ensure_unreferenced(existing_tier, db)
         await crud_tiers.delete(db=db, name=name)
 
@@ -95,20 +97,24 @@ class TierService:
         if not existing_tier:
             raise TierNotFoundError(f"Tier with name '{name}' not found")
 
-        await self._release_deleted_users(existing_tier, db)
         await self._ensure_unreferenced(existing_tier, db)
+        await self._release_deleted_dependents(existing_tier, db)
         await crud_tiers.db_delete(db=db, name=name)
 
-    async def _release_deleted_users(self, tier: dict[str, Any], db: AsyncSession) -> None:
-        """Take the tier off the users a soft delete already removed.
+    async def _release_deleted_dependents(self, tier: dict[str, Any], db: AsyncSession) -> None:
+        """Clear the tier from the rows a soft delete already removed, feature by feature.
 
-        ``user.tier_id`` has no ``ondelete``, so a row still pointing at the tier
-        would refuse the delete at the database.
+        Nulls ``user.tier_id`` on soft-deleted users, then runs each release the wiring
+        lists for whatever a feature keeps of its own.
         """
         await db.execute(update(User).where(User.tier_id == tier["id"], User.is_deleted.is_(True)).values(tier_id=None))
 
+        for release in TIER_DELETE_RELEASES:
+            await release(tier, db)
+
     async def _ensure_unreferenced(self, tier: dict[str, Any], db: AsyncSession) -> None:
-        if await crud_users.exists(db=db, tier_id=tier["id"]):
+        """Raise when a live user or a contributed guard still holds the tier."""
+        if await crud_users.exists(db=db, tier_id=tier["id"], is_deleted=False):
             raise ValidationError(
                 f"Cannot delete tier '{tier['name']}' because it is assigned to users. Reassign users to another tier first."
             )
@@ -179,8 +185,8 @@ class TierService:
 
         Note:
             Returns complete tier details including tier name, description,
-            and configuration. Users without tier assignments have tier=None, and
-            so do users still pointing at a tier that has since been deleted.
+            and configuration. A user without a tier assignment, or one still
+            pointing at a deleted tier, has tier=None.
 
         Example:
             ```python

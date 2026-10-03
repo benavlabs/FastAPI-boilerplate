@@ -4,22 +4,24 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from crudauth import Principal
-from crudauth.ratelimit import RateLimit
+from crudauth.ratelimit import RateLimit as CrudAuthRateLimit
 from fastapi import Request
+from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...infrastructure.auth.setup import auth
 from ...infrastructure.database.session import async_session
 from ...infrastructure.ratelimit.routing import throttled_path
 from .crud import crud_rate_limits
+from .models import RateLimit
 from .schemas import RateLimitSelect
 
 
-async def tier_rate_limit(request: Request, principal: Principal | None) -> RateLimit | None:
+async def tier_rate_limit(request: Request, principal: Principal | None) -> CrudAuthRateLimit | None:
     """The caller's configured limit for this path, when their tier has one.
 
-    The row is read through the app's own database dependency, honoring any
-    override on it, so the lookup uses the same database as the route it guards.
+    Reads the row through the app's own database dependency, honouring any override
+    on it.
     """
     tier_id: Any = auth.repo.get(principal.user, "tier_id") if principal is not None and principal.user else None
     if tier_id is None:
@@ -35,12 +37,17 @@ async def tier_rate_limit(request: Request, principal: Principal | None) -> Rate
             schema_to_select=RateLimitSelect,
         )
 
-    return RateLimit(configured["limit"], configured["period"]) if configured else None
+    return CrudAuthRateLimit(configured["limit"], configured["period"]) if configured else None
 
 
 async def rate_limits_reference_tier(tier: dict[str, Any], db: AsyncSession) -> str | None:
     """Refuse to delete a tier that still has rate limits, and say why."""
-    if await crud_rate_limits.exists(db=db, tier_id=tier["id"]):
+    if await crud_rate_limits.exists(db=db, tier_id=tier["id"], is_deleted=False):
         return f"Cannot delete tier '{tier['name']}' because it has rate limits. Delete the rate limits first."
 
     return None
+
+
+async def release_deleted_rate_limits(tier: dict[str, Any], db: AsyncSession) -> None:
+    """Delete the tier's rate limits that a soft delete already took out."""
+    await db.execute(delete(RateLimit).where(RateLimit.tier_id == tier["id"], RateLimit.is_deleted.is_(True)))

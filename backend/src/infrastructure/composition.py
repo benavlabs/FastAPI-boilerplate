@@ -44,12 +44,16 @@ TierDeleteGuard = Callable[[dict[str, Any], AsyncSession], Awaitable[str | None]
 """Answers why a tier can't be deleted, or ``None`` to allow it."""
 
 
+TierDeleteRelease = Callable[[dict[str, Any], AsyncSession], Awaitable[None]]
+"""Removes the rows a feature keeps for a tier that a soft delete already took out."""
+
+
 @dataclass(frozen=True)
 class ReadinessCheck:
     """A dependency the app needs before it can serve, and how to ask whether it is there.
 
-    ``target`` names the connection the check probes, so two features pointed at one
-    server are asked once.
+    ``target`` names the connection the check probes; two checks naming one server are
+    asked once.
     """
 
     name: str

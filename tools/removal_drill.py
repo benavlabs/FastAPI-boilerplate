@@ -295,12 +295,19 @@ def _wiring_app(chosen: set[str]) -> str:
 
 def _wiring_hooks(chosen: set[str]) -> str:
     imports = [
-        "from ..infrastructure.composition import PermissionSource, RateLimitResolver, ReadinessCheck, TierDeleteGuard",
+        "from ..infrastructure.composition import (\n"
+        "    PermissionSource,\n"
+        "    RateLimitResolver,\n"
+        "    ReadinessCheck,\n"
+        "    TierDeleteGuard,\n"
+        "    TierDeleteRelease,\n"
+        ")",
         "from ..infrastructure.database.health import readiness as database_readiness",
     ]
     sources = "()"
     resolvers = "()"
     guards = "()"
+    releases = "()"
     critical = ["database_readiness"]
     informational: list[str] = []
 
@@ -308,9 +315,12 @@ def _wiring_hooks(chosen: set[str]) -> str:
         imports.append("from ..modules.role.sources import role_permissions")
         sources = "(role_permissions,)"
     if "tier_limits" in chosen:
-        imports.append("from ..modules.rate_limit.hooks import rate_limits_reference_tier, tier_rate_limit")
+        imports.append(
+            "from ..modules.rate_limit.hooks import rate_limits_reference_tier, release_deleted_rate_limits, tier_rate_limit"
+        )
         resolvers = "(tier_rate_limit,)"
         guards = "(rate_limits_reference_tier,)"
+        releases = "(release_deleted_rate_limits,)"
     if "accounts" in chosen:
         imports.append("from ..infrastructure.auth.health import limiter_readiness, sessions_readiness")
         critical.extend(["limiter_readiness", "sessions_readiness"])
@@ -330,6 +340,7 @@ def _wiring_hooks(chosen: set[str]) -> str:
         + f"\n\nPERMISSION_SOURCES: tuple[PermissionSource, ...] = {sources}\n"
         f"RATE_LIMIT_RESOLVERS: tuple[RateLimitResolver, ...] = {resolvers}\n"
         f"TIER_DELETE_GUARDS: tuple[TierDeleteGuard, ...] = {guards}\n"
+        f"TIER_DELETE_RELEASES: tuple[TierDeleteRelease, ...] = {releases}\n"
         f"CRITICAL_READINESS_CHECKS: tuple[ReadinessCheck, ...] = {critical_checks}\n"
         f"INFORMATIONAL_READINESS_CHECKS: tuple[ReadinessCheck, ...] = {informational_checks}\n"
     )
