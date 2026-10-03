@@ -10,7 +10,15 @@ When `ENVIRONMENT=production`, `infrastructure/security/production_validator.py`
 
 The app **will not start** if any of these is true:
 
-- **`SECRET_KEY` is insecure.** Default placeholder, < 32 chars, contains an obvious string ("password", "secret", "test", "dev", "default", etc.), or has a predictable pattern (repetition, all-same-char).
+- **`SECRET_KEY` reads as something other than random.** Refused when it is empty or under 32
+  characters, or when one of these covers most of its length: a placeholder or hand-written word
+  (`password`, `secret`, `test`, `dev`, `default`, …), a short block written out again
+  (`prodprodprod…`), a walk across neighbouring keys (`qwertyuiop…`, `1qaz2wsx…`), or words anyone
+  would recognise (`MyCompanyApiSigningKeyForProd2026`, `thisismysupersecurekeyforthisapp`). Also
+  refused on a run of eight consecutive code points, or under 64 bits of entropy. Every rule is a
+  share of the whole value, so a generated key that happens to spell a word still passes: the tests
+  sweep 100,000 keys of each kind `bp env gen-secret` produces (`secrets.token_hex(16/32)`,
+  `secrets.token_urlsafe(24/32)`), and none of the 400,000 was refused.
 - **The database password is `postgres`** (the well-known default). Attackers try this first.
 - **The database password is empty.** Database is unprotected.
 - **The admin panel is enabled without credentials** (`ADMIN_ENABLED=true` with `ADMIN_USERNAME` or `ADMIN_PASSWORD` unset).

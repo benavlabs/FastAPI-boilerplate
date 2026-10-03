@@ -11,7 +11,7 @@ from src.infrastructure.config.base import ini_value
 from src.infrastructure.config.settings import EnvironmentOption, settings
 from src.infrastructure.database.registry import import_models
 from src.infrastructure.database.session import Base
-from src.infrastructure.security.production_validator import is_weak_secret_key
+from src.infrastructure.security.secret_key import is_weak_secret_key
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

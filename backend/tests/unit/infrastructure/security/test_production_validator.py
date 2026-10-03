@@ -13,6 +13,7 @@ from src.infrastructure.security.production_validator import (
     ProductionSecurityValidator,
     validate_production_security,
 )
+from src.infrastructure.security.secret_key import is_weak_secret_key
 
 
 class TestProductionSecurityValidator:
@@ -458,18 +459,27 @@ class TestTheSecretKeyRule:
     def _validator(self, secret: str) -> ProductionSecurityValidator:
         return ProductionSecurityValidator(Settings(SECRET_KEY=secret, ENVIRONMENT=EnvironmentOption.PRODUCTION))
 
-    @pytest.mark.parametrize("generate", [lambda: secrets.token_hex(32), lambda: secrets.token_urlsafe(32)])
+    @pytest.mark.parametrize(
+        "generate",
+        [
+            lambda: secrets.token_hex(16),
+            lambda: secrets.token_hex(32),
+            lambda: secrets.token_urlsafe(24),
+            lambda: secrets.token_urlsafe(32),
+        ],
+    )
     def test_every_generated_key_is_accepted(self, generate):
         """A key from `bp env gen-secret` must never keep production from starting."""
-        refused = [key for _ in range(10_000) if self._validator(key := generate())._is_insecure_secret_key()]
+        refused = [key for _ in range(100_000) if is_weak_secret_key(key := generate())]
 
         assert refused == []
 
-    def test_a_key_of_random_bytes_at_the_minimum_length_is_accepted(self):
-        """32 hex characters is 128 bits; the rules must not read that as too little."""
-        refused = [key for _ in range(2_000) if self._validator(key := secrets.token_hex(16))._is_insecure_secret_key()]
+    def test_a_generated_key_reaches_the_validator_as_it_reaches_the_rules(self):
+        """The validator asks the same question these sweeps ask."""
+        key = secrets.token_hex(16)
 
-        assert refused == []
+        assert not self._validator(key)._is_insecure_secret_key()
+        assert self._validator("insecure-secret-key-change-this")._is_insecure_secret_key()
 
     def test_a_passphrase_of_unrelated_words_is_accepted(self):
         assert not self._validator("brook-mellow-tundra-quartz-ripple-42")._is_insecure_secret_key()
@@ -493,6 +503,25 @@ class TestTheSecretKeyRule:
         ],
     )
     def test_a_weak_key_is_refused(self, secret: str):
+        assert self._validator(secret)._is_insecure_secret_key()
+
+    @pytest.mark.parametrize(
+        "secret",
+        [
+            "qwertyuiopasdfghjklzxcvbnm123456",
+            "1qaz2wsx3edc4rfv5tgb6yhn7ujm8ik,",
+            "monkey" * 5 + "12",
+            "welcome1" * 4 + "2",
+            "hunter2hunter2hunter2hunter2hunter22",
+            "prodprodprodprodprodprodprodprod1",
+            "Summer2026!Summer2026!Summer2026!!",
+            "abc123" * 5 + "ab",
+            "MyCompanyApiSigningKeyForProd2026",
+            "thisismysupersecurekeyforthisapp",
+        ],
+    )
+    def test_a_key_that_reads_as_typed_is_refused(self, secret: str):
+        """Long enough and varied enough to pass an entropy floor, and still hand-written."""
         assert self._validator(secret)._is_insecure_secret_key()
 
     def test_a_generated_key_that_happens_to_spell_a_weak_word_is_accepted(self):

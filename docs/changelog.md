@@ -61,9 +61,14 @@ matrix. The round that followed fixed what a re-review of the refactor found.
 - **The admin panel's session cookie** is its own middleware, scoped to `/admin`, `Secure` outside
   local and development, and valid for 8 hours. Changing a user's address in the panel clears
   `email_verified`.
-- **The secret-key check** measures placeholders, hand-written words, repeated blocks, ordered runs
-  and entropy against a share of the whole value: `token_hex(32)` and `token_urlsafe(32)` always
-  pass, and values like `"12345678" * 4` or `my-company-api-signing-key-for-prod` never do.
+- **The secret-key check** measures placeholders, hand-written words, repeated blocks (whole or with
+  a remainder), ordered runs, walks across neighbouring keyboard keys, and words anyone would
+  recognise, each against a share of the whole value, plus an entropy floor. No key was refused in 100,000
+  samples of each of `token_hex(16)`, `token_hex(32)`, `token_urlsafe(24)` and `token_urlsafe(32)`,
+  while `"12345678" * 4`,
+  `qwertyuiopasdfghjklzxcvbnm123456`, `1qaz2wsx3edc4rfv5tgb6yhn7ujm8ik,`, `"monkey" * 5 + "12"`,
+  `hunter2hunter2hunter2hunter2hunter22`, `Summer2026!Summer2026!Summer2026!!`,
+  `MyCompanyApiSigningKeyForProd2026` and `thisismysupersecurekeyforthisapp` never do.
 - **The API metadata defaults are empty**, so a generated project's OpenAPI document carries no
   contact, licence or URL it didn't configure, and emits a licence `identifier` or `url`, never both.
 - **The database name, the RabbitMQ vhost and every Redis URL** are escaped or refused rather than
@@ -189,6 +194,11 @@ matrix. The round that followed fixed what a re-review of the refactor found.
 - **Task results are stored as JSON**, not pickles. The Redis result backend no longer unpickles what
   it reads, so a result key written by an older worker can't be read back. Drain the queue and clear
   the result keys before deploying both sides.
+- **A stricter `SECRET_KEY` check can stop a production deploy that used to start.** A key that
+  repeats a block, walks the keyboard, or reads as ordinary words is now refused, where before only
+  whole repeats and placeholders were. Generate one with `bp env gen-secret` (or
+  `python -c 'import secrets; print(secrets.token_urlsafe(32))'`) and roll it before deploying -
+  rotating `SECRET_KEY` invalidates existing sessions and admin logins.
 - **Regenerate an nginx stack** (`bp deploy generate nginx`) to get the `X-Forwarded-For` change.
   Until then a client can send its own `X-Forwarded-For`, and uvicorn - trusting the compose
   network - reports it as `request.client`.
