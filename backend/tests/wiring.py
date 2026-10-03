@@ -3,7 +3,7 @@
 Hand-maintained until the generator exists.
 """
 
-PYTEST_PLUGINS = [
+PYTEST_PLUGINS: list[str] = [
     "tests.fixtures.accounts",
     "tests.fixtures.tiers",
 ]

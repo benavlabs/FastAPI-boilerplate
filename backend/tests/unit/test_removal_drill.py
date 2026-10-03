@@ -4,6 +4,7 @@ The drill lives outside the backend package, so it is loaded from its path rathe
 than imported.
 """
 
+import ast
 import importlib.util
 import sys
 from pathlib import Path
@@ -41,3 +42,53 @@ def test_every_feature_the_wiring_knows_is_in_the_manifest():
 def test_a_scratch_project_never_carries_the_repository_env_file():
     """It would point a build at whatever the developer runs locally."""
     assert ".env" in drill.COPY_EXCLUDES
+
+
+BACKEND_ROOT = Path(__file__).resolve().parents[2]
+GENERATED_FILES = (
+    ("src/wiring/settings.py", "_wiring_settings"),
+    ("src/wiring/app.py", "_wiring_app"),
+    ("src/wiring/hooks.py", "_wiring_hooks"),
+    ("src/wiring/models.py", "_wiring_models"),
+    ("src/wiring/admin.py", "_wiring_admin"),
+    ("scripts/seeders.py", "_seeders"),
+    ("tests/wiring.py", "_tests_wiring"),
+)
+
+
+def _without_formatting(source: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """A module's imports and statements, as trees: no docstring, no comments, no layout."""
+    body = ast.parse(source).body
+    if body and isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant):
+        body = body[1:]
+
+    imports = sorted(ast.dump(node) for node in body if isinstance(node, ast.Import | ast.ImportFrom))
+    statements = [ast.dump(node) for node in body if not isinstance(node, ast.Import | ast.ImportFrom)]
+
+    return tuple(imports), tuple(statements)
+
+
+def _features_on_disk() -> set[str]:
+    """The features this project still carries, read from the source paths they own."""
+    repository = BACKEND_ROOT.parent
+    present = set()
+    for name, feature in drill.FEATURES.items():
+        sources = [path for path in feature.paths if path.startswith("backend/src")]
+        if sources and all((repository / path).exists() for path in sources):
+            present.add(name)
+
+    return present
+
+
+def test_the_generator_rebuilds_what_this_project_committed():
+    """The drill proves a regenerated project reproduces this one, which needs them equal."""
+    present = _features_on_disk()
+
+    assert (BACKEND_ROOT / "src/wiring/admin.py").exists() == ("admin" in present)
+
+    for name, generator in GENERATED_FILES:
+        committed = BACKEND_ROOT / name
+        if name == "src/wiring/admin.py" and "admin" not in present:
+            continue
+
+        assert _without_formatting(getattr(drill, generator)(present)) == _without_formatting(committed.read_text()), name

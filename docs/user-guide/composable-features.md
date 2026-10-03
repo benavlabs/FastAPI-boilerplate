@@ -73,8 +73,14 @@ accounts **and** admin, and `modules/tier/admin.py` only with tiers **and** admi
 
 `tools/removal_drill.py` builds a copy of the repository for a set of features,
 deletes the paths of the ones left out, regenerates the wiring, and then checks
-that the app imports, that every module imports, that ruff and mypy pass, and that
-the remaining tests pass.
+that the app imports, that every module imports, that ruff and mypy pass over
+`src scripts migrations tests`, and that the remaining tests pass.
+
+The generator is held to the wiring this repository commits:
+`tests/unit/test_removal_drill.py` regenerates `src/wiring/`, `scripts/seeders.py` and
+`tests/wiring.py` for the features a project carries and compares the result tree by
+tree, ignoring docstrings and formatting. A contribution added to any of those files by
+hand and not to the generator fails there.
 
 It runs on the interpreter that invoked it, so run it through uv (the checks need
 the project's dependencies) and with Docker up (the tests use a Postgres container):

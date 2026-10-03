@@ -215,20 +215,23 @@ def _wiring_settings(chosen: set[str]) -> str:
 
 
 def _wiring_app(chosen: set[str]) -> str:
+    fastapi_names = "APIRouter, Depends, FastAPI" if "ratelimit" in chosen else "APIRouter, FastAPI"
     imports = [
         "from collections.abc import Callable",
         "from typing import Any",
         "",
-        "from fastapi import APIRouter, Depends, FastAPI",
+        f"from fastapi import {fastapi_names}",
         "",
         "from ..infrastructure.composition import Lifecycle, RouterMount",
     ]
-    mounts: list[str] = []
     root_routers = "()"
     throttle = "()"
     lifecycles: list[str] = []
     installers: list[str] = []
     docs_guard = "None"
+
+    user_mounts: list[str] = []
+    collection_mounts: list[str] = []
 
     if "accounts" in chosen:
         imports += [
@@ -239,10 +242,7 @@ def _wiring_app(chosen: set[str]) -> str:
             "from ..infrastructure.auth.setup import lifecycle as accounts_lifecycle",
             "from ..modules.user.routes import router as users_router",
         ]
-        mounts += [
-            'RouterMount(users_router, "/users", throttled=True)',
-            'RouterMount(auth_router, "/auth", throttled=False)',
-        ]
+        user_mounts.append('RouterMount(users_router, "/users", throttled=True)')
         root_routers = "accounts_root_routers"
         lifecycles.append("accounts_lifecycle")
         installers.append("accounts_install")
@@ -255,28 +255,28 @@ def _wiring_app(chosen: set[str]) -> str:
             "from ..modules.tier.routes import router as tiers_router",
             "from ..modules.tier.routes import user_tier_router",
         ]
-        mounts += [
-            'RouterMount(user_tier_router, "/users", throttled=True)',
-            'RouterMount(tiers_router, "/tiers", throttled=True)',
-        ]
+        user_mounts.append('RouterMount(user_tier_router, "/users", throttled=True)')
+        collection_mounts.append('RouterMount(tiers_router, "/tiers", throttled=True)')
     if "tier_limits" in chosen:
         imports += [
             "from ..modules.rate_limit.routes import router as rate_limits_router",
             "from ..modules.rate_limit.routes import user_rate_limits_router",
         ]
-        mounts += [
-            'RouterMount(user_rate_limits_router, "/users", throttled=True)',
-            'RouterMount(rate_limits_router, "/rate-limits", throttled=True)',
-        ]
+        user_mounts.append('RouterMount(user_rate_limits_router, "/users", throttled=True)')
+        collection_mounts.append('RouterMount(rate_limits_router, "/rate-limits", throttled=True)')
+    if "accounts" in chosen:
+        collection_mounts.append('RouterMount(auth_router, "/auth", throttled=False)')
     if "api_keys" in chosen:
         imports.append("from ..modules.api_keys.routes import router as api_keys_router")
-        mounts.append('RouterMount(api_keys_router, "/api-keys", throttled=True)')
+        collection_mounts.append('RouterMount(api_keys_router, "/api-keys", throttled=True)')
     if "cache" in chosen:
         imports.append("from ..infrastructure.cache.initialize import lifecycle as cache_lifecycle")
         lifecycles.append("cache_lifecycle")
     if "admin" in chosen:
         imports.append("from ..interfaces.admin.initialize import install as admin_install")
         installers.append("admin_install")
+
+    mounts = user_mounts + collection_mounts
 
     def tuple_of(items: list[str]) -> str:
         return "(\n    " + ",\n    ".join(items) + ",\n)" if items else "()"
@@ -347,7 +347,7 @@ def _wiring_hooks(chosen: set[str]) -> str:
 
 
 def _wiring_models(chosen: set[str]) -> str:
-    imports = ["from pydantic import BaseModel"]
+    imports: list[str] = []
     model_bases, schema_bases = [], []
     if "rbac" in chosen:
         imports.append("from ..modules.role.contrib import UserRoleColumns")
@@ -358,6 +358,8 @@ def _wiring_models(chosen: set[str]) -> str:
         schema_bases.append("UserTierFields")
     model_line = ", ".join(model_bases) if model_bases else ""
     schema_line = ", ".join(schema_bases) if schema_bases else "BaseModel"
+    if not schema_bases:
+        imports.append("from pydantic import BaseModel")
     return (
         '"""Extension points of the user model: what other features add to ``User``."""\n\n'
         + "\n".join(sorted(imports))
@@ -393,10 +395,11 @@ def _seeders(chosen: set[str]) -> str:
         imports.append("from scripts.create_first_superuser import create_first_superuser")
         seeds.append("create_first_superuser")
     body = "(\n    " + ",\n    ".join(seeds) + ",\n)" if seeds else "()"
+    imports.append("from collections.abc import Awaitable, Callable")
     return (
         '"""The initial-data steps ``scripts/setup_initial_data.py`` runs, in order."""\n\n'
         + "\n".join(sorted(imports))
-        + f"\n\nSEEDERS = {body}\n"
+        + f"\n\nSEEDERS: tuple[Callable[[], Awaitable[None]], ...] = {body}\n"
     )
 
 
@@ -407,7 +410,10 @@ def _tests_wiring(chosen: set[str]) -> str:
     if "tiers" in chosen:
         plugins.append('"tests.fixtures.tiers"')
     body = "[\n    " + ",\n    ".join(plugins) + ",\n]" if plugins else "[]"
-    return f'"""Fixture modules of the selected features, loaded by ``tests/conftest.py``."""\n\nPYTEST_PLUGINS = {body}\n'
+    return (
+        '"""Fixture modules of the selected features, loaded by ``tests/conftest.py``."""\n\n'
+        f"PYTEST_PLUGINS: list[str] = {body}\n"
+    )
 
 
 def build(preset: str, into: Path) -> Path:
@@ -509,7 +515,7 @@ def check(project: Path, python: Path) -> list[tuple[str, bool, str]]:
         ("app imports", [str(python), "-c", quiet + "import src.interfaces.main"]),
         ("every module imports", [str(python), "-c", quiet + _IMPORT_EVERY_MODULE]),
         ("ruff", [str(python), "-m", "ruff", "check", "src", "tests"]),
-        ("mypy", [str(python), "-m", "mypy", "src", "--config-file", "pyproject.toml"]),
+        ("mypy", [str(python), "-m", "mypy", "src", "scripts", "migrations", "tests", "--config-file", "pyproject.toml"]),
         ("tests", [str(python), "-m", "pytest", "tests", "-q", "-p", "no:randomly"]),
     ]
     results = []

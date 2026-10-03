@@ -88,6 +88,11 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   the path each request arrived through, prefix included (`--root-path /svc` gives `/svc/admin`).
   Moving the panel, or serving the app under a prefix, no longer leaves every admin request bouncing
   back to the login form.
+- **The removal drill rebuilds the wiring this repository commits.** The generator produces the real
+  router order and the same imports, and a test regenerates `src/wiring/`, `scripts/seeders.py` and
+  `tests/wiring.py` for the features a project carries and compares the trees, so generator drift
+  fails the suite rather than going unnoticed. The drill's mypy step now covers
+  `src scripts migrations tests`, as CI does.
 - **A rate limit's `path` is validated as the route template it has to match.** The pattern is
   anchored at both ends, so a trailing newline or space is refused; Starlette's converters
   (`{id:int}`, `{id:uuid}`, `{p:path}`, `str`, `float`) are accepted, as are templates with literal
