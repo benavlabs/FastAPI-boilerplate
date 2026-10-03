@@ -4,6 +4,7 @@ from typing import Any
 
 from fastcrud import JoinConfig
 from fastcrud.types import GetMultiResponseDict
+from sqlalchemy import and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..common.exceptions import (
@@ -156,14 +157,14 @@ class RateLimitService:
         joins_config = [
             JoinConfig(
                 model=Tier,
-                join_on=User.tier_id == Tier.id,
+                join_on=and_(User.tier_id == Tier.id, Tier.is_deleted.is_(False)),
                 join_prefix="tier_",
                 schema_to_select=TierRead,
                 join_type="left",
             ),
             JoinConfig(
                 model=RateLimit,
-                join_on=Tier.id == RateLimit.tier_id,
+                join_on=and_(Tier.id == RateLimit.tier_id, RateLimit.is_deleted.is_(False)),
                 join_prefix="rate_limits_",
                 schema_to_select=RateLimitRead,
                 join_type="left",

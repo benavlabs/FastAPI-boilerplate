@@ -40,7 +40,7 @@ project registers. Out of the box that is two:
 | View | Source | Notes |
 |------|--------|-------|
 | **Users** | `modules/user/admin.py` | Create / edit / delete users; password hashing applied automatically; soft-delete-aware; shows the tier column only when the tiers feature contributed one |
-| **Tiers** | `modules/tier/admin.py` | Manage subscription tiers; uses `TierService.permanent_delete` to prevent orphaning users / rate limits |
+| **Tiers** | `modules/tier/admin.py` | Manage subscription tiers; lists and counts only live ones; uses `TierService.permanent_delete` to prevent orphaning users / rate limits |
 
 Both are categorized under "Users & Access" and provide search, sort, filter, and CSV export.
 
@@ -55,6 +55,9 @@ Navigate to **Users → Create**. Fill the form. The `Password` field accepts pl
 ### Editing a User
 
 Click any user row → **Edit**. You can change the tier, toggle `is_superuser`, update OAuth fields, etc. The hashed password field is shown but you only need to fill it if you want to reset the password.
+
+The tier picker lists only tiers a soft delete hasn't taken out, and a save that still names a
+deleted one is refused with "That tier has been deleted. Pick another one."
 
 ### Deleting a Tier
 

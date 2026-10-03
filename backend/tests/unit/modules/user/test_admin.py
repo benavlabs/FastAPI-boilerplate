@@ -112,22 +112,6 @@ class TestWhatThePanelShows:
         assert "hashed_password" not in edit_fields
 
 
-async def test_the_panel_refuses_to_put_a_user_on_a_deleted_tier():
-    """The form's tier list comes from sqladmin and includes deleted rows."""
-    data = {"tier": SimpleNamespace(id=7, is_deleted=True)}
-
-    with pytest.raises(ValueError, match="deleted"):
-        await UserAdmin().on_model_change(data, SimpleNamespace(email="x@example.com"), False, _no_request())
-
-
-async def test_the_panel_accepts_a_live_tier():
-    data = {"tier": SimpleNamespace(id=7, is_deleted=False)}
-
-    await UserAdmin().on_model_change(data, SimpleNamespace(email="x@example.com"), False, _no_request())
-
-    assert data["tier"].id == 7
-
-
 def test_the_form_rules_name_only_fields_the_model_has():
     """Every form rule names a column or a relationship of the model."""
     mapper = User.__mapper__

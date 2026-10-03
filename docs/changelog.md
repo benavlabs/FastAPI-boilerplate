@@ -79,6 +79,12 @@ matrix. The round that followed fixed what a re-review of the refactor found.
 - **The readiness body carries the overall status only**, and probes that arrive together share one
   run of the checks. Which dependency answered what goes to the log, written by the probe that ran
   them.
+- **The admin panel really refuses a deleted tier.** sqladmin hands the form's selection over as a
+  primary key, so the old check never fired: the panel now loads the tier and refuses a soft-deleted
+  one, the picker lists only live tiers, and the Tiers listing counts what it shows.
+- **A soft-deleted tier or rate limit no longer reaches `GET /api/v1/users/{username}/rate-limits`.**
+  Both joins exclude deleted rows, and a user left pointing at a deleted tier reports no tier and no
+  limits instead of the deleted one's.
 - **The readiness checks name their servers more carefully.** Two checks pointed at one server are
   asked once whatever database index or password follows the port; a cache in the process
   (`CACHE_BACKEND=memory`) names no server at all; the memcached check asks on a connection of its

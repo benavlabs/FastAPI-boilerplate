@@ -9,8 +9,9 @@ from typing import Any
 from crudauth import get_password_hash_async
 from crudauth.utils import canonical_email
 from sqladmin import ModelView
+from sqlalchemy import select
 from starlette.requests import Request
-from wtforms import SelectField
+from wtforms import Form, SelectField
 
 from ...infrastructure.auth.setup import auth
 from ...infrastructure.database.session import local_session
@@ -21,6 +22,11 @@ from .schemas import UserAdminUpdate
 from .service import UserService
 
 OAUTH_PROVIDER_CHOICES = [("", "None")] + [(p.value, p.value.title()) for p in OAuthProvider]
+
+
+def _tier_model() -> Any:
+    """The model the ``tier`` relationship points at."""
+    return User.__mapper__.relationships["tier"].mapper.class_
 
 
 class UserAdmin(DataclassModelMixin, TextCsvExportMixin, ModelView, model=User):
@@ -69,8 +75,40 @@ class UserAdmin(DataclassModelMixin, TextCsvExportMixin, ModelView, model=User):
                 data["email_verified"] = False
         if "oauth_provider" in data and data["oauth_provider"] == "":
             data["oauth_provider"] = None
-        if data.get("tier") is not None and getattr(data["tier"], "is_deleted", False):
-            raise ValueError("That tier has been deleted. Pick another one, or restore it first.")
+        if data.get("tier"):
+            await self._refuse_a_deleted_tier(data["tier"])
+
+    async def _refuse_a_deleted_tier(self, selected: Any) -> None:
+        """Raise when the tier the form selected is gone or soft-deleted.
+
+        sqladmin's select field hands over the tier's primary key as a string.
+        """
+        tier_model = _tier_model()
+        async with self.session_maker() as session:
+            tier = await session.get(tier_model, int(selected))
+
+        if tier is None or tier.is_deleted:
+            raise ValueError("That tier has been deleted. Pick another one.")
+
+    async def scaffold_form(self, rules: list[str] | None = None) -> type[Form]:
+        """The form sqladmin builds, with the deleted tiers taken out of the picker."""
+        form_class = await super().scaffold_form(rules)
+        field = getattr(form_class, "tier", None)
+        if field is None:
+            return form_class
+
+        deleted = await self._deleted_tier_keys()
+        field.kwargs["data"] = [choice for choice in field.kwargs.get("data", []) if str(choice[0]) not in deleted]
+
+        return form_class
+
+    async def _deleted_tier_keys(self) -> set[str]:
+        """The primary keys of the tiers a soft delete has taken out, as the form spells them."""
+        tier_model = _tier_model()
+        async with self.session_maker() as session:
+            deleted = await session.execute(select(tier_model.id).where(tier_model.is_deleted.is_(True)))
+
+        return {str(identifier) for identifier in deleted.scalars().all()}
 
     async def delete_model(self, request: Request, pk: str) -> None:
         """Override delete to anonymize user instead of removing.

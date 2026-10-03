@@ -39,6 +39,10 @@ class TierAdmin(DataclassModelMixin, TextCsvExportMixin, ModelView, model=Tier):
         """The listing, without the tiers a soft delete has already taken out."""
         return super().list_query(request).filter(Tier.is_deleted.is_(False))
 
+    def count_query(self, request: Request) -> Select:
+        """The count of what the listing shows."""
+        return super().count_query(request).filter(Tier.is_deleted.is_(False))
+
     async def delete_model(self, request: Request, pk: str) -> None:
         """Override delete to permanently remove tier from database.
 
