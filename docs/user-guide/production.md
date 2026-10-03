@@ -233,7 +233,33 @@ The proxy must:
 
 Set `TRUSTED_PROXY_HOPS` to the number of reverse proxies you've put in front of the app (1 for a single nginx/Caddy, 2 if Cloudflare is also in front). crudauth uses it to read the real client IP from the last trusted hop of `X-Forwarded-For` when applying login lockout — otherwise every request would appear to come from the proxy and the lockout would key on a single IP.
 
-Set `FORWARDED_ALLOW_IPS` to your proxy's address or subnet. **uvicorn** reads it, not the app, and it decides what `request.client` and the access logs report. A wildcard makes uvicorn take the *leftmost* `X-Forwarded-For` entry, which is whatever the client sent, so any client can claim any address and say its request arrived over HTTPS. Named a subnet, uvicorn skips the entries from that subnet and reads the last one outside it, which is the address the proxy saw. The generated nginx stack puts the containers on a fixed subnet and sets this to that CIDR; `bp deploy generate nginx --internal-subnet 10.20.30.0/24` changes both together.
+Set `FORWARDED_ALLOW_IPS` to your proxy's address or subnet. **uvicorn** reads it from its own process environment, not through the app's settings, and it decides what `request.client` and the access logs report. A wildcard makes uvicorn take the *leftmost* `X-Forwarded-For` entry, which is whatever the client sent, so any client can claim any address and say its request arrived over HTTPS. Named a subnet, uvicorn skips the entries from that subnet and reads the last one outside it. The generated nginx vhost also replaces `X-Forwarded-For` with the address nginx saw, so there is only ever one entry to read. The generated stack puts the containers on a fixed subnet and sets this to that CIDR; `bp deploy generate nginx --internal-subnet 10.20.30.0/24` changes both together, and refuses host bits, a wildcard, or a range wider than `/8` (IPv4) or `/48` (IPv6).
+
+!!! warning "nginx is the only hop in the generated stack"
+
+    Replacing `X-Forwarded-For` discards whatever arrived in it. That is what you want when nginx
+    is the first thing a client reaches, and wrong as soon as something else sits in front of it —
+    a cloud load balancer, Cloudflare, another nginx. In that setup the client address arrives in
+    the header, so three settings change together:
+
+    - edit the generated `nginx/default.conf` back to
+      `proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;`, so the entries from upstream
+      survive;
+    - raise `TRUSTED_PROXY_HOPS` to the number of proxies in front of the app, so crudauth skips
+      their entries and reads the client's;
+    - add the upstream proxy's address or subnet to `FORWARDED_ALLOW_IPS`, alongside the compose
+      network. uvicorn trusts only the peers named there, so with the generated value alone it
+      stops at the load balancer's entry and reports *that* as `request.client` and in the access
+      logs. crudauth's per-IP limits stay correct either way once `TRUSTED_PROXY_HOPS` is right,
+      since it counts hops from the right itself.
+
+!!! note "Per-IP limits on Docker Desktop"
+
+    Where Docker's userland proxy carries the connection — Docker Desktop on macOS and Windows,
+    rootless Docker — nginx sees every client as the network gateway, so `$remote_addr` is the same
+    address for everyone and anything keyed per IP (the login lockout, an anonymous rate limit) is
+    shared across clients. On a Linux host with the bridge driver, nginx sees the real client
+    addresses. Test per-IP behaviour on a Linux host, or in front of a real proxy.
 
 `CORS_ORIGINS` should list your **frontend** origins, not the API origin. Wildcard (`*`) is incompatible with credentialed requests anyway — the validator warns on it for a reason.
 

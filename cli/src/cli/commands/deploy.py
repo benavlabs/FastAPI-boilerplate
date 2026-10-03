@@ -72,7 +72,11 @@ def generate(
         params["nginx_conf_target"] = target_root / "nginx" / "default.conf"
         params["internal_subnet"] = internal_subnet
 
-    plan = feature.plan(params, project)
+    try:
+        plan = feature.plan(params, project)
+    except ValueError as failure:
+        error(f"--internal-subnet: {failure}")
+        raise typer.Exit(code=1) from failure
 
     installer = FeatureInstaller(dry_run=dry_run, assume_yes=force or yes)
     info(f"deploy: generating '{mode.value}' compose for {project.repo_root}")

@@ -12,13 +12,13 @@ server {
     client_max_body_size 25M;
     server_tokens off;
 
-    # Forwarded headers. X-Forwarded-For keeps whatever the client sent and appends
-    # the address nginx saw, so the real client is the last entry. uvicorn trusts the
-    # header only from the compose network (FORWARDED_ALLOW_IPS) and then reads that
-    # entry; crudauth reads it through TRUSTED_PROXY_HOPS.
+    # Forwarded headers. X-Forwarded-For and X-Forwarded-Proto are replaced with what
+    # nginx saw, dropping whatever the client sent. uvicorn trusts the headers only from
+    # the compose network (FORWARDED_ALLOW_IPS); crudauth counts hops from the right
+    # through TRUSTED_PROXY_HOPS.
     proxy_set_header Host $host;
     proxy_set_header X-Real-IP $remote_addr;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-For $remote_addr;
     proxy_set_header X-Forwarded-Proto $scheme;
 
     # Long-running endpoints (exports, AI, etc.) want generous timeouts.

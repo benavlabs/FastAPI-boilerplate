@@ -83,6 +83,12 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   the path each request arrived through, prefix included (`--root-path /svc` gives `/svc/admin`).
   Moving the panel, or serving the app under a prefix, no longer leaves every admin request bouncing
   back to the login form.
+- **The generated nginx vhost replaces `X-Forwarded-For`** with the address it saw
+  (`$remote_addr`), rather than appending to whatever the client sent, and
+  `--internal-subnet` is refused unless it names a network address of `/8` or smaller for IPv4, or
+  `/48` or smaller for IPv6 - a wildcard, a `/0`, or a value with host bits set no longer reaches
+  the compose file. The subnet is quoted in
+  the generated YAML.
 - **The input that used to answer `500` now answers `422`.** `page` is capped at `2**31 - 1`, so the
   offset stays a number the database can read; an API key's id is bounded to the range its `Integer`
   column covers; an `expires_at` whose offset moves it past the dates a datetime can hold is refused;
@@ -183,6 +189,9 @@ matrix. The round that followed fixed what a re-review of the refactor found.
 - **Task results are stored as JSON**, not pickles. The Redis result backend no longer unpickles what
   it reads, so a result key written by an older worker can't be read back. Drain the queue and clear
   the result keys before deploying both sides.
+- **Regenerate an nginx stack** (`bp deploy generate nginx`) to get the `X-Forwarded-For` change.
+  Until then a client can send its own `X-Forwarded-For`, and uvicorn - trusting the compose
+  network - reports it as `request.client`.
 - **Regenerate a local stack** (`bp deploy generate local`) to publish Postgres and Redis on
   `127.0.0.1` only. An existing `docker-compose.yml` keeps offering a password-less database to
   everyone on the network.

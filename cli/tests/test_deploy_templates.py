@@ -65,11 +65,8 @@ def test_forwarded_headers_are_trusted_only_from_the_compose_network():
     assert compose["networks"]["default"]["ipam"]["config"] == [{"subnet": DEFAULT_INTERNAL_SUBNET}]
 
 
-def test_nginx_appends_the_address_it_saw_and_hides_its_version():
-    conf = _render("nginx/default.conf.j2")
-
-    assert "proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;" in conf
-    assert "server_tokens off;" in conf
+def test_nginx_hides_its_version():
+    assert "server_tokens off;" in _render("nginx/default.conf.j2")
 
 
 def test_the_local_compose_does_not_claim_a_proxy():
@@ -85,3 +82,17 @@ def test_the_local_compose_publishes_its_databases_to_the_host_only():
 
     assert services["postgres"]["ports"] == ["127.0.0.1:5432:5432"]
     assert services["redis"]["ports"] == ["127.0.0.1:6379:6379"]
+
+
+def test_nginx_sends_only_the_address_it_saw():
+    """A client's own X-Forwarded-For must not reach the app as its address."""
+    conf = _render("nginx/default.conf.j2")
+
+    assert "proxy_set_header X-Forwarded-For $remote_addr;" in conf
+    assert "$proxy_add_x_forwarded_for" not in conf
+
+
+def test_the_compose_network_quotes_the_subnet():
+    rendered = _render("nginx/docker-compose.yml.j2", "nginx")
+
+    assert f'- subnet: "{DEFAULT_INTERNAL_SUBNET}"' in rendered

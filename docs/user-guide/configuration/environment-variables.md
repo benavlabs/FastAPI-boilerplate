@@ -196,6 +196,22 @@ SESSION_REDIS_DB=2               # on the cache Redis, apart from the cache DB s
 TRUSTED_PROXY_HOPS=0
 ```
 
+### Forwarded Headers
+
+```env
+# Which peers uvicorn accepts X-Forwarded-For and X-Forwarded-Proto from.
+FORWARDED_ALLOW_IPS=172.31.240.0/24
+```
+
+`FORWARDED_ALLOW_IPS` is read by **uvicorn**, not by the app, and it decides what `request.client`
+and the access logs report. Because uvicorn reads it from its own process environment, it reaches
+the server through compose's `env_file` (or whatever exports it where uvicorn starts) rather than
+through the app's settings — a value in `backend/.env` only applies if that file is the container's
+`env_file`. `bp deploy generate nginx` writes it for you, set to `--internal-subnet`.
+
+Leave it unset when nothing sits in front of the app. A wildcard (`*`) lets any client claim any
+address, and `TRUSTED_PROXY_HOPS` then counts hops in a header the client controls.
+
 ### CSRF
 
 ```env
