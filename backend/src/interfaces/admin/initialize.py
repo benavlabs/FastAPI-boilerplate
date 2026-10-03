@@ -6,7 +6,7 @@ from sqladmin import Admin
 from ...infrastructure.config.settings import get_settings
 from ...infrastructure.database.session import get_engine
 from ...wiring.admin import ADMIN_VIEWS
-from .auth import AdminAuth
+from .auth import AdminAuth, admin_base_url
 
 
 def create_admin_interface(app: FastAPI) -> Admin | None:
@@ -23,12 +23,14 @@ def create_admin_interface(app: FastAPI) -> Admin | None:
     if not settings.ADMIN_ENABLED:
         return None
 
-    authentication_backend = AdminAuth(secret_key=settings.SECRET_KEY)
+    base_url = admin_base_url()
+    authentication_backend = AdminAuth(secret_key=settings.SECRET_KEY, base_url=base_url)
 
     admin = Admin(
         app=app,
         engine=get_engine(),
         authentication_backend=authentication_backend,
+        base_url=base_url,
         title="Admin",
     )
 
@@ -39,9 +41,5 @@ def create_admin_interface(app: FastAPI) -> Admin | None:
 
 
 def install(app: FastAPI) -> None:
-    """Mount the admin panel.
-
-    The panel brings its own session middleware, scoped to its routes, so an API
-    request never decodes an admin cookie.
-    """
+    """Mount the admin panel, with its own session middleware scoped to its routes."""
     create_admin_interface(app)

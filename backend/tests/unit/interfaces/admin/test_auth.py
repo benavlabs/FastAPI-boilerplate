@@ -8,7 +8,7 @@ import pytest
 from fastapi import Request
 
 from src.infrastructure.config.settings import EnvironmentOption, settings
-from src.interfaces.admin.auth import ADMIN_COOKIE_PATH, SESSION_MAX_AGE_SECONDS, AdminAuth
+from src.interfaces.admin.auth import SESSION_MAX_AGE_SECONDS, AdminAuth, admin_base_url
 
 
 class FakeRequest:
@@ -26,6 +26,7 @@ async def _login(configured: tuple[str, str], form: dict[str, Any]) -> tuple[boo
     configured_settings = SimpleNamespace(
         ADMIN_USERNAME=username,
         ADMIN_PASSWORD=password,
+        ADMIN_BASE_URL="/admin",
         ENVIRONMENT=EnvironmentOption.LOCAL,
     )
     with patch("src.interfaces.admin.auth.get_settings", return_value=configured_settings):
@@ -86,7 +87,7 @@ async def test_login_accepts_non_ascii_configured_password():
 
 
 def test_the_admin_session_cookie_is_scoped_and_short_lived(monkeypatch):
-    """Nothing can revoke this cookie, so it expires in hours and never travels over HTTP."""
+    """The cookie expires in hours, and outside local and development never travels over HTTP."""
     monkeypatch.setattr(settings, "ENVIRONMENT", EnvironmentOption.PRODUCTION)
 
     middleware = AdminAuth(secret_key="a-secret").middlewares
@@ -96,7 +97,7 @@ def test_the_admin_session_cookie_is_scoped_and_short_lived(monkeypatch):
     assert options["https_only"] is True
     assert options["max_age"] == SESSION_MAX_AGE_SECONDS
     assert options["session_cookie"] == "admin_session"
-    assert options["path"] == ADMIN_COOKIE_PATH
+    assert options["base_url"] == admin_base_url()
 
 
 def test_the_cookie_may_travel_over_http_in_development(monkeypatch):

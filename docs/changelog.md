@@ -79,6 +79,10 @@ matrix. The round that followed fixed what a re-review of the refactor found.
 - **The readiness body carries the overall status only**, and probes that arrive together share one
   run of the checks. Which dependency answered what goes to the log, written by the probe that ran
   them.
+- **`ADMIN_BASE_URL` decides where the panel is mounted**, and the admin session cookie is scoped to
+  the path each request arrived through, prefix included (`--root-path /svc` gives `/svc/admin`).
+  Moving the panel, or serving the app under a prefix, no longer leaves every admin request bouncing
+  back to the login form.
 - **The admin panel really refuses a deleted tier.** sqladmin hands the form's selection over as a
   primary key, so the old check never fired: the panel now loads the tier and refuses a soft-deleted
   one, the picker lists only live tiers, and the Tiers listing counts what it shows.

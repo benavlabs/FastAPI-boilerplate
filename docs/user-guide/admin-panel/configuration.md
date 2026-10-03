@@ -64,19 +64,29 @@ If you need multiple admin operators, see [User Management](user-management.md) 
 
 ## Mount Path
 
-The admin panel is hardcoded at `/admin` (defined when `Admin(...)` is instantiated). To change the path, edit `src/interfaces/admin/initialize.py`:
+`ADMIN_BASE_URL` decides where the panel is mounted, and defaults to `/admin`:
 
-```python
-admin = Admin(
-    app=app,
-    engine=engine,
-    authentication_backend=authentication_backend,
-    title="Admin",
-    base_url="/management",   # add this to change the mount path
-)
+```env
+ADMIN_BASE_URL=/management
 ```
 
+One setting feeds both the mount (`Admin(base_url=...)`) and the session cookie's `path`, so a panel
+moved elsewhere keeps its login. Written with or without the slashes (`management`, `/management/`)
+it comes out the same; a value that names no path at all is refused at startup.
+
+Behind a proxy that serves the app under a prefix, the cookie follows the prefix too. A prefix set
+with `--root-path /svc` reaches the app per request, so the panel scopes the cookie to the path the
+request arrived through: `/svc/admin` with the default setting. Nothing needs configuring for that.
+
 If you change it, also update any internal links in your frontend or operational docs.
+
+!!! warning "Upgrading from a build before the cookie was scoped"
+
+    Admin sessions created when the cookie had `path=/` keep being sent to every path until they
+    expire (8 hours), and logging out only clears the cookie at the new path. Browsers send the
+    longer-path cookie first and Starlette keeps the last value, so an old `path=/` cookie can
+    outlive a logout. Clear the `admin_session` cookie in your browser once after upgrading, or
+    change `SECRET_KEY` to invalidate every old admin session at once.
 
 ## Database Connection
 
@@ -105,7 +115,7 @@ self.middlewares = [
 Cookie behavior:
 
 - HTTP-only, signed with `SECRET_KEY`, named `admin_session`
-- Scoped to `/admin`, so it isn't sent with API requests
+- Scoped to the panel's mount path (`ADMIN_BASE_URL`, plus the app's `root_path`), so it isn't sent with API requests
 - Same-site `lax`
 - `Secure` outside `local` and `development`, since nothing can revoke it server-side
 - Expires after 8 hours (`SESSION_MAX_AGE_SECONDS`)

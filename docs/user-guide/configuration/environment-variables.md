@@ -224,7 +224,8 @@ OAUTH_GITHUB_CLIENT_SECRET=
 ## Admin Interface (SQLAdmin)
 
 ```env
-ADMIN_ENABLED=true              # enables /admin
+ADMIN_ENABLED=true              # enables the panel
+ADMIN_BASE_URL=/admin           # where it is mounted, and the admin cookie's path
 ```
 
 ## Application Metadata
