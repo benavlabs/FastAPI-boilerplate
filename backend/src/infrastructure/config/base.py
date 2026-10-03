@@ -24,17 +24,6 @@ def ini_value(value: str) -> str:
     return value.replace("%", "%%")
 
 
-DEFAULT_APP_DESCRIPTION = """
-# FastAPI Boilerplate
-
-A modern FastAPI starter with:
-
-* Vertical-slice modules and a clean infrastructure layer
-* Session-based auth with OAuth providers
-* Swappable cache, queue, and rate-limit backends
-* SQLAdmin admin UI
-"""
-
 current_file_dir = os.path.dirname(os.path.realpath(__file__))
 backend_root = os.path.abspath(os.path.join(current_file_dir, "..", "..", ".."))
 project_root = os.path.abspath(os.path.join(current_file_dir, "..", "..", "..", ".."))
@@ -202,12 +191,9 @@ class AppSettings(BaseSettings):
 
     # Note: For API documentation, prefer using API_* fields in APIDocSettings
     APP_NAME: str = config("APP_NAME", default="FastAPI Boilerplate")
-    APP_DESCRIPTION: str = config("APP_DESCRIPTION", default=DEFAULT_APP_DESCRIPTION)
+    APP_DESCRIPTION: str = config("APP_DESCRIPTION", default="")
     DEBUG: bool = config("DEBUG", default=False, cast=bool)
-    VERSION: str = config("VERSION", default="0.19.0")
-    CONTACT_NAME: str = config("CONTACT_NAME", default="")
-    CONTACT_EMAIL: str = config("CONTACT_EMAIL", default="")
-    LICENSE_NAME: str = config("LICENSE_NAME", default="")
+    VERSION: str = config("VERSION", default="0.1.0")
 
 
 class SecuritySettings(BaseSettings):

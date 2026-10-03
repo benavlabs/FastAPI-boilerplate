@@ -7,11 +7,10 @@ from typing import Any
 
 import anyio
 import fastapi
-from fastapi import APIRouter, Depends, FastAPI
+from fastapi import APIRouter, Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
-from fastapi.openapi.utils import get_openapi
 
 from ..modules.common.utils.error_handler import register_exception_handlers
 from .composition import Lifecycle
@@ -140,10 +139,10 @@ def create_application(
         metadata["contact"] = contact
     else:
         contact_dict = {}
-        if settings.API_CONTACT_NAME or settings.CONTACT_NAME:
-            contact_dict["name"] = settings.API_CONTACT_NAME or settings.CONTACT_NAME
-        if settings.API_CONTACT_EMAIL or settings.CONTACT_EMAIL:
-            contact_dict["email"] = settings.API_CONTACT_EMAIL or settings.CONTACT_EMAIL
+        if settings.API_CONTACT_NAME:
+            contact_dict["name"] = settings.API_CONTACT_NAME
+        if settings.API_CONTACT_EMAIL:
+            contact_dict["email"] = settings.API_CONTACT_EMAIL
         if settings.API_CONTACT_URL:
             contact_dict["url"] = settings.API_CONTACT_URL
         if contact_dict:
@@ -152,9 +151,8 @@ def create_application(
     if license_info is not None:
         metadata["license_info"] = license_info
     else:
-        license_name = settings.API_LICENSE_NAME or settings.LICENSE_NAME
-        if license_name:
-            license_dict = {"name": license_name}
+        if settings.API_LICENSE_NAME:
+            license_dict = {"name": settings.API_LICENSE_NAME}
             if settings.API_LICENSE_IDENTIFIER:
                 license_dict["identifier"] = settings.API_LICENSE_IDENTIFIER
             elif settings.API_LICENSE_URL:
@@ -241,21 +239,23 @@ def create_application(
             docs_router = APIRouter(dependencies=[Depends(docs_dependency)])
 
         @docs_router.get(_docs_url, include_in_schema=False)
-        async def get_swagger_documentation() -> fastapi.responses.HTMLResponse:
-            return get_swagger_ui_html(openapi_url=_openapi_url, title="docs")
+        async def get_swagger_documentation(request: Request) -> fastapi.responses.HTMLResponse:
+            root_path: str = request.scope.get("root_path", "").rstrip("/")
+            return get_swagger_ui_html(openapi_url=root_path + _openapi_url, title="docs")
 
         @docs_router.get(_redoc_url, include_in_schema=False)
-        async def get_redoc_documentation() -> fastapi.responses.HTMLResponse:
-            return get_redoc_html(openapi_url=_openapi_url, title="redoc")
+        async def get_redoc_documentation(request: Request) -> fastapi.responses.HTMLResponse:
+            root_path: str = request.scope.get("root_path", "").rstrip("/")
+            return get_redoc_html(openapi_url=root_path + _openapi_url, title="redoc")
 
         @docs_router.get(_openapi_url, include_in_schema=False)
-        async def openapi() -> dict[str, Any]:
-            return get_openapi(
-                title=metadata.get("title", "API"),
-                version=metadata.get("version", "0.1.0"),
-                description=metadata.get("description", ""),
-                routes=application.routes,
-            )
+        async def openapi(request: Request) -> dict[str, Any]:
+            root_path: str = request.scope.get("root_path", "").rstrip("/")
+            served_urls = {server.get("url") for server in application.servers}
+            if root_path and application.root_path_in_servers and root_path not in served_urls:
+                application.servers.insert(0, {"url": root_path})
+
+            return application.openapi()
 
         application.include_router(docs_router)
 

@@ -147,6 +147,14 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   `hide_parameters=True`, and the catch-all handler logs the method, path and support id without the
   exception text, so a failing insert no longer writes a password hash to the log. An email address
   longer than the column (50 characters) answers `422` instead of `500`.
+- **The guarded `/openapi.json` serves the schema the app builds.** In staging, or in production
+  with docs enabled, it was rebuilt from the title, version and description alone, so the contact,
+  licence, summary, terms of service and tags never reached a reader. Both paths now call
+  `app.openapi()`.
+- **The guarded docs follow the mount the request arrived through.** Behind `--root-path /svc` the
+  gated Swagger and ReDoc pages asked for `/openapi.json`, which answers `404` there; they now ask
+  for `/svc/openapi.json`, and the schema names `/svc` as its server, as the ungated docs already
+  did.
 - **`API_PREFIX` now moves the whole API.** The OAuth routes and the `no-store` cache header are
   derived from it instead of writing `/api` out, and a prefix the router cannot mount (`v2`, `/`,
   `/api/`, empty) is refused by name when the settings load rather than raising an `AssertionError`
@@ -160,6 +168,8 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   `TASKIQ_WORKER_CONCURRENCY`, `TASKIQ_MAX_TASKS_PER_WORKER`, `POSTGRES_SYNC_PREFIX`,
   `PRODUCTION_SECURITY_STRICT_MODE`, `TASKIQ_ENABLED`.
 - `handle_exception`: routes let domain errors propagate to the global handler.
+- The legacy OpenAPI identity settings `CONTACT_NAME`, `CONTACT_EMAIL` and `LICENSE_NAME`, which
+  the `API_CONTACT_*` and `API_LICENSE_*` settings replace.
 - The `env` option in the pytest config, which needed a plugin the project doesn't install.
 
 #### Breaking Changes
@@ -185,6 +195,14 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   database and fail there.
 - **An `expires_at` that cannot be expressed in UTC answers `422`**, and so does string input that is
   not valid Unicode.
+- **The legacy OpenAPI identity settings are gone.** Rename `CONTACT_NAME`, `CONTACT_EMAIL` and
+  `LICENSE_NAME` in your environment to `API_CONTACT_NAME`, `API_CONTACT_EMAIL` and
+  `API_LICENSE_NAME`; the old names are now read by nothing, so a project that keeps them publishes
+  no contact and no licence.
+- **The template's identity is no longer the default.** `VERSION` defaults to `0.1.0` instead of the
+  boilerplate's own release, and `APP_DESCRIPTION` defaults to empty instead of the boilerplate's
+  feature list, so a generated project's OpenAPI document describes itself or says nothing. Set
+  `VERSION` and `APP_DESCRIPTION` (or `API_VERSION` and `API_DESCRIPTION`) to your own values.
 - **An empty `API_PREFIX` no longer serves the API from the root.** `API_PREFIX=` used to mount the
   routes at `/v1/...`; it is now refused at startup, together with any prefix that does not start
   with `/` or that ends with `/`. Set a prefix such as `/api`.

@@ -151,6 +151,9 @@ class TestSettingsNothingReads:
             "DEFAULT_CACHE_EXPIRATION",
             "POSTGRES_SYNC_PREFIX",
             "PRODUCTION_SECURITY_STRICT_MODE",
+            "CONTACT_NAME",
+            "CONTACT_EMAIL",
+            "LICENSE_NAME",
         ],
     )
     def test_the_setting_is_gone(self, name: str):

@@ -62,10 +62,10 @@ The actual classes that ship with the boilerplate, all in `src/infrastructure/co
 | `RateLimiterSettings` | `RATE_LIMITER_*` (Redis + Memcached + defaults) |
 | `CORSSettings` | `CORS_*` |
 | `CompressionSettings` | `GZIP_*` |
-| `APIDocSettings` | `ENABLE_DOCS_IN_PRODUCTION`, `OPENAPI_PREFIX` |
+| `APIDocSettings` | `ENABLE_DOCS_IN_PRODUCTION`, `OPENAPI_PREFIX`, `DOCS_URL`, `REDOC_URL`, `OPENAPI_URL`, and the `API_*` document metadata (title, summary, description, version, terms, contact, licence, tags) |
 | `AuthSettings` | `SECRET_KEY`, `SESSION_*`, `CSRF_ENABLED`, `TRUSTED_PROXY_HOPS`, `OAUTH_*` |
-| `APISettings` | API path overrides (`API_PREFIX`, `DOCS_URL`, `REDOC_URL`) |
-| `AppSettings` | `APP_NAME`, `APP_DESCRIPTION`, `VERSION`, `DEBUG`, contact info |
+| `APISettings` | `API_PREFIX` |
+| `AppSettings` | `APP_NAME`, `APP_DESCRIPTION`, `VERSION`, `DEBUG` |
 | `AdminSettings` | `ADMIN_NAME`, `ADMIN_EMAIL`, `ADMIN_USERNAME`, `ADMIN_PASSWORD`, `DEFAULT_TIER_NAME` |
 | `SQLAdminSettings` | `ADMIN_ENABLED` |
 | `SecuritySettings` | `SECRET_KEY`, `PRODUCTION_SECURITY_VALIDATION_ENABLED`, `SECURITY_HEADERS_ENABLED` |

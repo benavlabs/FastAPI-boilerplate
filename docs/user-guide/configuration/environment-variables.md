@@ -250,11 +250,15 @@ ADMIN_BASE_URL=/admin           # where it is mounted, and the admin cookie's pa
 DEBUG=false
 APP_NAME=FastAPI Boilerplate
 APP_DESCRIPTION=Modular FastAPI starter
-VERSION=0.19.0
-CONTACT_NAME=Support
-CONTACT_EMAIL=support@example.com
-LICENSE_NAME=MIT
+VERSION=0.1.0
+API_CONTACT_NAME=Support
+API_CONTACT_EMAIL=support@example.com
+API_LICENSE_NAME=MIT
 ```
+
+`API_TITLE`, `API_DESCRIPTION` and `API_VERSION` override `APP_NAME`, `APP_DESCRIPTION` and
+`VERSION` in the OpenAPI document. A field left empty is left out of it, so a new project names no
+contact and no licence until it sets its own.
 
 ### API Settings (optional overrides)
 

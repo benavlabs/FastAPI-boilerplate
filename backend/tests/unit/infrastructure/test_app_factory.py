@@ -1,7 +1,12 @@
 """Unit tests for the application factory."""
 
+import json
+import os
+import subprocess
+import sys
 from collections.abc import Callable
 from contextlib import ExitStack
+from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, patch
 
@@ -327,52 +332,155 @@ async def test_the_api_metadata_settings_reach_the_schema(monkeypatch):
     assert info["description"] == "What Acme runs on"
 
 
+METADATA_VARIABLES = (
+    "API_TITLE",
+    "API_SUMMARY",
+    "API_DESCRIPTION",
+    "API_VERSION",
+    "API_TERMS_OF_SERVICE",
+    "API_CONTACT_NAME",
+    "API_CONTACT_EMAIL",
+    "API_CONTACT_URL",
+    "API_LICENSE_NAME",
+    "API_LICENSE_URL",
+    "API_LICENSE_IDENTIFIER",
+    "API_TAGS_METADATA",
+    "APP_DESCRIPTION",
+    "VERSION",
+)
+
+_PROJECT_INFO = """
+import json
+import sys
+
+from fastapi import APIRouter
+
+from src.infrastructure import app_factory
+from src.infrastructure.config.settings import Settings
+
+application = app_factory.create_application(router=APIRouter(), settings=Settings(**json.loads(sys.argv[1])))
+
+print("INFO:" + json.dumps(application.openapi()["info"]))
+"""
+
+
+def _project_info(environment: dict[str, str] | None = None, **overrides: str) -> dict[str, Any]:
+    """The ``info`` block of a project configured by ``environment`` and ``overrides`` alone.
+
+    The settings read their defaults from the environment when the config module is
+    imported, so a project that configured nothing is only visible from a cold
+    interpreter that was started without those variables.
+    """
+    child = {name: value for name, value in os.environ.items() if name not in METADATA_VARIABLES}
+    child.update(environment or {})
+
+    result = subprocess.run(
+        [sys.executable, "-c", _PROJECT_INFO, json.dumps(overrides)],
+        cwd=Path(__file__).resolve().parents[3],
+        capture_output=True,
+        text=True,
+        check=True,
+        env=child,
+    )
+    line = next(line for line in result.stdout.splitlines() if line.startswith("INFO:"))
+
+    info: dict[str, Any] = json.loads(line.removeprefix("INFO:"))
+
+    return info
+
+
 class TestTheProjectsIdentity:
     """A generated project must not inherit the template's identity, or an invalid licence."""
 
-    def _info(self, **overrides) -> dict:
-        blank = {
-            "API_TITLE": "",
-            "API_SUMMARY": "",
-            "API_CONTACT_NAME": "",
-            "API_CONTACT_EMAIL": "",
-            "API_CONTACT_URL": "",
-            "API_LICENSE_NAME": "",
-            "API_LICENSE_URL": "",
-            "API_LICENSE_IDENTIFIER": "",
-            "CONTACT_NAME": "",
-            "CONTACT_EMAIL": "",
-            "LICENSE_NAME": "",
-        }
-
-        app = app_factory.create_application(router=APIRouter(), settings=Settings(**{**blank, **overrides}))
-
-        info: dict[str, Any] = app.openapi()["info"]
-
-        return info
-
     def test_nothing_configured_means_no_contact_and_no_licence(self):
-        info = self._info()
+        info = _project_info()
 
         assert "contact" not in info
         assert "license" not in info
         assert "summary" not in info
 
+    def test_nothing_configured_means_no_version_or_description_of_the_template(self):
+        """The defaults used to ship the boilerplate's own version and its README heading."""
+        info = _project_info()
+
+        assert info["version"] == "0.1.0"
+        assert "description" not in info
+
     def test_a_licence_needs_a_name(self):
         """OpenAPI requires the name; an identifier alone is not a licence."""
-        assert "license" not in self._info(API_LICENSE_IDENTIFIER="MIT")
+        assert "license" not in _project_info(API_LICENSE_IDENTIFIER="MIT")
 
     def test_a_licence_carries_an_identifier_or_a_url_but_not_both(self):
         """OpenAPI allows one of them, and the identifier is the one it prefers."""
-        both = self._info(API_LICENSE_NAME="MIT", API_LICENSE_IDENTIFIER="MIT", API_LICENSE_URL="https://example.com/l")
+        both = _project_info(API_LICENSE_NAME="MIT", API_LICENSE_IDENTIFIER="MIT", API_LICENSE_URL="https://example.com/l")
 
         assert both["license"] == {"name": "MIT", "identifier": "MIT"}
-        assert self._info(API_LICENSE_NAME="MIT", API_LICENSE_URL="https://example.com/l")["license"] == {
+        assert _project_info(API_LICENSE_NAME="MIT", API_LICENSE_URL="https://example.com/l")["license"] == {
             "name": "MIT",
             "url": "https://example.com/l",
         }
 
     def test_the_contact_is_whatever_the_project_configured(self):
-        info = self._info(API_CONTACT_NAME="Acme Support", API_CONTACT_EMAIL="ops@acme.example.com")
+        info = _project_info(API_CONTACT_NAME="Acme Support", API_CONTACT_EMAIL="ops@acme.example.com")
 
         assert info["contact"] == {"name": "Acme Support", "email": "ops@acme.example.com"}
+
+    def test_a_legacy_contact_in_the_environment_reaches_nothing(self):
+        """``CONTACT_NAME`` and friends are gone; a stale .env must not name a contact."""
+        info = _project_info(
+            environment={
+                "CONTACT_NAME": "Template Author",
+                "CONTACT_EMAIL": "author@template.example.com",
+                "LICENSE_NAME": "MIT",
+            }
+        )
+
+        assert "contact" not in info
+        assert "license" not in info
+
+
+@pytest.mark.asyncio
+async def test_the_gated_docs_follow_the_mount_the_request_arrived_through():
+    """Behind ``--root-path`` the gated pages pointed at a schema URL that answers 404."""
+    guarded = app_factory.create_application(
+        router=APIRouter(), settings=Settings(ENVIRONMENT=EnvironmentOption.STAGING), docs_guard=_admit
+    )
+    builtin = app_factory.create_application(router=APIRouter(), settings=Settings(ENVIRONMENT=EnvironmentOption.LOCAL))
+
+    async with AsyncClient(transport=ASGITransport(app=guarded, root_path="/svc"), base_url="http://test") as client:
+        docs = await client.get("/svc/docs")
+        redoc = await client.get("/svc/redoc")
+        gated_schema = (await client.get("/svc/openapi.json")).json()
+
+    async with AsyncClient(transport=ASGITransport(app=builtin, root_path="/svc"), base_url="http://test") as client:
+        builtin_schema = (await client.get("/svc/openapi.json")).json()
+
+    assert "/svc/openapi.json" in docs.text
+    assert "/svc/openapi.json" in redoc.text
+    assert gated_schema["servers"] == [{"url": "/svc"}]
+    assert gated_schema == builtin_schema
+
+
+@pytest.mark.asyncio
+async def test_the_gated_schema_is_the_one_the_app_builds():
+    """It was rebuilt from title, version and description, so the rest never reached a reader."""
+    configured = Settings(
+        ENVIRONMENT=EnvironmentOption.STAGING,
+        API_SUMMARY="What Acme runs on",
+        API_TERMS_OF_SERVICE="https://acme.example.com/terms",
+        API_CONTACT_NAME="Acme Support",
+        API_CONTACT_EMAIL="ops@acme.example.com",
+        API_LICENSE_NAME="MIT",
+        API_TAGS_METADATA='[{"name": "users", "description": "Accounts"}]',
+    )
+    app = app_factory.create_application(router=APIRouter(), settings=configured, docs_guard=_admit)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        served = (await client.get("/openapi.json")).json()
+
+    assert served == app.openapi()
+    assert served["info"]["summary"] == "What Acme runs on"
+    assert served["info"]["termsOfService"] == "https://acme.example.com/terms"
+    assert served["info"]["contact"] == {"name": "Acme Support", "email": "ops@acme.example.com"}
+    assert served["info"]["license"] == {"name": "MIT"}
+    assert served["tags"] == [{"name": "users", "description": "Accounts"}]

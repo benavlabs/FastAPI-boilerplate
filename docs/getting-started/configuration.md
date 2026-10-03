@@ -23,9 +23,9 @@ Open `backend/.env` and set these required values.
 APP_NAME=Your app name here
 APP_DESCRIPTION=Your app description here
 VERSION=0.1.0
-CONTACT_NAME=Your name
-CONTACT_EMAIL=your@email.com
-LICENSE_NAME=The license you picked
+API_CONTACT_NAME=Your name
+API_CONTACT_EMAIL=your@email.com
+API_LICENSE_NAME=The license you picked
 ```
 
 ### Environment Type

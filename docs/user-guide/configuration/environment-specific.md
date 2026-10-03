@@ -138,8 +138,8 @@ DEBUG=false
 
 APP_NAME=MyApp
 VERSION=1.0.0
-CONTACT_NAME=Support Team
-CONTACT_EMAIL=support@example.com
+API_CONTACT_NAME=Support Team
+API_CONTACT_EMAIL=support@example.com
 
 POSTGRES_USER=prod_user
 POSTGRES_PASSWORD=<from secrets manager>
