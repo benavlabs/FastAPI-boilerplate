@@ -5,15 +5,17 @@ from typing import Annotated, Any, ClassVar
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator
 
-from ..common.schemas import PartialUpdate, TimestampSchema, not_nullable_columns
+from ..common.schemas import EncodableText, PartialUpdate, TimestampSchema, not_nullable_columns, within_utc_range
 from .enums import HTTPMethod, KeyPermissionAction, KeyPermissionResource
 from .models import APIKey
 
 VALID_HTTP_METHODS = {m.value for m in HTTPMethod}
 
 
-class APIKeyBase(BaseModel):
+class APIKeyBase(EncodableText):
     """Base schema for API key data."""
+
+    _expiry_within_range = field_validator("expires_at")(within_utc_range)
 
     name: Annotated[str, Field(min_length=1, max_length=100, description="Human-readable name for the API key")]
     permissions: dict[str, Any] = Field(default_factory=dict, description="Permission settings")
@@ -36,8 +38,10 @@ class APIKeyCreateInternal(APIKeyBase):
     key_prefix: str
 
 
-class APIKeyUpdate(PartialUpdate):
+class APIKeyUpdate(EncodableText, PartialUpdate):
     """Schema for updating an existing API key."""
+
+    _expiry_within_range = field_validator("expires_at")(within_utc_range)
 
     NOT_NULLABLE: ClassVar[tuple[str, ...]] = not_nullable_columns(APIKey)
 

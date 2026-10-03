@@ -247,3 +247,21 @@ async def test_an_email_longer_than_the_column_is_refused(auth_client: AsyncClie
 
     assert response.status_code == 422
     assert over_the_column not in response.text
+
+
+async def test_a_current_password_that_is_not_valid_unicode_is_refused(
+    auth_client: AsyncClient, test_user: dict, db_session: AsyncSession, caplog
+):
+    """The password a wrong guess carries must not reach the hash as unencodable text."""
+    with caplog.at_level(logging.WARNING):
+        response = await auth_client.patch(
+            f"/api/v1/users/{test_user['username']}",
+            content='{"email": "moved@example.com", "current_password": "Passw0rd!\\ud800"}',
+            headers={"Content-Type": "application/json"},
+        )
+
+    assert response.status_code == 422
+    assert "not valid Unicode" in caplog.text
+    stored = await db_session.get_one(User, test_user["id"])
+    await db_session.refresh(stored)
+    assert stored.email == test_user["email"]

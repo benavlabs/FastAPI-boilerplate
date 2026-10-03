@@ -7,7 +7,7 @@ from fastcrud import PaginatedListResponse, compute_offset, paginated_response
 
 from ...infrastructure.auth.deps import CurrentUserDep
 from ...infrastructure.dependencies import AsyncSessionDep
-from ..common.pagination import ItemsPerPageDep, PageDep
+from ..common.pagination import MAX_INTEGER_ID, ItemsPerPageDep, PageDep
 from .dependencies import APIKeyServiceDep
 from .schemas import (
     APIKeyCreate,
@@ -130,7 +130,7 @@ async def get_api_key(
     current_user: CurrentUserDep,
     api_key_service: APIKeyServiceDep,
     db: AsyncSessionDep,
-    key_id: int = Path(..., description="API key ID"),
+    key_id: int = Path(..., ge=1, le=MAX_INTEGER_ID, description="API key ID"),
 ) -> dict[str, Any]:
     """Get details for a specific API key."""
     return await api_key_service.get_api_key(
@@ -166,7 +166,7 @@ async def update_api_key(
     current_user: CurrentUserDep,
     api_key_service: APIKeyServiceDep,
     db: AsyncSessionDep,
-    key_id: int = Path(..., description="API key ID"),
+    key_id: int = Path(..., ge=1, le=MAX_INTEGER_ID, description="API key ID"),
 ) -> dict[str, Any]:
     """Update an existing API key."""
     return await api_key_service.update_api_key(
@@ -202,7 +202,7 @@ async def delete_api_key(
     current_user: CurrentUserDep,
     api_key_service: APIKeyServiceDep,
     db: AsyncSessionDep,
-    key_id: int = Path(..., description="API key ID"),
+    key_id: int = Path(..., ge=1, le=MAX_INTEGER_ID, description="API key ID"),
 ) -> None:
     """Delete (deactivate) an API key."""
     await api_key_service.delete_api_key(
@@ -238,7 +238,7 @@ async def get_key_usage(
     current_user: CurrentUserDep,
     api_key_service: APIKeyServiceDep,
     db: AsyncSessionDep,
-    key_id: int = Path(..., description="API key ID"),
+    key_id: int = Path(..., ge=1, le=MAX_INTEGER_ID, description="API key ID"),
     page: PageDep = 1,
     items_per_page: ItemsPerPageDep = 100,
 ) -> dict[str, Any]:
@@ -287,7 +287,7 @@ async def get_key_analytics(
     current_user: CurrentUserDep,
     api_key_service: APIKeyServiceDep,
     db: AsyncSessionDep,
-    key_id: int = Path(..., description="API key ID"),
+    key_id: int = Path(..., ge=1, le=MAX_INTEGER_ID, description="API key ID"),
     days: int = Query(30, ge=1, le=365, description="Number of days to analyze"),
 ) -> dict[str, Any]:
     """Get usage analytics for an API key."""

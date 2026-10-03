@@ -83,6 +83,11 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   the path each request arrived through, prefix included (`--root-path /svc` gives `/svc/admin`).
   Moving the panel, or serving the app under a prefix, no longer leaves every admin request bouncing
   back to the login form.
+- **The input that used to answer `500` now answers `422`.** `page` is capped at `2**31 - 1`, so the
+  offset stays a number the database can read; an API key's id is bounded to the range its `Integer`
+  column covers; an `expires_at` whose offset moves it past the dates a datetime can hold is refused;
+  and text that is not valid Unicode - a lone surrogate in a password or `current_password` - is
+  refused before it reaches a hash or a write.
 - **A soft-deleted tier keeps its soft-deleted users.** `TierService.delete` no longer clears
   `user.tier_id` on rows a soft delete had already removed - only `permanent_delete` does, where the
   foreign key requires it - and a soft-deleted user no longer blocks either delete. A soft-deleted
@@ -149,7 +154,11 @@ matrix. The round that followed fixed what a re-review of the refactor found.
 - **Rate-limit rows that name a concrete path stop matching.** Rewrite them as the route template
   the router declares (`/api/v1/users/{username}`); a row for `/api/v1/users/42` will never apply.
 - **`items_per_page` above 100 answers `422`** on every listing, including the API-key usage history,
-  which allowed 1000.
+  which allowed 1000, and `page` above `2147483647` answers `422` as well.
+- **An API key's id outside `1..2147483647` answers `422`**, where the request used to reach the
+  database and fail there.
+- **An `expires_at` that cannot be expressed in UTC answers `422`**, and so does string input that is
+  not valid Unicode.
 - **A naive `expires_at` on an API key answers `422`.** Send an offset (`2030-01-01T00:00:00+00:00`).
 - **Emails are stored lowercased.** Rows written before this change keep their original case; the
   uniqueness check and the login lookup both use the canonical form, so a mixed-case row can still be

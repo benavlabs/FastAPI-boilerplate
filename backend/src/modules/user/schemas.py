@@ -5,7 +5,7 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 from ...infrastructure.auth.password_policy import password_policy
 from ...wiring.models import UserSchemaExtensions
-from ..common.schemas import PartialUpdate, PersistentDeletion, TimestampSchema, not_nullable_columns
+from ..common.schemas import EncodableText, PartialUpdate, PersistentDeletion, TimestampSchema, not_nullable_columns
 from .constants import (
     EMAIL_MAX_LENGTH,
     NAME_MAX_LENGTH,
@@ -15,7 +15,7 @@ from .constants import (
 from .models import User as UserModel
 
 
-class UserBase(BaseModel):
+class UserBase(EncodableText):
     name: Annotated[str, Field(min_length=2, max_length=NAME_MAX_LENGTH, examples=["User Userson"])]
     username: Annotated[
         str,
@@ -101,7 +101,7 @@ class UserCreateInternal(UserBase):
     oauth_updated_at: datetime | None = None
 
 
-class UserUpdate(PartialUpdate):
+class UserUpdate(EncodableText, PartialUpdate):
     """Schema for updating user data."""
 
     model_config = ConfigDict(extra="forbid")
@@ -146,8 +146,8 @@ class UserSelfUpdate(UserUpdate):
 class UserAdminUpdate(UserUpdate):
     """Schema for updates only an administrator may make.
 
-    The OAuth identifiers and the verification flag decide who a provider login
-    resolves to, so they are not part of the public profile update.
+    Adds the OAuth identifiers and the verification flag, which the public profile
+    update leaves out.
     """
 
     google_id: str | None = None

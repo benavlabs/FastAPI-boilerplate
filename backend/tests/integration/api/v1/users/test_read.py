@@ -147,3 +147,17 @@ async def test_a_profile_carries_the_display_fields_only(auth_client: AsyncClien
 
     assert response.status_code == 200
     assert set(response.json()) == {"id", "name", "username", "profile_image_url"}
+
+
+async def test_a_page_number_beyond_the_offset_a_query_can_carry_is_refused(superuser_auth_client: AsyncClient):
+    """The page decides the offset, which the database reads as a number."""
+    response = await superuser_auth_client.get("/api/v1/users/", params={"page": 10**19, "items_per_page": 10})
+
+    assert response.status_code == 422
+
+
+async def test_the_largest_page_is_a_query(superuser_auth_client: AsyncClient):
+    response = await superuser_auth_client.get("/api/v1/users/", params={"page": 2147483647, "items_per_page": 10})
+
+    assert response.status_code == 200
+    assert response.json()["data"] == []

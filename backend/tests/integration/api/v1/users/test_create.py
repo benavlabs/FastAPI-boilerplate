@@ -269,3 +269,17 @@ async def test_a_failed_insert_logs_neither_the_hash_nor_the_address(
     assert stored.hashed_password not in logged
     assert "$2b$" not in logged
     assert same_username["email"] not in logged
+
+
+async def test_a_password_that_is_not_valid_unicode_is_refused(client: AsyncClient, caplog):
+    """A lone surrogate reaches the hash as text nothing can encode."""
+    with caplog.at_level(logging.WARNING):
+        response = await client.post(
+            "/api/v1/users/",
+            content='{"name": "Surrogate", "username": "surrogate", "email": "s@example.com", "password": "Passw0rd!\\ud800"}',
+            headers={"Content-Type": "application/json"},
+        )
+
+    assert response.status_code == 422
+    assert "not valid Unicode" in caplog.text
+    assert "Passw0rd" not in caplog.text
