@@ -50,7 +50,7 @@ from crudauth.ratelimit import KeyBy, RateLimit
 router = APIRouter()
 
 
-@router.post("/widgets", dependencies=[Depends(auth.rate_limit("widgets", RateLimit(10, 60), key=KeyBy.USER_OR_IP))])
+@router.post("/widgets/", dependencies=[Depends(auth.rate_limit("widgets", RateLimit(10, 60), key=KeyBy.USER_OR_IP))])
 async def create_widget(...): ...
 ```
 
@@ -101,17 +101,30 @@ Rate-limit rows are matched against the **route template** the request matched, 
 declares it, including the `/api/v1` prefix:
 
 ```text
-/api/v1/users                # the listing route
+/api/v1/users/               # the listing route, trailing slash included
 /api/v1/users/{username}     # every user lookup, sharing one counter per caller
+/api/v1/items/{id:int}       # a converter, as the route declares it
 /api/v1/files/{path:path}    # a wildcard segment
+```
+
+The trailing slash is part of the template: the listing route is declared as `/api/v1/users/`, so a
+row for `/api/v1/users` never matches it. Read the templates off the app rather than guessing:
+
+```python
+from fastapi.routing import APIRoute
+from src.interfaces.main import app
+
+print(sorted(route.path for route in app.routes if isinstance(route, APIRoute)))
 ```
 
 A row that names a concrete path such as `/api/v1/users/42` never matches, because the request
 resolves to `/api/v1/users/{username}`. One counter per caller per route also means a caller can't
 spend another route's budget by hitting one hot resource.
 
-The `path` column accepts a leading slash, plain segments and `{name}` or `{name:path}`
-placeholders; unbalanced braces are refused.
+The `path` column accepts a leading slash and segments of literal text, one `{name}` placeholder
+with an optional Starlette converter (`str`, `path`, `int`, `float`, `uuid`), or literal text around
+one placeholder (`/items/{id}.json`, `/v{version}/items`). Unbalanced braces, an unknown converter,
+two placeholders in one segment, and anything with trailing whitespace or a newline are refused.
 
 ## Managing Rate-Limit Rules
 
@@ -150,8 +163,8 @@ def upgrade():
     op.execute("""
         INSERT INTO rate_limits (tier_id, name, path, "limit", period, created_at)
         VALUES
-            (1, 'free_widgets_create', '/api/v1/widgets', 10, 60, NOW()),
-            (2, 'pro_widgets_create',  '/api/v1/widgets', 100, 60, NOW())
+            (1, 'free_widgets_create', '/api/v1/widgets/', 10, 60, NOW()),
+            (2, 'pro_widgets_create',  '/api/v1/widgets/', 100, 60, NOW())
     """)
 ```
 
@@ -171,7 +184,7 @@ async def main():
     async with local_session() as db:
         await crud_rate_limits.create(db=db, object={
             "tier_id": 1, "name": "free_widgets_create",
-            "path": "/api/v1/widgets", "limit": 10, "period": 60,
+            "path": "/api/v1/widgets/", "limit": 10, "period": 60,
         })
         await db.commit()
 

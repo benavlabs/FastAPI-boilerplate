@@ -88,6 +88,12 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   the path each request arrived through, prefix included (`--root-path /svc` gives `/svc/admin`).
   Moving the panel, or serving the app under a prefix, no longer leaves every admin request bouncing
   back to the login form.
+- **A rate limit's `path` is validated as the route template it has to match.** The pattern is
+  anchored at both ends, so a trailing newline or space is refused; Starlette's converters
+  (`{id:int}`, `{id:uuid}`, `{p:path}`, `str`, `float`) are accepted, as are templates with literal
+  text around the placeholder (`/items/{id}.json`, `/v{version}/items`); an unknown converter and
+  two placeholders in one segment are refused. The documented paths now carry the trailing slash the
+  listing routes declare (`/api/v1/users/`).
 - **The generated nginx vhost replaces `X-Forwarded-For`** with the address it saw
   (`$remote_addr`), rather than appending to whatever the client sent, and
   `--internal-subnet` is refused unless it names a network address of `/8` or smaller for IPv4, or
