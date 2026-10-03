@@ -7,7 +7,7 @@ import logging
 import os
 from enum import StrEnum
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings
 from sqlalchemy.engine import URL
 from starlette.config import Config
@@ -186,7 +186,15 @@ class APIDocSettings(BaseSettings):
 class APISettings(BaseSettings):
     """API-related settings."""
 
-    API_PREFIX: str = config("API_PREFIX", default="/api")
+    API_PREFIX: str = Field(default=config("API_PREFIX", default="/api"), validate_default=True)
+
+    @field_validator("API_PREFIX")
+    @classmethod
+    def _a_prefix_the_router_can_mount(cls, value: str) -> str:
+        if not value.startswith("/") or value.endswith("/"):
+            raise ValueError(f"API_PREFIX must start with '/' and must not end with '/', such as /api; got {value!r}")
+
+        return value
 
 
 class AppSettings(BaseSettings):

@@ -1,11 +1,44 @@
 """Tests for the crudauth composition root wiring."""
 
+import os
+import subprocess
+import sys
+from pathlib import Path
+
 from crudauth import NewUserContext
 from starlette.requests import Request
 
 from src.infrastructure.auth import setup
 from src.infrastructure.config.settings import settings
 from src.modules.user.constants import NAME_MAX_LENGTH
+
+_OAUTH_ROUTES = """
+from src.infrastructure.auth.routes import root_routers
+from src.infrastructure.auth.setup import OAUTH_PREFIX
+
+print("PREFIX:" + OAUTH_PREFIX)
+print("PATHS:" + ",".join(route.path for router in root_routers for route in router.routes))
+"""
+
+
+def _oauth_routes(**environment: str) -> tuple[str, list[str]]:
+    """The OAuth prefix and the paths its router serves, read from a cold interpreter."""
+    result = subprocess.run(
+        [sys.executable, "-c", _OAUTH_ROUTES],
+        cwd=Path(__file__).resolve().parents[4],
+        capture_output=True,
+        text=True,
+        check=True,
+        env={
+            **os.environ,
+            "OAUTH_GOOGLE_CLIENT_ID": "client-id",
+            "OAUTH_GOOGLE_CLIENT_SECRET": "client-secret",
+            **environment,
+        },
+    )
+    output = {line.split(":", 1)[0]: line.split(":", 1)[1] for line in result.stdout.splitlines() if ":" in line}
+
+    return output["PREFIX"], [path for path in output["PATHS"].split(",") if path]
 
 
 def _request(path: str, client_host: str = "203.0.113.7") -> Request:
@@ -57,6 +90,14 @@ class TestOAuthWiring:
 
     def test_the_callback_lives_under_the_api_prefix(self):
         assert setup.OAUTH_PREFIX == "/api/v1/auth/oauth"
+
+    def test_a_configured_api_prefix_moves_the_oauth_routes(self):
+        """The prefix was written out here, so a moved API served its OAuth routes nowhere."""
+        prefix, paths = _oauth_routes(API_PREFIX="/service")
+
+        assert prefix == "/service/v1/auth/oauth"
+        assert paths
+        assert [path for path in paths if not path.startswith("/service/v1/auth/oauth")] == []
 
 
 class TestOAuthProviderSelection:

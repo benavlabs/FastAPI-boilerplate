@@ -14,6 +14,7 @@ from httpx import ASGITransport, AsyncClient
 from src.infrastructure import app_factory
 from src.infrastructure.composition import Lifecycle
 from src.infrastructure.config.settings import EnvironmentOption, Settings, settings
+from src.infrastructure.middleware import ClientCacheMiddleware
 
 DOCS_PATHS = ("/docs", "/redoc", "/openapi.json")
 
@@ -244,6 +245,15 @@ async def test_docs_are_hidden_when_no_feature_can_guard_them(environment, enabl
     app = _create_app(environment, enable_docs_in_production, docs_guard=None)
 
     assert await _docs_statuses(app) == [404, 404, 404]
+
+
+def test_the_cache_middleware_is_told_the_configured_api_prefix():
+    """It decides the no-store wording from the prefix, which it can only get from here."""
+    app = app_factory.create_application(router=APIRouter(), settings=Settings(API_PREFIX="/service"))
+
+    cache = next(middleware for middleware in app.user_middleware if middleware.cls is ClientCacheMiddleware)
+
+    assert cache.kwargs["api_prefix"] == "/service"
 
 
 @pytest.mark.asyncio

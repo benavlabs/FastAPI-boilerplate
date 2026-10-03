@@ -93,7 +93,8 @@ GET /api/v1/auth/oauth/callback/google?code=...&state=...
 ```
 
 Register `{OAUTH_REDIRECT_BASE_URL}/api/v1/auth/oauth/callback/google` as the redirect URI in the
-Google console; `OAUTH_REDIRECT_BASE_URL` is the public origin of the API, without a path.
+Google console; `OAUTH_REDIRECT_BASE_URL` is the public origin of the API, without a path. The
+paths above follow `API_PREFIX`, so a project that moved the API registers the moved callback.
 
 A failed sign-in - the user declined, or their address is longer than the `email` column - sends
 the browser to `OAUTH_REDIRECT_BASE_URL?error=<code>`. A callback whose `state` doesn't match the

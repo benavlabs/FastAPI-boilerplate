@@ -24,7 +24,7 @@ from ..database.session import async_session
 from .limiter import build_rate_limiter, rate_limiter_redis_client
 from .password_policy import password_policy
 
-OAUTH_PREFIX = "/api/v1/auth/oauth"
+OAUTH_PREFIX = f"{settings.API_PREFIX}/v1/auth/oauth"
 
 
 def _session_transport() -> SessionTransport:

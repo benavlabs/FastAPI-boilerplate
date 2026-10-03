@@ -213,7 +213,7 @@ def create_application(
         install(application)
 
     if settings.CLIENT_CACHE_ENABLED:
-        application.add_middleware(ClientCacheMiddleware, max_age=settings.CLIENT_CACHE_MAX_AGE)
+        application.add_middleware(ClientCacheMiddleware, max_age=settings.CLIENT_CACHE_MAX_AGE, api_prefix=settings.API_PREFIX)
 
     if _enable_cors and _cors_origins:
         methods = settings.CORS_ALLOW_METHODS

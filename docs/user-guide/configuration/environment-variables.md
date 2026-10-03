@@ -264,6 +264,9 @@ LICENSE_NAME=MIT
 # REDOC_URL=/redoc
 ```
 
+`API_PREFIX` must start with `/` and must not end with `/`; anything else is refused when the
+settings load. It moves every API route, the OAuth routes and the `no-store` cache header with it.
+
 ## Initial Setup
 
 These are read by `python -m scripts.setup_initial_data`:

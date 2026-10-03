@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from pydantic import ValidationError
 
 from src.infrastructure.config.settings import EnvironmentOption, Settings, get_settings
 
@@ -163,3 +164,29 @@ class TestSettingsNothingReads:
         moved = _mounted_api_paths(API_PREFIX="/service")
 
         assert [path for path in moved if not path.startswith("/service")] == []
+
+
+class TestAPIPrefix:
+    """A prefix the router can mount, refused before the app is built."""
+
+    @pytest.mark.parametrize("prefix", ["v2", "/", "/api/", ""])
+    def test_a_prefix_the_router_cannot_mount_is_refused(self, prefix: str):
+        with pytest.raises(ValidationError, match="API_PREFIX"):
+            Settings(API_PREFIX=prefix)
+
+    @pytest.mark.parametrize("prefix", ["/api", "/service", "/api/v2"])
+    def test_a_prefix_the_router_can_mount_is_kept(self, prefix: str):
+        assert Settings(API_PREFIX=prefix).API_PREFIX == prefix
+
+    def test_a_prefix_from_the_environment_is_refused_by_name(self):
+        """``API_PREFIX=v2`` used to reach the router and fail there as an AssertionError."""
+        result = subprocess.run(
+            [sys.executable, "-c", _MOUNTED_PATHS],
+            cwd=Path(__file__).resolve().parents[4],
+            capture_output=True,
+            text=True,
+            env={**os.environ, "API_PREFIX": "v2"},
+        )
+
+        assert result.returncode != 0
+        assert "API_PREFIX must start with '/'" in result.stderr

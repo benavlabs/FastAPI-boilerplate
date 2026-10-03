@@ -147,6 +147,10 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   `hide_parameters=True`, and the catch-all handler logs the method, path and support id without the
   exception text, so a failing insert no longer writes a password hash to the log. An email address
   longer than the column (50 characters) answers `422` instead of `500`.
+- **`API_PREFIX` now moves the whole API.** The OAuth routes and the `no-store` cache header are
+  derived from it instead of writing `/api` out, and a prefix the router cannot mount (`v2`, `/`,
+  `/api/`, empty) is refused by name when the settings load rather than raising an `AssertionError`
+  at import.
 
 #### Removed
 
@@ -181,6 +185,9 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   database and fail there.
 - **An `expires_at` that cannot be expressed in UTC answers `422`**, and so does string input that is
   not valid Unicode.
+- **An empty `API_PREFIX` no longer serves the API from the root.** `API_PREFIX=` used to mount the
+  routes at `/v1/...`; it is now refused at startup, together with any prefix that does not start
+  with `/` or that ends with `/`. Set a prefix such as `/api`.
 - **A naive `expires_at` on an API key answers `422`.** Send an offset (`2030-01-01T00:00:00+00:00`).
 - **Emails are stored lowercased.** Rows written before this change keep their original case; the
   uniqueness check and the login lookup both use the canonical form, so a mixed-case row can still be
