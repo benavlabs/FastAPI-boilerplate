@@ -39,8 +39,9 @@ cd backend
 uv run --no-sync taskiq worker src.infrastructure.taskiq.worker:default_broker --reload
 ```
 
-`--reload` needs `taskiq[reload]`, which ships in the `dev` extra - hence `--extra dev`, since
-`uv run` syncs the environment without extras otherwise. Drop both in production. See [Background Tasks](background-tasks/index.md) for details.
+`--reload` needs `taskiq[reload]`, which ships in the `dev` extra. A workspace synced with
+`--all-extras` already has it; `--extra dev` is what installs it into an environment that was
+synced without it. Drop both in production. See [Background Tasks](background-tasks/index.md) for details.
 
 ## The Dev Toolchain
 
@@ -64,10 +65,12 @@ uv run --no-sync pytest -x                   # stop on first failure
 uv run --no-sync pytest -n auto              # parallel via pytest-xdist
 ```
 
-Ruff is configured (`pyproject.toml:[tool.ruff]`) with:
+Ruff is configured (`pyproject.toml:[tool.ruff]`, and `backend/pyproject.toml` for the backend) with:
 
 - `line-length = 128`
-- Selected rule sets: `E`, `F`, `I`, `UP` (pyflakes, pycodestyle, isort, pyupgrade)
+- Selected rule sets: `E`, `F`, `I`, `UP` (pycodestyle, pyflakes, isort, pyupgrade)
+- Extended in the backend with `UP006`, `UP007`, `UP035`, `UP039` and `PLC0415`, which keeps imports
+  at the top of a module
 - `known-first-party = ["src"]` so `src.*` imports are grouped correctly
 
 Mypy is intentionally relaxed about annotations (`disallow_untyped_defs = false`) — adopt strictness
@@ -85,11 +88,13 @@ field reads as an error.
 
 ## Pre-Commit
 
-The repo's `.pre-commit-config.yaml` wires up ruff, pyupgrade, docformatter, mdformat, and a few standard hygiene hooks (trailing whitespace, large files, private keys). Install once:
+The repo's `.pre-commit-config.yaml` wires up ruff, pyupgrade, docformatter, yesqa, blacken-docs,
+mdformat, a few standard hygiene hooks (trailing whitespace, large files, private keys), and local
+hooks that run mypy and the test suites. `pre-commit` ships in the `dev` extra, so the workspace
+sync already installed it. Install the git hook once:
 
 ```bash
-pip install pre-commit
-pre-commit install
+uv run --no-sync pre-commit install
 ```
 
 After that, `git commit` runs the hooks automatically. To run them ad hoc:
@@ -229,7 +234,13 @@ Per-module service aliases follow the same pattern — see the existing `modules
 
 ### See every SQL query
 
-Set `DATABASE_ECHO=true` in your `.env`. Every statement (and parameter binding) is logged. Useful when investigating why a FastCRUD call returns the wrong shape, or when chasing N+1 issues.
+There is no setting for this: the engine is built with `echo=False` and `hide_parameters=True` (`infrastructure/database/session.py`). Raise SQLAlchemy's own logger to see the statements:
+
+```python
+logging.getLogger("sqlalchemy.engine").setLevel(logging.INFO)
+```
+
+Statements are logged without their parameter values, which is deliberate — a failing insert must not write a password hash to the log. For a one-off look at the values, build an engine of your own with `build_engine(hide_parameters=False, echo=True)`.
 
 ### Inspect rate-limit and cache state
 

@@ -54,7 +54,7 @@ Navigate to **Users → Create**. Fill the form. The `Password` field accepts pl
 
 ### Editing a User
 
-Click any user row → **Edit**. You can change the tier, toggle `is_superuser`, update OAuth fields, etc. The hashed password field is shown but you only need to fill it if you want to reset the password.
+Click any user row → **Edit**. You can change the name, username, email, the tier, the OAuth identifiers and `is_superuser`. The edit form has no password field (`form_edit_rules` comes from `UserAdminUpdate`), so a reset goes through the API's change-password route or a new hash written directly.
 
 The tier picker lists only tiers a soft delete hasn't taken out, and a save that still names a
 deleted one is refused with "That tier has been deleted. Pick another one."
@@ -75,7 +75,7 @@ The admin panel uses session-based auth via `SessionMiddleware` (Starlette), sep
 2. On success, sets `request.session["admin_authenticated"] = True`
 3. Subsequent requests check that flag
 
-This is intentionally simpler than the main app's session system — the admin panel is for a small number of trusted operators, not end users. The session is encrypted with `SECRET_KEY`.
+This is intentionally simpler than the main app's session system — the admin panel is for a small number of trusted operators, not end users. The session cookie is signed with `SECRET_KEY`, not encrypted: its contents are readable by whoever holds it, and the signature is what stops it being forged. Its `Path` is the panel's own mount — `ADMIN_BASE_URL`, with any `root_path` the request arrived through — so the API never receives it, and an API route can never be reached with an operator's panel session.
 
 ## How It's Wired
 

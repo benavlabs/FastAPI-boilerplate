@@ -117,7 +117,7 @@ For development on your host machine. You provide PostgreSQL and Redis yourself.
     uv sync --all-packages --all-extras
     ```
 
-    This syncs the whole workspace — backend, CLI, and dev tools — into one `.venv/` at the repo root. From here on, `uv run --no-sync <cmd>` works from any subdirectory; the flag keeps uv from re-syncing without the extras, which would uninstall ruff, mypy and pytest.
+    This syncs the whole workspace — backend, CLI, and dev tools — into one `.venv/` at the repo root. From here on, `uv run --no-sync <cmd>` works from any subdirectory; the flag skips uv's implicit sync, so a command starts immediately and leaves the environment and the lockfile alone. Re-running a plain `uv sync` without `--all-extras` is what removes ruff, mypy and pytest again.
 
 3. **Set up environment variables**:
 

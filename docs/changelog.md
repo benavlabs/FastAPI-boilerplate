@@ -177,6 +177,17 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   project, it checks each draw against `is_weak_secret_key`: one hex key in 12.6 million runs
   through eight consecutive digits, which production refuses at startup. Run outside a project,
   where those rules aren't there to ask, it prints the first draw as before.
+- **The documentation and `.env.example` describe what the code does.** Settings that never
+  existed are gone (`DATABASE_ECHO`, `DATABASE_POOL_SIZE`); `OAUTH_GITHUB_*` says that nothing
+  reads it; the CORS text says that a `*` origin drops credentials rather than carrying cookies;
+  the admin pages say the session cookie is signed and that the edit form has no password field;
+  the pagination page shows the shared `PageDep` / `ItemsPerPageDep` bounds instead of a `le=1000`
+  that no route has; the Docker page describes the stack `bp deploy generate local` writes
+  (`api`, `worker`, `postgres`, `redis`) instead of a hand-written one naming `app` and `db`; the
+  testing page names `backend/tests`, says `pytest -m unit` selects nothing until you mark tests,
+  and says CI does run the integration tests; the `--no-sync` flag is explained as skipping uv's
+  implicit sync rather than saving the dev tools from removal; and the client-cache page no longer
+  claims `CACHE_ENABLED` gates the middleware.
 - **Thirty broken imports in the documentation's samples** now name what they import:
   `require_permissions` comes from `auth.authorization`, the cache functions from
   `cache.provider` and the decorator from `cache.decorator`, `default_broker` from

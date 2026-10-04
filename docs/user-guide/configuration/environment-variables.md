@@ -32,7 +32,7 @@ CREATE_TABLES_ON_STARTUP=true
 | `POSTGRES_USER` | `postgres` | Database user |
 | `POSTGRES_PASSWORD` | `postgres` | Database password |
 | `POSTGRES_DB` | `postgres` | Database name |
-| `POSTGRES_SERVER` | `localhost` | Hostname (use `db` for Compose) |
+| `POSTGRES_SERVER` | `localhost` | Hostname (use `postgres`, the Compose service name) |
 | `POSTGRES_PORT` | `5432` | TCP port |
 | `POSTGRES_ASYNC_PREFIX` | `postgresql+asyncpg://` | Driver prefix for async code (the app) |
 | `CREATE_TABLES_ON_STARTUP` | `true` | Auto-create tables from models on startup |
@@ -141,7 +141,7 @@ CORS_ALLOW_HEADERS=*
 ```
 
 !!! danger "CORS in Production"
-    Never use `*` for `CORS_ORIGINS` in production: any website could call the API from your users' browsers, and with `CORS_ALLOW_CREDENTIALS=true` those requests carry their session cookie. The production security validator refuses to start with it. Specify exact domains:
+    Never use `*` for `CORS_ORIGINS` in production: any website could call the API from your users' browsers. The app drops `CORS_ALLOW_CREDENTIALS` while `*` is listed, so a page on another origin can't read a response to a call it made with the user's cookies — which is also why a wildcard origin can't serve a logged-in frontend. A simple cross-site request is still delivered, cookie included wherever `SameSite` allows it; the browser only withholds the response. The production security validator refuses to start with it. Specify exact domains:
     ```env
     CORS_ORIGINS=https://yourapp.com,https://www.yourapp.com
     CORS_ALLOW_METHODS=GET,POST,PUT,DELETE,PATCH

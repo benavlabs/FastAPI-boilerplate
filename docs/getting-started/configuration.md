@@ -189,12 +189,12 @@ OAUTH_REDIRECT_BASE_URL=http://localhost:8000
 OAUTH_GOOGLE_CLIENT_ID=
 OAUTH_GOOGLE_CLIENT_SECRET=
 
-# GitHub OAuth
+# GitHub OAuth: read by nothing — no provider and no routes ship
 OAUTH_GITHUB_CLIENT_ID=
 OAUTH_GITHUB_CLIENT_SECRET=
 ```
 
-Leave the credentials empty to disable a provider. See [Authentication](../user-guide/authentication/index.md) for the OAuth setup walkthrough.
+Leave the Google credentials empty to disable that provider. The GitHub settings exist because the `User` model keeps its `github_id` and `oauth_provider` columns; filling them in wires up nothing. See [Authentication](../user-guide/authentication/index.md) for the OAuth setup walkthrough.
 
 The built-in crudauth OAuth router keeps the existing paths (`/api/v1/auth/oauth/{provider}` and
 `/api/v1/auth/oauth/callback/{provider}`), returns JSON, sets session cookies, binds state to the

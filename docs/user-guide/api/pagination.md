@@ -19,8 +19,8 @@ from .schemas import UserRead
 async def get_users(
     db: AsyncSessionDep,
     user_service: UserServiceDep,
-    page: int = 1,
-    items_per_page: int = 10,
+    page: PageDep = 1,
+    items_per_page: ItemsPerPageDep = 10,
 ) -> dict[str, Any]:
     result = await user_service.get_paginated(
         skip=compute_offset(page, items_per_page),
@@ -174,23 +174,33 @@ The `pattern` constraint stops clients from passing arbitrary column names that 
 
 ## Validation
 
-Always cap `items_per_page` to keep callers from asking for thousands of rows:
+Every listing takes its bounds from one place, `modules/common/pagination.py`, so no route can
+forget them:
 
 ```python
-from fastapi import Query
+MAX_ITEMS_PER_PAGE = 100
+MAX_PAGE = 2**31 - 1
 
+PageDep = Annotated[int, Query(ge=1, le=MAX_PAGE, description="Page number")]
+ItemsPerPageDep = Annotated[int, Query(ge=1, le=MAX_ITEMS_PER_PAGE, description=f"Items per page (max {MAX_ITEMS_PER_PAGE})")]
+```
 
+A route declares the two parameters with those aliases and nothing else:
+
+```python
 @router.get("/", response_model=PaginatedListResponse[UserRead])
 async def list_users(
-    db: Annotated[AsyncSession, Depends(async_session)],
-    user_service: Annotated[UserService, Depends(get_user_service)],
-    page: Annotated[int, Query(ge=1)] = 1,
-    items_per_page: Annotated[int, Query(ge=1, le=100)] = 10,
+    db: AsyncSessionDep,
+    user_service: UserServiceDep,
+    page: PageDep = 1,
+    items_per_page: ItemsPerPageDep = 10,
 ) -> dict[str, Any]:
     ...
 ```
 
-The boilerplate uses `ge=1, le=100` for the user list endpoint and `ge=1, le=1000` for API-key usage history (`modules/api_keys/routes.py`). Pick a cap that matches the row size of the model you're paginating.
+`items_per_page` above 100 answers `422`, on every listing including the API-key usage history,
+which used to allow 1000. `page` above `2147483647` answers `422` as well, rather than reaching the
+database with an offset it can't hold.
 
 ## Real Endpoint: List Users
 
@@ -198,6 +208,7 @@ From `modules/user/routes.py`:
 
 ```python
 from ...infrastructure.auth.authorization import require_permissions
+from ..common.pagination import ItemsPerPageDep, PageDep
 
 
 @router.get(
@@ -213,8 +224,8 @@ from ...infrastructure.auth.authorization import require_permissions
 async def get_users(
     db: AsyncSessionDep,
     user_service: UserServiceDep,
-    page: int = 1,
-    items_per_page: int = 10,
+    page: PageDep = 1,
+    items_per_page: ItemsPerPageDep = 10,
 ) -> dict[str, Any]:
     """Get paginated list of users."""
     users_data = await user_service.get_paginated(
@@ -229,7 +240,7 @@ The endpoint is gated on the `user.read` permission, which a role grants — not
 
 ## Real Endpoint: API Key Usage History
 
-From `modules/api_keys/routes.py` — same pattern, different limit cap:
+From `modules/api_keys/routes.py` — the same pattern, and the same bounds:
 
 ```python
 @router.get(
@@ -242,7 +253,7 @@ async def get_key_usage(
     db: AsyncSessionDep,
     key_id: int = Path(..., description="API key ID"),
     page: int = Query(1, ge=1, description="Page number"),
-    items_per_page: int = Query(100, ge=1, le=1000, description="Items per page"),
+    items_per_page: ItemsPerPageDep = 100,
 ) -> dict[str, Any]:
     result = await api_key_service.get_key_usage(
         key_id=key_id,

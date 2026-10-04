@@ -222,8 +222,8 @@ class ProductionSecurityValidator:
 
         if self._is_cors_too_permissive():
             credentials_note = (
-                " The app drops CORS_ALLOW_CREDENTIALS while '*' is listed, so cookies and "
-                "Authorization headers stop reaching your frontend too."
+                " The app drops CORS_ALLOW_CREDENTIALS while '*' is listed, so a page on another "
+                "origin cannot read a response to a call it made with the user's cookies."
                 if getattr(self.settings, "CORS_ALLOW_CREDENTIALS", True)
                 else ""
             )

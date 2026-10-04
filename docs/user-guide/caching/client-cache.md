@@ -66,7 +66,7 @@ CLIENT_CACHE_ENABLED=true
 CLIENT_CACHE_MAX_AGE=60
 ```
 
-The middleware is added to the FastAPI app only when **both** `CACHE_ENABLED` and `CLIENT_CACHE_ENABLED` are true (`infrastructure/app_factory.py`). If you've already disabled the server-side cache, the client-cache middleware also goes away.
+The middleware is added when `CLIENT_CACHE_ENABLED` is true (`infrastructure/app_factory.py`). It has nothing to do with `CACHE_ENABLED`, which governs the server-side cache: either can be on without the other.
 
 When `CLIENT_CACHE_ENABLED=false`, no `Cache-Control` header is set by middleware — your routes (or your reverse proxy) are responsible for it.
 
@@ -177,7 +177,7 @@ curl -I http://localhost:8000/api/v1/users/me \
 # look for: Cache-Control: private, no-cache, no-store, must-revalidate
 ```
 
-If the header is missing, check that `CLIENT_CACHE_ENABLED=true` and `CACHE_ENABLED=true`. Both must be true for the middleware to mount.
+If the header is missing, check that `CLIENT_CACHE_ENABLED=true` — that setting alone decides whether the middleware is mounted.
 
 ### "I want to cache an API response but the middleware overrides it"
 

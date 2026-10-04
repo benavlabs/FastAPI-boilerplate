@@ -26,9 +26,9 @@ What this gets you:
 
 - **`asyncio_mode = "auto"`** — every `async def test_*` runs under pytest-asyncio; no decorator needed
 - **`--strict-markers`** — a typo in a marker fails the run instead of being ignored
-- **Markers** for `unit` / `integration` / `slow` — use them to split your suite
+- **Markers** for `unit` / `integration` / `slow` — declared, and yours to apply: no test in the suite carries `unit` today, so `pytest -m unit` selects nothing until you mark some
 
-`backend/tests/conftest.py` puts `backend/` and `backend/src` on `sys.path` and loads the fixture
+`backend/tests/conftest.py` puts `backend/` on `sys.path` and loads the fixture
 modules `backend/tests/wiring.py` lists. Nothing forces an `ENVIRONMENT` on the suite: the settings
 accept only `local`, `development`, `staging` and `production`, and the validator runs its checks
 only in `production`.
@@ -42,18 +42,19 @@ Available test dependencies (from the backend's `dev` extra, installed by
 - `testcontainers[postgres]` — for real-Postgres integration tests
 - `pytest-xdist[psutil]` — for parallel test execution
 
-The repo doesn't currently bundle `pytest-cov`. Add it (`uv add --dev pytest-cov`) when you start tracking coverage.
+The repo doesn't currently bundle `pytest-cov`. The dev tools live in the `dev` extra, not in a dependency group, so add it with `uv add --optional dev pytest-cov` when you start tracking coverage.
 
 ## Test Layout
 
-Use `tests/` at the repository root. A standard layout:
+The suite lives in `backend/tests/`. What ships, and where your own tests go:
 
 ```text
-tests/
-├── conftest.py                  # global fixtures (app, db, client)
-├── helpers/
-│   ├── __init__.py
-│   └── factories.py             # data-creation helpers (faker-based)
+backend/tests/
+├── conftest.py                  # the Postgres container, the session, the HTTP clients
+├── wiring.py                    # the fixture modules the selected features contribute
+├── fixtures/
+│   ├── accounts.py              # a registered user, a logged-in client
+│   └── tiers.py
 ├── unit/
 │   ├── modules/
 │   │   ├── user/
@@ -327,13 +328,14 @@ Now `await my_task.kiq(...)` runs the task body in the test process. For tests t
 ```bash
 cd backend
 
-# Run everything (--no-sync keeps uv from re-syncing without the dev extras)
+# Run everything (--no-sync skips uv's implicit sync; the environment stays as you synced it)
 uv run --no-sync pytest
 
-# Just unit tests (skip the slower integration ones)
-uv run --no-sync pytest -m unit
+# Just the unit tests (skip the slower ones that need the container)
+uv run --no-sync pytest tests/unit
 
-# Just integration tests
+# Just the integration tests: by path, or by the marker they carry
+uv run --no-sync pytest tests/integration
 uv run --no-sync pytest -m integration
 
 # Stop on first failure
@@ -345,7 +347,7 @@ uv run --no-sync pytest -k "user_login" -v
 # Parallel via pytest-xdist
 uv run --no-sync pytest -n auto
 
-# With coverage (after `uv add --dev pytest-cov`)
+# With coverage (after `uv add --optional dev pytest-cov`)
 uv run --no-sync pytest --cov=src --cov-report=term-missing
 ```
 
@@ -357,14 +359,13 @@ workflows install the workspace from the repo root with `uv sync --all-packages 
 --locked`, then `cd backend` for the suite, so the same `uv run --no-sync pytest` works there as
 locally.
 
-CI runs in a clean image, which means:
+CI runs the whole suite, integration tests included: `.github/workflows/tests.yml` syncs the
+workspace and runs `pytest` on an `ubuntu-latest` runner, where Docker is available, so
+testcontainers starts its own Postgres. There is no `services:` block and none is needed.
 
-- **No Docker access by default** — testcontainers needs `docker` available. Either:
-  - Use the `services:` block in the workflow to start a Postgres container, then point your test conftest at it via env vars
-  - Or skip integration tests in CI and run them manually before each release
-- **Connections to localhost are sandboxed** — anything connecting outside the runner needs explicit network setup
-
-For most teams, running unit tests in CI and integration tests locally / on a periodic schedule is enough.
+On a runner without Docker — a container-based CI image, say — the database fixtures skip
+themselves, which makes a green run meaningless. Point the suite at a Postgres you start yourself,
+or keep a Docker-capable runner for the job.
 
 ## Common Mistakes
 

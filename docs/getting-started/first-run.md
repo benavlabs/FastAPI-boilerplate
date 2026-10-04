@@ -14,7 +14,7 @@ Before diving deeper, verify everything is working.
     docker compose ps
     ```
 
-    You should see `web`, `db`, and `redis` services in `running` state.
+    You should see the `api`, `worker`, `postgres` and `redis` services in `running` state.
 
 === "Local with uv"
 
@@ -220,7 +220,7 @@ For a step-by-step walkthrough of adding a new module, see the [Development Guid
 === "Docker Compose"
 
     ```bash
-    docker compose logs -f web
+    docker compose logs -f api
     ```
 
 === "Local with uv"
@@ -230,7 +230,7 @@ For a step-by-step walkthrough of adding a new module, see the [Development Guid
 ### Database Logs
 
 ```bash
-docker compose logs -f db
+docker compose logs -f postgres
 ```
 
 ### Run Migrations Manually

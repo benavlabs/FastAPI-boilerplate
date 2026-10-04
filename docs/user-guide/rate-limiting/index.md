@@ -98,7 +98,8 @@ template against the user's tier and falls back to the configured default.
 ## Path Matching
 
 Rate-limit rows are matched against the **route template** the request matched, as the router
-declares it, including the `/api/v1` prefix:
+declares it, including the API prefix. The samples below use the default `/api`; a project that
+set `API_PREFIX=/service` stores its rows as `/service/v1/...`:
 
 ```text
 /api/v1/users/               # the listing route, trailing slash included

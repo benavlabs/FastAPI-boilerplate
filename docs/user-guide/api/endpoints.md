@@ -390,8 +390,8 @@ async def update_widget(...) -> dict[str, Any]:
     return await widget_service.update(widget_id, values, db)
 ```
 
-A route catches a domain error only when it wants to answer something else, as the tier lookup
-below does. See [Exception Handling](exceptions.md).
+A route catches a domain error only when it wants to answer something else. See
+[Exception Handling](exceptions.md).
 
 ### Direct HTTP Exceptions
 

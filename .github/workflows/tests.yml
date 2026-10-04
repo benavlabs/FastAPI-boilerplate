@@ -24,8 +24,8 @@ jobs:
         run: uv sync --all-packages --all-extras --locked --python 3.11
 
       - name: Pytest (backend)
-        # --no-sync prevents uv run's implicit re-sync from dropping member
-        # extras (it defaults to no extras and would remove pytest).
+        # --no-sync skips uv run's implicit sync: the step above already installed
+        # every member and extra, and skipping it keeps each step from re-resolving.
         run: cd backend && uv run --no-sync pytest
         env:
           ENVIRONMENT: local

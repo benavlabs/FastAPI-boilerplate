@@ -57,7 +57,7 @@ cd backend
 uv run --no-sync pytest
 ```
 
-`--no-sync` keeps uv from re-syncing without the dev extras, which would uninstall pytest itself.
+`--no-sync` skips uv's implicit sync, so the command starts straight away and neither the environment nor the lockfile changes under you. A plain `uv run` installs what the lockfile needs and removes nothing; a plain `uv sync`, without `--all-extras`, is what uninstalls the dev tools.
 
 ### Linting
 

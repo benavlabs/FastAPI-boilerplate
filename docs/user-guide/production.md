@@ -27,7 +27,7 @@ The app **will not start** if any of these is true:
 - **The database password is `postgres`** (the well-known default). Attackers try this first.
 - **The database password is empty.** Database is unprotected.
 - **The admin panel is enabled without credentials** (`ADMIN_ENABLED=true` with `ADMIN_USERNAME` or `ADMIN_PASSWORD` unset).
-- **`CORS_ORIGINS` contains `*`.** Any website can call the API from a user's browser, and with `CORS_ALLOW_CREDENTIALS=true` those requests carry the user's session cookie.
+- **`CORS_ORIGINS` contains `*`.** Any website can call the API from a user's browser. The app drops `CORS_ALLOW_CREDENTIALS` while `*` is listed, so it answers `Access-Control-Allow-Origin: *` with no `Access-Control-Allow-Credentials`: a page on another origin cannot read a response to a call it made with the user's cookies. The call itself is still sent when it needs no preflight, cookie included wherever `SameSite` allows it, so a `*` origin neither protects the endpoint nor serves a logged-in frontend.
 
 The password checked is the one actually used to connect: when `DATABASE_URL` is set it's read out of that URL, otherwise it's `POSTGRES_PASSWORD`. A `DATABASE_URL` with no password at all (IAM or certificate authentication) is a warning rather than an error, since it can't be verified from here.
 
@@ -181,7 +181,7 @@ docker run -d \
 
 ### Picking a Worker Count
 
-Rough rule: `2 × CPU cores + 1` for I/O-bound workloads, fewer for CPU-bound. Each worker is a separate process; they don't share memory. Caches and DB pools are per-worker — bring `DATABASE_POOL_SIZE` down if you're scaling workers up.
+Rough rule: `2 × CPU cores + 1` for I/O-bound workloads, fewer for CPU-bound. Each worker is a separate process; they don't share memory. Caches and DB pools are per-worker — bring `POSTGRES_POOL_SIZE` down if you're scaling workers up.
 
 For most APIs, **don't reach for gunicorn**. `fastapi run` (which wraps uvicorn) handles process management fine. Add a process supervisor (Kubernetes, ECS, systemd, supervisord) at the orchestration layer.
 
@@ -274,7 +274,7 @@ Set `FORWARDED_ALLOW_IPS` to your proxy's address or subnet. **uvicorn** reads i
     shared across clients. On a Linux host with the bridge driver, nginx sees the real client
     addresses. Test per-IP behaviour on a Linux host, or in front of a real proxy.
 
-`CORS_ORIGINS` should list your **frontend** origins, not the API origin. Wildcard (`*`) is incompatible with credentialed requests anyway — the validator warns on it for a reason.
+`CORS_ORIGINS` should list your **frontend** origins, not the API origin. A wildcard (`*`) is incompatible with credentialed requests anyway, and the production validator refuses to start with one.
 
 ## Logging in Production
 
@@ -285,7 +285,7 @@ LOG_LEVEL=INFO
 LOG_FORMAT=json
 ```
 
-The boilerplate's logger (`infrastructure/logging/`) attaches a correlation ID per request — it appears in every log line for that request, including downstream Taskiq tasks if you propagate it. Useful for tying together "user X reported error Y" with the actual server-side trace.
+`infrastructure/logging/` ships the pieces for a correlation ID — a context variable, a `CorrelationIdFilter`, `set_correlation_id()` and `add_correlation_id_filter()` — but nothing installs them, so log lines carry no request id out of the box. Wire it up with middleware that calls `set_correlation_id()` per request and `add_correlation_id_filter()` at startup; the `structured` and `json` formats then carry the field. The catch-all error handler already logs a support id per failed request, which is what ties a user's report to a server-side trace today.
 
 For lower-noise production logs:
 

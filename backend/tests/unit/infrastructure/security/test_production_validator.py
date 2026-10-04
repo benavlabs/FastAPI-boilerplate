@@ -44,7 +44,6 @@ class TestProductionSecurityValidator:
             "ADMIN_USERNAME": "secure_admin_user",
             "ADMIN_PASSWORD": "very_secure_admin_password_123",
             "PRODUCTION_SECURITY_VALIDATION_ENABLED": True,
-            "PRODUCTION_SECURITY_STRICT_MODE": False,
             # Redis settings
             "CACHE_REDIS_HOST": "localhost",
             "CACHE_REDIS_PORT": 6379,
