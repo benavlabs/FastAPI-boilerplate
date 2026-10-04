@@ -82,6 +82,10 @@ The generator is held to the wiring this repository commits:
 tree, ignoring docstrings and formatting. A contribution added to any of those files by
 hand and not to the generator fails there.
 
+A failing check prints the end of what it printed — the failing test, the ruff rule, the
+mypy error — and the scratch copy of that project is left on disk to run things in by hand.
+A build that raises leaves its copy behind too.
+
 It runs on the interpreter that invoked it, so run it through uv (the checks need
 the project's dependencies) and with Docker up (the tests use a Postgres container):
 

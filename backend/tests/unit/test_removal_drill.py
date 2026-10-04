@@ -6,6 +6,7 @@ than imported.
 
 import ast
 import importlib.util
+import shutil
 import sys
 from pathlib import Path
 
@@ -37,6 +38,61 @@ def test_every_feature_the_wiring_knows_is_in_the_manifest():
     """A feature missing here would never be removed by any preset."""
     assert set(drill.FEATURES) >= set(drill.REQUIRES)
     assert set(drill.PRESETS["everything"]) == set(drill.FEATURES)
+
+
+class TestReportingACheck:
+    """A failing preset has to say what failed: the drill is the only place that output exists."""
+
+    def test_a_failing_check_prints_what_it_printed(self):
+        failed = drill.Result(
+            "tests",
+            False,
+            "1 failed, 664 passed",
+            "FAILED tests/integration/test_x.py::test_y - assert 2 == 1\n1 failed, 664 passed",
+        )
+
+        report = drill._report(failed)
+
+        assert "FAIL" in report
+        assert "tests/integration/test_x.py::test_y" in report
+
+    def test_a_long_failure_prints_its_end_and_says_what_it_dropped(self):
+        """A ``-q`` run is mostly progress dots; the failure sits at the end of it."""
+        printed = "\n".join(f"line {number}" for number in range(100))
+
+        report = drill._report(drill.Result("tests", False, "line 99", printed))
+
+        assert "line 99" in report
+        assert "line 0" not in report
+        assert "60 earlier lines" in report
+
+    def test_a_build_that_raises_leaves_its_scratch_copy_behind(self, monkeypatch, capsys):
+        """Whatever the build tripped over is only visible in the copy it got to."""
+
+        def failing_build(preset: str, scratch: Path) -> Path:
+            raise RuntimeError("copy failed")
+
+        monkeypatch.setattr(drill, "build", failing_build)
+        monkeypatch.setattr(sys, "argv", ["removal_drill.py", "core-only"])
+
+        with pytest.raises(RuntimeError, match="copy failed"):
+            drill.main()
+
+        printed = capsys.readouterr().out
+
+        assert "scratch copies left in" in printed
+
+        left = Path(printed.split("scratch copies left in ")[1].strip())
+
+        assert left.exists()
+        shutil.rmtree(left, ignore_errors=True)
+
+    def test_a_passing_check_prints_its_last_line_only(self):
+        passed = drill.Result("tests", True, "665 passed", "a long run of dots\n665 passed")
+
+        report = drill._report(passed)
+
+        assert report.strip() == "PASS  tests        665 passed"
 
 
 def test_a_scratch_project_never_carries_the_repository_env_file():

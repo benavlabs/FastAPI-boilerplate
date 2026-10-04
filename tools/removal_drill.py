@@ -8,6 +8,9 @@ passes and that the remaining tests pass.
     python tools/removal_drill.py                 # every preset
     python tools/removal_drill.py accounts-only   # one of them
     python tools/removal_drill.py --keep          # leave the scratch copies behind
+
+A failing check, or a build that raises, prints the end of what it printed and leaves
+its scratch copy on disk whether or not ``--keep`` was passed.
 """
 
 from __future__ import annotations
@@ -494,7 +497,34 @@ print("every module imports")
 """
 
 
-def check(project: Path, python: Path) -> list[tuple[str, bool, str]]:
+@dataclass(frozen=True)
+class Result:
+    """What one check printed, and whether it passed."""
+
+    name: str
+    ok: bool
+    last_line: str
+    output: str
+
+
+REPORTED_LINES = 40
+
+
+def _report(result: Result) -> str:
+    """One check's line, followed by the end of what it printed when it failed."""
+    line = f"  {'PASS' if result.ok else 'FAIL'}  {result.name:12} {result.last_line}"
+    if result.ok:
+        return line
+
+    printed = result.output.splitlines()
+    dropped = len(printed) - REPORTED_LINES
+    kept = [f"... {dropped} earlier lines"] if dropped > 0 else []
+    kept += printed[-REPORTED_LINES:]
+
+    return "\n".join([line, *(f"        {printed_line}" for printed_line in kept)])
+
+
+def check(project: Path, python: Path) -> list[Result]:
     """Import the app and every module, lint it, and run whatever tests are left.
 
     Importing every module matters: a file no feature imports any more still ships,
@@ -521,8 +551,9 @@ def check(project: Path, python: Path) -> list[tuple[str, bool, str]]:
     results = []
     for name, command in steps:
         completed = subprocess.run(command, cwd=backend, env=environment, capture_output=True, text=True)
-        output = (completed.stdout + completed.stderr).strip().splitlines()
-        results.append((name, completed.returncode == 0, output[-1] if output else ""))
+        output = (completed.stdout + completed.stderr).strip()
+        lines = output.splitlines()
+        results.append(Result(name, completed.returncode == 0, lines[-1] if lines else "", output))
     return results
 
 
@@ -543,11 +574,14 @@ def main() -> int:
         for preset in arguments.presets or PRESETS:
             project = build(preset, scratch)
             print(f"\n=== {preset}: {', '.join(sorted(_selected(preset))) or 'core only'}")
-            for name, ok, last_line in check(project, python):
-                print(f"  {'PASS' if ok else 'FAIL'}  {name:12} {last_line}")
-                failures += not ok
+            for result in check(project, python):
+                print(_report(result))
+                failures += not result.ok
+    except Exception:
+        failures += 1
+        raise
     finally:
-        if arguments.keep:
+        if arguments.keep or failures:
             print(f"\nscratch copies left in {scratch}")
         else:
             shutil.rmtree(scratch, ignore_errors=True)
