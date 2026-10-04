@@ -173,6 +173,10 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   gated Swagger and ReDoc pages asked for `/openapi.json`, which answers `404` there; they now ask
   for `/svc/openapi.json`, and the schema names `/svc` as its server, as the ungated docs already
   did.
+- **`bp env gen-secret` draws again when the app's own rules would refuse the key.** Run inside a
+  project, it checks each draw against `is_weak_secret_key`: one hex key in 12.6 million runs
+  through eight consecutive digits, which production refuses at startup. Run outside a project,
+  where those rules aren't there to ask, it prints the first draw as before.
 - **Thirty broken imports in the documentation's samples** now name what they import:
   `require_permissions` comes from `auth.authorization`, the cache functions from
   `cache.provider` and the decorator from `cache.decorator`, `default_broker` from

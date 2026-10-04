@@ -108,7 +108,11 @@ $ uv run --no-sync bp env gen-secret --bytes 16
 c042a8aa0d678a9c73dc371e3e0d6a5e
 ```
 
-The default produces 64 hex characters (256 bits of entropy) — enough for any of the boilerplate's secret slots (`SECRET_KEY`, signed-cookie secrets, etc.). Pipe directly into your secrets manager:
+The default produces 64 hex characters (256 bits of entropy) — enough for any of the boilerplate's secret slots (`SECRET_KEY`, signed-cookie secrets, etc.).
+
+Run inside a project, the command checks each draw against the app's own secret-key rules and draws again while they would refuse it: about one hex key in 12.6 million runs through eight consecutive digits, which production refuses at startup. Run outside a project, where those rules aren't there to ask, it prints the first draw.
+
+Pipe directly into your secrets manager:
 
 ```bash
 uv run --no-sync bp env gen-secret | gh secret set SECRET_KEY --repo my-org/my-app

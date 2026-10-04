@@ -14,11 +14,16 @@ The app **will not start** if any of these is true:
   characters, or when one of these covers most of its length: a placeholder or hand-written word
   (`password`, `secret`, `test`, `dev`, `default`, …), a short block written out again
   (`prodprodprod…`), a walk across neighbouring keys (`qwertyuiop…`, `1qaz2wsx…`), or words anyone
-  would recognise (`MyCompanyApiSigningKeyForProd2026`, `thisismysupersecurekeyforthisapp`). Also
-  refused on a run of eight consecutive code points, or under 64 bits of entropy. Every rule is a
-  share of the whole value, so a generated key that happens to spell a word still passes: the tests
-  sweep 100,000 keys of each kind `bp env gen-secret` produces (`secrets.token_hex(16/32)`,
-  `secrets.token_urlsafe(24/32)`), and none of the 400,000 was refused.
+  would recognise (`MyCompanyApiSigningKeyForProd2026`, `thisismysupersecurekeyforthisapp`). Each of
+  those is measured as a share of the whole value, so a generated key that happens to spell a word
+  still passes. Two rules are absolute: a run of eight consecutive code points, and under 64 bits
+  of entropy. The tests sweep 100,000 keys of each shape a generator produces — the hex keys
+  `bp env gen-secret` prints (`secrets.token_hex(16/32)`) and `secrets.token_urlsafe(24/32)` keys
+  from whatever else you might use — from a fixed seed, and none of the 400,000 is refused. A
+  random key can still trip a rule: one hex key in 12.6 million runs through eight consecutive
+  digits, and a `token_urlsafe` key walks the keyboard at around one in ten million. Run inside a
+  project, `bp env gen-secret` checks each draw against those rules and draws again while they
+  would refuse it.
 - **The database password is `postgres`** (the well-known default). Attackers try this first.
 - **The database password is empty.** Database is unprotected.
 - **The admin panel is enabled without credentials** (`ADMIN_ENABLED=true` with `ADMIN_USERNAME` or `ADMIN_PASSWORD` unset).

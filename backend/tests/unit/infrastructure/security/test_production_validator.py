@@ -1,5 +1,7 @@
 """Tests for production security validator."""
 
+import base64
+import random
 import secrets
 from typing import cast
 from unittest.mock import Mock
@@ -460,19 +462,39 @@ class TestTheSecretKeyRule:
         return ProductionSecurityValidator(Settings(SECRET_KEY=secret, ENVIRONMENT=EnvironmentOption.PRODUCTION))
 
     @pytest.mark.parametrize(
-        "generate",
+        "shape",
         [
-            lambda: secrets.token_hex(16),
-            lambda: secrets.token_hex(32),
-            lambda: secrets.token_urlsafe(24),
-            lambda: secrets.token_urlsafe(32),
+            lambda source: source.randbytes(16).hex(),
+            lambda source: source.randbytes(32).hex(),
+            lambda source: base64.urlsafe_b64encode(source.randbytes(24)).rstrip(b"=").decode(),
+            lambda source: base64.urlsafe_b64encode(source.randbytes(32)).rstrip(b"=").decode(),
         ],
     )
-    def test_every_generated_key_is_accepted(self, generate):
-        """A key from `bp env gen-secret` must never keep production from starting."""
-        refused = [key for _ in range(100_000) if is_weak_secret_key(key := generate())]
+    def test_every_generated_key_is_accepted(self, shape):
+        """100,000 keys of each shape a generator produces, drawn from a fixed seed.
+
+        The rules do refuse a few generated keys: one hex key in 12.6 million runs
+        through eight consecutive digits, and a ``token_urlsafe`` key walks
+        neighbouring keys over 0.6 of its length at around one in ten million (one
+        such key in a 10,000,000 sample, none in a second). ``bp env gen-secret``
+        draws again rather than printing those, and the seed here is fixed so that
+        this sweep states what the rules do instead of drawing a lottery.
+        """
+        source = random.Random(20261004)
+        refused = [key for _ in range(100_000) if is_weak_secret_key(key := shape(source))]
 
         assert refused == []
+
+    @pytest.mark.parametrize(
+        "secret",
+        [
+            "e48102bfe6ac2eac3aa8623456789a6030e4fa7dee3cd173bfb7941f2f819678",
+            "YERgHz9JxnVgFvhYCDrFVjatUKju6-pj",
+        ],
+    )
+    def test_a_key_a_generator_produced_is_refused_when_it_reads_as_a_pattern(self, secret: str):
+        """Both came out of `secrets`: the first runs 2345678, the second walks the keyboard."""
+        assert is_weak_secret_key(secret)
 
     def test_a_generated_key_reaches_the_validator_as_it_reaches_the_rules(self):
         """The validator asks the same question these sweeps ask."""

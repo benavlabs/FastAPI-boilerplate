@@ -88,6 +88,31 @@ def test_gen_secret_produces_a_key_the_validator_accepts():
     assert not validator_module.ProductionSecurityValidator(settings)._is_insecure_secret_key()
 
 
+REFUSED_BY_THE_APP = "e48102bfe6ac2eac3aa8623456789a6030e4fa7dee3cd173bfb7941f2f819678"
+
+
+def test_a_key_the_app_would_refuse_is_drawn_again(monkeypatch):
+    """One hex key in twelve million runs through eight digits, which production refuses."""
+    accepted = secrets.token_hex(32)
+    draws = iter([REFUSED_BY_THE_APP, accepted])
+    monkeypatch.setattr(env.secrets, "token_hex", lambda size: next(draws))
+
+    result = runner.invoke(env.app, ["gen-secret"])
+
+    assert result.exit_code == 0
+    assert result.output.strip() == accepted
+
+
+def test_the_first_draw_is_printed_outside_a_project(monkeypatch, tmp_path):
+    """Nothing to ask: the rules live in the project, and the command still answers."""
+    monkeypatch.chdir(tmp_path)
+
+    result = runner.invoke(env.app, ["gen-secret"])
+
+    assert result.exit_code == 0
+    assert len(result.output.strip()) == 64
+
+
 def test_a_plugin_warning_is_written_to_stderr(capsys):
     """On stdout it would corrupt whatever the caller is piping command output into."""
     plugins.emit_plugin_warnings_to_stderr()

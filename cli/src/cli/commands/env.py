@@ -13,6 +13,7 @@ Two commands today:
 from __future__ import annotations
 
 import importlib
+import importlib.util
 import secrets
 import sys
 from pathlib import Path
@@ -23,6 +24,11 @@ import typer
 from ..lib.prompts import error, info, success, warn
 
 
+def _backend_root() -> Path | None:
+    """The ``backend/`` of the project this command was run in, if there is one."""
+    return next((p / "backend" for p in (Path.cwd(), *Path.cwd().parents) if (p / "backend" / "src").is_dir()), None)
+
+
 def _app_module(name: str) -> ModuleType:
     """Import a backend module by its ``src.`` path, putting ``backend/`` on the path first.
 
@@ -31,7 +37,7 @@ def _app_module(name: str) -> ModuleType:
     Resolving it here, when a command needs it, also keeps ``bp --help`` from
     paying for the app's settings and database imports.
     """
-    backend = next((p / "backend" for p in (Path.cwd(), *Path.cwd().parents) if (p / "backend" / "src").is_dir()), None)
+    backend = _backend_root()
     if backend is None:
         error("No `backend/src` in this directory or above it: run this from inside a project.")
         raise typer.Exit(code=1)
@@ -42,6 +48,33 @@ def _app_module(name: str) -> ModuleType:
     return importlib.import_module(name)
 
 
+def _secret_key_rules() -> ModuleType | None:
+    """The app's own secret-key rules, or ``None`` outside a project.
+
+    Loaded from their file, which keeps the settings and logging imports of the
+    package around them out of this command's output.
+    """
+    backend = _backend_root()
+    if backend is None:
+        return None
+
+    spec = importlib.util.spec_from_file_location(
+        "app_secret_key_rules", backend / "src" / "infrastructure" / "security" / "secret_key.py"
+    )
+    if spec is None or spec.loader is None:
+        return None
+
+    rules = importlib.util.module_from_spec(spec)
+    try:
+        spec.loader.exec_module(rules)
+    except Exception:
+        return None
+
+    return rules
+
+
+SECRET_KEY_DRAWS = 8
+
 app = typer.Typer(no_args_is_help=True, help="Inspect and prepare the runtime environment.")
 
 
@@ -49,8 +82,23 @@ app = typer.Typer(no_args_is_help=True, help="Inspect and prepare the runtime en
 def gen_secret(
     bytes_: int = typer.Option(32, "--bytes", min=16, max=128, help="Number of random bytes (hex output is 2x)."),
 ) -> None:
-    """Generate a high-entropy hex secret suitable for ``SECRET_KEY``."""
-    typer.echo(secrets.token_hex(bytes_))
+    """Generate a high-entropy hex secret suitable for ``SECRET_KEY``.
+
+    Draws again while the app's own rules would refuse the key: about one hex key in
+    twelve million runs through eight consecutive digits, which production refuses at
+    startup. Outside a project, where those rules cannot be imported, the first draw
+    is printed.
+    """
+    rules = _secret_key_rules()
+    is_weak = getattr(rules, "is_weak_secret_key", None)
+
+    candidate = secrets.token_hex(bytes_)
+    for _ in range(SECRET_KEY_DRAWS - 1):
+        if is_weak is None or not is_weak(candidate):
+            break
+        candidate = secrets.token_hex(bytes_)
+
+    typer.echo(candidate)
 
 
 @app.command("validate")
