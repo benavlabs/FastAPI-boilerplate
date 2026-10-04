@@ -30,6 +30,9 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   `PermissionSource`, `RateLimitResolver`, `TierDeleteGuard`, `TierDeleteRelease`, `ReadinessCheck`.
 - **`tools/removal_drill.py`** — builds the repository without each feature and runs five checks
   (the app imports, every module imports, ruff, mypy, tests) per preset.
+- **`scripts/cleanup_api_key_json.py`** — a one-off repair for API key rows whose `permissions` or
+  `usage_limits` hold a JSON null, which an older version could store and no validated read can
+  parse.
 - **`GET /health/ready`** — answers `503` while a dependency the project selected is unreachable:
   the database, and the cache, the login lockout's Redis, the session store and the task broker for
   the features it has. Checks run together, each with a two-second timeout; the report is reused for
@@ -206,6 +209,12 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   database and fail there.
 - **An `expires_at` that cannot be expressed in UTC answers `422`**, and so does string input that is
   not valid Unicode.
+- **API key rows that hold a JSON null need one repair run.** A version before this one stored
+  `null` in `permissions` or `usage_limits` when a request sent it, and every validated read of
+  such a row — the listing, the single key, a patch, the summary — now answers `500`. Run
+  `python scripts/cleanup_api_key_json.py` from `backend/` once after upgrading; it sets those
+  columns to `{}` wherever they hold a null, reports how many rows it touched, and is safe to run
+  again.
 - **The legacy OpenAPI identity settings are gone.** Rename `CONTACT_NAME`, `CONTACT_EMAIL` and
   `LICENSE_NAME` in your environment to `API_CONTACT_NAME`, `API_CONTACT_EMAIL` and
   `API_LICENSE_NAME`; the old names are now read by nothing, so a project that keeps them publishes

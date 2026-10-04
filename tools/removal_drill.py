@@ -88,6 +88,7 @@ FEATURES: dict[str, Feature] = {
     "api_keys": Feature(
         paths=(
             "backend/src/modules/api_keys",
+            "backend/scripts/cleanup_api_key_json.py",
             "backend/tests/unit/modules/api_keys",
             "backend/tests/integration/api/v1/api_keys",
         ),

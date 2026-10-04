@@ -29,6 +29,7 @@ backend/
 │   ├── script.py.mako
 │   └── versions/
 ├── scripts/                  # One-off setup scripts
+│   ├── cleanup_api_key_json.py
 │   ├── create_first_superuser.py
 │   ├── create_first_tier.py
 │   ├── create_tables.py
@@ -192,7 +193,8 @@ scripts/
 ├── setup_initial_data.py     # All-in-one: tables + tier + admin
 ├── create_first_superuser.py # Just the admin user
 ├── create_first_tier.py      # Just the default tier
-└── create_tables.py          # Just the database tables
+├── create_tables.py          # Just the database tables
+└── cleanup_api_key_json.py   # One-off repair for legacy API key rows
 ```
 
 The most common entry point is `setup_initial_data` which calls all three.
@@ -211,6 +213,17 @@ uv run --no-sync python scripts/create_first_superuser.py
 A script that can't do its job - admin settings that don't describe an account, a password the
 policy refuses, a username someone already has, a database it can't reach - logs one line and exits
 `1`.
+
+`cleanup_api_key_json.py` is not part of setting a project up: it repairs API key rows written by a
+version that stored a JSON null in `permissions` or `usage_limits`, which every validated read of
+such a row answers `500` on. Run it once after upgrading, from `backend/`:
+
+```bash
+uv run --no-sync python scripts/cleanup_api_key_json.py
+```
+
+It reports how many rows each column was repaired in, changes nothing else, and is safe to run
+again.
 
 ## Tests (`backend/tests/`)
 
