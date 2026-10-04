@@ -8,12 +8,13 @@ import secrets
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+import anyio
 from fastcrud.types import GetMultiResponseDict
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...infrastructure.logging import get_logger
-from ..common.exceptions import PermissionDeniedError, ResourceNotFoundError
+from ..common.exceptions import PermissionDeniedError, ResourceNotFoundError, ValidationError
 from .crud import crud_api_keys, crud_key_permissions, crud_key_usage
 from .enums import KeyPermissionAction, KeyPermissionResource
 from .models import APIKey, KeyUsage
@@ -35,6 +36,14 @@ _SCRYPT_P = 1
 _SCRYPT_DKLEN = 32
 
 
+def _extends_expiry(current: datetime | None, proposed: datetime | None) -> bool:
+    """Whether a proposed expiry gives the key more life than it has now."""
+    if current is None:
+        return False
+
+    return proposed is None or proposed > current
+
+
 class APIKeyService:
     """Service for managing API keys, permissions, and usage tracking.
 
@@ -47,8 +56,11 @@ class APIKeyService:
         self.key_prefix_length = 8
         self.key_length = 48
 
-    def _generate_api_key(self) -> tuple[str, str, str]:
+    async def _generate_api_key(self) -> tuple[str, str, str]:
         """Generate a new API key with prefix and hash.
+
+        The hash runs in a worker thread: scrypt is sized to take real time, and
+        on the event loop it would stall every other request while it ran.
 
         Returns:
             Tuple of (full_key, prefix, hash)
@@ -56,7 +68,7 @@ class APIKeyService:
         raw_key = secrets.token_urlsafe(self.key_length)
         prefix = raw_key[: self.key_prefix_length]
         api_key = f"fai_{prefix}_{raw_key[self.key_prefix_length :]}"
-        key_hash = self._hash_api_key(api_key)
+        key_hash = await anyio.to_thread.run_sync(self._hash_api_key, api_key)
 
         return api_key, prefix, key_hash
 
@@ -65,6 +77,8 @@ class APIKeyService:
 
         Stored format: ``scrypt$N$r$p$salt_b64$derived_b64``. Non-deterministic;
         DB lookup uses ``key_prefix`` (already indexed) instead of ``key_hash``.
+
+        Callers run this in a worker thread, through ``_generate_api_key``.
         """
         salt = secrets.token_bytes(16)
         derived = hashlib.scrypt(
@@ -121,7 +135,7 @@ class APIKeyService:
         Returns:
             Created API key with full key (only shown once)
         """
-        api_key, prefix, key_hash = self._generate_api_key()
+        api_key, prefix, key_hash = await self._generate_api_key()
 
         key_dict = key_data.model_dump()
         key_dict.update(
@@ -168,8 +182,8 @@ class APIKeyService:
                 db=db,
                 limit=limit,
                 offset=offset,
-                sort_columns="created_at",
-                sort_orders="desc",
+                sort_columns=["created_at", "id"],
+                sort_orders=["desc", "desc"],
                 user_id=user_id,
                 is_active=True,
                 schema_to_select=APIKeyRead,
@@ -179,8 +193,8 @@ class APIKeyService:
                 db=db,
                 limit=limit,
                 offset=offset,
-                sort_columns="created_at",
-                sort_orders="desc",
+                sort_columns=["created_at", "id"],
+                sort_orders=["desc", "desc"],
                 user_id=user_id,
                 schema_to_select=APIKeyRead,
             )
@@ -233,9 +247,15 @@ class APIKeyService:
         Returns:
             Updated API key data
         """
-        await self.get_api_key(key_id=key_id, user_id=user_id, db=db)
+        existing = await self.get_api_key(key_id=key_id, user_id=user_id, db=db)
 
         update_dict = update_data.model_dump(exclude_unset=True)
+
+        if update_dict.get("is_active") and not existing["is_active"]:
+            raise ValidationError("A revoked key cannot be reactivated. Create a new key instead.")
+
+        if "expires_at" in update_dict and _extends_expiry(existing["expires_at"], update_dict["expires_at"]):
+            raise ValidationError("An API key's expiry can be brought forward, never pushed back.")
         updated_key = await crud_api_keys.update(
             db=db,
             object=update_dict,
@@ -308,7 +328,7 @@ class APIKeyService:
 
         matched: APIKey | None = None
         for candidate in candidates:
-            if self._verify_api_key(api_key, candidate.key_hash):
+            if await anyio.to_thread.run_sync(self._verify_api_key, api_key, candidate.key_hash):
                 matched = candidate
                 break
 
@@ -422,8 +442,8 @@ class APIKeyService:
             db=db,
             limit=limit,
             offset=offset,
-            sort_columns="created_at",
-            sort_orders="desc",
+            sort_columns=["created_at", "id"],
+            sort_orders=["desc", "desc"],
             api_key_id=key_id,
             schema_to_select=KeyUsageRead,
         )

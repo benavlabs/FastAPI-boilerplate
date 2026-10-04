@@ -7,9 +7,9 @@
 #
 # Most commands work from anywhere in the repo:
 #
-#     uv sync             # syncs the workspace (one venv shared by all members)
-#     uv run bp ...       # runs the CLI from cli/, accessible from any cwd
-#     uv run pytest       # runs the backend test suite
+#     uv sync --all-packages --all-extras   # one venv shared by all members
+#     uv run bp ...                         # runs the CLI from cli/, from any cwd
+#     cd backend && uv run --no-sync pytest # runs the backend test suite
 #
 # To install `bp` machine-wide so it works outside this repo:
 #
@@ -23,3 +23,9 @@ requires-python = ">=3.11"
 
 [tool.uv.workspace]
 members = ["backend", "cli"]
+
+[tool.ruff]
+line-length = 128
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]

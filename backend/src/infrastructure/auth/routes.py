@@ -1,21 +1,35 @@
-from typing import Annotated, Any
+from typing import Annotated, Any, cast
 
 from crudauth import Principal
+from crudauth.account import build_account_router
 from crudauth.exceptions import ForbiddenException, UnauthorizedException
 from crudauth.ratelimit import KeyBy
 from crudauth.utils import is_cross_site
 from fastapi import APIRouter, Depends, Form, Query, Request, Response
+from fastapi.routing import APIRoute
 
 from ...modules.user.crud import crud_users
-from ..dependencies import AsyncSessionDep, OAuth2FormDep
+from ..dependencies import AsyncSessionDep
 from ..logging import get_logger
 from .dependencies import get_current_principal, get_optional_principal
+from .deps import OAuth2FormDep
 from .setup import auth as crud_auth
 from .setup import session_transport
 
 logger = get_logger()
 
 router = APIRouter(tags=["Authentication"])
+
+_account_router = build_account_router(crud_auth, crud_auth.sessions)
+_account_router.routes = [
+    route for route in _account_router.routes if isinstance(route, APIRoute) and route.path != "/set-password"
+]
+for _account_route in _account_router.routes:
+    cast(APIRoute, _account_route).tags = []
+router.include_router(_account_router)
+
+root_routers: tuple[APIRouter, ...] = (crud_auth.oauth_router,) if crud_auth.oauth is not None else ()
+"""The routers accounts mounts outside the API prefix: crudauth's OAuth router, when a provider is configured."""
 
 
 @router.post(

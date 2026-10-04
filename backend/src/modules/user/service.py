@@ -1,9 +1,9 @@
 from collections.abc import Collection
 from datetime import UTC, datetime
-from typing import Any, cast
+from typing import Any
 
 from crudauth import get_password_hash_async
-from fastcrud import JoinConfig
+from crudauth.utils import canonical_email, is_unusable_password, verify_password_async
 from fastcrud.types import GetMultiResponseDict
 from sqlalchemy.exc import MultipleResultsFound, NoResultFound
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,18 +13,15 @@ from ...infrastructure.logging import get_logger
 from ..common.exceptions import (
     PermissionDeniedError,
     PersistenceError,
-    TierNotFoundError,
-    UserExistsError,
-    UserNotFoundError,
     ValidationError,
 )
-from ..rate_limit.models import RateLimit
-from ..rate_limit.schemas import RateLimitRead
-from ..tier.crud import crud_tiers
-from ..tier.models import Tier
-from ..tier.schemas import TierRead
 from .crud import crud_users
-from .models import User
+from .exceptions import (
+    EmailChangeNeedsPasswordError,
+    ProviderAccountEmailChangeError,
+    UserExistsError,
+    UserNotFoundError,
+)
 from .permissions import UserPermission
 from .schemas import (
     User as UserSchema,
@@ -34,7 +31,6 @@ from .schemas import (
     UserCreate,
     UserCreateInternal,
     UserRead,
-    UserTierUpdate,
     UserUpdate,
 )
 
@@ -45,9 +41,12 @@ class UserService:
     """Service class for user-related operations.
 
     This service manages user accounts including creation, updates, authentication,
-    tier management, and permission handling. It provides comprehensive user
-    management functionality with support for soft deletion, tier-based access
-    control, and rate limiting through tier associations.
+    and permission handling, with support for soft deletion. Features that add to
+    the user model bring their own service: the tiers feature owns a user's tier,
+    and the tier-limits feature owns the limits that follow from it.
+
+    Addresses are stored as crudauth canonicalises them, which is how it looks an
+    account up: a row written in another case could never be signed in to.
     """
 
     async def create(self, user: UserCreate, db: AsyncSession) -> dict[str, Any]:
@@ -85,7 +84,9 @@ class UserService:
             ```
         """
         await auth.validate_password(user.password, source="register")
-        email_exists = await crud_users.exists(db=db, email=user.email)
+        email = canonical_email(user.email)
+
+        email_exists = await crud_users.exists(db=db, email=email)
         if email_exists:
             raise UserExistsError("Email already registered")
 
@@ -96,7 +97,7 @@ class UserService:
         user_internal = UserCreateInternal(
             name=user.name,
             username=user.username,
-            email=user.email,
+            email=email,
             hashed_password=await get_password_hash_async(user.password),
         )
         created_user = await crud_users.create(db=db, object=user_internal, schema_to_select=UserRead)
@@ -141,6 +142,7 @@ class UserService:
             limit=limit,
             schema_to_select=UserRead,
             is_deleted=False,
+            sort_columns="id",
         )
 
     async def get_by_username(self, username: str, db: AsyncSession) -> dict[str, Any]:
@@ -233,14 +235,21 @@ class UserService:
         user = await crud_users.get(
             db=db,
             schema_to_select=UserRead,
-            email=email,
+            email=canonical_email(email),
             is_deleted=False,
         )
         if not user:
-            raise UserNotFoundError(f"User with email '{email}' not found")
+            raise UserNotFoundError("No user with that email")
         return user
 
-    async def update(self, user_id: int, user_update: UserUpdate, db: AsyncSession) -> dict[str, Any]:
+    async def update(
+        self,
+        user_id: int,
+        user_update: UserUpdate,
+        db: AsyncSession,
+        requester: dict[str, Any] | None = None,
+        current_password: str | None = None,
+    ) -> dict[str, Any]:
         """Update user information.
 
         Updates user fields with validation for unique constraints on email
@@ -250,6 +259,9 @@ class UserService:
             user_id: ID of the user to update.
             user_update: Fields to update with new values.
             db: Database session for the operation.
+            requester: The user making the request. Only a superuser acting on another
+                account changes an address without ``current_password``.
+            current_password: The account's current password, required when the email changes.
 
         Returns:
             Updated user data dictionary.
@@ -260,6 +272,8 @@ class UserService:
 
         Note:
             Validates uniqueness when updating email or username.
+            Changing the email clears ``email_verified`` and requires the
+            account's current password.
             Only non-deleted users can be updated.
 
         Example:
@@ -277,10 +291,18 @@ class UserService:
 
         update_data = user_update.model_dump(exclude_unset=True)
 
+        if "email" in update_data:
+            update_data["email"] = canonical_email(update_data["email"])
+
         if "email" in update_data and update_data["email"] != existing_user["email"]:
+            if self.email_change_needs_password(requester, user_id):
+                await self._confirm_email_change(existing_user, current_password)
+
             email_exists = await crud_users.exists(db=db, email=update_data["email"])
             if email_exists:
                 raise UserExistsError("Email already registered")
+
+            update_data["email_verified"] = False
 
         if "username" in update_data and update_data["username"] != existing_user["username"]:
             username_exists = await crud_users.exists(db=db, username=update_data["username"])
@@ -288,11 +310,37 @@ class UserService:
                 raise UserExistsError("Username already taken")
 
         updated_user = await crud_users.update(
-            db=db, object=user_update, id=user_id, return_columns=list(UserSchema.model_fields.keys())
+            db=db, object=update_data, id=user_id, return_columns=list(UserSchema.model_fields.keys())
         )
         if not updated_user:
             raise UserNotFoundError(f"User with ID {user_id} not found")
         return updated_user
+
+    @staticmethod
+    def _is_superuser_acting_on_another(requester: dict[str, Any] | None, user_id: int) -> bool:
+        """Whether the requester is a superuser and the account is not their own."""
+        return bool(
+            requester and requester.get("is_superuser") and requester.get("id") is not None and requester.get("id") != user_id
+        )
+
+    @classmethod
+    def email_change_needs_password(cls, requester: dict[str, Any] | None, user_id: int) -> bool:
+        """Whether an email change on ``user_id`` has to be confirmed with the account's password."""
+        return not cls._is_superuser_acting_on_another(requester, user_id)
+
+    async def _confirm_email_change(self, user: dict[str, Any], current_password: str | None) -> None:
+        """Verify the account's current password before its address moves.
+
+        Raises:
+            ProviderAccountEmailChangeError: The account has no usable password.
+            EmailChangeNeedsPasswordError: The password is missing or wrong.
+        """
+        stored = user.get("hashed_password") or ""
+        if is_unusable_password(stored):
+            raise ProviderAccountEmailChangeError("Account has no usable password")
+
+        if not current_password or not await verify_password_async(current_password, stored):
+            raise EmailChangeNeedsPasswordError("Current password missing or incorrect")
 
     async def check_update_permission(self, requester_user: dict[str, Any], target_username: str) -> bool:
         """Check if user has permission to update another user.
@@ -511,25 +559,25 @@ class UserService:
                 "User anonymization requested",
                 extra={
                     "user_id": user_id,
-                    "email": existing_user.get("email"),
                     "action": "user_anonymization_start",
                 },
             )
 
-            anonymize_data = UserAnonymize(
-                name="[DELETED]",
-                username=f"del_{user_id}_{timestamp % 10000}",
-                hashed_password="DELETED_INVALID_HASH",
-                profile_image_url="https://deleted.com/deleted.jpg",
-                tier_id=None,
-                is_superuser=False,
-                google_id=None,
-                github_id=None,
-                oauth_provider=None,
-                email_verified=False,
-                oauth_created_at=None,
-                oauth_updated_at=None,
-            )
+            anonymized = {
+                "name": "[DELETED]",
+                "username": f"del_{user_id}_{timestamp % 10000}",
+                "hashed_password": "DELETED_INVALID_HASH",
+                "profile_image_url": "https://deleted.com/deleted.jpg",
+                "is_superuser": False,
+                "google_id": None,
+                "github_id": None,
+                "oauth_provider": None,
+                "email_verified": False,
+                "oauth_created_at": None,
+                "oauth_updated_at": None,
+            }
+            contributed = dict.fromkeys(UserAnonymize.model_fields.keys() - anonymized.keys())
+            anonymize_data = UserAnonymize.model_validate(anonymized | contributed)
 
             await crud_users.update(db=db, object=anonymize_data, commit=False, id=user_id)
             await crud_users.delete(db=db, id=user_id)
@@ -552,161 +600,3 @@ class UserService:
                 extra={"user_id": user_id, "action": "user_anonymization_failed", "reason": "user_not_found"},
             )
             raise UserNotFoundError(f"User with ID {user_id} not found")
-
-    async def update_tier(self, user_id: int, tier_update: UserTierUpdate, db: AsyncSession) -> dict[str, Any]:
-        """Update a user's tier assignment.
-
-        Changes the tier assignment for a user, which affects their access
-        levels, permissions, and rate limits.
-
-        Args:
-            user_id: ID of the user to update.
-            tier_update: New tier assignment data.
-            db: Database session for the operation.
-
-        Returns:
-            Updated user data dictionary.
-
-        Raises:
-            UserNotFoundError: If the user doesn't exist.
-            TierNotFoundError: If the specified tier doesn't exist.
-
-        Note:
-            Tier changes immediately affect the user's access levels and
-            rate limits. This is typically an administrative operation.
-
-        Example:
-            ```python
-            tier_update = UserTierUpdate(tier_id=2)
-            updated_user = await service.update_tier(123, tier_update, db)
-            ```
-        """
-        existing_user = await crud_users.get(db=db, id=user_id, is_deleted=False)
-        if not existing_user:
-            raise UserNotFoundError(f"User with ID {user_id} not found")
-
-        tier_exists = await crud_tiers.exists(db=db, id=tier_update.tier_id)
-        if not tier_exists:
-            raise TierNotFoundError(f"Tier with ID {tier_update.tier_id} not found")
-
-        updated_user = await crud_users.update(
-            db=db, object=tier_update, id=user_id, return_columns=list(UserSchema.model_fields.keys())
-        )
-        if not updated_user:
-            raise UserNotFoundError(f"User with ID {user_id} not found")
-        return updated_user
-
-    async def get_rate_limits(self, user_id: int, db: AsyncSession) -> dict[str, Any]:
-        """Get rate limits for a user through their tier assignment.
-
-        Retrieves all rate limits applicable to a user based on their tier
-        assignment. Uses database joins for efficient data retrieval.
-
-        Args:
-            user_id: ID of the user to get rate limits for.
-            db: Database session for the operation.
-
-        Returns:
-            Dictionary containing user data with nested rate limits.
-
-        Raises:
-            UserNotFoundError: If the user doesn't exist.
-
-        Note:
-            Rate limits are inherited from the user's tier. Users without
-            tier assignments have no rate limits. Uses advanced joins to
-            efficiently retrieve related data.
-
-        Example:
-            ```python
-            user_limits = await service.get_rate_limits(123, db)
-            for limit in user_limits.get("rate_limits", []):
-                print(f"Rate limit: {limit['resource']} - {limit['limit']}")
-            ```
-        """
-        user = await crud_users.get(db=db, id=user_id, is_deleted=False, schema_to_select=UserRead)
-        if not user:
-            raise UserNotFoundError(f"User with ID {user_id} not found")
-
-        if user["tier_id"] is None:
-            user["rate_limits"] = []
-            return user
-
-        joins_config = [
-            JoinConfig(
-                model=Tier,
-                join_on=User.tier_id == Tier.id,
-                join_prefix="tier_",
-                schema_to_select=TierRead,
-                join_type="left",
-            ),
-            JoinConfig(
-                model=RateLimit,
-                join_on=Tier.id == RateLimit.tier_id,
-                join_prefix="rate_limits_",
-                schema_to_select=RateLimitRead,
-                join_type="left",
-                relationship_type="one-to-many",
-            ),
-        ]
-
-        result = await crud_users.get_joined(
-            db=db, schema_to_select=UserRead, joins_config=joins_config, nest_joins=True, id=user_id
-        )
-
-        if not result:
-            raise UserNotFoundError(f"User with ID {user_id} not found")
-
-        return result
-
-    async def get_user_with_tier(self, user_id: int, db: AsyncSession) -> dict[str, Any]:
-        """Get user with detailed tier information.
-
-        Retrieves a user along with their complete tier information
-        using database joins for efficient data access.
-
-        Args:
-            user_id: ID of the user to retrieve.
-            db: Database session for the operation.
-
-        Returns:
-            Dictionary containing user data with nested tier information.
-
-        Raises:
-            UserNotFoundError: If the user doesn't exist.
-
-        Note:
-            Returns complete tier details including tier name, description,
-            and configuration. Users without tier assignments have tier=None.
-
-        Example:
-            ```python
-            user_data = await service.get_user_with_tier(123, db)
-            if user_data.get("tier"):
-                print(f"User tier: {user_data['tier']['name']}")
-            ```
-        """
-        user_dict = await crud_users.get(db=db, id=user_id, is_deleted=False, schema_to_select=UserRead)
-        if not user_dict:
-            raise UserNotFoundError(f"User with ID {user_id} not found")
-
-        if user_dict.get("tier_id") is None:
-            user_dict["tier"] = None
-            return user_dict
-
-        tier_exists = await crud_tiers.exists(db=db, id=user_dict["tier_id"])
-        if not tier_exists:
-            user_dict["tier"] = None
-            return user_dict
-
-        result = await crud_users.get_joined(
-            db=db,
-            join_model=Tier,
-            join_prefix="tier_",
-            schema_to_select=UserRead,
-            join_schema_to_select=TierRead,
-            id=user_id,
-            nest_joins=True,
-        )
-
-        return cast(dict[str, Any], result)

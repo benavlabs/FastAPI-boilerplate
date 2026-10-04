@@ -1,14 +1,17 @@
 """Tests for API key management service."""
 
+import threading
 from datetime import UTC, datetime, timedelta
+from unittest.mock import patch
 
 import pytest
 import pytest_asyncio
+from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.modules.api_keys.crud import crud_api_keys, crud_key_permissions
 from src.modules.api_keys.enums import KeyPermissionAction, KeyPermissionResource
-from src.modules.api_keys.models import KeyUsage
+from src.modules.api_keys.models import APIKey, KeyUsage
 from src.modules.api_keys.schemas import (
     APIKeyCreate,
     APIKeyCreateInternal,
@@ -17,7 +20,7 @@ from src.modules.api_keys.schemas import (
     KeyUsageCreate,
 )
 from src.modules.api_keys.service import APIKeyService
-from src.modules.common.exceptions import PermissionDeniedError, ResourceNotFoundError
+from src.modules.common.exceptions import PermissionDeniedError, ResourceNotFoundError, ValidationError
 
 
 @pytest.fixture
@@ -57,8 +60,8 @@ async def test_create_api_key(api_key_service, db_session: AsyncSession, test_us
 @pytest.mark.asyncio
 async def test_api_key_generation_unique(api_key_service):
     """Test that API key generation produces unique keys."""
-    key1, prefix1, hash1 = api_key_service._generate_api_key()
-    key2, prefix2, hash2 = api_key_service._generate_api_key()
+    key1, prefix1, hash1 = await api_key_service._generate_api_key()
+    key2, prefix2, hash2 = await api_key_service._generate_api_key()
 
     assert key1 != key2
     assert prefix1 != prefix2
@@ -539,7 +542,7 @@ async def test_validate_api_key_with_underscore_in_prefix(api_key_service, db_se
     substring and the key_prefix lookup misses, breaking validation for the (rare) keys that draw
     underscores.
     """
-    api_key, prefix, key_hash = api_key_service._generate_api_key()
+    api_key, prefix, key_hash = await api_key_service._generate_api_key()
     forced_prefix = "ab_cd_ef"
     api_key = f"fai_{forced_prefix}_{api_key.split('_', 2)[2]}"
     forced_hash = api_key_service._hash_api_key(api_key)
@@ -554,8 +557,10 @@ async def test_validate_api_key_with_underscore_in_prefix(api_key_service, db_se
     }
     await crud_api_keys.create(db=db_session, object=APIKeyCreateInternal(**key_dict))
 
+    forced_key = await crud_api_keys.get(db=db_session, key_prefix=forced_prefix)
+    assert forced_key is not None
     permission_data = KeyPermissionCreate(
-        api_key_id=(await crud_api_keys.get(db=db_session, key_prefix=forced_prefix))["id"],
+        api_key_id=forced_key["id"],
         resource=KeyPermissionResource.WILDCARD,
         action=KeyPermissionAction.WILDCARD,
         is_allowed=True,
@@ -587,3 +592,106 @@ async def test_usage_pagination(api_key_service, db_session: AsyncSession, test_
     usage_history = result.get("data", []) if isinstance(result, dict) else []
 
     assert len(usage_history) == 3
+
+
+@pytest.mark.asyncio
+async def test_a_revoked_key_cannot_be_reactivated(api_key_service, db_session, test_user: dict):
+    """Revocation is the answer to a leak, so it has to be one-way."""
+    created = await api_key_service.create_api_key(user_id=test_user["id"], key_data=APIKeyCreate(name="leaked"), db=db_session)
+    await api_key_service.update_api_key(
+        key_id=created["id"], user_id=test_user["id"], update_data=APIKeyUpdate(is_active=False), db=db_session
+    )
+
+    with pytest.raises(ValidationError, match="revoked"):
+        await api_key_service.update_api_key(
+            key_id=created["id"], user_id=test_user["id"], update_data=APIKeyUpdate(is_active=True), db=db_session
+        )
+
+
+@pytest.mark.asyncio
+async def test_an_expiry_cannot_be_pushed_back(api_key_service, db_session, test_user: dict):
+    created = await api_key_service.create_api_key(
+        user_id=test_user["id"],
+        key_data=APIKeyCreate(name="short lived", expires_at=datetime.now(UTC) + timedelta(days=1)),
+        db=db_session,
+    )
+
+    with pytest.raises(ValidationError, match="expiry"):
+        await api_key_service.update_api_key(
+            key_id=created["id"],
+            user_id=test_user["id"],
+            update_data=APIKeyUpdate(expires_at=datetime.now(UTC) + timedelta(days=30)),
+            db=db_session,
+        )
+
+
+@pytest.mark.asyncio
+async def test_an_expiry_cannot_be_cleared(api_key_service, db_session, test_user: dict):
+    created = await api_key_service.create_api_key(
+        user_id=test_user["id"],
+        key_data=APIKeyCreate(name="short lived", expires_at=datetime.now(UTC) + timedelta(days=1)),
+        db=db_session,
+    )
+
+    with pytest.raises(ValidationError, match="expiry"):
+        await api_key_service.update_api_key(
+            key_id=created["id"], user_id=test_user["id"], update_data=APIKeyUpdate(expires_at=None), db=db_session
+        )
+
+
+@pytest.mark.asyncio
+async def test_an_expiry_can_be_brought_forward(api_key_service, db_session, test_user: dict):
+    created = await api_key_service.create_api_key(
+        user_id=test_user["id"],
+        key_data=APIKeyCreate(name="short lived", expires_at=datetime.now(UTC) + timedelta(days=30)),
+        db=db_session,
+    )
+    sooner = datetime.now(UTC) + timedelta(days=1)
+
+    updated = await api_key_service.update_api_key(
+        key_id=created["id"], user_id=test_user["id"], update_data=APIKeyUpdate(expires_at=sooner), db=db_session
+    )
+
+    assert updated["expires_at"].replace(tzinfo=UTC) == sooner.replace(microsecond=sooner.microsecond)
+
+
+@pytest.mark.asyncio
+async def test_validation_hashes_off_the_event_loop(api_key_service, db_session: AsyncSession, test_api_key):
+    """scrypt is sized to take real time; on the loop thread it stalls every other request."""
+    threads: list[str] = []
+    real_verify = api_key_service._verify_api_key
+
+    def recording_verify(api_key: str, stored_hash: str) -> bool:
+        threads.append(threading.current_thread().name)
+        verified: bool = real_verify(api_key, stored_hash)
+
+        return verified
+
+    with patch.object(api_key_service, "_verify_api_key", recording_verify):
+        validation = await api_key_service.validate_api_key(
+            api_key=test_api_key["api_key"], resource="conversations", action="read", db=db_session
+        )
+
+    assert validation.error_message == "No permission for read on conversations"
+    assert threads
+    assert threading.main_thread().name not in threads
+
+
+@pytest.mark.asyncio
+async def test_keys_created_at_the_same_moment_keep_a_stable_order(api_key_service, db_session: AsyncSession, test_user: dict):
+    """Without an id tie-break, one key can appear on both pages and another on neither."""
+    for name in ("First", "Second", "Third"):
+        await api_key_service.create_api_key(user_id=test_user["id"], key_data=APIKeyCreate(name=name), db=db_session)
+
+    stamped = datetime(2030, 1, 1, tzinfo=UTC)
+    await db_session.execute(update(APIKey).where(APIKey.user_id == test_user["id"]).values(created_at=stamped))
+    await db_session.commit()
+
+    pages = [
+        await api_key_service.get_user_api_keys(user_id=test_user["id"], db=db_session, limit=1, offset=offset)
+        for offset in (0, 1, 2)
+    ]
+    ids = [page["data"][0]["id"] for page in pages]
+
+    assert ids == sorted(ids, reverse=True)
+    assert len(set(ids)) == 3

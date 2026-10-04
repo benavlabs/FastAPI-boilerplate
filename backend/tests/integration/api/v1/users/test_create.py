@@ -1,4 +1,5 @@
 import logging
+import traceback
 import uuid
 
 import pytest
@@ -7,6 +8,7 @@ from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.modules.user.crud import crud_users
 from src.modules.user.models import User
 
 logging.basicConfig(level=logging.INFO)
@@ -65,8 +67,7 @@ async def test_create_user_duplicate_username(client: AsyncClient, db_session: A
     response = await client.post("/api/v1/users/", json=user_data)
 
     assert response.status_code == 422
-    data = response.json()
-    assert "detail" in data
+    assert response.json()["detail"] == "A user with this email or username already exists."
 
 
 async def test_create_user_duplicate_email(client: AsyncClient, db_session: AsyncSession, test_user: dict):
@@ -78,8 +79,7 @@ async def test_create_user_duplicate_email(client: AsyncClient, db_session: Asyn
     response = await client.post("/api/v1/users/", json=user_data)
 
     assert response.status_code == 422
-    data = response.json()
-    assert "detail" in data
+    assert response.json()["detail"] == "A user with this email or username already exists."
 
 
 async def test_create_superuser(superuser_auth_client: AsyncClient, db_session: AsyncSession):
@@ -181,3 +181,105 @@ async def test_signup_leaves_the_address_unverified(client: AsyncClient, db_sess
     assert stored.email_verified is False
     assert stored.google_id is None
     assert stored.oauth_provider is None
+
+
+@pytest.mark.usefixtures("fresh_login_lockout")
+async def test_an_address_typed_in_mixed_case_can_sign_in(client: AsyncClient):
+    """crudauth looks accounts up in lowercase, so signup has to store them that way."""
+    signup = await client.post(
+        "/api/v1/users/",
+        json={
+            "name": "Mixed Case",
+            "username": "mixedcaseuser",
+            "email": "Alice@Example.COM",
+            "password": "Str1ngst!",
+        },
+    )
+    assert signup.status_code == 201
+
+    login = await client.post(
+        "/api/v1/auth/login",
+        data={"username": "Alice@Example.COM", "password": "Str1ngst!"},
+    )
+
+    assert login.status_code == 200
+
+
+async def test_the_same_address_in_another_case_cannot_register_twice(client: AsyncClient):
+    first = await client.post(
+        "/api/v1/users/",
+        json={"name": "First Owner", "username": "firstowner", "email": "owner@example.com", "password": "Str1ngst!"},
+    )
+    assert first.status_code == 201
+
+    second = await client.post(
+        "/api/v1/users/",
+        json={"name": "Second Owner", "username": "secondowner", "email": "OWNER@Example.com", "password": "Str1ngst!"},
+    )
+
+    assert second.status_code == 422
+
+
+class TestAnAddressTheColumnCannotHold:
+    """An email longer than the column is refused before it reaches the database."""
+
+    async def test_a_sixty_character_address_is_refused(self, client: AsyncClient):
+        over_the_column = f"{'a' * 48}@example.com"
+
+        response = await client.post("/api/v1/users/", json={**generate_unique_user_data(), "email": over_the_column})
+
+        assert response.status_code == 422
+        assert over_the_column not in response.text
+
+    async def test_the_longest_address_the_column_holds_is_accepted(self, client: AsyncClient):
+        at_the_column = f"{'a' * 38}@example.com"
+
+        response = await client.post("/api/v1/users/", json={**generate_unique_user_data(), "email": at_the_column})
+
+        assert response.status_code == 201
+        assert response.json()["email"] == at_the_column
+
+
+async def test_a_failed_insert_logs_neither_the_hash_nor_the_address(
+    client: AsyncClient, db_session: AsyncSession, monkeypatch, caplog
+):
+    """The statement's parameters stay out of the error the catch-all logs."""
+    first = generate_unique_user_data()
+    assert (await client.post("/api/v1/users/", json=first)).status_code == 201
+
+    async def never_exists(*args, **kwargs):
+        return False
+
+    monkeypatch.setattr(crud_users, "exists", never_exists)
+    same_username = {**generate_unique_user_data(), "username": first["username"]}
+
+    with caplog.at_level(logging.ERROR):
+        response = await client.post("/api/v1/users/", json=same_username)
+
+    await db_session.rollback()
+    stored = (await db_session.execute(select(User).where(User.username == first["username"]))).scalar_one()
+    logged = "\n".join(
+        record.getMessage() + ("".join(traceback.format_exception(*record.exc_info)) if record.exc_info else "")
+        for record in caplog.records
+    )
+
+    assert response.status_code == 500
+    assert "IntegrityError" in logged
+    assert "hide_parameters" in logged
+    assert stored.hashed_password not in logged
+    assert "$2b$" not in logged
+    assert same_username["email"] not in logged
+
+
+async def test_a_password_that_is_not_valid_unicode_is_refused(client: AsyncClient, caplog):
+    """A lone surrogate reaches the hash as text nothing can encode."""
+    with caplog.at_level(logging.WARNING):
+        response = await client.post(
+            "/api/v1/users/",
+            content='{"name": "Surrogate", "username": "surrogate", "email": "s@example.com", "password": "Passw0rd!\\ud800"}',
+            headers={"Content-Type": "application/json"},
+        )
+
+    assert response.status_code == 422
+    assert "not valid Unicode" in caplog.text
+    assert "Passw0rd" not in caplog.text

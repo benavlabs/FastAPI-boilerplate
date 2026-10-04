@@ -228,13 +228,14 @@ from fastapi import FastAPI
 from src.infrastructure.app_factory import lifespan_factory
 from src.infrastructure.cache import set
 from src.infrastructure.config.settings import get_settings
+from src.wiring.app import LIFECYCLES
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
     # Run the boilerplate's default lifespan first
-    base_lifespan = lifespan_factory(settings)
+    base_lifespan = lifespan_factory(settings, lifecycles=LIFECYCLES)
     async with base_lifespan(app):
         await _warm_reference_data()
         yield

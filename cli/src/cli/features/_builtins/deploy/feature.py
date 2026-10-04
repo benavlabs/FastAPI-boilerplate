@@ -13,6 +13,7 @@ compose file (and an optional nginx config).
 
 from __future__ import annotations
 
+from ipaddress import ip_network
 from pathlib import Path
 from typing import Any
 
@@ -20,8 +21,31 @@ from ....lib.project import ProjectContext
 from ...base import Feature, FeatureManifest, FeaturePlan, FileOp
 
 SUPPORTED_MODES: tuple[str, ...] = ("local", "prod", "nginx")
+DEFAULT_INTERNAL_SUBNET = "172.31.240.0/24"
+SMALLEST_TRUSTED_PREFIX = {4: 8, 6: 48}
 
 _TEMPLATES_ROOT = Path(__file__).parent / "templates"
+
+
+def validated_subnet(value: str) -> str:
+    """The subnet in the form ``ipaddress`` reads, refusing one that trusts too much.
+
+    Takes a network of ``/8`` or smaller for IPv4, ``/48`` or smaller for IPv6.
+
+    Raises:
+        ValueError: ``value`` is not a network address, carries host bits, or covers
+            more than the smallest prefix its family allows.
+    """
+    try:
+        network = ip_network(value, strict=True)
+    except ValueError as error:
+        raise ValueError(f"{value!r} is not a network address, such as 172.31.240.0/24.") from error
+
+    smallest = SMALLEST_TRUSTED_PREFIX[network.version]
+    if network.prefixlen < smallest:
+        raise ValueError(f"{value!r} covers {network.num_addresses} addresses; name a range of /{smallest} or smaller.")
+
+    return str(network)
 
 
 class DeployFeature(Feature):
@@ -47,6 +71,7 @@ class DeployFeature(Feature):
         build_context = params.get("build_context", ".")
         backend_dockerfile = params.get("backend_dockerfile", "backend/Dockerfile")
         env_file = params.get("env_file", "./backend/.env")
+        internal_subnet = validated_subnet(params.get("internal_subnet", DEFAULT_INTERNAL_SUBNET))
 
         context = {
             "mode": mode,
@@ -60,6 +85,7 @@ class DeployFeature(Feature):
             "build_context": build_context,
             "backend_dockerfile": backend_dockerfile,
             "env_file": env_file,
+            "internal_subnet": internal_subnet,
         }
 
         compose_target = Path(params.get("compose_target") or (project.repo_root / "docker-compose.yml"))

@@ -22,6 +22,6 @@ def test_no_column_index_is_duplicated_by_an_explicit_index():
                 continue
             columns = [expression.name for expression in index.expressions if hasattr(expression, "name")]
             if len(columns) == 1 and columns[0] in flagged:
-                duplicates.append((table_name, index.name, columns[0]))
+                duplicates.append((table_name, str(index.name), str(columns[0])))
 
     assert duplicates == []

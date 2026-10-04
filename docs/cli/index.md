@@ -35,11 +35,11 @@ The two-package split is deliberate: `cli/` depends on `backend/` (for things li
 ```bash
 git clone https://github.com/benavlabs/fastapi-boilerplate
 cd fastapi-boilerplate
-uv sync                  # syncs the workspace; installs backend + cli into one venv
-uv run bp --help         # works from anywhere in the repo
+uv sync --all-packages --all-extras   # one venv with the backend, the cli and the dev tools
+uv run --no-sync bp --help         # works from anywhere in the repo
 ```
 
-The workspace shares a single `.venv/` at the repo root. You can run `uv run bp` from any subdirectory — uv walks up to find the workspace root.
+The workspace shares a single `.venv/` at the repo root. You can run `uv run --no-sync bp` from any subdirectory — uv walks up to find the workspace root.
 
 ### Machine-wide (optional)
 
@@ -61,9 +61,9 @@ uv tool uninstall fastapi-boilerplate-cli
 ### Generate a Compose File
 
 ```bash
-uv run bp deploy generate local                  # hot-reload dev stack
-uv run bp deploy generate prod --workers 8       # production stack
-uv run bp deploy generate nginx                  # production behind nginx
+uv run --no-sync bp deploy generate local                  # hot-reload dev stack
+uv run --no-sync bp deploy generate prod --workers 8       # production stack
+uv run --no-sync bp deploy generate nginx                  # production behind nginx
 ```
 
 Each command writes `docker-compose.yml` (and `nginx/default.conf` for the nginx mode) to the repo root by default. Use `--output-dir` to target somewhere else.
@@ -71,14 +71,14 @@ Each command writes `docker-compose.yml` (and `nginx/default.conf` for the nginx
 ### Generate a Secret
 
 ```bash
-uv run bp env gen-secret
+uv run --no-sync bp env gen-secret
 # → 64-char hex suitable for SECRET_KEY
 ```
 
 ### Audit Production Settings
 
 ```bash
-uv run bp env validate
+uv run --no-sync bp env validate
 # Forces the production security validator regardless of ENVIRONMENT.
 # Exits 1 if any critical issues are found.
 ```

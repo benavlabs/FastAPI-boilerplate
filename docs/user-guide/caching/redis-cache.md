@@ -232,7 +232,6 @@ Pick prefixes that:
 ```env
 CACHE_ENABLED=true
 CACHE_BACKEND=redis              # or "memcached"
-DEFAULT_CACHE_EXPIRATION=3600
 
 # Redis backend
 CACHE_REDIS_HOST=redis           # use "localhost" without Docker

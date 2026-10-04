@@ -11,22 +11,58 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
       - name: Install uv
-        run: pip install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Set up Python
+        run: uv python install 3.11
 
       - name: Sync workspace
-        run: uv sync --all-packages --all-extras
+        run: uv sync --all-packages --all-extras --locked --python 3.11
 
-      # Tests live in backend/ today; cli/ has no tests yet.
       - name: Pytest (backend)
         # --no-sync prevents uv run's implicit re-sync from dropping member
         # extras (it defaults to no extras and would remove pytest).
         run: cd backend && uv run --no-sync pytest
+        env:
+          ENVIRONMENT: local
+          SECRET_KEY: test-secret-key-for-testing-only
+
+      - name: Pytest (cli)
+        run: cd cli && uv run --no-sync pytest
+
+  removal-drills:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        preset:
+          - core-only
+          - accounts-only
+          - accounts-rbac
+          - accounts-rbac-tiers
+          - accounts-cache-taskiq
+          - everything
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      - name: Sync workspace
+        run: uv sync --all-packages --all-extras --locked --python 3.11
+
+      - name: Removal drill
+        run: uv run --no-sync python tools/removal_drill.py ${{ matrix.preset }}
         env:
           ENVIRONMENT: local
           SECRET_KEY: test-secret-key-for-testing-only

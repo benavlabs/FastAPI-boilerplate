@@ -37,8 +37,7 @@ Importantly: **no example task ships in the boilerplate.** The infrastructure is
 The relevant settings live in `TaskiqSettings` (`infrastructure/config/settings.py`) and read from `backend/.env`:
 
 ```env
-# Toggle and broker selection
-TASKIQ_ENABLED=true
+# Broker selection
 TASKIQ_BROKER_TYPE=redis            # or "rabbitmq"
 
 # Redis broker (when TASKIQ_BROKER_TYPE=redis)
@@ -53,10 +52,6 @@ TASKIQ_RABBITMQ_PORT=5672
 TASKIQ_RABBITMQ_USER=guest
 TASKIQ_RABBITMQ_PASSWORD=guest
 TASKIQ_RABBITMQ_VHOST=/
-
-# Worker tuning
-TASKIQ_WORKER_CONCURRENCY=2
-TASKIQ_MAX_TASKS_PER_WORKER=1000
 ```
 
 The default `TASKIQ_REDIS_DB=3` keeps Taskiq isolated from the Cache (DB 0), the Rate Limiter (DB 1), and Sessions (DB 2) — so `redis-cli FLUSHDB` on one doesn't trash the others.
@@ -134,6 +129,9 @@ A few important constraints:
 - **All kwargs must be JSON-serializable.** Pass IDs, not ORM objects. Pass dicts, not Pydantic models that contain `datetime` (or convert via `.model_dump(mode="json")` first).
 - **Don't pass database sessions.** The task gets its own via `DBSession`.
 - **Don't pass HTTP request objects.** They don't survive serialization, and tasks shouldn't need them.
+- **Return values go through the same JSON step.** `datetime`, `UUID` and Pydantic models come back
+  as their JSON forms - a `datetime` returns as an ISO string, not a `datetime` - and an arbitrary
+  object such as an ORM row fails with `PydanticSerializationError` when the worker writes its result.
 
 ### Awaiting Results
 
@@ -163,7 +161,7 @@ In development, run the worker in a separate terminal from the API:
 
 ```bash
 cd backend
-uv run taskiq worker infrastructure.taskiq.worker:default_broker
+uv run --no-sync taskiq worker src.infrastructure.taskiq.worker:default_broker
 ```
 
 In Docker Compose, add a worker service that runs the same command. The worker needs the same Redis (or RabbitMQ) and the same database the API uses.
@@ -171,15 +169,17 @@ In Docker Compose, add a worker service that runs the same command. The worker n
 To tune concurrency:
 
 ```bash
-uv run taskiq worker infrastructure.taskiq.worker:default_broker --workers 4
+uv run --no-sync taskiq worker src.infrastructure.taskiq.worker:default_broker --workers 4
 ```
 
-The `TASKIQ_WORKER_CONCURRENCY` env var configures the per-process concurrency; multiple `--workers` spawn additional processes. Pick the combination based on whether your tasks are I/O-bound (high concurrency, single process) or CPU-bound (multiple processes, low concurrency).
+`--workers` spawns additional worker processes, and taskiq's own `--max-async-tasks` sets how many
+tasks one process runs at a time. Pick the combination based on whether your tasks are I/O-bound
+(high concurrency, single process) or CPU-bound (multiple processes, low concurrency).
 
 ### Reloading on Code Changes
 
 ```bash
-uv run --extra dev taskiq worker infrastructure.taskiq.worker:default_broker --reload
+uv run --no-sync taskiq worker src.infrastructure.taskiq.worker:default_broker --reload
 ```
 
 Helpful in development. `--reload` needs `taskiq[reload]` from the `dev` extra, which is why the
@@ -308,7 +308,7 @@ The user is created synchronously; the email goes out from a worker. If the emai
 
 ### "Worker can't import my task module"
 
-The worker imports the broker by module path. With the boilerplate's install layout (`[tool.setuptools.packages.find] where = ["src"]`), `infrastructure`, `modules`, etc. are top-level packages once you've run `uv sync` — so `infrastructure.taskiq.worker:default_broker` resolves cleanly. If you skipped install and are running from source, ensure `backend/src` is on `PYTHONPATH`.
+The worker imports the broker by module path, and the app has one import root: `src`. Run the worker from `backend/`, so that directory is on `sys.path` and `src.infrastructure.taskiq.worker:default_broker` resolves. In the image, `PYTHONPATH=/app:/app/src` covers it.
 
 ### "Database connection errors in tasks"
 

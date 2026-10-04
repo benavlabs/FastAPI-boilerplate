@@ -7,8 +7,8 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship, validates
 
 from ...infrastructure.database.models import TimestampMixin
 from ...infrastructure.database.session import Base
-from .constants import PERMISSION_NAME_MAX_LENGTH, ROLE_NAME_MAX_LENGTH
-from .permission_registry import is_known_permission
+from ...infrastructure.permissions import PERMISSION_NAME_MAX_LENGTH, is_known_permission
+from .constants import ROLE_NAME_MAX_LENGTH
 
 if TYPE_CHECKING:
     from ..user.models import User

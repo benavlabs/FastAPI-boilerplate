@@ -4,11 +4,12 @@ This module provides comprehensive security validation for production environmen
 checking for common misconfigurations that could lead to security vulnerabilities.
 """
 
-import re
+from typing import Any
 from urllib.parse import unquote, urlsplit
 
 from ..config.settings import EnvironmentOption, Settings
 from ..logging import get_logger
+from .secret_key import is_weak_secret_key
 
 logger = get_logger()
 
@@ -137,6 +138,14 @@ class ProductionSecurityValidator:
 
         self.logger.info("Production security validation completed successfully")
 
+    def _feature_setting(self, name: str, default: Any) -> Any:
+        """A setting a feature contributes, or ``default`` when the project didn't select it.
+
+        The validator runs whatever features a project has, so a check for one it
+        doesn't carry has to read as "nothing to warn about" rather than raise.
+        """
+        return getattr(self.settings, name, default)
+
     def _is_production(self) -> bool:
         """Check if the application is running in production environment.
 
@@ -202,7 +211,9 @@ class ProductionSecurityValidator:
                 "Set a strong password for production."
             )
 
-        if self.settings.ADMIN_ENABLED and (not self.settings.ADMIN_USERNAME or not self.settings.ADMIN_PASSWORD):
+        if self._feature_setting("ADMIN_ENABLED", False) and (
+            not self._feature_setting("ADMIN_USERNAME", "") or not self._feature_setting("ADMIN_PASSWORD", "")
+        ):
             errors.append(
                 "Admin interface is enabled (ADMIN_ENABLED=true) but ADMIN_USERNAME and/or "
                 "ADMIN_PASSWORD are not set. Set both to strong, unique values or set "
@@ -211,8 +222,8 @@ class ProductionSecurityValidator:
 
         if self._is_cors_too_permissive():
             credentials_note = (
-                " Combined with CORS_ALLOW_CREDENTIALS=true, this lets any browser origin "
-                "make authenticated cross-origin requests with the user's session cookie."
+                " The app drops CORS_ALLOW_CREDENTIALS while '*' is listed, so cookies and "
+                "Authorization headers stop reaching your frontend too."
                 if getattr(self.settings, "CORS_ALLOW_CREDENTIALS", True)
                 else ""
             )
@@ -222,6 +233,14 @@ class ProductionSecurityValidator:
             )
 
         return errors
+
+    def audit(self) -> tuple[list[str], list[str]]:
+        """Every critical error and every warning this configuration produces.
+
+        Both lists are always computed: a caller reporting on a configuration
+        wants the warnings even when a critical error would stop startup.
+        """
+        return self._validate_critical_security(), self._collect_warnings()
 
     def _validate_warning_security(self) -> None:
         """Log warnings for security concerns that don't prevent startup.
@@ -247,6 +266,19 @@ class ProductionSecurityValidator:
             - Session timeout too long
             - Weak admin usernames or passwords
         """
+        warnings = self._collect_warnings()
+
+        for warning in warnings:
+            self.logger.warning(f"PRODUCTION SECURITY WARNING: {warning}")
+
+        if warnings:
+            self.logger.warning(
+                f"Found {len(warnings)} production security warnings. "
+                "While not critical, these should be reviewed for optimal security."
+            )
+
+    def _collect_warnings(self) -> list[str]:
+        """The security concerns worth raising that don't prevent startup."""
         warnings = []
 
         redis_warnings = self._check_redis_security()
@@ -275,14 +307,7 @@ class ProductionSecurityValidator:
         admin_warnings = self._check_admin_credentials()
         warnings.extend(admin_warnings)
 
-        for warning in warnings:
-            self.logger.warning(f"PRODUCTION SECURITY WARNING: {warning}")
-
-        if warnings:
-            self.logger.warning(
-                f"Found {len(warnings)} production security warnings. "
-                "While not critical, these should be reviewed for optimal security."
-            )
+        return warnings
 
     def _is_insecure_secret_key(self) -> bool:
         """Check if SECRET_KEY is insecure or uses default values.
@@ -294,77 +319,10 @@ class ProductionSecurityValidator:
             True if the secret key is insecure, False otherwise.
 
         Note:
-            The validation checks for:
-            - Empty or missing secret keys
-            - Common default values and patterns
-            - Insufficient length (< 32 characters)
-            - Predictable patterns and repetition
-            - Common weak strings
-
-            A secure secret key should be:
-            - At least 32 characters long
-            - Randomly generated
-            - Unique to the application
-            - Free of predictable patterns
+            The rules live in ``is_weak_secret_key``, which the Alembic
+            production gate uses too.
         """
-        secret = self.settings.SECRET_KEY
-
-        if not secret:
-            return True
-
-        insecure_patterns = [
-            "insecure-secret-key-change-this",
-            "change-me",
-            "change-this",
-            "default",
-            "secret",
-            "password",
-            "secretkey",
-            "key",
-            "123456",
-            "abc123",
-            "test",
-            "dev",
-            "development",
-        ]
-
-        secret_lower = secret.lower()
-        if any(pattern in secret_lower for pattern in insecure_patterns):
-            return True
-
-        if len(secret) < 32:
-            return True
-
-        if self._has_predictable_pattern(secret):
-            return True
-
-        return False
-
-    def _has_predictable_pattern(self, secret: str) -> bool:
-        """Check if secret has predictable patterns that reduce security.
-
-        Args:
-            secret: The secret string to analyze for patterns.
-
-        Returns:
-            True if predictable patterns are found, False otherwise.
-
-        Note:
-            Predictable patterns include:
-            - Repeated characters (e.g., "aaaa", "1111")
-            - Sequential characters (e.g., "1234", "abcd")
-            - Common keyboard patterns (e.g., "qwerty")
-
-            These patterns reduce the entropy of the secret key and
-            make it more susceptible to brute force attacks.
-        """
-        if re.search(r"(.)\1{3,}", secret):
-            return True
-
-        if "1234" in secret or "abcd" in secret.lower() or "qwerty" in secret.lower():
-            return True
-
-        return False
+        return is_weak_secret_key(self.settings.SECRET_KEY)
 
     def _is_admin_access_completely_open(self) -> bool:
         """Check if admin interface has no access restrictions.
@@ -514,32 +472,32 @@ class ProductionSecurityValidator:
         """
         configs = []
 
-        if self.settings.CACHE_BACKEND == "redis":
+        if self._feature_setting("CACHE_BACKEND", "") == "redis":
             configs.append(
                 {
                     "service": "cache",
-                    "host": self.settings.CACHE_REDIS_HOST,
-                    "port": self.settings.CACHE_REDIS_PORT,
-                    "db": self.settings.CACHE_REDIS_DB,
-                    "password": self.settings.CACHE_REDIS_PASSWORD,
+                    "host": self._feature_setting("CACHE_REDIS_HOST", ""),
+                    "port": self._feature_setting("CACHE_REDIS_PORT", 0),
+                    "db": self._feature_setting("CACHE_REDIS_DB", 0),
+                    "password": self._feature_setting("CACHE_REDIS_PASSWORD", None),
                     "ssl": False,
                 }
             )
 
-        if self.settings.RATE_LIMITER_ENABLED:
+        if self._feature_setting("RATE_LIMITER_ENABLED", False):
             configs.append(
                 {
                     "service": "rate_limiter",
-                    "host": self.settings.RATE_LIMITER_REDIS_HOST,
-                    "port": self.settings.RATE_LIMITER_REDIS_PORT,
-                    "db": self.settings.RATE_LIMITER_REDIS_DB,
-                    "password": self.settings.RATE_LIMITER_REDIS_PASSWORD,
+                    "host": self._feature_setting("RATE_LIMITER_REDIS_HOST", ""),
+                    "port": self._feature_setting("RATE_LIMITER_REDIS_PORT", 0),
+                    "db": self._feature_setting("RATE_LIMITER_REDIS_DB", 0),
+                    "password": self._feature_setting("RATE_LIMITER_REDIS_PASSWORD", None),
                     "ssl": False,
                 }
             )
 
-        if self.settings.SESSION_BACKEND == "redis":
-            configs.append(self._redis_configuration_from_url("sessions", self.settings.SESSION_REDIS_URL))
+        if self._feature_setting("SESSION_BACKEND", "") == "redis":
+            configs.append(self._redis_configuration_from_url("sessions", self._feature_setting("SESSION_REDIS_URL", "")))
 
         return configs
 
@@ -655,21 +613,21 @@ class ProductionSecurityValidator:
         """
         warnings: list[str] = []
 
-        if not self.settings.SESSION_SECURE_COOKIES:
+        if not self._feature_setting("SESSION_SECURE_COOKIES", True):
             warnings.append(
                 "SESSION_SECURE_COOKIES is disabled. This allows session cookies to be "
                 "transmitted over unencrypted HTTP connections, making them vulnerable "
                 "to interception. Enable secure cookies in production."
             )
 
-        if self.settings.SESSION_TIMEOUT_MINUTES > 120:
+        if self._feature_setting("SESSION_TIMEOUT_MINUTES", 0) > 120:
             warnings.append(
-                f"Session timeout is set to {self.settings.SESSION_TIMEOUT_MINUTES} minutes "
+                f"Session timeout is set to {self._feature_setting('SESSION_TIMEOUT_MINUTES', 0)} minutes "
                 f"(more than 2 hours). Long session timeouts increase security risk if "
                 f"a session is compromised. Consider reducing the timeout for production."
             )
 
-        if not self.settings.CSRF_ENABLED:
+        if not self._feature_setting("CSRF_ENABLED", True):
             warnings.append(
                 "CSRF protection is disabled. This makes your application vulnerable to "
                 "Cross-Site Request Forgery attacks. Enable CSRF protection in production."
@@ -694,20 +652,20 @@ class ProductionSecurityValidator:
         """
         warnings: list[str] = []
 
-        if not self.settings.ADMIN_ENABLED:
+        if not self._feature_setting("ADMIN_ENABLED", False):
             return warnings
 
-        if not self.settings.ADMIN_USERNAME or not self.settings.ADMIN_PASSWORD:
+        if not self._feature_setting("ADMIN_USERNAME", "") or not self._feature_setting("ADMIN_PASSWORD", ""):
             return warnings
 
         weak_usernames = ["admin", "administrator", "root", "user", "test", "demo"]
-        if self.settings.ADMIN_USERNAME.lower() in weak_usernames:
+        if str(self._feature_setting("ADMIN_USERNAME", "")).lower() in weak_usernames:
             warnings.append(
-                f"Admin username '{self.settings.ADMIN_USERNAME}' is predictable. "
+                f"Admin username '{self._feature_setting('ADMIN_USERNAME', '')}' is predictable. "
                 f"Consider using a less obvious username for better security."
             )
 
-        password = self.settings.ADMIN_PASSWORD
+        password = self._feature_setting("ADMIN_PASSWORD", "")
         if len(password) < 12:
             warnings.append(
                 "Admin password is shorter than 12 characters. Use a longer, "

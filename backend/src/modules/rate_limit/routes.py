@@ -3,7 +3,10 @@ from typing import Any
 from fastapi import APIRouter
 from fastcrud import PaginatedListResponse, compute_offset, paginated_response
 
-from ...infrastructure.dependencies import AsyncSessionDep, CurrentSuperUserDep
+from ...infrastructure.auth.deps import CurrentSuperUserDep, CurrentUserDep
+from ...infrastructure.dependencies import AsyncSessionDep
+from ..common.pagination import ItemsPerPageDep, PageDep
+from ..user.dependencies import UserServiceDep
 from .dependencies import RateLimitServiceDep
 from .schemas import (
     RateLimitRead,
@@ -11,6 +14,7 @@ from .schemas import (
 )
 
 router = APIRouter(tags=["Rate Limits"])
+user_rate_limits_router = APIRouter(tags=["Rate Limits"])
 
 
 @router.get(
@@ -39,8 +43,8 @@ async def get_rate_limits(
     db: AsyncSessionDep,
     _: CurrentSuperUserDep,
     rate_limit_service: RateLimitServiceDep,
-    page: int = 1,
-    items_per_page: int = 10,
+    page: PageDep = 1,
+    items_per_page: ItemsPerPageDep = 10,
 ) -> dict[str, Any]:
     """
     Get a paginated list of all rate limits.
@@ -172,3 +176,40 @@ async def delete_rate_limit(
     """
     await rate_limit_service.delete(name, db)
     return {"message": "Rate limit deleted"}
+
+
+@user_rate_limits_router.get(
+    "/{username}/rate-limits",
+    summary="Get User Rate Limits",
+    description="""
+            Retrieves the rate limit configuration for a specific user.
+
+            This endpoint returns detailed information about API rate limits
+            applicable to the user based on their subscription tier. This includes
+            limits for different API endpoints and operations.
+
+            Permission rules:
+            - Users can view their own rate limits
+            - Administrators can view any user's rate limits
+
+            This is useful for applications to understand their usage allowances
+            and implement appropriate client-side throttling.
+            """,
+    responses={
+        200: {"description": "Rate limit information retrieved"},
+        403: {"description": "Not authorized to view these rate limits"},
+        404: {"description": "User not found"},
+    },
+    response_description="Detailed rate limit configuration for the user",
+)
+async def get_user_rate_limits(
+    username: str,
+    db: AsyncSessionDep,
+    current_user: CurrentUserDep,
+    user_service: UserServiceDep,
+    rate_limit_service: RateLimitServiceDep,
+) -> dict[str, Any]:
+    """Get rate limits for a user."""
+    await user_service.verify_user_permission(current_user, username, "view rate limits")
+    user = await user_service.get_by_username(username, db)
+    return await rate_limit_service.get_for_user(user["id"], db)

@@ -12,22 +12,35 @@ Two commands today:
 
 from __future__ import annotations
 
-import logging
+import importlib
 import secrets
+import sys
+from pathlib import Path
+from types import ModuleType
 
 import typer
 
-# The installed package layout puts `infrastructure`, `modules`, etc.
-# at the top of the import tree (see [tool.setuptools.packages.find]
-# in backend/pyproject.toml). The CLI is only callable when the package
-# is installed, so this form is always valid here.
-from infrastructure.config.settings import get_settings
-from infrastructure.security.production_validator import (
-    ProductionSecurityError,
-    ProductionSecurityValidator,
-)
-
 from ..lib.prompts import error, info, success, warn
+
+
+def _app_module(name: str) -> ModuleType:
+    """Import a backend module by its ``src.`` path, putting ``backend/`` on the path first.
+
+    The app is imported through a single root, ``src``, which the installed
+    distribution does not expose: its packages are published from inside ``src/``.
+    Resolving it here, when a command needs it, also keeps ``bp --help`` from
+    paying for the app's settings and database imports.
+    """
+    backend = next((p / "backend" for p in (Path.cwd(), *Path.cwd().parents) if (p / "backend" / "src").is_dir()), None)
+    if backend is None:
+        error("No `backend/src` in this directory or above it: run this from inside a project.")
+        raise typer.Exit(code=1)
+
+    if str(backend) not in sys.path:
+        sys.path.insert(0, str(backend))
+
+    return importlib.import_module(name)
+
 
 app = typer.Typer(no_args_is_help=True, help="Inspect and prepare the runtime environment.")
 
@@ -44,38 +57,14 @@ def gen_secret(
 def validate() -> None:
     """Run the production security validator against the current settings.
 
-    Forces production-mode validation regardless of ``ENVIRONMENT`` so
-    you can audit a dev or staging config the same way prod is gated.
+    Reports what production would refuse whatever ``ENVIRONMENT`` says, so a dev
+    or staging config can be audited the same way prod is gated.
     """
-    settings = get_settings()
+    settings = _app_module("src.infrastructure.config.settings").get_settings()
+    validator_module = _app_module("src.infrastructure.security.production_validator")
+    ProductionSecurityValidator = validator_module.ProductionSecurityValidator
 
-    class _ForcedProd(ProductionSecurityValidator):
-        def _is_production(self) -> bool:
-            return True
-
-    validator = _ForcedProd(settings)
-
-    captured_warnings: list[str] = []
-    handler = _CapturingHandler(captured_warnings)
-    validator.logger.addHandler(handler)
-    # Silence the validator's normal logging while we drive it — we render
-    # the result ourselves below.
-    previous_level = validator.logger.level
-    previous_propagate = validator.logger.propagate
-    validator.logger.setLevel(logging.CRITICAL + 1)
-    validator.logger.propagate = False
-    handler.setLevel(logging.WARNING)  # still capture warnings via the dedicated handler
-
-    critical_errors: list[str] = []
-    try:
-        try:
-            validator.validate_production_security()
-        except ProductionSecurityError as exc:
-            critical_errors = [line.strip(" •") for line in str(exc).splitlines()[1:] if line.strip()]
-    finally:
-        validator.logger.removeHandler(handler)
-        validator.logger.setLevel(previous_level)
-        validator.logger.propagate = previous_propagate
+    critical_errors, captured_warnings = ProductionSecurityValidator(settings).audit()
 
     if not critical_errors and not captured_warnings:
         success("No issues found. Configuration would pass production validation.")
@@ -95,17 +84,3 @@ def validate() -> None:
 
     if critical_errors:
         raise typer.Exit(code=1)
-
-
-class _CapturingHandler(logging.Handler):
-    """Capture only the warning lines emitted by the production validator."""
-
-    def __init__(self, sink: list[str]) -> None:
-        super().__init__(level=logging.WARNING)
-        self._sink = sink
-
-    def emit(self, record: logging.LogRecord) -> None:
-        message = record.getMessage()
-        marker = "PRODUCTION SECURITY WARNING: "
-        if marker in message:
-            self._sink.append(message.split(marker, 1)[1])

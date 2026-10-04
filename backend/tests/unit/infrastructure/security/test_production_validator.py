@@ -1,15 +1,19 @@
 """Tests for production security validator."""
 
+import secrets
+from typing import cast
 from unittest.mock import Mock
 
 import pytest
 
+from src.infrastructure.config.base import CoreSettings
 from src.infrastructure.config.settings import EnvironmentOption, Settings
 from src.infrastructure.security.production_validator import (
     ProductionSecurityError,
     ProductionSecurityValidator,
     validate_production_security,
 )
+from src.infrastructure.security.secret_key import is_weak_secret_key
 
 
 class TestProductionSecurityValidator:
@@ -97,6 +101,8 @@ class TestProductionSecurityValidator:
             "",  # Empty
             "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",  # Repeated chars
             "abcd1234qwerty",  # Predictable patterns
+            "my-company-api-signing-key-for-prod",  # Written by hand
+            "0123456789abcdef" * 2,  # One block, twice
         ]
 
         for insecure_key in test_cases:
@@ -314,7 +320,7 @@ class TestProductionSecurityValidator:
 
         message = str(exc_info.value)
         assert "CORS_ORIGINS contains '*'" in message
-        assert ("CORS_ALLOW_CREDENTIALS=true" in message) is expect_note
+        assert ("drops CORS_ALLOW_CREDENTIALS" in message) is expect_note
 
     def test_debug_enabled_logs_warning(self, caplog):
         """Test that debug mode enabled logs warning."""
@@ -422,3 +428,102 @@ class TestProductionSecurityValidator:
         warning_logs = [record for record in caplog.records if record.levelname == "WARNING"]
         ssl_warnings = [log for log in warning_logs if "not using SSL/TLS" in log.message]
         assert len(ssl_warnings) == 0
+
+
+class TestAProjectWithoutTheseFeatures:
+    """The validator runs whatever features a project selected, and no more.
+
+    ``CoreSettings`` carries none of the feature mixins, so every check that reads
+    one has to answer "nothing to warn about" instead of raising.
+    """
+
+    def test_it_validates_settings_that_carry_no_feature(self):
+        validator = ProductionSecurityValidator(cast(Settings, CoreSettings(ENVIRONMENT=EnvironmentOption.PRODUCTION)))
+
+        assert validator._check_session_security() == []
+        assert validator._check_admin_credentials() == []
+        assert validator._get_redis_configurations() == []
+
+    def test_the_core_checks_still_run(self):
+        """Dropping features must not drop the checks that hold for every project."""
+        validator = ProductionSecurityValidator(cast(Settings, CoreSettings(ENVIRONMENT=EnvironmentOption.PRODUCTION)))
+
+        errors = validator._validate_critical_security()
+
+        assert any("SECRET_KEY" in error for error in errors)
+
+
+class TestTheSecretKeyRule:
+    """What the validator refuses, and what it must never refuse."""
+
+    def _validator(self, secret: str) -> ProductionSecurityValidator:
+        return ProductionSecurityValidator(Settings(SECRET_KEY=secret, ENVIRONMENT=EnvironmentOption.PRODUCTION))
+
+    @pytest.mark.parametrize(
+        "generate",
+        [
+            lambda: secrets.token_hex(16),
+            lambda: secrets.token_hex(32),
+            lambda: secrets.token_urlsafe(24),
+            lambda: secrets.token_urlsafe(32),
+        ],
+    )
+    def test_every_generated_key_is_accepted(self, generate):
+        """A key from `bp env gen-secret` must never keep production from starting."""
+        refused = [key for _ in range(100_000) if is_weak_secret_key(key := generate())]
+
+        assert refused == []
+
+    def test_a_generated_key_reaches_the_validator_as_it_reaches_the_rules(self):
+        """The validator asks the same question these sweeps ask."""
+        key = secrets.token_hex(16)
+
+        assert not self._validator(key)._is_insecure_secret_key()
+        assert self._validator("insecure-secret-key-change-this")._is_insecure_secret_key()
+
+    def test_a_passphrase_of_unrelated_words_is_accepted(self):
+        assert not self._validator("brook-mellow-tundra-quartz-ripple-42")._is_insecure_secret_key()
+
+    @pytest.mark.parametrize(
+        "secret",
+        [
+            "",
+            "short",
+            "insecure-secret-key-change-this",
+            "change-me-please-change-me-please-change",
+            "my-super-secret-production-key-value",
+            "my-company-api-signing-key-for-prod",
+            "developmentdevelopmentdevelopment1",
+            "12345678" * 4,
+            "0123456789abcdef" * 2,
+            "abcdefgh" * 4,
+            "0123456789abcdefghijklmnopqrstuv",
+            "a" * 64,
+            "abababababababababababababababababababab",
+        ],
+    )
+    def test_a_weak_key_is_refused(self, secret: str):
+        assert self._validator(secret)._is_insecure_secret_key()
+
+    @pytest.mark.parametrize(
+        "secret",
+        [
+            "qwertyuiopasdfghjklzxcvbnm123456",
+            "1qaz2wsx3edc4rfv5tgb6yhn7ujm8ik,",
+            "monkey" * 5 + "12",
+            "welcome1" * 4 + "2",
+            "hunter2hunter2hunter2hunter2hunter22",
+            "prodprodprodprodprodprodprodprod1",
+            "Summer2026!Summer2026!Summer2026!!",
+            "abc123" * 5 + "ab",
+            "MyCompanyApiSigningKeyForProd2026",
+            "thisismysupersecurekeyforthisapp",
+        ],
+    )
+    def test_a_key_that_reads_as_typed_is_refused(self, secret: str):
+        """Long enough and varied enough to pass an entropy floor, and still hand-written."""
+        assert self._validator(secret)._is_insecure_secret_key()
+
+    def test_a_generated_key_that_happens_to_spell_a_weak_word_is_accepted(self):
+        """The rules measure a share of the whole value, not any occurrence."""
+        assert not self._validator("Kq7-test-2mZr9XbW4nHt6LyPv8CdFgJs1AuEoQiRzN")._is_insecure_secret_key()

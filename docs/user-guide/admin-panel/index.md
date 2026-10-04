@@ -34,12 +34,13 @@ Visit <http://localhost:8000/admin>, enter those credentials, and you're in.
 
 ## What's Included
 
-The boilerplate registers two model views out of the box (in `src/interfaces/admin/views/`):
+Each feature ships its own views, and `src/wiring/admin.py` lists the ones this
+project registers. Out of the box that is two:
 
 | View | Source | Notes |
 |------|--------|-------|
-| **Users** | `views/users.py` | Create / edit / delete users; password hashing applied automatically; soft-delete-aware |
-| **Tiers** | `views/tiers.py` | Manage subscription tiers; uses `TierService.permanent_delete` to prevent orphaning users / rate limits |
+| **Users** | `modules/user/admin.py` | Create / edit / delete users; password hashing applied automatically; soft-delete-aware; shows the tier column only when the tiers feature contributed one |
+| **Tiers** | `modules/tier/admin.py` | Manage subscription tiers; lists and counts only live ones; uses `TierService.permanent_delete` to prevent orphaning users / rate limits |
 
 Both are categorized under "Users & Access" and provide search, sort, filter, and CSV export.
 
@@ -55,9 +56,16 @@ Navigate to **Users → Create**. Fill the form. The `Password` field accepts pl
 
 Click any user row → **Edit**. You can change the tier, toggle `is_superuser`, update OAuth fields, etc. The hashed password field is shown but you only need to fill it if you want to reset the password.
 
+The tier picker lists only tiers a soft delete hasn't taken out, and a save that still names a
+deleted one is refused with "That tier has been deleted. Pick another one."
+
 ### Deleting a Tier
 
-The Tier delete button calls `TierService.permanent_delete`, which **fails** if any users or rate limits still reference the tier. This prevents dangling foreign keys. Reassign or remove the dependents first.
+The Tier delete button calls `TierService.permanent_delete`, which **fails** if any live user or
+rate limit still references the tier. This prevents dangling foreign keys. Reassign or remove the
+dependents first. Users a soft delete already removed are released from the tier as part of the
+permanent delete; a *soft* delete of a tier (`DELETE /api/v1/tiers/{name}`) leaves them on it, so a
+restore finds them where they were.
 
 ## How Authentication Works
 
@@ -75,15 +83,16 @@ The admin app is created in `src/interfaces/admin/initialize.py` and mounted in 
 
 ```python
 # interfaces/admin/initialize.py
+from fastapi import FastAPI
 from sqladmin import Admin
 
 from ...infrastructure.config.settings import get_settings
 from ...infrastructure.database.session import get_engine
+from ...wiring.admin import ADMIN_VIEWS
 from .auth import AdminAuth
-from .views import register_admin_views
 
 
-def create_admin_interface(app) -> Admin | None:
+def create_admin_interface(app: FastAPI) -> Admin | None:
     settings = get_settings()
     if not settings.ADMIN_ENABLED:
         return None
@@ -94,11 +103,15 @@ def create_admin_interface(app) -> Admin | None:
         authentication_backend=AdminAuth(secret_key=settings.SECRET_KEY),
         title="Admin",
     )
-    register_admin_views(admin)
+    for view in ADMIN_VIEWS:
+        admin.add_view(view)
     return admin
 ```
 
-Calling `create_admin_interface(app)` from `main.py` mounts everything at `/admin`. If `ADMIN_ENABLED=false`, the function returns `None` and nothing is mounted.
+The admin feature contributes `install(app)` to the wiring's installers, and the app
+factory calls it, so nothing in `main.py` mentions the panel. If `ADMIN_ENABLED=false`,
+nothing is mounted. The panel brings its own session middleware, scoped to its own
+routes, so an API request never decodes an admin cookie.
 
 ## Disabling in Production
 
@@ -117,9 +130,9 @@ Or keep it enabled but restrict network access at the load balancer / proxy leve
 | Admin app factory | `backend/src/interfaces/admin/initialize.py` |
 | Authentication backend | `backend/src/interfaces/admin/auth.py` |
 | Dataclass-model mixin | `backend/src/interfaces/admin/mixins.py` |
-| User view | `backend/src/interfaces/admin/views/users.py` |
-| Tier view | `backend/src/interfaces/admin/views/tiers.py` |
-| View registry | `backend/src/interfaces/admin/views/__init__.py` |
+| User view | `backend/src/modules/user/admin.py` |
+| Tier view | `backend/src/modules/tier/admin.py` |
+| View registry | `backend/src/wiring/admin.py` |
 
 ## Next Steps
 

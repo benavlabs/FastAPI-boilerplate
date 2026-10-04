@@ -1,6 +1,6 @@
 # Docker Setup
 
-This page walks through running the boilerplate in containers. The Python project lives at `backend/`, so all Docker operations happen from there.
+This page walks through running the boilerplate in containers. The Python project lives at `backend/`, which is where you run `docker compose` from, while the image builds from the repository root: it needs the workspace's `pyproject.toml`, `uv.lock` and `cli/pyproject.toml` as well as `backend/`.
 
 !!! info "docker-compose.yml status"
     The repository ships a `backend/Dockerfile` (multi-stage). A canonical `backend/docker-compose.yml` is on the way — until then, the **Recommended Compose File** below is what to drop in at `backend/docker-compose.yml` to get the `docker compose up` flow running.
@@ -21,17 +21,17 @@ docker compose up
 | Stage | Purpose |
 |-------|---------|
 | `requirements-stage` | Exports pinned requirements from `uv.lock` into `requirements-prod.txt` and `requirements-dev.txt`. Uses the official `astral-sh/uv` image to do this reliably. |
-| `base` | Installs system deps (gcc), production Python deps, and copies `src/` into the image. Sets `PYTHONPATH=/app/src`. |
+| `base` | Installs system deps (gcc), production Python deps, and copies `src/` into the image. Sets `PYTHONPATH=/app:/app/src`. |
 | `dev` | Adds dev requirements and `tests/`, runs as a non-root `appuser`, starts with `fastapi dev interfaces/main.py --host 0.0.0.0 --port 8000`. |
 | `migrate` | Adds `migrations/` and `alembic.ini`. Default command is `alembic upgrade head`. Useful as a one-off job before the prod app starts. |
 | `prod` | Same as base, runs as non-root, starts with `fastapi run interfaces/main.py --host 0.0.0.0 --port 8000 --workers $WORKERS` (defaults to 1). |
 
-You select a stage with `--target` when building:
+You select a stage with `--target` when building. The context is the repository root, because the Dockerfile copies `pyproject.toml`, `uv.lock`, `backend/` and `cli/pyproject.toml` from there:
 
 ```bash
-docker build --target dev -t fastapi-boilerplate:dev backend
-docker build --target prod -t fastapi-boilerplate:prod backend
-docker build --target migrate -t fastapi-boilerplate:migrate backend
+docker build --target dev -t fastapi-boilerplate:dev -f backend/Dockerfile .
+docker build --target prod -t fastapi-boilerplate:prod -f backend/Dockerfile .
+docker build --target migrate -t fastapi-boilerplate:migrate -f backend/Dockerfile .
 ```
 
 ## Recommended Compose File
@@ -42,8 +42,8 @@ Save this as `backend/docker-compose.yml`. It brings up Postgres, Redis, and the
 services:
   app:
     build:
-      context: .
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: backend/Dockerfile
       target: dev
     env_file:
       - .env
@@ -65,14 +65,14 @@ services:
     volumes:
       - postgres-data:/var/lib/postgresql/data
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
 
   redis:
     image: redis:7-alpine
     volumes:
       - redis-data:/data
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
 
 volumes:
   postgres-data:
@@ -85,13 +85,13 @@ When the app talks to the other services in the Compose network, it uses **servi
 
 ```env
 # In backend/.env
-POSTGRES_SERVER=db
+POSTGRES_SERVER=postgres
 CACHE_REDIS_HOST=redis
 RATE_LIMITER_REDIS_HOST=redis
 TASKIQ_REDIS_HOST=redis
 ```
 
-If you also use the host machine to reach Postgres/Redis directly (e.g. for a local dev tool), keep `localhost` working by exposing those ports as the example does (`5432:5432`, `6379:6379`).
+If you also use the host machine to reach Postgres/Redis directly (e.g. for a local dev tool), keep `localhost` working by exposing those ports as the example does (`127.0.0.1:5432:5432`, `127.0.0.1:6379:6379`). The `127.0.0.1:` prefix keeps a password-less dev database off the rest of the network.
 
 ## Service Reference
 
@@ -120,12 +120,12 @@ To process background tasks, add a worker service:
 ```yaml
   worker:
     build:
-      context: .
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: backend/Dockerfile
       target: dev
     env_file:
       - .env
-    command: taskiq worker infrastructure.taskiq.worker:default_broker
+    command: taskiq worker src.infrastructure.taskiq.worker:default_broker
     volumes:
       - ./src:/app/src
     depends_on:
@@ -142,8 +142,8 @@ Run Alembic migrations before the app starts:
 ```yaml
   migrate:
     build:
-      context: .
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: backend/Dockerfile
       target: migrate
     env_file:
       - .env
@@ -162,8 +162,8 @@ Create the first admin user and default tier on a fresh DB:
 ```yaml
   setup:
     build:
-      context: .
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: backend/Dockerfile
       target: dev
     env_file:
       - .env
@@ -250,14 +250,14 @@ docker compose up -d
 docker compose up --build
 
 # Logs for a specific service
-docker compose logs -f app
+docker compose logs -f api
 
 # Open a shell inside the app container
-docker compose exec app bash
+docker compose exec api bash
 
 # Run a one-off command
-docker compose exec app uv run alembic upgrade head
-docker compose exec db psql -U postgres
+docker compose exec api uv run --no-sync alembic upgrade head
+docker compose exec postgres psql -U postgres
 docker compose exec redis redis-cli
 
 # Stop everything
@@ -289,14 +289,14 @@ docker compose build --no-cache app
 ### Database connection refused
 
 ```bash
-# Is the db service up?
-docker compose ps db
+# Is the database service up?
+docker compose ps postgres
 
-# Can the app container resolve "db"?
-docker compose exec app python -c "import socket; print(socket.gethostbyname('db'))"
+# Can the api container resolve "postgres"?
+docker compose exec api python -c "import socket; print(socket.gethostbyname('postgres'))"
 
-# Inspect db logs
-docker compose logs db
+# Inspect its logs
+docker compose logs postgres
 ```
 
 ### Code changes not picking up

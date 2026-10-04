@@ -1,6 +1,6 @@
 """Tests for database resource teardown."""
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -39,7 +39,7 @@ class TestCloseDatabase:
     async def test_keeps_the_engine_identity(self, no_engine):
         """Only the pool is drained, so long-lived holders stay valid."""
         engine = AsyncMock()
-        factory = object()
+        factory = MagicMock()
         session_module._engine = engine
         session_module._session_factory = factory
 

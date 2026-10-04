@@ -62,6 +62,28 @@ async def test_api_paths_get_no_cache():
 
 
 @pytest.mark.asyncio
+async def test_the_api_wording_follows_a_configured_prefix():
+    """The prefix was written out in the middleware, so a moved API lost the no-store header."""
+    app = FastAPI()
+    app.add_middleware(ClientCacheMiddleware, api_prefix="/service")
+
+    @app.get("/service/v1/users")
+    async def moved_api_route():
+        return {"users": []}
+
+    @app.get("/api/v1/users")
+    async def vacated_api_route():
+        return {"users": []}
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        moved = await client.get("/service/v1/users")
+        vacated = await client.get("/api/v1/users")
+
+    assert moved.headers["cache-control"] == "private, no-cache, no-store, must-revalidate"
+    assert vacated.headers["cache-control"] == "private, no-store"
+
+
+@pytest.mark.asyncio
 async def test_admin_statics_get_public_cache():
     """The panel's own CSS and JS are the same bytes for everyone."""
     app = _create_app_with_middleware(cache=True, max_age=120)

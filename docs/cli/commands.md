@@ -20,6 +20,9 @@ Options:
   -o, --output-dir DIRECTORY    Where to write the compose file (default: repo root).
   --api-port INTEGER            Host port to publish the API on. [default: 8000]
   --workers INTEGER             Number of API workers (prod / nginx only). [default: 4]
+  --internal-subnet TEXT        Subnet for the compose network, and the only peers uvicorn
+                                takes forwarded headers from (nginx only).
+                                [default: 172.31.240.0/24]
   -f, --force                   Overwrite existing files without asking.
   -y, --yes                     Assume yes for all prompts.
   --dry-run                     Show what would be written, don't touch disk.
@@ -39,17 +42,25 @@ All modes target the same multi-stage `backend/Dockerfile` — no per-mode Docke
 
 ```bash
 # Generate the dev stack at the repo root
-uv run bp deploy generate local
+uv run --no-sync bp deploy generate local
 
 # Override workers and port
-uv run bp deploy generate prod --workers 8 --api-port 9000
+uv run --no-sync bp deploy generate prod --workers 8 --api-port 9000
 
 # Dry run — print what would be written, don't touch disk
-uv run bp deploy generate nginx --output-dir /tmp/scratch --dry-run
+uv run --no-sync bp deploy generate nginx --output-dir /tmp/scratch --dry-run
 
 # Generate into a separate directory (for staging configs in CI, etc.)
-uv run bp deploy generate prod --output-dir ./deploy/prod --yes
+uv run --no-sync bp deploy generate prod --output-dir ./deploy/prod --yes
+
+# Put the stack on another range when 172.31.240.0/24 clashes with a network you use
+uv run --no-sync bp deploy generate nginx --internal-subnet 10.89.0.0/24
 ```
+
+`--internal-subnet` has to name a network address of `/8` or smaller for IPv4, `/48` or smaller for IPv6: it is written both as the
+compose network's `ipam` subnet and as `FORWARDED_ALLOW_IPS` for the API container, which decides
+whose `X-Forwarded-For` and `X-Forwarded-Proto` the app believes. A value with host bits set
+(`172.31.240.1/24`), a wildcard, or a wider range is refused before anything is written.
 
 #### What it writes
 
@@ -66,7 +77,7 @@ Existing files are protected: if a target already exists you'll be prompted to c
 All three modes use the same service names and networking:
 
 - **`api`** — the FastAPI application
-- **`worker`** — Taskiq worker, running `taskiq worker infrastructure.taskiq.worker:default_broker`
+- **`worker`** — Taskiq worker, running `taskiq worker src.infrastructure.taskiq.worker:default_broker`
 - **`postgres`** — Postgres 16 (alpine), with health check
 - **`redis`** — Redis 7 (alpine), with health check
 - **`migrate`** (prod & nginx) — runs `alembic upgrade head` once, with `CONFIRM_PRODUCTION_MIGRATION=yes`. The `api` and `worker` services depend on it via `service_completed_successfully`.
@@ -90,17 +101,17 @@ Options:
 ```
 
 ```bash
-$ uv run bp env gen-secret
+$ uv run --no-sync bp env gen-secret
 af97045f600bf988041ec4b6fd891763d8f79f01f0a0a4a7ed2022e57f771a9e
 
-$ uv run bp env gen-secret --bytes 16
+$ uv run --no-sync bp env gen-secret --bytes 16
 c042a8aa0d678a9c73dc371e3e0d6a5e
 ```
 
 The default produces 64 hex characters (256 bits of entropy) — enough for any of the boilerplate's secret slots (`SECRET_KEY`, signed-cookie secrets, etc.). Pipe directly into your secrets manager:
 
 ```bash
-uv run bp env gen-secret | gh secret set SECRET_KEY --repo my-org/my-app
+uv run --no-sync bp env gen-secret | gh secret set SECRET_KEY --repo my-org/my-app
 ```
 
 ### `bp env validate`
@@ -112,7 +123,7 @@ Usage: bp env validate
 ```
 
 ```bash
-$ uv run bp env validate
+$ uv run --no-sync bp env validate
 Critical (2):
   • SECRET_KEY is using default or insecure value. ...
   • Database is using default credentials (POSTGRES_PASSWORD='postgres'). ...
@@ -135,7 +146,7 @@ Useful in CI to gate deployments:
 
 ```yaml
 # .github/workflows/deploy.yml (excerpt)
-- run: uv run bp env validate
+- run: uv run --no-sync bp env validate
   env:
     SECRET_KEY: ${{ secrets.SECRET_KEY }}
     POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
@@ -167,11 +178,11 @@ Typer-provided options work on any sub-command:
 Every command has `--help`:
 
 ```bash
-uv run bp --help
-uv run bp deploy --help
-uv run bp deploy generate --help
-uv run bp env --help
-uv run bp env validate --help
+uv run --no-sync bp --help
+uv run --no-sync bp deploy --help
+uv run --no-sync bp deploy generate --help
+uv run --no-sync bp env --help
+uv run --no-sync bp env validate --help
 ```
 
 The root `bp --help` lists every mounted command group, including those contributed by plugins. If a plugin you installed isn't showing up, see [Plugins → Troubleshooting](plugins.md#troubleshooting).

@@ -27,6 +27,8 @@ class ClientCacheMiddleware(BaseHTTPMiddleware):
             shared cache may keep them. The default is where SQLAdmin serves its own CSS
             and JS, under the panel's mount point; pass your own to add an application's
             static mount.
+        api_prefix: Where the API is mounted; its responses get the longer no-store
+            wording. Pass ``API_PREFIX``.
     """
 
     def __init__(
@@ -34,10 +36,12 @@ class ClientCacheMiddleware(BaseHTTPMiddleware):
         app: ASGIApp,
         max_age: int = 60,
         public_prefixes: tuple[str, ...] = PUBLIC_CACHE_PREFIXES,
+        api_prefix: str = "/api",
     ) -> None:
         super().__init__(app)
         self.max_age: int = max_age
         self.public_prefixes: tuple[str, ...] = public_prefixes
+        self.api_prefix: str = api_prefix
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         response: Response = await call_next(request)
@@ -46,7 +50,7 @@ class ClientCacheMiddleware(BaseHTTPMiddleware):
             return response
 
         path = request.url.path
-        if path.startswith("/api/"):
+        if path.startswith(f"{self.api_prefix}/"):
             response.headers["Cache-Control"] = "private, no-cache, no-store, must-revalidate"
         elif path.startswith(self.public_prefixes):
             response.headers["Cache-Control"] = f"public, max-age={self.max_age}"

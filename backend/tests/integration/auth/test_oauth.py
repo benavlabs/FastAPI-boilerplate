@@ -3,8 +3,9 @@
 from urllib.parse import parse_qs, urlparse
 
 import pytest
+from fastapi.routing import APIRoute
 from httpx import AsyncClient
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.infrastructure.auth.setup import auth
@@ -43,7 +44,7 @@ async def _start(client: AsyncClient, **params) -> str:
 async def test_google_is_told_to_return_to_the_route_that_serves_the_callback():
     """The URI Google redirects to must be one the app actually routes."""
     assert auth.oauth_providers["google"].redirect_uri == CALLBACK
-    assert "/api/v1/auth/oauth/callback/{provider}" in {route.path for route in app.routes}
+    assert "/api/v1/auth/oauth/callback/{provider}" in {route.path for route in app.routes if isinstance(route, APIRoute)}
 
 
 async def test_authorize_sends_the_browser_to_google_with_pkce(client: AsyncClient):
@@ -191,7 +192,7 @@ async def test_a_provider_error_sends_the_browser_back_with_an_error(client: Asy
 
 async def test_the_auth_paths_keep_their_existing_contract():
     """The migration to crudauth must not move the URLs clients already call."""
-    paths = {route.path for route in app.routes}
+    paths = {route.path for route in app.routes if isinstance(route, APIRoute)}
 
     for path in (
         "/api/v1/auth/login",
@@ -205,6 +206,7 @@ async def test_the_auth_paths_keep_their_existing_contract():
         assert path in paths
 
 
+@pytest.mark.usefixtures("fresh_login_lockout")
 async def test_a_provider_login_claims_an_account_that_was_signed_up_for(
     client: AsyncClient, db_session: AsyncSession, monkeypatch
 ):
@@ -252,3 +254,69 @@ async def test_a_provider_login_claims_an_account_that_was_signed_up_for(
     await db_session.refresh(claimed)
     assert claimed.google_id == "google-ada"
     assert claimed.email_verified is True
+
+
+@pytest.mark.usefixtures("fresh_login_lockout")
+async def test_a_provider_login_claims_an_account_whose_address_was_changed(
+    client: AsyncClient, db_session: AsyncSession, test_user: dict, monkeypatch
+):
+    """Moving a verified account onto someone else's address must not carry the trust over.
+
+    A session alone can't move the address: the PATCH is refused without the current
+    password. With it, the move clears the verification, and a provider login for the
+    new address claims the account.
+    """
+    await db_session.execute(update(User).where(User.id == test_user["id"]).values(email_verified=True))
+    await db_session.commit()
+
+    login = await client.post(
+        "/api/v1/auth/login",
+        data={"username": test_user["username"], "password": test_user["password"]},
+    )
+    assert login.status_code == 200
+
+    with_a_session_alone = await client.patch(
+        f"/api/v1/users/{test_user['username']}",
+        json={"email": "victim@example.com"},
+        headers={"X-CSRF-Token": login.json()["csrf_token"]},
+    )
+    assert with_a_session_alone.status_code == 403
+
+    moved = await client.patch(
+        f"/api/v1/users/{test_user['username']}",
+        json={"email": "victim@example.com", "current_password": test_user["password"]},
+        headers={"X-CSRF-Token": login.json()["csrf_token"]},
+    )
+    assert moved.status_code == 200
+    assert (await client.get("/api/v1/users/me")).status_code == 200
+    old_session = dict(client.cookies)
+    client.cookies.clear()
+
+    _stub_google(
+        monkeypatch,
+        {"sub": "google-victim", "email": "victim@example.com", "email_verified": True, "name": "Victim"},
+    )
+    state = await _start(client)
+    callback = await client.get(
+        "/api/v1/auth/oauth/callback/google",
+        params={"code": "the-code", "state": state},
+        follow_redirects=False,
+    )
+    assert callback.status_code == 307
+    client.cookies.clear()
+
+    for name, value in old_session.items():
+        client.cookies.set(name, value)
+    with_the_old_session = await client.get("/api/v1/users/me")
+    client.cookies.clear()
+
+    refused = await client.post(
+        "/api/v1/auth/login",
+        data={"username": test_user["username"], "password": test_user["password"]},
+    )
+
+    assert with_the_old_session.status_code == 401
+    assert refused.status_code == 401
+    claimed = (await db_session.execute(select(User).where(User.id == test_user["id"]))).scalar_one()
+    await db_session.refresh(claimed)
+    assert claimed.google_id == "google-victim"

@@ -180,7 +180,7 @@ The schemas follow a consistent vocabulary across modules:
 |--------|-----|
 | `Base` | Common fields shared across create/update/full schemas |
 | *(none — class name = `User`)* | Full-record schema (every column, mostly internal) |
-| `Read` | API response — drops sensitive/internal fields |
+| `Read` | API response — drops sensitive/internal fields, and the input rules: it describes what a row holds, so one written by an older version still reads |
 | `Create` | API request body for POST |
 | `CreateInternal` | What the service stores (raw password → hashed_password) |
 | `Update` | Partial update body for PATCH (all fields optional) |
@@ -339,7 +339,7 @@ async def me(current_user: Annotated[dict[str, Any], Depends(get_current_user)])
 ## Adding Schemas for a New Module
 
 1. **Create the schema file**: `backend/src/modules/widgets/schemas.py`
-2. **Define a `WidgetBase`** with the fields shared by create/update/read
+2. **Define a `WidgetBase`** with the fields and input rules the create and update bodies share
 3. **Add `WidgetCreate`, `WidgetRead`, `WidgetUpdate`** (and any internal variants you need)
 4. **Wire them up** in the module's `routes.py` and `service.py`
 
@@ -361,10 +361,12 @@ class WidgetCreate(WidgetBase):
     model_config = ConfigDict(extra="forbid")
 
 
-class WidgetRead(WidgetBase):
+class WidgetRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int
     owner_id: int
+    name: str
+    description: str | None
     created_at: datetime
 
 

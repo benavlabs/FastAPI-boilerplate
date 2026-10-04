@@ -5,8 +5,7 @@ from pathlib import Path
 backend_dir = Path(__file__).parent.parent
 sys.path.append(str(backend_dir))
 
-from scripts.create_first_superuser import create_first_superuser  # noqa: E402
-from scripts.create_first_tier import create_first_tier  # noqa: E402
+from scripts.seeders import SEEDERS  # noqa: E402
 from src.infrastructure.database.initialize import close_database  # noqa: E402
 from src.infrastructure.database.session import create_tables  # noqa: E402
 from src.infrastructure.logging import get_logger  # noqa: E402
@@ -16,26 +15,20 @@ logger = get_logger()
 
 async def setup_initial_data() -> None:
     """
-    Setup initial data for the application, including:
+    Setup initial data for the application:
     - Create database tables
-    - Create default tier
-    - Create admin superuser
+    - Run each selected feature's seeder, in the order ``scripts/seeders.py`` lists
+      them: the default tier, then the first superuser.
     """
     logger.info("Setting up initial data...")
 
     logger.info("Creating database tables...")
-    try:
-        await create_tables()
-        logger.info("Database tables created successfully")
-    except Exception as e:
-        logger.error(f"Error creating database tables: {str(e)}", exc_info=True)
-        sys.exit(1)
+    await create_tables()
+    logger.info("Database tables created successfully")
 
-    logger.info("Creating first tier...")
-    await create_first_tier()
-
-    logger.info("Creating superuser...")
-    await create_first_superuser()
+    for seed in SEEDERS:
+        logger.info(f"Running {seed.__name__}...")
+        await seed()
 
     logger.info("Initial data setup complete")
 
@@ -43,6 +36,9 @@ async def setup_initial_data() -> None:
 async def main() -> None:
     try:
         await setup_initial_data()
+    except Exception as error:
+        logger.error(f"Initial data setup failed: {error}")
+        raise SystemExit(1) from error
     finally:
         await close_database()
 

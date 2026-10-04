@@ -20,16 +20,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
       - name: Install uv
-        run: pip install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Set up Python
+        run: uv python install 3.11
 
       - name: Build docs
-        run: uvx zensical build
+        run: uvx zensical==0.0.66 build
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3

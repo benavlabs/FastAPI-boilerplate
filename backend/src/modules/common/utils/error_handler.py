@@ -8,15 +8,12 @@ from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.responses import Response
 
-from ....infrastructure.auth.http_exceptions import (
+from ....infrastructure.http_exceptions import (
     HTTPException,
 )
 from ....infrastructure.logging import get_logger
 from ..constants import EXCEPTION_MAPPING, GENERIC_ERROR_MESSAGE, SUPPORT_ID_LENGTH
-from ..exceptions import (
-    DomainError,
-    InsufficientCreditsError,
-)
+from ..exceptions import DomainError
 
 logger = get_logger()
 
@@ -31,12 +28,17 @@ def map_exception(error: DomainError) -> HTTPException:
 
     Walks the exception's MRO and uses the first exact-type match found in
     EXCEPTION_MAPPING, so the most specific mapping wins regardless of the
-    order entries appear in the mapping.
+    order entries appear in the mapping. The status comes from that base class;
+    the message comes from the error's own ``public_detail`` when it sets one.
     """
     for exception_class in type(error).__mro__:
         mapper = EXCEPTION_MAPPING.get(exception_class)
         if mapper is not None:
-            return mapper(str(error))
+            http_exception = mapper(str(error))
+            if error.public_detail is not None:
+                http_exception.detail = error.public_detail
+
+            return http_exception
 
     logger.error(f"Unmapped domain error: {type(error).__name__}: {error}")
     return HTTPException(status_code=500, detail=GENERIC_ERROR_MESSAGE)
@@ -48,9 +50,9 @@ class CatchAllErrorMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         try:
             return await call_next(request)
-        except Exception as exc:
+        except Exception:
             support_id = _generate_support_id()
-            logger.exception(f"Unhandled error [{support_id}] on {request.method} {request.url.path}: {exc}")
+            logger.exception(f"Unhandled error [{support_id}] on {request.method} {request.url.path}")
             return JSONResponse(
                 status_code=500,
                 content={"detail": GENERIC_ERROR_MESSAGE, "support_id": support_id},
@@ -63,16 +65,21 @@ def register_exception_handlers(app: FastAPI) -> None:
     All handlers log full details server-side and answer the client with the
     message ``EXCEPTION_MAPPING`` defines for that failure plus a support_id -
     enough to say what went wrong, never the raw domain message, which can name
-    rows the caller isn't entitled to know about. InsufficientCreditsError (402)
-    is the exception: it passes its own message, since the frontend needs the
-    credit info for upgrade prompts.
+    rows the caller isn't entitled to know about.
     """
     app.add_middleware(CatchAllErrorMiddleware)
 
     @app.exception_handler(RequestValidationError)
     async def validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+        """Log where and why a request failed to validate, never what it carried.
+
+        pydantic reports the offending value in ``input``, and for a missing field
+        that value is the whole body, so logging the errors verbatim would write
+        submitted passwords to the log.
+        """
         support_id = _generate_support_id()
-        logger.warning(f"Validation error [{support_id}] on {request.method} {request.url.path}: {exc.errors()}")
+        failures = [{"loc": error["loc"], "type": error["type"], "msg": error["msg"]} for error in exc.errors()]
+        logger.warning(f"Validation error [{support_id}] on {request.method} {request.url.path}: {failures}")
         return JSONResponse(
             status_code=422,
             content={"detail": "Invalid request. Please check your input and try again.", "support_id": support_id},
@@ -83,27 +90,8 @@ def register_exception_handlers(app: FastAPI) -> None:
         support_id = _generate_support_id()
         http_exception = map_exception(exc)
 
-        if isinstance(exc, InsufficientCreditsError):
-            logger.info(f"Insufficient credits [{support_id}] on {request.method} {request.url.path}: {exc}")
-            return JSONResponse(
-                status_code=http_exception.status_code,
-                content={"detail": http_exception.detail, "support_id": support_id},
-            )
-
         logger.warning(f"Domain error [{support_id}] on {request.method} {request.url.path}: {type(exc).__name__}: {exc}")
         return JSONResponse(
             status_code=http_exception.status_code,
             content={"detail": http_exception.detail, "support_id": support_id},
         )
-
-
-def handle_exception(error: Exception) -> HTTPException | None:
-    """Handle an exception and return an appropriate HTTP exception if possible.
-
-    For use in route handlers when you want to handle exceptions manually.
-    """
-    if isinstance(error, DomainError):
-        return map_exception(error)
-    elif isinstance(error, HTTPException):
-        return error
-    return None

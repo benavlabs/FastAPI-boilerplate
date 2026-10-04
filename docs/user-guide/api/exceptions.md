@@ -2,8 +2,8 @@
 
 The boilerplate has a deliberate two-layer exception model:
 
-1. **Domain exceptions** raised by services (`modules/common/exceptions.py`)
-2. **HTTP exceptions** raised by routes (`infrastructure/auth/http_exceptions.py`)
+1. **Domain exceptions** raised by services (`modules/common/exceptions.py`, and each feature's own `exceptions.py`)
+2. **HTTP exceptions** the app answers with (`infrastructure/http_exceptions.py`)
 
 Plus an automatic mapping layer that translates one to the other so routes don't have to know about specific HTTP status codes for every domain failure.
 
@@ -20,10 +20,17 @@ Defined in `backend/src/modules/common/exceptions.py`. Services raise these — 
 | `PermissionDeniedError` | The current user can't perform this action |
 | `UserNotFoundError` (extends `ResourceNotFoundError`) | Specific: user lookup failed |
 | `UserExistsError` (extends `ResourceExistsError`) | Specific: duplicate username/email |
-| `TierNotFoundError` (extends `ResourceNotFoundError`) | Specific: tier lookup failed |
-| `RateLimitNotFoundError` (extends `ResourceNotFoundError`) | Specific: rate limit row missing |
-| `InsufficientCreditsError` | Quota / credit balance hit zero |
-| `UsageLimitExceededError` | API key usage limit hit |
+| `PersistenceError` | A write the caller was entitled to make didn't come back |
+| `TierNotFoundError` (extends `ResourceNotFoundError`, in `modules/tier/exceptions.py`) | Specific: tier lookup failed |
+| `RateLimitNotFoundError` (extends `ResourceNotFoundError`, in `modules/rate_limit/exceptions.py`) | Specific: rate limit row missing |
+
+A feature's own exception subclasses one of the shared shapes and sets `public_detail` to choose
+what the client is told, so the mapping never has to name a feature's errors:
+
+```python
+class UserExistsError(ResourceExistsError):
+    public_detail = "A user with this email or username already exists."
+```
 
 ```python
 # modules/user/service.py
@@ -41,7 +48,7 @@ The service doesn't know or care that this becomes a `409 Conflict` over HTTP �
 
 ## HTTP Exceptions
 
-Re-exported from FastCRUD in `backend/src/infrastructure/auth/http_exceptions.py`:
+Re-exported from FastCRUD in `backend/src/infrastructure/http_exceptions.py`:
 
 | Exception | Status |
 |-----------|--------|
@@ -53,12 +60,11 @@ Re-exported from FastCRUD in `backend/src/infrastructure/auth/http_exceptions.py
 | `UnprocessableEntityException` | 422 |
 | `RateLimitException` | 429 |
 | `HTTPException` | base FastAPI class |
-| `CSRFException` | 403 with `X-CSRF-Error: true` header (defined locally) |
 
 Use these from routes when you have an HTTP-shaped failure and no service involvement (domain errors raised by services need no route-level handling — see the mapping layer below):
 
 ```python
-from ...infrastructure.auth.http_exceptions import BadRequestException
+from ...infrastructure.http_exceptions import BadRequestException
 
 @router.get("/")
 async def search(q: str | None = None):
@@ -93,57 +99,39 @@ async def create_user(
 
 If the service raises `UserExistsError`, the client gets a 422 with `"A user with this email or username already exists."` and a `support_id`; anything unexpected becomes a 500 with the generic message the same way.
 
-### Manual Handler (Rare)
+### The Default Mapping
 
-For a route that genuinely needs to intercept an exception itself - to recover, or to answer
-something other than the mapping would - `handle_exception()` is still available:
+The mapping in `modules/common/constants.py` names only the shared shapes:
 
 ```python
-from ..common.exceptions import TierNotFoundError
-from ..common.utils.error_handler import handle_exception
+EXCEPTION_MAPPING: dict[type[DomainError], Callable[[str], HTTPException]] = {
+    ResourceNotFoundError: lambda message: NotFoundException(detail="The requested resource was not found."),
+    ResourceExistsError: lambda message: DuplicateValueException(detail="This resource already exists."),
+    ValidationError: lambda message: UnprocessableEntityException(detail="The request could not be processed."),
+    PermissionDeniedError: lambda message: ForbiddenException(detail="You don't have permission for this action."),
+    PersistenceError: lambda message: HTTPException(status_code=500, detail=GENERIC_ERROR_MESSAGE),
+}
+```
 
+`map_exception` walks the raised exception's MRO and takes the first entry it finds, so a feature's
+subclass gets the status of the shape it extends. The message is that entry's fixed string, unless
+the exception sets `public_detail`. Either way it is never the raised message, which can name a row
+the caller isn't entitled to know about: that goes to the log, with the `support_id` the response
+carries so the two can be matched up.
 
+There is no route-level translation helper. A route either lets the exception propagate, or catches
+the domain error it wants to handle differently:
+
+```python
 @router.get("/{name}/limits")
 async def get_tier_limits(name: str, db: AsyncSessionDep, tier_service: TierServiceDep) -> dict[str, Any]:
     try:
         tier = await tier_service.get_by_name(name, db)
     except TierNotFoundError:
         return DEFAULT_LIMITS          # an unknown tier falls back instead of failing
-    except Exception as e:
-        http_exception = handle_exception(e)
-        if http_exception:
-            raise http_exception
-        raise
 
     return tier["limits"]
 ```
-
-`handle_exception()`:
-
-- Returns the mapped `HTTPException` if `e` is a `DomainError`
-- Returns `e` unchanged if it's already an `HTTPException`
-- Returns `None` otherwise (route then raises a 500)
-
-### The Default Mapping
-
-The mapping in `modules/common/constants.py`:
-
-```python
-EXCEPTION_MAPPING: dict[type[DomainError], Callable[[str], HTTPException]] = {
-    InsufficientCreditsError:  lambda m: HTTPException(status_code=402, detail=m or "Insufficient credits."),
-    UserNotFoundError:         lambda m: NotFoundException("User not found."),
-    TierNotFoundError:         lambda m: NotFoundException("The requested tier was not found."),
-    RateLimitNotFoundError:    lambda m: NotFoundException("Rate limit configuration not found."),
-    ResourceNotFoundError:     lambda m: NotFoundException("The requested resource was not found."),
-    UserExistsError:           lambda m: DuplicateValueException("A user with this email or username already exists."),
-    ResourceExistsError:       lambda m: DuplicateValueException("This resource already exists."),
-    UsageLimitExceededError:   lambda m: RateLimitException("Usage limit exceeded."),
-    ValidationError:           lambda m: UnprocessableEntityException("The request could not be processed."),
-    PermissionDeniedError:     lambda m: ForbiddenException("You don't have permission for this action."),
-}
-```
-
-Notice the messages **don't echo the raised exception's message** — every entry but `InsufficientCreditsError` answers with a fixed string, so a message naming a row the caller isn't entitled to know about can't reach them. The raised message goes to the logs, with the `support_id` from the response to correlate on. `map_exception` walks the exception's MRO, so a subclass gets its own message rather than its base's.
 
 ## Response Format
 
@@ -161,17 +149,6 @@ Notice the messages **don't echo the raised exception's message** — every entr
 ```json
 {
   "detail": "Invalid request. Please check your input and try again.",
-  "support_id": "a1b2c3d4"
-}
-```
-
-### `InsufficientCreditsError` (402) — exception
-
-This is the one case where the original error message is preserved, because the frontend needs the credit info for upgrade prompts:
-
-```json
-{
-  "detail": "Need 100 more credits to complete this operation",
   "support_id": "a1b2c3d4"
 }
 ```
@@ -218,7 +195,7 @@ async def get_by_username(self, username: str, db: AsyncSession) -> dict[str, An
 When the failure has no domain meaning (e.g. a missing query parameter combination), raise the HTTP exception directly:
 
 ```python
-from ...infrastructure.auth.http_exceptions import BadRequestException
+from ...infrastructure.http_exceptions import BadRequestException
 
 
 @router.get("/")
@@ -260,11 +237,12 @@ async def search(
     raise WidgetExceededError("Free tier limited to 10 widgets")
     ```
 
-The global handler (and `handle_exception()`) picks up the new mapping automatically.
+The global handler picks up the new mapping automatically. A subclass of an already-mapped shape
+needs no mapping entry at all: give it a `public_detail` and it inherits the status.
 
 ## Adding a Custom HTTP Exception
 
-If you need an HTTP exception not already exported, define it in `infrastructure/auth/http_exceptions.py` like the existing `CSRFException`:
+If you need an HTTP exception not already exported, add it to `infrastructure/http_exceptions.py`:
 
 ```python
 class PaymentRequiredException(HTTPException):

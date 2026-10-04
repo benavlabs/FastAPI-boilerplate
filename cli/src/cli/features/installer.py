@@ -53,7 +53,7 @@ class FeatureInstaller:
                         warn(f"skip {op.target} (exists)")
                     result.files_skipped.append(op.target)
                     continue
-                if not op.overwrite:
+                if not op.overwrite and not self.dry_run:
                     if not confirm_overwrite(str(op.target), assume_yes=self.assume_yes):
                         if not self.quiet:
                             warn(f"skip {op.target} (kept existing)")
@@ -67,7 +67,8 @@ class FeatureInstaller:
 
             if self.dry_run:
                 if not self.quiet:
-                    info(f"would write {op.target} ({len(content)} bytes)")
+                    replacing = " (replacing what is there)" if op.target.exists() else ""
+                    info(f"would write {op.target} ({len(content)} bytes){replacing}")
                 result.files_written.append(op.target)
                 continue
 

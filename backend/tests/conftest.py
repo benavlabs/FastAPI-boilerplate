@@ -27,31 +27,27 @@ import pytest  # noqa: E402
 import pytest_asyncio  # noqa: E402
 import redis as syncredis  # noqa: E402
 import redis.asyncio as aioredis  # noqa: E402
-from crudauth import Principal, get_password_hash  # noqa: E402
-from faker import Faker  # noqa: E402
 from httpx import ASGITransport, AsyncClient  # noqa: E402
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine  # noqa: E402
+from sqlalchemy.ext.asyncio import AsyncSession  # noqa: E402
 from sqlalchemy.orm import sessionmaker  # noqa: E402
 from testcontainers.core.docker_client import DockerClient  # noqa: E402
-
-# mypy: disable-error-code="import-untyped"
 from testcontainers.postgres import PostgresContainer  # noqa: E402
 
-from src.infrastructure.auth.dependencies import (  # noqa: E402
-    get_current_principal,
-    get_current_superuser,
-    get_current_user,
-)
 from src.infrastructure.config.settings import get_settings  # noqa: E402
-from src.infrastructure.database.session import Base, async_session  # noqa: E402
+from src.infrastructure.database.session import Base, async_session, build_engine  # noqa: E402
 from src.interfaces.main import app  # noqa: E402
-from src.modules.tier.models import Tier  # noqa: E402
-from src.modules.user.models import User  # noqa: E402
+from tests.wiring import PYTEST_PLUGINS  # noqa: E402
 
 TEST_DATABASE_URL = get_settings().DATABASE_URL
 
 backend_dir = Path(__file__).parent.parent
 sys.path.append(str(backend_dir))
+
+
+pytest_plugins = PYTEST_PLUGINS
+
+
+POSTGRES_IMAGE = "postgres:16-alpine"
 
 
 def is_docker_running() -> bool:
@@ -68,7 +64,7 @@ async def pg_container():
     if not is_docker_running():
         pytest.skip("Docker is required, but not running")
 
-    with PostgresContainer() as pg:
+    with PostgresContainer(POSTGRES_IMAGE) as pg:
         yield pg
 
 
@@ -97,7 +93,7 @@ async def test_db_url(pg_container):
 @pytest_asyncio.fixture(scope="function")
 async def test_db_engine(test_db_url):
     """Create a SQLAlchemy engine for testing."""
-    engine = create_async_engine(test_db_url, echo=False)
+    engine = build_engine(test_db_url)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     yield engine
@@ -138,166 +134,6 @@ async def client(test_db):
     app.dependency_overrides = {}
 
 
-@pytest_asyncio.fixture
-async def test_tier(db_session: AsyncSession):
-    """Create a test tier."""
-    tier = Tier(name="free", description="Free tier")
-    db_session.add(tier)
-    await db_session.commit()
-    return {"id": tier.id, "name": tier.name}
-
-
-@pytest_asyncio.fixture
-async def second_test_tier(db_session: AsyncSession):
-    """Create a second test tier."""
-    tier = Tier(name="premium", description="Premium tier")
-    db_session.add(tier)
-    await db_session.commit()
-    return {"id": tier.id, "name": tier.name}
-
-
-@pytest_asyncio.fixture
-async def test_user(db_session: AsyncSession, test_tier: dict):
-    """Create a test user."""
-    fake = Faker()
-    user = User(
-        name=fake.name(),
-        username=f"u{fake.random_int(10000, 99999)}",
-        email=fake.email(),
-        hashed_password=get_password_hash("Password123!"),
-        is_superuser=False,
-        tier_id=test_tier["id"],
-        profile_image_url="https://example.com/test.jpg",
-    )
-    db_session.add(user)
-    await db_session.commit()
-    return {
-        "id": user.id,
-        "name": user.name,
-        "username": user.username,
-        "email": user.email,
-        "is_superuser": user.is_superuser,
-        "tier_id": user.tier_id,
-        "password": "Password123!",
-        "profile_image_url": user.profile_image_url,
-    }
-
-
-@pytest_asyncio.fixture
-async def test_user_2(db_session: AsyncSession, test_tier: dict):
-    """Second test user for permission tests."""
-    fake = Faker()
-    user = User(
-        name=fake.name(),
-        username=f"u{fake.random_int(10000, 99999)}",
-        email=fake.email(),
-        hashed_password=get_password_hash("Password123!"),
-        is_superuser=False,
-        tier_id=test_tier["id"],
-        profile_image_url="https://example.com/test2.jpg",
-    )
-    db_session.add(user)
-    await db_session.commit()
-    return {
-        "id": user.id,
-        "name": user.name,
-        "username": user.username,
-        "email": user.email,
-        "is_superuser": user.is_superuser,
-        "tier_id": user.tier_id,
-        "password": "Password123!",
-    }
-
-
-@pytest_asyncio.fixture
-async def test_superuser(db_session: AsyncSession, test_tier: dict):
-    """Create a test superuser."""
-    fake = Faker()
-    user = User(
-        name=fake.name(),
-        username=f"su{fake.random_int(10000, 99999)}",
-        email=fake.email(),
-        hashed_password=get_password_hash("SuperuserPass123!"),
-        is_superuser=True,
-        tier_id=test_tier["id"],
-        profile_image_url="https://example.com/superuser.jpg",
-    )
-    db_session.add(user)
-    await db_session.commit()
-    return {
-        "id": user.id,
-        "name": user.name,
-        "username": user.username,
-        "email": user.email,
-        "is_superuser": user.is_superuser,
-        "tier_id": user.tier_id,
-        "password": "SuperuserPass123!",
-    }
-
-
-def _principal_for(user: dict) -> Principal:
-    """The crudauth principal the session transport would resolve for this user.
-
-    The auth fixtures override the dict-compat dependencies, so anything reading
-    the principal directly (permission checks, session routes) needs it too.
-    """
-    return Principal(
-        user_id=user["id"],
-        transport="session",
-        is_superuser=user.get("is_superuser", False),
-        email_verified=True,
-    )
-
-
-@pytest_asyncio.fixture
-async def auth_client(client: AsyncClient, test_user: dict):
-    """Authenticated test client (regular user) — overrides get_current_user dependency."""
-
-    async def override_get_current_user():
-        return test_user
-
-    async def override_get_current_principal():
-        return _principal_for(test_user)
-
-    app.dependency_overrides[get_current_user] = override_get_current_user
-    app.dependency_overrides[get_current_principal] = override_get_current_principal
-    return client
-
-
-@pytest_asyncio.fixture
-async def auth_client_2(client: AsyncClient, test_user_2: dict):
-    """Authenticated test client for second user."""
-
-    async def override_get_current_user():
-        return test_user_2
-
-    async def override_get_current_principal():
-        return _principal_for(test_user_2)
-
-    app.dependency_overrides[get_current_user] = override_get_current_user
-    app.dependency_overrides[get_current_principal] = override_get_current_principal
-    return client
-
-
-@pytest_asyncio.fixture
-async def superuser_auth_client(client: AsyncClient, test_superuser: dict):
-    """Authenticated test client (superuser)."""
-
-    async def override_get_current_user():
-        return test_superuser
-
-    async def override_get_current_principal():
-        return _principal_for(test_superuser)
-
-    async def override_get_current_superuser():
-        return test_superuser
-
-    app.dependency_overrides[get_current_user] = override_get_current_user
-    app.dependency_overrides[get_current_principal] = override_get_current_principal
-    app.dependency_overrides[get_current_superuser] = override_get_current_superuser
-    return client
-
-
 @pytest.fixture(autouse=True)
 def patch_redis_pipeline_for_tests(monkeypatch):
     """Patch Redis pipeline so tests don't need a live Redis."""
@@ -334,13 +170,3 @@ def patch_redis_pipeline_for_tests(monkeypatch):
 
     monkeypatch.setattr(aioredis.Redis, "pipeline", MockPipeline)
     monkeypatch.setattr(syncredis.Redis, "pipeline", MockPipeline)
-
-
-@pytest.fixture(autouse=True)
-def mock_oauth_settings(monkeypatch):
-    """Mock OAuth settings for testing."""
-    monkeypatch.setenv("OAUTH_REDIRECT_BASE_URL", "http://localhost:8000")
-    monkeypatch.setenv("OAUTH_GOOGLE_CLIENT_ID", "mock-google-client-id")
-    monkeypatch.setenv("OAUTH_GOOGLE_CLIENT_SECRET", "mock-google-client-secret")
-    monkeypatch.setenv("OAUTH_GITHUB_CLIENT_ID", "mock-github-client-id")
-    monkeypatch.setenv("OAUTH_GITHUB_CLIENT_SECRET", "mock-github-client-secret")

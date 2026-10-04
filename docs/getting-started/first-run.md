@@ -53,7 +53,7 @@ Check that tables were created:
 === "Docker Compose"
 
     ```bash
-    docker compose exec db psql -U postgres -d postgres -c "\dt"
+    docker compose exec postgres psql -U postgres -d postgres -c "\dt"
     ```
 
 === "Local with uv"
@@ -78,14 +78,14 @@ The admin credentials come from `ADMIN_NAME`, `ADMIN_EMAIL`, `ADMIN_USERNAME`, a
 === "Docker Compose"
 
     ```bash
-    docker compose exec web python -m scripts.setup_initial_data
+    docker compose exec api python -m scripts.setup_initial_data
     ```
 
 === "Local with uv"
 
     ```bash
     cd backend
-    uv run python -m scripts.setup_initial_data
+    uv run --no-sync python -m scripts.setup_initial_data
     ```
 
 This creates:
@@ -204,7 +204,7 @@ To start a worker locally:
 
 ```bash
 cd backend
-uv run taskiq worker infrastructure.taskiq.worker:default_broker
+uv run --no-sync taskiq worker src.infrastructure.taskiq.worker:default_broker
 ```
 
 ## Adding Your First Feature Module
@@ -239,7 +239,7 @@ If you need to re-run migrations:
 
 ```bash
 cd backend
-uv run alembic upgrade head
+uv run --no-sync alembic upgrade head
 ```
 
 ### Reset Everything (Docker)

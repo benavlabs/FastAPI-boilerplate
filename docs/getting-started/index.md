@@ -27,8 +27,11 @@ Pick whichever workflow fits you:
     ### 2. Install Dependencies
 
     ```bash
-    uv sync --extra dev
+    uv sync --all-packages --all-extras
     ```
+
+    From the repository root: `--all-packages` installs both workspace members and
+    `--all-extras` adds the dev tools (ruff, mypy, pytest).
 
     ### 3. Environment Setup
 
@@ -43,7 +46,7 @@ Pick whichever workflow fits you:
     ### 4. Run the Server
 
     ```bash
-    uv run fastapi dev src/interfaces/main.py
+    uv run --no-sync fastapi dev src/interfaces/main.py
     ```
 
 === "Docker Compose"

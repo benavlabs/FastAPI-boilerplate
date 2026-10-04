@@ -11,7 +11,7 @@ All under `/api/v1/users/` (defined in `modules/user/routes.py`):
 | `POST` | `/api/v1/users/` | Create a new user | Open |
 | `GET` | `/api/v1/users/` | Paginated list of users | Superuser |
 | `GET` | `/api/v1/users/me` | Current user's profile | Session |
-| `GET` | `/api/v1/users/{username}` | Public profile by username (no email) | Session |
+| `GET` | `/api/v1/users/{username}` | Public profile by username (display fields only) | Session |
 | `GET` | `/api/v1/users/active-and-inactive/{username}` | Same as above, includes soft-deleted | Superuser |
 | `PATCH` | `/api/v1/users/{username}` | Update profile (own or admin) | Session |
 | `DELETE` | `/api/v1/users/{username}` | Soft-delete a user (own or admin) | Session |
@@ -171,6 +171,30 @@ A `user.update` holder who isn't a superuser is then held to `verify_no_privileg
 
 If the body changes `username` or `email`, the service also re-checks uniqueness.
 
+#### Changing your own email address
+
+An email change is a takeover step: it clears `email_verified`, and a provider login for the new
+address would then claim the account. So changing your *own* address requires the account's current
+password in the body, and answers `403` without it:
+
+```bash
+curl -X PATCH http://localhost:8000/api/v1/users/johndoe \
+  -b cookies.txt \
+  -H "Content-Type: application/json" \
+  -H "X-CSRF-Token: <token>" \
+  -d '{"email": "new@example.com", "current_password": "<current password>"}'
+```
+
+A wrong password answers `403` as well. Every change that needs the password counts against the
+budget of `POST /api/v1/auth/change-password` — 5 per hour per account, correct passwords included —
+and past that the route answers `429`. A superuser correcting another account's address needs no
+password, so it counts nothing and stays uncapped.
+
+An account that signs in with a provider has no usable password, so it can't change its address at
+all — it answers `403` with "This account signs in with a provider, so its address can't be changed
+here." There is no way for such an account to set a password yet. A superuser changing someone
+else's address is unchanged, and so is the admin panel.
+
 The `UserUpdate` schema makes every field optional so clients can send partial updates. The OAuth identifiers and the verification flag are not part of it — they live on `UserAdminUpdate`, which the admin panel uses, so sending them here returns 422:
 
 ```python
@@ -190,7 +214,10 @@ class UserUpdate(BaseModel):
         str | None,
         Field(pattern=r"^(https?|ftp)://[^\s/$.?#].[^\s]*$", default=None),
     ]
+    current_password: Annotated[str | None, Field(default=None, exclude=True)]
 ```
+
+`current_password` never reaches the row: `exclude=True` keeps it out of every dump the service writes.
 
 ## Deletion
 

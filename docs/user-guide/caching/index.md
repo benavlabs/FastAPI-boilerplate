@@ -72,7 +72,6 @@ When the cache hits, the handler doesn't run at all — the cached value is retu
 ```env
 CACHE_ENABLED=true
 CACHE_BACKEND=redis           # or "memcached"
-DEFAULT_CACHE_EXPIRATION=3600
 
 # Redis backend
 CACHE_REDIS_HOST=redis        # use "localhost" without Docker

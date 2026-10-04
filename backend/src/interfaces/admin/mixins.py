@@ -1,8 +1,81 @@
 """Mixins for SQLAdmin views to handle dataclass-based models."""
 
+from collections.abc import AsyncGenerator
+from datetime import date, time, timedelta
+from decimal import Decimal
 from typing import Any
 
+from sqladmin.helpers import Writer, secure_filename, stream_to_csv
 from starlette.requests import Request
+from starlette.responses import StreamingResponse
+
+SPREADSHEET_FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
+NUMERIC_CELL_TYPES = (int, float, Decimal, date, time, timedelta)
+
+
+def as_spreadsheet_text(value: Any) -> str:
+    """Render ``value`` for a CSV cell, prefixing formula-like text with an apostrophe.
+
+    ``None``, numbers, dates and times render as sqladmin renders them. Any other
+    value whose text starts with ``=``, ``+``, ``-``, ``@``, a tab or a carriage
+    return gets the apostrophe.
+    """
+    cell = str(value)
+    if value is None or isinstance(value, NUMERIC_CELL_TYPES):
+        return cell
+
+    return f"'{cell}" if cell.startswith(SPREADSHEET_FORMULA_PREFIXES) else cell
+
+
+class TextCsvExportMixin:
+    """Mixin for SQLAdmin ModelView that writes formula-like CSV cells as text.
+
+    Covers both export paths: ``export_data`` for the plain CSV, and
+    ``custom_export_cell`` for the one ``use_pretty_export`` takes. JSON exports go
+    to sqladmin unchanged.
+
+    Usage:
+        class MyAdmin(TextCsvExportMixin, ModelView, model=MyModel):
+            can_export = True
+    """
+
+    async def export_data(self, data: list[Any], export_type: str = "csv") -> StreamingResponse:
+        """Stream ``data`` as CSV, or hand any other format to sqladmin."""
+        if export_type != "csv":
+            return await super().export_data(data, export_type=export_type)  # type: ignore[misc,no-any-return]
+
+        if self.use_pretty_export:  # type: ignore[attr-defined]
+            return await super().export_data(data, export_type=export_type)  # type: ignore[misc,no-any-return]
+
+        names = self.get_export_columns()  # type: ignore[attr-defined]
+
+        async def generate(writer: Writer) -> AsyncGenerator[Any, None]:
+            yield writer.writerow(names)
+
+            for row in data:
+                cells = [as_spreadsheet_text(await self.get_prop_value(row, name)) for name in names]  # type: ignore[attr-defined]
+                yield writer.writerow(cells)
+
+        filename = secure_filename(self.get_export_name(export_type="csv"))  # type: ignore[attr-defined]
+
+        return StreamingResponse(
+            content=stream_to_csv(generate),
+            media_type="text/csv; charset=utf-8",
+            headers={"Content-Disposition": f"attachment;filename={filename}"},
+        )
+
+    async def custom_export_cell(self, row: Any, name: str, value: Any) -> str | None:
+        """Return the pretty export's cell for ``name``, as text where ``value`` looks like a formula."""
+        cell = await super().custom_export_cell(row, name, value)  # type: ignore[misc]
+        if cell is not None:
+            return as_spreadsheet_text(cell)
+
+        if as_spreadsheet_text(value) == str(value):
+            return None
+
+        _, formatted = await self.get_list_value(row, name)  # type: ignore[attr-defined]
+
+        return as_spreadsheet_text(formatted)
 
 
 class DataclassModelMixin:

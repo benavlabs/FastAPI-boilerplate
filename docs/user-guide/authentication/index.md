@@ -93,7 +93,8 @@ GET /api/v1/auth/oauth/callback/google?code=...&state=...
 ```
 
 Register `{OAUTH_REDIRECT_BASE_URL}/api/v1/auth/oauth/callback/google` as the redirect URI in the
-Google console; `OAUTH_REDIRECT_BASE_URL` is the public origin of the API, without a path.
+Google console; `OAUTH_REDIRECT_BASE_URL` is the public origin of the API, without a path. The
+paths above follow `API_PREFIX`, so a project that moved the API registers the moved callback.
 
 A failed sign-in - the user declined, or their address is longer than the `email` column - sends
 the browser to `OAUTH_REDIRECT_BASE_URL?error=<code>`. A callback whose `state` doesn't match the
@@ -116,10 +117,12 @@ curl -X POST "http://localhost:8000/api/v1/api-keys/" \
   -H "Content-Type: application/json" \
   -b cookies.txt \
   -d '{"name": "Integration Key", "permissions": {}, "usage_limits": {}}'
-# → { "key": "shown ONCE — store securely", ... }
+# → { "api_key": "shown ONCE — store securely", "id": 1, "key_prefix": "...", ... }
 ```
 
-The full key is returned only on creation. Each key has its own permissions, usage limits, and audit trail (`KeyUsage` rows).
+The full key is returned only on creation, in `api_key`. The rest of the response is what
+`GET /api/v1/api-keys/{id}` reports, minus `key_metadata` and `last_used_ip`, which that route still
+carries. Each key has its own permissions, usage limits, and audit trail (`KeyUsage` rows).
 
 ## Key Features
 
@@ -214,7 +217,7 @@ async def get_users(
     ...
 ```
 
-Returns 403 unless the caller holds every named permission through one of their roles; superusers always pass. `infrastructure/dependencies.py` exports `CurrentPermissionsDep` for handlers that need the permission set itself, and `CurrentPrincipalDep` for the crudauth `Principal`. See [Permissions](permissions.md#role-based-permissions).
+Returns 403 unless the caller holds every named permission through one of their roles; superusers always pass. `infrastructure/auth/deps.py` exports `CurrentPermissionsDep` for handlers that need the permission set itself, and `CurrentPrincipalDep` for the crudauth `Principal`. See [Permissions](permissions.md#role-based-permissions).
 
 ### Resource Ownership
 
@@ -258,9 +261,11 @@ When `ENVIRONMENT=production` and `PRODUCTION_SECURITY_VALIDATION_ENABLED=true` 
 - Insecure or placeholder `SECRET_KEY`
 - Default or empty database password
 - Admin panel enabled without `ADMIN_USERNAME`/`ADMIN_PASSWORD`
-- `CORS_ORIGINS` empty or containing `*`
+- `CORS_ORIGINS` containing `*`
 
-`PRODUCTION_SECURITY_STRICT_MODE=true` makes the validator stricter still.
+An empty `CORS_ORIGINS` isn't an error: it means the app allows no cross-origin request. A `*`
+is refused in production, and wherever it is allowed the app drops `CORS_ALLOW_CREDENTIALS`,
+so cookies never travel to a wildcard origin.
 
 ## Configuration
 
@@ -290,7 +295,6 @@ OAUTH_GITHUB_CLIENT_SECRET=
 # Security
 SECRET_KEY=<openssl rand -hex 32>
 PRODUCTION_SECURITY_VALIDATION_ENABLED=true
-PRODUCTION_SECURITY_STRICT_MODE=false
 ```
 
 ## Quick Examples

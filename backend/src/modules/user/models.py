@@ -1,20 +1,20 @@
 from datetime import datetime
-from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy import DateTime, String
+from sqlalchemy.orm import Mapped, mapped_column
 
 from ...infrastructure.database.models import SoftDeleteMixin, TimestampMixin
 from ...infrastructure.database.session import Base
-from .constants import NAME_MAX_LENGTH, USERNAME_MAX_LENGTH
-
-if TYPE_CHECKING:
-    from ..role.models import UserRole
-    from ..tier.models import Tier
+from ...wiring.models import UserModelExtensions
+from .constants import EMAIL_MAX_LENGTH, NAME_MAX_LENGTH, USERNAME_MAX_LENGTH
 
 
-class User(Base, TimestampMixin, SoftDeleteMixin):
-    """User model representing application users."""
+class User(Base, TimestampMixin, SoftDeleteMixin, UserModelExtensions):
+    """User model representing application users.
+
+    Other features add to it through ``UserModelExtensions`` in the wiring: rbac
+    contributes ``user_roles``, and the tiers feature ``tier_id`` and ``tier``.
+    """
 
     __tablename__ = "user"
 
@@ -28,17 +28,10 @@ class User(Base, TimestampMixin, SoftDeleteMixin):
 
     name: Mapped[str] = mapped_column(String(NAME_MAX_LENGTH))
     username: Mapped[str] = mapped_column(String(USERNAME_MAX_LENGTH), unique=True, index=True)
-    email: Mapped[str] = mapped_column(String(50), unique=True, index=True)
+    email: Mapped[str] = mapped_column(String(EMAIL_MAX_LENGTH), unique=True, index=True)
     hashed_password: Mapped[str] = mapped_column(String(100))
 
     profile_image_url: Mapped[str] = mapped_column(String, default="https://profileimageurl.com")
-
-    tier_id: Mapped[int | None] = mapped_column(
-        Integer,
-        ForeignKey("tiers.id"),
-        index=True,
-        default=None,
-    )
 
     is_superuser: Mapped[bool] = mapped_column(default=False)
 
@@ -48,17 +41,6 @@ class User(Base, TimestampMixin, SoftDeleteMixin):
     email_verified: Mapped[bool] = mapped_column(default=False)
     oauth_created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
     oauth_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
-
-    tier: Mapped["Tier | None"] = relationship("Tier", back_populates="users", lazy="selectin", init=False)
-    user_roles: Mapped[list["UserRole"]] = relationship(
-        "UserRole",
-        back_populates="user",
-        lazy="select",
-        cascade="all, delete-orphan",
-        passive_deletes=True,
-        default_factory=list,
-        init=False,
-    )
 
     @property
     def is_active(self) -> bool:
