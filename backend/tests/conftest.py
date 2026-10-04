@@ -31,8 +31,6 @@ from httpx import ASGITransport, AsyncClient  # noqa: E402
 from sqlalchemy.ext.asyncio import AsyncSession  # noqa: E402
 from sqlalchemy.orm import sessionmaker  # noqa: E402
 from testcontainers.core.docker_client import DockerClient  # noqa: E402
-
-# mypy: disable-error-code="import-untyped"
 from testcontainers.postgres import PostgresContainer  # noqa: E402
 
 from src.infrastructure.config.settings import get_settings  # noqa: E402

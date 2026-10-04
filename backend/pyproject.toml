@@ -100,6 +100,10 @@ module = "sqladmin"
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
+module = "testcontainers.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
 module = "sqladmin.*"
 ignore_missing_imports = true
 
