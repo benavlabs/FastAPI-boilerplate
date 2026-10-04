@@ -90,7 +90,7 @@ async def update_user_profile(
 **`require_permissions(*names)`** — Returns a dependency that raises 403 unless the caller holds every named permission. Superusers pass. It injects nothing, so it goes in the route's `dependencies`:
 
 ```python
-from ...infrastructure.auth.dependencies import require_permissions
+from ...infrastructure.auth.authorization import require_permissions
 
 
 @router.get("/", dependencies=[require_permissions("user.read")])

@@ -20,7 +20,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...infrastructure.cache import cache
+from ...infrastructure.cache.decorator import cache
 from ...infrastructure.database.session import async_session
 from .schemas import WidgetRead
 from .service import WidgetService

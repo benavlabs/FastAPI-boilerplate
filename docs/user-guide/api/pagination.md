@@ -197,7 +197,7 @@ The boilerplate uses `ge=1, le=100` for the user list endpoint and `ge=1, le=100
 From `modules/user/routes.py`:
 
 ```python
-from ...infrastructure.auth.dependencies import require_permissions
+from ...infrastructure.auth.authorization import require_permissions
 
 
 @router.get(

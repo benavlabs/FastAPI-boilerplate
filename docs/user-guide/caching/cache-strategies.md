@@ -140,7 +140,7 @@ The TTL is your safety net — even if you forget an invalidation, the cache sel
 The decorator covers route-level caching. For caching inside services or background tasks, use the provider API directly:
 
 ```python
-from src.infrastructure.cache import get, set, delete
+from src.infrastructure.cache.provider import get, set, delete
 
 KEY_TTL = 1800  # 30 minutes
 
@@ -226,7 +226,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from src.infrastructure.app_factory import lifespan_factory
-from src.infrastructure.cache import set
+from src.infrastructure.cache.provider import set
 from src.infrastructure.config.settings import get_settings
 from src.wiring.app import LIFECYCLES
 
@@ -256,8 +256,8 @@ For larger or periodic warming, use a Taskiq task on a schedule. See [Background
 
 ```python
 # backend/src/modules/cache/tasks.py
-from ...infrastructure.cache import set
-from ...infrastructure.taskiq import default_broker
+from ...infrastructure.cache.provider import set
+from ...infrastructure.taskiq.brokers import default_broker
 
 
 @default_broker.task(task_name="warm_top_widgets")
@@ -273,7 +273,7 @@ Schedule it to run every 5 minutes (or whatever's shorter than the TTL) and the 
 When a lookup misses the database too, cache the miss for a short window so subsequent requests don't re-hit the database:
 
 ```python
-from src.infrastructure.cache import get, set
+from src.infrastructure.cache.provider import get, set
 
 NEGATIVE_TTL = 60  # 1 minute — keep negative caches very short
 SENTINEL = "__NOT_FOUND__"

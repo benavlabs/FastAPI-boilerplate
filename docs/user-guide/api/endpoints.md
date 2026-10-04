@@ -268,7 +268,7 @@ The leading underscore on the dependency-only parameter is the convention used a
 `require_permissions` returns a dependency that answers 403 unless the caller holds every permission named. Superusers always pass. Because it injects nothing into the handler, it belongs in the decorator's `dependencies` list:
 
 ```python
-from ...infrastructure.auth.dependencies import require_permissions
+from ...infrastructure.auth.authorization import require_permissions
 
 
 @router.get(

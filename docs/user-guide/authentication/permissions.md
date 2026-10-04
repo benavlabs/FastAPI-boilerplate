@@ -45,7 +45,7 @@ Each module owns its permission names in its own `permissions.py`, as a `StrEnum
 # modules/user/permissions.py
 from enum import StrEnum
 
-from ..role.permission_registry import register_permissions
+from ...infrastructure.permissions import register_permissions
 
 
 @register_permissions("user")
@@ -60,7 +60,7 @@ Registration is validated: the resource must match `^[a-z][a-z0-9_]*$`, every me
 
 `discover_permissions()` walks `src.modules.*.permissions` and imports each one; `modules/__init__.py` calls it at import time, so a new `permissions.py` needs no registration elsewhere.
 
-The registry in `modules/role/permission_registry.py` is what the rest of the app reads:
+The registry in `infrastructure/permissions.py` is what the rest of the app reads:
 
 | Function | Returns |
 |----------|---------|
@@ -76,7 +76,7 @@ Unregistered names can't be stored: `RolePermission` validates `permission_name`
 
 ```python
 # modules/user/routes.py
-from ...infrastructure.auth.dependencies import require_permissions
+from ...infrastructure.auth.authorization import require_permissions
 
 
 @router.get(

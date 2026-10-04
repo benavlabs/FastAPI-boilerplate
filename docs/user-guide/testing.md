@@ -92,7 +92,7 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from testcontainers.postgres import PostgresContainer
 
-from src.infrastructure.database.models import Base
+from src.infrastructure.database.session import Base
 from src.infrastructure.database.session import async_session
 from src.interfaces.main import app
 
@@ -187,6 +187,9 @@ async def test_get_by_id_raises_when_missing(mocker):
 ## Writing Integration Tests
 
 Integration tests use the real database via `client` and `db_session`. The session-based auth flow needs to be honored — `httpx.AsyncClient` keeps cookies between calls, so log in once and reuse the client.
+
+`build_user_create_payload` below comes from a helper you add — the boilerplate ships no factories.
+Its file is at the end of this section.
 
 ```python
 # tests/integration/api/test_users.py
@@ -307,7 +310,7 @@ Taskiq tasks shouldn't actually run during tests. Use Taskiq's `InMemoryBroker` 
 # tests/conftest.py (additional)
 from taskiq import InMemoryBroker
 
-from infrastructure.taskiq import default_broker as real_broker
+from src.infrastructure.taskiq.brokers import default_broker as real_broker
 
 @pytest_asyncio.fixture(autouse=True)
 async def in_memory_broker(monkeypatch):

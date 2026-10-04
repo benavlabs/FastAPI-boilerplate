@@ -61,20 +61,23 @@ class MyModel(Base, TimestampMixin, SoftDeleteMixin):
 
 ## Auto-Discovery for Alembic
 
-Each module's models are imported in `backend/src/modules/__init__.py`:
+Nothing lists the models by hand. `src/modules/__init__.py` imports nothing at all, and the two
+walkers find whatever is on disk:
 
 ```python
-from .api_keys.models import APIKey, KeyPermission, KeyUsage
-from .rate_limit.models import RateLimit
-from .role.models import Role, RolePermission, UserRole
-from .role.permission_registry import discover_permissions
-from .tier.models import Tier
-from .user.models import User
-
-discover_permissions()
+# backend/src/infrastructure/database/registry.py
+def import_models(package_name: str = MODELS_PACKAGE) -> None:
+    package = importlib.import_module(package_name)
+    for _, module_name, _ in pkgutil.walk_packages(package.__path__, package.__name__ + "."):
+        importlib.import_module(module_name)
 ```
 
-When you add a new module, **add its models here** so Alembic's `--autogenerate` sees them. The same import is what triggers `discover_permissions()`, which imports every module's `permissions.py` — see [Permissions](../authentication/permissions.md#role-based-permissions).
+`import_models()` registers every model on `Base.metadata`, which is what Alembic's
+`--autogenerate` and `scripts/create_tables.py` read. `discover_permissions()`, in
+`infrastructure/permissions.py`, walks the same packages for each module's `permissions.py` — see
+[Permissions](../authentication/permissions.md#role-based-permissions).
+
+A module you add is found by both as soon as its files exist; there is no registry to edit.
 
 ## Relationships
 

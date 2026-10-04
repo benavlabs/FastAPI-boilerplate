@@ -33,6 +33,10 @@ matrix. The round that followed fixed what a re-review of the refactor found.
 - **`scripts/cleanup_api_key_json.py`** — a one-off repair for API key rows whose `permissions` or
   `usage_limits` hold a JSON null, which an older version could store and no validated read can
   parse.
+- **A test over the documentation's code samples** — `tests/unit/test_docs_imports.py` resolves
+  every `from src…` and relative import in a `python` block under `docs/` against `backend/src`
+  and fails on a name that isn't there, so a sample that can't be pasted into a project fails the
+  suite.
 - **`GET /health/ready`** — answers `503` while a dependency the project selected is unreachable:
   the database, and the cache, the login lockout's Redis, the session store and the task broker for
   the features it has. Checks run together, each with a two-second timeout; the report is reused for
@@ -169,6 +173,14 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   gated Swagger and ReDoc pages asked for `/openapi.json`, which answers `404` there; they now ask
   for `/svc/openapi.json`, and the schema names `/svc` as its server, as the ungated docs already
   did.
+- **Thirty broken imports in the documentation's samples** now name what they import:
+  `require_permissions` comes from `auth.authorization`, the cache functions from
+  `cache.provider` and the decorator from `cache.decorator`, `default_broker` from
+  `taskiq.brokers` and `DBSession` from `taskiq.deps`, `Base` from `database.session`, and
+  `register_permissions` / `discover_permissions` from `infrastructure.permissions`. The
+  task-discovery sample points at the worker entry point instead of the deliberately import-free
+  package `__init__`, and `database/models.md` describes the two walkers that find models and
+  permissions instead of a hand-written list that no longer exists.
 - **The API-key read schemas describe a row, not a request.** `APIKeyRead` and `KeyUsageRead` no
   longer inherit the create rules — the name's length, the expiry's offset, the HTTP method, the
   status-code range — so a row an earlier version wrote is readable instead of answering `500`.

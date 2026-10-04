@@ -72,7 +72,7 @@ async def get_profile(
 For superuser-only endpoints, swap in `get_current_superuser`. For endpoints gated on a permission a role grants, add `require_permissions(...)` to the route's `dependencies`:
 
 ```python
-from ...infrastructure.auth.dependencies import require_permissions
+from ...infrastructure.auth.authorization import require_permissions
 
 @router.get("/", dependencies=[require_permissions("user.read")])
 async def list_users(...): ...

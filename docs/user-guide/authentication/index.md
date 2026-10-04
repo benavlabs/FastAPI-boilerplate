@@ -207,7 +207,7 @@ The leading underscore is the codebase's convention for dependency-only paramete
 ### Permission Required
 
 ```python
-from ...infrastructure.auth.dependencies import require_permissions
+from ...infrastructure.auth.authorization import require_permissions
 
 @router.get("/", dependencies=[require_permissions("user.read")])
 async def get_users(

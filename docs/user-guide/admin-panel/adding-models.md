@@ -11,7 +11,7 @@ SQLAdmin's default insert flow creates an empty model instance, then sets attrib
 The boilerplate solves this with `DataclassModelMixin` (`backend/src/interfaces/admin/mixins.py`) — it constructs the model with all the form data at once.
 
 ```python
-from ..mixins import DataclassModelMixin
+from ...interfaces.admin.mixins import DataclassModelMixin
 
 class MyModelAdmin(DataclassModelMixin, ModelView, model=MyModel):
     ...
@@ -27,7 +27,7 @@ tab or a carriage return as a formula, so `TextCsvExportMixin` (same module) pre
 with an apostrophe. Add it to any view with `can_export = True`:
 
 ```python
-from ..mixins import DataclassModelMixin, TextCsvExportMixin
+from ...interfaces.admin.mixins import DataclassModelMixin, TextCsvExportMixin
 
 class MyModelAdmin(DataclassModelMixin, TextCsvExportMixin, ModelView, model=MyModel):
     can_export = True

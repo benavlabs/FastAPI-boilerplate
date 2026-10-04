@@ -73,7 +73,8 @@ Tasks live alongside the module they belong to, e.g. `modules/widgets/tasks.py`.
 import logging
 from typing import Any
 
-from ...infrastructure.taskiq import DBSession, default_broker
+from ...infrastructure.taskiq.brokers import default_broker
+from ...infrastructure.taskiq.deps import DBSession
 
 logger = logging.getLogger(__name__)
 
@@ -98,12 +99,20 @@ A few things worth knowing:
 
 ### Importing Tasks for Discovery
 
-The Taskiq worker only knows about tasks whose modules have been imported. The cleanest pattern is to import every task module from a single entry point — usually wherever your `default_broker` lives or a dedicated `tasks/__init__.py`.
+The Taskiq worker only knows about tasks whose modules have been imported. Import every task module
+from the worker entry point, `src/infrastructure/taskiq/worker.py` — the package's `__init__.py` is
+deliberately import-free, so adding them there would pull app code into the settings import path.
 
 ```python
-# backend/src/infrastructure/taskiq/__init__.py (or similar)
+# backend/src/infrastructure/taskiq/worker.py
+from .app import configure_broker_lifecycle
+from .brokers import default_broker
 from src.modules.widgets import tasks as _widget_tasks  # noqa: F401
-from src.modules.users import tasks as _user_tasks      # noqa: F401
+from src.modules.reports import tasks as _report_tasks  # noqa: F401
+
+configure_broker_lifecycle(default_broker)
+
+__all__ = ["default_broker"]
 ```
 
 Without these imports, `widgets:rebuild_index.kiq(...)` will queue the message but no worker will know how to execute it.
@@ -205,7 +214,7 @@ Register additional handlers in `worker.py` or in a module it imports: initializ
 from taskiq import TaskiqEvents
 from taskiq.state import TaskiqState
 
-from infrastructure.taskiq import default_broker
+from src.infrastructure.taskiq.brokers import default_broker
 
 
 async def my_startup(state: TaskiqState) -> None:
@@ -225,7 +234,7 @@ Taskiq doesn't retry by default. If a task raises, the message is acknowledged a
 from taskiq import TaskiqMiddleware
 from taskiq.middlewares import SimpleRetryMiddleware
 
-from infrastructure.taskiq import default_broker
+from src.infrastructure.taskiq.brokers import default_broker
 
 default_broker.add_middlewares(SimpleRetryMiddleware(default_retry_count=3))
 ```

@@ -15,7 +15,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...infrastructure.cache import cache
+from ...infrastructure.cache.decorator import cache
 from ...infrastructure.database.session import async_session
 from .schemas import WidgetRead
 from .service import WidgetService
@@ -170,7 +170,7 @@ async def delete_widget(
 For cache operations outside of routes (background jobs, services, scripts), use the provider API directly:
 
 ```python
-from src.infrastructure.cache import (
+from src.infrastructure.cache.provider import (
     cache_provider,
     clear,
     delete,
