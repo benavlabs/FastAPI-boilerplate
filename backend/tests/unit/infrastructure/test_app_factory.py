@@ -5,7 +5,7 @@ import os
 import subprocess
 import sys
 from collections.abc import Callable
-from contextlib import ExitStack
+from contextlib import ExitStack, asynccontextmanager
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, patch
@@ -250,6 +250,56 @@ async def test_docs_are_hidden_when_no_feature_can_guard_them(environment, enabl
     app = _create_app(environment, enable_docs_in_production, docs_guard=None)
 
     assert await _docs_statuses(app) == [404, 404, 404]
+
+
+def test_a_lifespan_and_lifecycles_together_are_refused():
+    """The lifespan decided alone, so every feature the wiring listed stayed unstarted."""
+
+    @asynccontextmanager
+    async def lifespan(application: FastAPI):
+        yield
+
+    with pytest.raises(TypeError, match="lifecycles"):
+        app_factory.create_application(
+            router=APIRouter(),
+            settings=Settings(),
+            lifespan=lifespan,
+            lifecycles=(Lifecycle("feature"),),
+        )
+
+
+@pytest.mark.asyncio
+async def test_a_lifespan_on_its_own_is_the_one_the_app_runs():
+    ran: list[str] = []
+
+    @asynccontextmanager
+    async def lifespan(application: FastAPI):
+        ran.append("lifespan")
+        yield
+
+    app = app_factory.create_application(router=APIRouter(), settings=Settings(), lifespan=lifespan)
+
+    async with app.router.lifespan_context(app):
+        pass
+
+    assert ran == ["lifespan"]
+
+
+@pytest.mark.asyncio
+async def test_lifecycles_on_their_own_start_with_the_app(database_calls):
+    started: list[str] = []
+    feature = Lifecycle("feature", startup=AsyncMock(side_effect=lambda: started.append("feature")))
+
+    app = app_factory.create_application(
+        router=APIRouter(),
+        settings=Settings(CREATE_TABLES_ON_STARTUP=False),
+        lifecycles=(feature,),
+    )
+
+    async with app.router.lifespan_context(app):
+        pass
+
+    assert started == ["feature"]
 
 
 def test_the_cache_middleware_is_told_the_configured_api_prefix():

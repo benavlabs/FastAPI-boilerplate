@@ -32,8 +32,6 @@ class CacheSettings(BaseSettings):
         CACHE_REDIS_PASSWORD: Redis server password. Default is None.
         CACHE_REDIS_CONNECT_TIMEOUT: Connection timeout in seconds. Default is 5.
         CACHE_REDIS_POOL_SIZE: Maximum number of connections in the pool. Default is 10.
-
-            Default is 3600 (1 hour).
     """
 
     CACHE_ENABLED: bool = config("CACHE_ENABLED", default=True, cast=bool)

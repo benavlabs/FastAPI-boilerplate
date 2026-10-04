@@ -169,6 +169,12 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   gated Swagger and ReDoc pages asked for `/openapi.json`, which answers `404` there; they now ask
   for `/svc/openapi.json`, and the schema names `/svc` as its server, as the ungated docs already
   did.
+- **The API-key read schemas describe a row, not a request.** `APIKeyRead` and `KeyUsageRead` no
+  longer inherit the create rules — the name's length, the expiry's offset, the HTTP method, the
+  status-code range — so a row an earlier version wrote is readable instead of answering `500`.
+  What a caller may send is unchanged, and the fields in each response are the same.
+- **`create_application` refuses `lifespan=` together with `lifecycles=`** with a `TypeError`. The
+  passed lifespan used to win silently, leaving every feature the wiring listed unstarted.
 - **`API_PREFIX` now moves the whole API.** The OAuth routes and the `no-store` cache header are
   derived from it instead of writing `/api` out, and a prefix the router cannot mount (`v2`, `/`,
   `/api/`, empty) is refused by name when the settings load rather than raising an `AssertionError`

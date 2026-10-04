@@ -104,6 +104,9 @@ def create_application(
     than read from the project's wiring, so the same factory can build a different
     project, and a test can build one with wiring of its own.
     """
+    if lifespan is not None and lifecycles:
+        raise TypeError("create_application takes lifespan or lifecycles, not both: a passed lifespan starts neither")
+
     if settings is None:
         settings = get_settings()
 
