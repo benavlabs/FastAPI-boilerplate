@@ -292,7 +292,7 @@ DEFAULT_TIER_NAME=free
 
 ```env
 LOG_LEVEL=INFO
-LOG_FORMAT=                     # simple | detailed | structured | json; empty = the environment's default
+LOG_FORMAT=                     # console only: simple | detailed | structured | json; empty = the environment's default
 LOG_CONSOLE_ENABLED=true
 LOG_FILE_ENABLED=false
 LOG_FILE_PATH=logs/app.log
@@ -301,6 +301,10 @@ LOG_FILE_BACKUP_COUNT=5
 LOG_DEVELOPMENT_VERBOSE=true
 LOG_PRODUCTION_OPTIMIZE=true
 ```
+
+`LOG_FORMAT` names the console format only; a log file is written in its environment's own format,
+which is what a collector reading it expects. A value no formatter implements is refused when the
+settings load.
 
 ## Production Security Checklist
 

@@ -60,8 +60,8 @@ def setup_logging_configuration() -> None:
         _configure_noisy_loggers()
 
 
-def _format_for(settings, default: LogFormat) -> str:
-    """The configured log format, or the one this environment uses by default."""
+def _console_format_for(settings, default: LogFormat) -> str:
+    """The console format this project configured, or the one this environment uses by default."""
     return settings.LOG_FORMAT or default.value
 
 
@@ -79,7 +79,7 @@ def _configure_development_logging(settings) -> None:
     if settings.LOG_CONSOLE_ENABLED:
         console_level = logging.DEBUG if settings.LOG_DEVELOPMENT_VERBOSE else settings.LOG_LEVEL_INT
         console_handler = create_console_handler(
-            format_type=_format_for(settings, LogFormat.DETAILED),
+            format_type=_console_format_for(settings, LogFormat.DETAILED),
             level=console_level,
             use_colors=True,
         )
@@ -88,7 +88,7 @@ def _configure_development_logging(settings) -> None:
     if settings.LOG_FILE_ENABLED:
         file_handler = create_file_handler(
             filepath=settings.LOG_FILE_PATH,
-            format_type=_format_for(settings, LogFormat.STRUCTURED),
+            format_type=LogFormat.STRUCTURED.value,
             level=logging.DEBUG,
             max_bytes=settings.LOG_FILE_MAX_SIZE,
             backup_count=settings.LOG_FILE_BACKUP_COUNT,
@@ -112,7 +112,7 @@ def _configure_staging_logging(settings) -> None:
 
     if settings.LOG_CONSOLE_ENABLED:
         console_handler = create_console_handler(
-            format_type=_format_for(settings, LogFormat.STRUCTURED),
+            format_type=_console_format_for(settings, LogFormat.STRUCTURED),
             level=settings.LOG_LEVEL_INT,
             use_colors=False,
         )
@@ -122,7 +122,7 @@ def _configure_staging_logging(settings) -> None:
     if file_enabled:
         file_handler = create_file_handler(
             filepath=settings.LOG_FILE_PATH,
-            format_type=_format_for(settings, LogFormat.STRUCTURED),
+            format_type=LogFormat.STRUCTURED.value,
             level=logging.DEBUG,
             max_bytes=settings.LOG_FILE_MAX_SIZE,
             backup_count=settings.LOG_FILE_BACKUP_COUNT,
@@ -148,7 +148,7 @@ def _configure_production_logging(settings) -> None:
     if settings.LOG_CONSOLE_ENABLED:
         console_level = logging.WARNING if settings.LOG_PRODUCTION_OPTIMIZE else settings.LOG_LEVEL_INT
         console_handler = create_console_handler(
-            format_type=_format_for(settings, LogFormat.JSON),
+            format_type=_console_format_for(settings, LogFormat.JSON),
             level=console_level,
             use_colors=False,
         )
@@ -157,7 +157,7 @@ def _configure_production_logging(settings) -> None:
     if settings.LOG_FILE_ENABLED:
         file_handler = create_file_handler(
             filepath=settings.LOG_FILE_PATH,
-            format_type=_format_for(settings, LogFormat.JSON),
+            format_type=LogFormat.JSON.value,
             level=settings.LOG_LEVEL_INT,
             max_bytes=settings.LOG_FILE_MAX_SIZE,
             backup_count=settings.LOG_FILE_BACKUP_COUNT,

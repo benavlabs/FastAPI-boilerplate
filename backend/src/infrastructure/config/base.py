@@ -12,7 +12,7 @@ from pydantic_settings import BaseSettings
 from sqlalchemy.engine import URL
 from starlette.config import Config
 
-from .enums import LogLevel
+from .enums import LogFormat, LogLevel
 
 logger = logging.getLogger(__name__)
 
@@ -209,7 +209,7 @@ class LoggingSettings(BaseSettings):
     """Centralized logging configuration settings."""
 
     LOG_LEVEL: str = config("LOG_LEVEL", default=LogLevel.INFO.value)
-    LOG_FORMAT: str = config("LOG_FORMAT", default="")
+    LOG_FORMAT: str = Field(default=config("LOG_FORMAT", default=""), validate_default=True)
 
     LOG_CONSOLE_ENABLED: bool = config("LOG_CONSOLE_ENABLED", default=True, cast=bool)
     LOG_FILE_ENABLED: bool = config("LOG_FILE_ENABLED", default=False, cast=bool)
@@ -219,6 +219,15 @@ class LoggingSettings(BaseSettings):
 
     LOG_DEVELOPMENT_VERBOSE: bool = config("LOG_DEVELOPMENT_VERBOSE", default=True, cast=bool)
     LOG_PRODUCTION_OPTIMIZE: bool = config("LOG_PRODUCTION_OPTIMIZE", default=True, cast=bool)
+
+    @field_validator("LOG_FORMAT")
+    @classmethod
+    def _a_format_a_formatter_implements(cls, value: str) -> str:
+        chosen = value.strip().lower()
+        if chosen and chosen not in set(LogFormat):
+            raise ValueError(f"LOG_FORMAT must be empty or one of {', '.join(sorted(LogFormat))}; got {value!r}")
+
+        return chosen
 
     @property
     def LOG_LEVEL_INT(self) -> int:

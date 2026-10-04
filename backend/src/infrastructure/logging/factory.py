@@ -232,7 +232,7 @@ def get_logger_with_correlation_id(correlation_id: str, name: str | None = None)
         logger.info("Processing request")  # Will include correlation_id=req-123456
         ```
     """
-    logger = get_logger(name)
+    logger = get_logger(name or _detect_calling_module())
     if isinstance(logger, logging.LoggerAdapter):
         base_logger = logger.logger
     else:

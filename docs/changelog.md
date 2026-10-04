@@ -151,6 +151,17 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   with docs enabled, it was rebuilt from the title, version and description alone, so the contact,
   licence, summary, terms of service and tags never reached a reader. Both paths now call
   `app.openapi()`.
+- **A log line can't be forged from client text.** Every character `str.splitlines()` ends a line
+  on — CR, LF, `\x0b`, `\x0c`, `\x1c`–`\x1e`, `\x85`, `U+2028`, `U+2029` — and every other
+  control character, ANSI escapes included, is written out as an escape: in the `structured`
+  fields, in the `simple` and `detailed` messages, and in the `json` document, where `\x85`,
+  `U+2028` and `U+2029` used to be written raw. A `simple` or `detailed` traceback stays readable
+  over several lines, each of them indented, so nothing after a record's first line starts at
+  column 0. Printable text, accents and symbols included, is left as it is.
+- **`LOG_FORMAT` names the console format only**, and is validated when the settings load: a value
+  no formatter implements is refused by name instead of raising from the formatter the first time
+  anything logged. A log file keeps its environment's format, which is what a collector reading it
+  expects.
 - **The guarded docs follow the mount the request arrived through.** Behind `--root-path /svc` the
   gated Swagger and ReDoc pages asked for `/openapi.json`, which answers `404` there; they now ask
   for `/svc/openapi.json`, and the schema names `/svc` as its server, as the ungated docs already
