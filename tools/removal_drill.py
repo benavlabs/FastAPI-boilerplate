@@ -276,6 +276,9 @@ def _wiring_app(chosen: set[str]) -> str:
     if "cache" in chosen:
         imports.append("from ..infrastructure.cache.initialize import lifecycle as cache_lifecycle")
         lifecycles.append("cache_lifecycle")
+    if "taskiq" in chosen:
+        imports.append("from ..infrastructure.taskiq.lifecycle import lifecycle as taskiq_lifecycle")
+        lifecycles.append("taskiq_lifecycle")
     if "admin" in chosen:
         imports.append("from ..interfaces.admin.initialize import install as admin_install")
         installers.append("admin_install")

@@ -109,7 +109,7 @@ infrastructure/
 │   └── backends/
 ├── ratelimit/                # The API throttle dependency
 ├── redis.py                  # Shared Redis clients injected into crudauth and the cache
-├── taskiq/                   # Async task queue (broker, worker entry point, registry)
+├── taskiq/                   # Async task queue (broker, its app lifecycle, worker entry point, registry)
 ├── security/                 # Production security validator
 └── logging/                  # Centralized logging configuration
 ```

@@ -11,11 +11,7 @@ from ..config.settings import settings
 
 
 async def broker_is_reachable() -> None:
-    """Raise unless the Redis broker answers.
-
-    A RabbitMQ broker is not covered: the API never opens it, so a probe here
-    would report on a connection nothing else makes.
-    """
+    """Raise unless the Redis broker answers; a RabbitMQ broker is not probed."""
     if settings.TASKIQ_BROKER_TYPE != TaskiqBrokerType.REDIS.value:
         return
 

@@ -87,7 +87,8 @@ mypy error — and the scratch copy of that project is left on disk to run thing
 A build that raises leaves its copy behind too.
 
 It runs on the interpreter that invoked it, so run it through uv (the checks need
-the project's dependencies) and with Docker up (the tests use a Postgres container):
+the project's dependencies) and with Docker up (the tests use a Postgres container, and a
+RabbitMQ one where the taskiq feature is present):
 
 ```sh
 uv run --no-sync python tools/removal_drill.py                 # every preset

@@ -225,6 +225,12 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   What a caller may send is unchanged, and the fields in each response are the same.
 - **`create_application` refuses `lifespan=` together with `lifecycles=`** with a `TypeError`. The
   passed lifespan used to win silently, leaving every feature the wiring listed unstarted.
+- **The API process opens the task broker.** The taskiq feature contributes a `Lifecycle` that the
+  wiring lists, so the broker starts with the app and closes on shutdown. With
+  `TASKIQ_BROKER_TYPE=rabbitmq`, `.kiq()` from a request used to raise `SendTaskError` from taskiq's
+  `NoStartupError`, because nothing had run `broker.startup()` in that process. A broker that is
+  unreachable at startup doesn't stop the app: it logs a warning, serves, and reconnects in the
+  background.
 - **`API_PREFIX` now moves the whole API.** The OAuth routes and the `no-store` cache header are
   derived from it instead of writing `/api` out, and a prefix the router cannot mount (`v2`, `/`,
   `/api/`, empty) is refused by name when the settings load rather than raising an `AssertionError`

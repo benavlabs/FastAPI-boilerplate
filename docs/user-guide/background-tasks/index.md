@@ -25,6 +25,7 @@ backend/src/infrastructure/taskiq/
 ├── __init__.py        Exports default_broker, DBSession, register_task, task_registry
 ├── brokers.py         Builds the Redis or RabbitMQ broker from settings
 ├── app.py             WORKER_STARTUP / WORKER_SHUTDOWN handlers (logging, engine disposal)
+├── lifecycle.py       Opens and closes the broker in the API process
 ├── deps.py            DBSession dependency (TaskiqDepends-wrapped AsyncSession)
 ├── registry.py        Tiny in-process registry for monitoring
 └── worker.py          Worker entry point: registers the handlers on `default_broker`
@@ -133,6 +134,20 @@ async def trigger_reindex(owner_id: int) -> dict[str, str]:
 
 `.kiq(...)` is Taskiq's enqueue method — it serializes the kwargs, drops the message on the broker, and returns a `TaskiqResult` handle. **The handle is not awaited** in the typical "fire and forget" flow above — if you do want to wait, see [Awaiting Results](#awaiting-results) below.
 
+The connection `.kiq(...)` publishes over is opened by the app's lifespan: the taskiq feature
+contributes a `Lifecycle` (`infrastructure/taskiq/lifecycle.py`) that `src/wiring/app.py` lists, so
+the broker starts before the API serves and is closed on shutdown. With RabbitMQ, enqueueing without
+it raises `SendTaskError` from taskiq's `NoStartupError`; the Redis broker happens to work either
+way, since it opens its pool when it is built.
+
+A broker that is down doesn't keep the API down. If the connection fails at startup the app logs a
+warning, serves anyway, and retries every `BROKER_RETRY_SECONDS` (`infrastructure/taskiq/constants.py`)
+until one attempt connects — repeat failures at `DEBUG`, one `INFO` line when it does. Each failed
+attempt is closed again, so nothing a half-finished startup opened is left behind.
+`.kiq(...)` raises `SendTaskError` while the broker is down, so a route that
+enqueues should decide what a queued-work outage means for its response. `GET /health/ready` reports
+the broker as an informational check: it never answers `503` over it.
+
 A few important constraints:
 
 - **All kwargs must be JSON-serializable.** Pass IDs, not ORM objects. Pass dicts, not Pydantic models that contain `datetime` (or convert via `.model_dump(mode="json")` first).
@@ -206,7 +221,7 @@ from .brokers import default_broker
 configure_broker_lifecycle(default_broker)
 ```
 
-The shutdown handler disposes the worker's `NullPool` engine. Registration happens only in `worker.py`, so the API process, which imports `default_broker` just to enqueue tasks, never runs worker handlers.
+The shutdown handler disposes the worker's `NullPool` engine. Registration happens only in `worker.py`, so the API process, which opens the broker to enqueue tasks, never runs worker handlers: taskiq picks the `WORKER_*` events over the `CLIENT_*` ones only in a process the worker CLI started.
 
 Register additional handlers in `worker.py` or in a module it imports: initialize a third-party SDK, prime an in-memory cache, push a metrics counter on shutdown, etc.
 
@@ -342,14 +357,15 @@ async def rebuild_widget_index(owner_id: int, db: DBSession) -> dict[str, Any]:
 
 ## Key Files
 
-| Component             | Location                                                  |
-|-----------------------|-----------------------------------------------------------|
-| Broker factory        | `backend/src/infrastructure/taskiq/brokers.py`            |
-| Worker entry point    | `backend/src/infrastructure/taskiq/worker.py`             |
-| Lifecycle hooks       | `backend/src/infrastructure/taskiq/app.py`                |
-| DB dependency         | `backend/src/infrastructure/taskiq/deps.py`               |
-| Task registry         | `backend/src/infrastructure/taskiq/registry.py`           |
-| Settings              | `backend/src/infrastructure/config/settings.py` (`TaskiqSettings`) |
+| Component              | Location                                                           |
+|------------------------|--------------------------------------------------------------------|
+| Broker factory         | `backend/src/infrastructure/taskiq/brokers.py`                     |
+| Worker entry point     | `backend/src/infrastructure/taskiq/worker.py`                      |
+| Worker lifecycle hooks | `backend/src/infrastructure/taskiq/app.py`                         |
+| Broker lifecycle (API) | `backend/src/infrastructure/taskiq/lifecycle.py`                   |
+| DB dependency          | `backend/src/infrastructure/taskiq/deps.py`                        |
+| Task registry          | `backend/src/infrastructure/taskiq/registry.py`                    |
+| Settings               | `backend/src/infrastructure/config/settings.py` (`TaskiqSettings`) |
 
 ## Next Steps
 
