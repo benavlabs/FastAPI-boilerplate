@@ -8,6 +8,9 @@ counts the right number of dots: a sample rarely says which file it belongs to.
 A relative import of a single name, ``.schemas``, is left alone -- which of them it
 means depends on the file it sits in, and in a project with features removed the
 name can turn unique and resolve to the wrong module.
+
+``ILLUSTRATIVE_MODULES`` lists the modules the guides invent to show how a project of
+your own would look.
 """
 
 import ast
@@ -31,7 +34,6 @@ ILLUSTRATIVE_MODULES = (
     "src.modules.user.routes_v2",
     "src.interfaces.api.v2",
 )
-"""Modules the guides invent to show how a project of your own would look."""
 
 
 def _manifest():

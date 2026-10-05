@@ -26,7 +26,7 @@ FROM python:3.11-slim AS base
 
 WORKDIR /app
 
-# Install uv for fast, secure package installation  
+# Install uv for fast, secure package installation
 COPY --from=ghcr.io/astral-sh/uv:0.9.9 /uv /usr/local/bin/uv
 
 # Copy and install production requirements with uv (fast + hash verification)
@@ -94,4 +94,4 @@ USER appuser
 
 # Production command with FastAPI CLI and configurable workers
 ENV WORKERS=1
-CMD ["sh", "-c", "fastapi run interfaces/main.py --host 0.0.0.0 --port 8000 --workers $WORKERS"] 
+CMD ["sh", "-c", "fastapi run interfaces/main.py --host 0.0.0.0 --port 8000 --workers $WORKERS"]

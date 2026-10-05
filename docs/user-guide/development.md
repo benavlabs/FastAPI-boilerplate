@@ -88,10 +88,27 @@ field reads as an error.
 
 ## Pre-Commit
 
-The repo's `.pre-commit-config.yaml` wires up ruff, pyupgrade, docformatter, yesqa, blacken-docs,
-mdformat, a few standard hygiene hooks (trailing whitespace, large files, private keys), and local
-hooks that run mypy and the test suites. `pre-commit` ships in the `dev` extra, so the workspace
-sync already installed it. Install the git hook once:
+The repo's `.pre-commit-config.yaml` runs what CI runs, and nothing that fights it:
+
+| Hook | What it does |
+|------|--------------|
+| `ruff-check --fix`, `ruff-format` | the same lint and format CI checks |
+| `pyupgrade` | rewrites to Python 3.11+ syntax |
+| `yesqa` | removes a `noqa` nothing needs any more |
+| hygiene hooks | final newlines, trailing whitespace, YAML, large files, private keys, merge markers, a docstring that isn't first |
+| `mypy_backend`, `mypy_cli` | local hooks, the same invocations CI uses |
+| `unit_test` | local, manual stage: `pytest tests/unit` |
+
+`unit_test` runs the unit tests only — they need no container and finish in seconds. The
+integration suite, which starts Postgres through testcontainers, runs in CI and when you run
+`pytest` yourself.
+
+There are no docstring- or markdown-formatting hooks: `ruff-format` owns formatting, and the two
+documentation hooks this repo used to carry damaged what they touched — `mdformat` broke MkDocs
+content tabs, and `blacken-docs` rewrote code samples into different code.
+
+`pre-commit` ships in the `dev` extra, so `uv sync --all-packages --all-extras` installs it.
+Install the git hook once:
 
 ```bash
 uv run --no-sync pre-commit install
@@ -100,7 +117,8 @@ uv run --no-sync pre-commit install
 After that, `git commit` runs the hooks automatically. To run them ad hoc:
 
 ```bash
-pre-commit run --all-files
+uv run --no-sync pre-commit run --all-files
+uv run --no-sync pre-commit run unit_test --hook-stage manual --all-files
 ```
 
 ## Adding a New Module

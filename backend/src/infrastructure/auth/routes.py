@@ -1,3 +1,10 @@
+"""The account routes this project mounts, and the OAuth router it mounts outside the API prefix.
+
+``router`` carries crudauth's account router under ``/auth``, with ``set-password`` left out.
+``root_routers`` carries crudauth's OAuth router when a provider is configured, and is empty
+when none is.
+"""
+
 from typing import Annotated, Any, cast
 
 from crudauth import Principal
@@ -29,7 +36,6 @@ for _account_route in _account_router.routes:
 router.include_router(_account_router)
 
 root_routers: tuple[APIRouter, ...] = (crud_auth.oauth_router,) if crud_auth.oauth is not None else ()
-"""The routers accounts mounts outside the API prefix: crudauth's OAuth router, when a provider is configured."""
 
 
 @router.post(

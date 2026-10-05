@@ -9,6 +9,9 @@ repos:
       - id: trailing-whitespace
       - id: check-yaml
       - id: check-docstring-first
+        # These two document their type aliases with attribute docstrings, which the hook
+        # reads as a second module docstring.
+        exclude: ^backend/src/infrastructure/(composition|auth/deps)\.py$
       - id: check-executables-have-shebangs
       - id: check-case-conflict
       - id: check-added-large-files
@@ -24,12 +27,6 @@ repos:
         args: [--py311-plus]
         name: Upgrade code to Python 3.11+
 
-  - repo: https://github.com/myint/docformatter
-    rev: v1.7.7
-    hooks:
-      - id: docformatter
-        args: [--in-place, --wrap-summaries=115, --wrap-descriptions=120]
-
   - repo: https://github.com/asottile/yesqa
     rev: v1.5.0
     hooks:
@@ -42,22 +39,6 @@ repos:
       - id: ruff-check
         args: [--fix]
       - id: ruff-format
-
-  - repo: https://github.com/asottile/blacken-docs
-    rev: 1.16.0
-    hooks:
-      - id: blacken-docs
-        args: [--line-length=120]
-        additional_dependencies: [black==22.1.0]
-
-  - repo: https://github.com/executablebooks/mdformat
-    rev: 0.7.17
-    hooks:
-      - id: mdformat
-        additional_dependencies:
-          - mdformat-gfm
-          - mdformat_frontmatter
-        exclude: CHANGELOG.md
 
   - repo: local
     hooks:
@@ -80,7 +61,7 @@ repos:
     - id: unit_test
       name: Unit test
       language: system
-      entry: bash -c 'cd backend && uv run --no-sync pytest'
+      entry: bash -c 'cd backend && uv run --no-sync pytest tests/unit'
       pass_filenames: false
       always_run: true
       types: [python]

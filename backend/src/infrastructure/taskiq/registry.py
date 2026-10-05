@@ -52,7 +52,7 @@ class TaskRegistry:
             "registry_created_at": self._registered_at,
             "tasks_by_broker": {
                 broker: len([t for t in self._tasks.values() if t["broker"] == broker])
-                for broker in set(t["broker"] for t in self._tasks.values())
+                for broker in {t["broker"] for t in self._tasks.values()}
             },
         }
 

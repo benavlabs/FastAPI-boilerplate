@@ -178,6 +178,13 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   project, it checks each draw against `is_weak_secret_key`: one hex key in 12.6 million runs
   through eight consecutive digits, which production refuses at startup. Run outside a project,
   where those rules aren't there to ask, it prints the first draw as before.
+- **The pre-commit hooks run what CI runs.** `docformatter`, `blacken-docs` and `mdformat` are
+  gone: `ruff-format` owns formatting, and the two documentation hooks damaged what they touched —
+  `mdformat` strips the indentation MkDocs content tabs need, and `blacken-docs` rewrote a sample's
+  keyword arguments into a different statement. The manual `unit_test` hook runs `pytest tests/unit`
+  instead of the whole suite, and a root `[tool.ruff.lint.isort]` with
+  `known-first-party = ["src", "scripts"]` makes ruff run from `backend/` over `../tools` sort
+  imports the way the run in CI does.
 - **The documentation and `.env.example` describe what the code does.** Settings that never
   existed are gone (`DATABASE_ECHO`, `DATABASE_POOL_SIZE`); `OAUTH_GITHUB_*` says that nothing
   reads it; the CORS text says that a `*` origin drops credentials rather than carrying cookies;

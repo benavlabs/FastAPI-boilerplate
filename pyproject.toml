@@ -29,3 +29,6 @@ line-length = 128
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["src", "scripts"]
