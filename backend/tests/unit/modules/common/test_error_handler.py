@@ -135,6 +135,10 @@ def test_the_status_still_comes_from_the_closest_base():
     assert http_exc.detail == "That widget already exists."
 
 
+def test_a_resource_that_already_exists_is_a_conflict():
+    assert map_exception(ResourceExistsError("tier 'free' already exists")).status_code == 409
+
+
 def test_map_exception_persistence_failure_is_a_500():
     """A write that didn't come back is a server fault, not a duplicate."""
     http_exc = map_exception(PersistenceError("User row was not returned after insert"))

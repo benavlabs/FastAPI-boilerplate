@@ -13,4 +13,5 @@ def test_usernotfounderror_tells_the_client_what_is_missing():
 def test_userexistserror_tells_the_client_what_is_missing():
     http_exc = map_exception(UserExistsError("internal detail the client must not see"))
 
+    assert http_exc.status_code == 409
     assert http_exc.detail == "A user with this email or username already exists."

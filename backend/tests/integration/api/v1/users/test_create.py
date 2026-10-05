@@ -66,7 +66,7 @@ async def test_create_user_duplicate_username(client: AsyncClient, db_session: A
     logger.info(f"Testing user creation with duplicate username: {user_data['username']}")
     response = await client.post("/api/v1/users/", json=user_data)
 
-    assert response.status_code == 422
+    assert response.status_code == 409
     assert response.json()["detail"] == "A user with this email or username already exists."
 
 
@@ -78,7 +78,7 @@ async def test_create_user_duplicate_email(client: AsyncClient, db_session: Asyn
     logger.info(f"Testing user creation with duplicate email: {user_data['email']}")
     response = await client.post("/api/v1/users/", json=user_data)
 
-    assert response.status_code == 422
+    assert response.status_code == 409
     assert response.json()["detail"] == "A user with this email or username already exists."
 
 
@@ -217,7 +217,8 @@ async def test_the_same_address_in_another_case_cannot_register_twice(client: As
         json={"name": "Second Owner", "username": "secondowner", "email": "OWNER@Example.com", "password": "Str1ngst!"},
     )
 
-    assert second.status_code == 422
+    assert second.status_code == 409
+    assert second.json()["detail"] == "A user with this email or username already exists."
 
 
 class TestAnAddressTheColumnCannotHold:

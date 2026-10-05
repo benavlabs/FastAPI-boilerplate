@@ -111,9 +111,8 @@ async def test_update_user_profile_duplicate_email(
     logger.info(f"Testing duplicate email update for user: {username}")
     response = await auth_client.patch(f"/api/v1/users/{username}", json=update_data)
 
-    assert response.status_code == 422
-    data = response.json()
-    assert "detail" in data
+    assert response.status_code == 409
+    assert response.json()["detail"] == "A user with this email or username already exists."
 
 
 async def test_update_user_profile_duplicate_username(
@@ -132,9 +131,8 @@ async def test_update_user_profile_duplicate_username(
     logger.info(f"Testing duplicate username update for user: {username}")
     response = await auth_client.patch(f"/api/v1/users/{username}", json=update_data)
 
-    assert response.status_code == 422
-    data = response.json()
-    assert "detail" in data
+    assert response.status_code == 409
+    assert response.json()["detail"] == "A user with this email or username already exists."
 
 
 @pytest.mark.parametrize("field", ["name", "username", "profile_image_url"])

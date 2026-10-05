@@ -178,6 +178,10 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   project, it checks each draw against `is_weak_secret_key`: one hex key in 12.6 million runs
   through eight consecutive digits, which production refuses at startup. Run outside a project,
   where those rules aren't there to ask, it prints the first draw as before.
+- **A resource that already exists answers `409`.** `ResourceExistsError` mapped to fastcrud's
+  `DuplicateValueException`, which is a `422`, while the routes that raise it declare `409`: the
+  signup route, the profile update and the rate-limit rename. The mapping now uses a
+  `ConflictException` of this project's own, and the messages are unchanged.
 - **The admin panel's login is throttled.** Failures are counted on the login's own lockout
   policy, against the client address and the identifier `admin-panel:<address>`, and a locked
   address is refused before its password is compared. The panel shares the per-address budget with
@@ -275,6 +279,11 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   boilerplate's own release, and `APP_DESCRIPTION` defaults to empty instead of the boilerplate's
   feature list, so a generated project's OpenAPI document describes itself or says nothing. Set
   `VERSION` and `APP_DESCRIPTION` (or `API_VERSION` and `API_DESCRIPTION`) to your own values.
+- **A duplicate signup answers `409`, not `422`.** `POST /api/v1/users/` with a taken email or
+  username answers `409 Conflict` with the same body it used to send
+  (`"A user with this email or username already exists."`), which is what the route always
+  declared. A client that treats `422` as "already registered" has to read `409` as well. The same
+  applies to the profile update and to renaming a rate limit onto a taken name.
 - **An empty `API_PREFIX` no longer serves the API from the root.** `API_PREFIX=` used to mount the
   routes at `/v1/...`; it is now refused at startup, together with any prefix that does not start
   with `/` or that ends with `/`. Set a prefix such as `/api`.

@@ -7,6 +7,7 @@ features a project selected.
 from fastapi.exceptions import HTTPException
 from fastcrud.exceptions.http_exceptions import (
     BadRequestException,
+    CustomException,
     DuplicateValueException,
     ForbiddenException,
     NotFoundException,
@@ -15,8 +16,17 @@ from fastcrud.exceptions.http_exceptions import (
     UnprocessableEntityException,
 )
 
+
+class ConflictException(CustomException):
+    """A request that collides with a row already there: ``409 Conflict``."""
+
+    def __init__(self, detail: str | None = None) -> None:
+        super().__init__(status_code=409, detail=detail)
+
+
 __all__ = [
     "BadRequestException",
+    "ConflictException",
     "DuplicateValueException",
     "ForbiddenException",
     "HTTPException",

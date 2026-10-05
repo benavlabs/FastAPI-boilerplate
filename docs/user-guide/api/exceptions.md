@@ -56,7 +56,8 @@ Re-exported from FastCRUD in `backend/src/infrastructure/http_exceptions.py`:
 | `UnauthorizedException` | 401 |
 | `ForbiddenException` | 403 |
 | `NotFoundException` | 404 |
-| `DuplicateValueException` | 409 |
+| `ConflictException` | 409 |
+| `DuplicateValueException` | 422 (fastcrud's; `ConflictException` is what the mapping uses) |
 | `UnprocessableEntityException` | 422 |
 | `RateLimitException` | 429 |
 | `HTTPException` | base FastAPI class |
@@ -97,7 +98,7 @@ async def create_user(
     return await user_service.create(user, db)
 ```
 
-If the service raises `UserExistsError`, the client gets a 422 with `"A user with this email or username already exists."` and a `support_id`; anything unexpected becomes a 500 with the generic message the same way.
+If the service raises `UserExistsError`, the client gets a 409 with `"A user with this email or username already exists."` and a `support_id`; anything unexpected becomes a 500 with the generic message the same way.
 
 ### The Default Mapping
 
@@ -106,7 +107,7 @@ The mapping in `modules/common/constants.py` names only the shared shapes:
 ```python
 EXCEPTION_MAPPING: dict[type[DomainError], Callable[[str], HTTPException]] = {
     ResourceNotFoundError: lambda message: NotFoundException(detail="The requested resource was not found."),
-    ResourceExistsError: lambda message: DuplicateValueException(detail="This resource already exists."),
+    ResourceExistsError: lambda message: ConflictException(detail="This resource already exists."),
     ValidationError: lambda message: UnprocessableEntityException(detail="The request could not be processed."),
     PermissionDeniedError: lambda message: ForbiddenException(detail="You don't have permission for this action."),
     PersistenceError: lambda message: HTTPException(status_code=500, detail=GENERIC_ERROR_MESSAGE),

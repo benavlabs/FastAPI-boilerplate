@@ -1,7 +1,10 @@
-"""Who may read the rate-limit configuration endpoints."""
+"""Who may read the rate-limit configuration endpoints, and what a name collision answers."""
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from src.modules.rate_limit.models import RateLimit
 
 pytestmark = pytest.mark.asyncio
 
@@ -49,3 +52,17 @@ async def test_a_missing_rate_limit_says_so(superuser_auth_client: AsyncClient):
 async def test_the_named_lookup_is_gated(client: AsyncClient):
     """The by-name lookup is gated too, before the row is even looked up."""
     assert (await client.get("/api/v1/rate-limits/anything")).status_code == 401
+
+
+async def test_renaming_a_rate_limit_onto_a_taken_name_is_a_conflict(
+    superuser_auth_client: AsyncClient, db_session: AsyncSession, test_tier: dict
+):
+    """A rename onto the name another row holds answers 409, with nothing of the row in it."""
+    db_session.add(RateLimit(tier_id=test_tier["id"], name="taken", path="/api/v1/users/", limit=10, period=60))
+    db_session.add(RateLimit(tier_id=test_tier["id"], name="renamed", path="/api/v1/tiers/", limit=10, period=60))
+    await db_session.flush()
+
+    response = await superuser_auth_client.patch("/api/v1/rate-limits/renamed", json={"name": "taken"})
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "This resource already exists."
