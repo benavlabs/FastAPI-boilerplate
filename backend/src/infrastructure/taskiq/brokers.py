@@ -43,10 +43,10 @@ def _create_redis_broker() -> AsyncBroker:
 
 
 def _create_rabbitmq_broker() -> AsyncBroker:
-    """Create RabbitMQ-based broker for taskiq."""
+    """Create RabbitMQ-based broker for taskiq, on the queue ``AioPikaBroker`` names by default."""
     rabbitmq_url = settings.TASKIQ_BROKER_URL
 
-    broker = AioPikaBroker(url=rabbitmq_url, queue_name="default")
+    broker = AioPikaBroker(url=rabbitmq_url)
 
     return broker
 

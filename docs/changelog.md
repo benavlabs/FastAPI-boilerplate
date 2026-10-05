@@ -231,6 +231,10 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   `NoStartupError`, because nothing had run `broker.startup()` in that process. A broker that is
   unreachable at startup doesn't stop the app: it logs a warning, serves, and reconnects in the
   background.
+- **The RabbitMQ broker is built with no argument the library doesn't take.** `queue_name="default"`
+  is not an `AioPikaBroker` parameter in taskiq-aio-pika 0.6.0, so it was forwarded to the AMQP
+  connection while the queue kept the library's own name. The queue a worker reads is unchanged
+  (`taskiq`); the Redis broker's `queue_name="default"` is a real parameter and stays as it is.
 - **`API_PREFIX` now moves the whole API.** The OAuth routes and the `no-store` cache header are
   derived from it instead of writing `/api` out, and a prefix the router cannot mount (`v2`, `/`,
   `/api/`, empty) is refused by name when the settings load rather than raising an `AssertionError`

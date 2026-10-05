@@ -329,6 +329,8 @@ The user is created synchronously; the email goes out from a worker. If the emai
 - Confirm the task's module is **imported** somewhere the worker bootstraps — Taskiq doesn't auto-discover tasks
 - Check the worker logs for serialization errors on dequeue
 - For Redis: `redis-cli LRANGE default 0 -1` (or your queue name) shows pending messages
+- For RabbitMQ: `rabbitmqctl list_queues` shows the `taskiq` queue the broker declares, with its
+  message count
 
 ### "Worker can't import my task module"
 

@@ -10,8 +10,11 @@ import pytest
 from pydantic_core import PydanticSerializationError
 from taskiq.result import TaskiqResult
 from taskiq.serializers import JSONSerializer
-from taskiq_redis import RedisAsyncResultBackend, redis_backend
+from taskiq_aio_pika import AioPikaBroker
+from taskiq_redis import ListQueueBroker, RedisAsyncResultBackend, redis_backend
 
+from src.infrastructure.config.enums import TaskiqBrokerType
+from src.infrastructure.taskiq import brokers
 from src.infrastructure.taskiq.brokers import create_default_broker
 
 
@@ -90,3 +93,22 @@ class TestTheRedisResultBackend:
 
         with pytest.raises(UnicodeDecodeError):
             await backend.get_result("task-4")
+
+
+class TestTheBrokerTheProjectBuilds:
+    """What the factory passes has to be what the broker takes."""
+
+    def test_the_rabbitmq_broker_gets_no_argument_the_library_does_not_declare(self, monkeypatch):
+        """A keyword ``AioPikaBroker`` doesn't declare is forwarded to the AMQP connection instead."""
+        monkeypatch.setattr(brokers.settings, "TASKIQ_BROKER_TYPE", TaskiqBrokerType.RABBITMQ.value)
+
+        broker = create_default_broker()
+
+        assert isinstance(broker, AioPikaBroker)
+        assert broker._conn_kwargs == {}
+
+    def test_the_redis_broker_publishes_to_the_queue_it_is_given(self):
+        broker = create_default_broker()
+
+        assert isinstance(broker, ListQueueBroker)
+        assert broker.queue_name == "default"

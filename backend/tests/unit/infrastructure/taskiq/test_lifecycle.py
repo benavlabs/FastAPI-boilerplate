@@ -4,6 +4,7 @@ import asyncio
 import socket
 
 import pytest
+from aio_pika import connect_robust
 from fastapi import FastAPI
 from taskiq import AsyncBroker, TaskiqEvents
 from taskiq.decor import AsyncTaskiqDecoratedTask
@@ -22,6 +23,7 @@ from src.wiring.app import LIFECYCLES
 from tests.conftest import is_docker_running
 
 RABBITMQ_IMAGE = "rabbitmq:4-alpine"
+PUBLISHED_QUEUE = "taskiq"
 RETRY_SECONDS = 0.2
 CONNECTED_WITHIN_SECONDS = 30
 ATTEMPTS_WITHIN_SECONDS = 5
@@ -90,6 +92,19 @@ def _retries_running() -> list[asyncio.Task]:
     return [task for task in asyncio.all_tasks() if task.get_name() == BROKER_RETRY_TASK_NAME]
 
 
+async def _drained_task_names(queue: str) -> set[str]:
+    """The task names waiting in ``queue``, taking them off it."""
+    names = set()
+    connection = await connect_robust(brokers.settings.TASKIQ_BROKER_URL)
+    async with connection:
+        channel = await connection.channel()
+        declared = await channel.get_queue(queue, ensure=True)
+        while (message := await declared.get(no_ack=True, fail=False)) is not None:
+            names.add(str(message.headers["task_name"]))
+
+    return names
+
+
 async def _kiq_once_connected(task: AsyncTaskiqDecoratedTask):
     """Enqueue as soon as the retry has connected, giving up after a bounded wait."""
     loop = asyncio.get_running_loop()
@@ -126,6 +141,7 @@ async def rabbitmq_broker(rabbitmq, monkeypatch):
 
 
 async def test_an_enqueue_while_the_app_runs_reaches_the_broker(rabbitmq_broker: AsyncBroker):
+    """The message waits in the queue a worker of this project reads."""
     task = _task(rabbitmq_broker, "tests.enqueued_while_running")
     lifespan = _app_lifespan()
 
@@ -133,6 +149,7 @@ async def test_an_enqueue_while_the_app_runs_reaches_the_broker(rabbitmq_broker:
         kicked = await task.kiq()
 
     assert kicked.task_id
+    assert "tests.enqueued_while_running" in await _drained_task_names(PUBLISHED_QUEUE)
 
 
 async def test_the_broker_is_closed_when_the_app_stops(rabbitmq_broker: AsyncBroker):
