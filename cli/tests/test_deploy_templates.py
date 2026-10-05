@@ -23,17 +23,18 @@ CONTEXT = {
     "backend_dockerfile": "backend/Dockerfile",
     "env_file": "./backend/.env",
     "internal_subnet": DEFAULT_INTERNAL_SUBNET,
+    "taskiq": True,
 }
 
 
-def _render(template: str, mode: str = "nginx") -> str:
+def _render(template: str, mode: str = "nginx", **overrides) -> str:
     environment = Environment(loader=FileSystemLoader(TEMPLATES), keep_trailing_newline=True)
 
-    return environment.get_template(template).render({**CONTEXT, "mode": mode})
+    return environment.get_template(template).render({**CONTEXT, "mode": mode, **overrides})
 
 
-def _compose(mode: str) -> dict:
-    return yaml.safe_load(_render(f"{mode}/docker-compose.yml.j2", mode))
+def _compose(mode: str, **overrides) -> dict:
+    return yaml.safe_load(_render(f"{mode}/docker-compose.yml.j2", mode, **overrides))
 
 
 @pytest.mark.parametrize("mode", ["prod", "nginx"])
@@ -96,3 +97,24 @@ def test_the_compose_network_quotes_the_subnet():
     rendered = _render("nginx/docker-compose.yml.j2", "nginx")
 
     assert f'- subnet: "{DEFAULT_INTERNAL_SUBNET}"' in rendered
+
+
+SCHEDULER_COMMAND = "taskiq scheduler src.infrastructure.taskiq.scheduler:scheduler"
+
+
+@pytest.mark.parametrize("mode", ["local", "prod", "nginx"])
+def test_a_project_with_taskiq_gets_one_scheduler(mode: str):
+    """Every schedule fires once per scheduler, so the stack runs a single one."""
+    scheduler = _compose(mode)["services"]["scheduler"]
+
+    assert SCHEDULER_COMMAND in " ".join(scheduler["command"].split())
+    assert "deploy" not in scheduler
+
+
+@pytest.mark.parametrize("mode", ["local", "prod", "nginx"])
+def test_a_project_without_taskiq_gets_neither_worker_nor_scheduler(mode: str):
+    services = _compose(mode, taskiq=False)["services"]
+
+    assert "worker" not in services
+    assert "scheduler" not in services
+    assert "api" in services

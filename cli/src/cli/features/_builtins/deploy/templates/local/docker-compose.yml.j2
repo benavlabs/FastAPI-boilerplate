@@ -27,7 +27,7 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-
+{% if taskiq %}
   worker:
     build:
       context: {{ build_context }}
@@ -52,6 +52,30 @@ services:
       redis:
         condition: service_healthy
 
+  # Run exactly one of these: each scheduler fires every schedule it finds.
+  scheduler:
+    build:
+      context: {{ build_context }}
+      dockerfile: {{ backend_dockerfile }}
+      target: dev
+    env_file:
+      - {{ env_file }}
+    environment:
+      POSTGRES_SERVER: postgres
+      CACHE_REDIS_HOST: redis
+      RATE_LIMITER_REDIS_HOST: redis
+      TASKIQ_REDIS_HOST: redis
+    working_dir: /app/src
+    command: >
+      taskiq scheduler src.infrastructure.taskiq.scheduler:scheduler
+    volumes:
+      - {{ backend_context }}/src:/app/src
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+{% endif %}
   postgres:
     image: {{ postgres_image }}
     env_file:

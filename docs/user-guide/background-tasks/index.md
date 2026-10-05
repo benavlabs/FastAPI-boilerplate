@@ -26,6 +26,7 @@ backend/src/infrastructure/taskiq/
 ├── brokers.py         Builds the Redis or RabbitMQ broker from settings
 ├── app.py             WORKER_STARTUP / WORKER_SHUTDOWN handlers (logging, engine disposal)
 ├── lifecycle.py       Opens and closes the broker in the API process
+├── scheduler.py       Scheduler entry point: the schedules tasks declare in labels
 ├── deps.py            DBSession dependency (TaskiqDepends-wrapped AsyncSession)
 ├── registry.py        Tiny in-process registry for monitoring
 └── worker.py          Worker entry point: registers the handlers on `default_broker`
@@ -174,15 +175,45 @@ print(value.return_value)
 
 This holds the API request open until the worker finishes. **Don't do this for slow tasks** — it defeats the purpose of using a queue. If a result is small and quick, return synchronously; if it's slow, return 202 and let the client poll.
 
-### Scheduled & Delayed Tasks
+### Scheduled Tasks
 
-Taskiq supports labels and a separate scheduler library (`taskiq-redis`'s scheduler source, `taskiq.scheduler.TaskiqScheduler`). The boilerplate doesn't ship a scheduler wired up — if you need cron-like scheduling, add `taskiq[scheduler]` to your worker setup. For one-off delays:
+A task says when it should run in its own `schedule` label:
+
+```python
+@default_broker.task(task_name="widgets:rebuild_index", schedule=[{"cron": "*/5 * * * *"}])
+async def rebuild_widget_index(db: DBSession) -> None: ...
+```
+
+`infrastructure/taskiq/scheduler.py` is the entry point that reads those labels — a `TaskiqScheduler`
+over Taskiq's `LabelScheduleSource`, pointed at the same broker and the same task imports as
+`worker.py`:
+
+```sh
+cd backend
+uv run --no-sync taskiq scheduler src.infrastructure.taskiq.scheduler:scheduler
+```
+
+`bp deploy generate` writes it as a `scheduler` service alongside the worker, for a project that
+carries the taskiq feature.
+
+**Run exactly one scheduler.** Each one fires every schedule it finds, so a second replica means
+every cron entry is enqueued twice. The worker is the one to scale out instead: `--workers`, or more
+replicas of the worker service.
+
+A schedule can also be an interval or a one-off time (`{"interval": 60}`, `{"time": datetime(...)}`),
+and `args` / `kwargs` in the same entry are passed to the task. Schedule ids are generated at
+startup, so they change every time the scheduler restarts.
+
+### Delayed Tasks
 
 ```python
 await rebuild_widget_index.kicker().with_labels(delay=60).kiq(owner_id=owner_id)
 ```
 
-(60-second delay before the worker picks it up, when supported by your broker — check the Taskiq docs for the labels you have.)
+Whether that 60 seconds is honoured is the broker's business, and neither broker this project builds
+honours it as it stands: the Redis `ListQueueBroker` ignores the label and the worker picks the task
+up at once, and the RabbitMQ broker raises unless it was given a delay queue or the
+delayed-message-exchange plugin. Use a schedule for work that has to wait.
 
 ## Running a Worker
 

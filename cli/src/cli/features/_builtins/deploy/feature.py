@@ -23,6 +23,8 @@ from ...base import Feature, FeatureManifest, FeaturePlan, FileOp
 SUPPORTED_MODES: tuple[str, ...] = ("local", "prod", "nginx")
 DEFAULT_INTERNAL_SUBNET = "172.31.240.0/24"
 SMALLEST_TRUSTED_PREFIX = {4: 8, 6: 48}
+TASKIQ_PACKAGE = "src/infrastructure/taskiq"
+"""The feature whose worker and scheduler services the compose files carry."""
 
 _TEMPLATES_ROOT = Path(__file__).parent / "templates"
 
@@ -72,6 +74,7 @@ class DeployFeature(Feature):
         backend_dockerfile = params.get("backend_dockerfile", "backend/Dockerfile")
         env_file = params.get("env_file", "./backend/.env")
         internal_subnet = validated_subnet(params.get("internal_subnet", DEFAULT_INTERNAL_SUBNET))
+        taskiq = (project.backend_dir / TASKIQ_PACKAGE).is_dir()
 
         context = {
             "mode": mode,
@@ -86,6 +89,7 @@ class DeployFeature(Feature):
             "backend_dockerfile": backend_dockerfile,
             "env_file": env_file,
             "internal_subnet": internal_subnet,
+            "taskiq": taskiq,
         }
 
         compose_target = Path(params.get("compose_target") or (project.repo_root / "docker-compose.yml"))

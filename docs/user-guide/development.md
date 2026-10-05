@@ -39,6 +39,13 @@ cd backend
 uv run --no-sync taskiq worker src.infrastructure.taskiq.worker:default_broker --reload
 ```
 
+For tasks that declare a `schedule` label, run a single scheduler as well:
+
+```bash
+cd backend
+uv run --no-sync taskiq scheduler src.infrastructure.taskiq.scheduler:scheduler
+```
+
 `--reload` needs `taskiq[reload]`, which ships in the `dev` extra. A workspace synced with
 `--all-extras` already has it; `--extra dev` is what installs it into an environment that was
 synced without it. Drop both in production. See [Background Tasks](background-tasks/index.md) for details.

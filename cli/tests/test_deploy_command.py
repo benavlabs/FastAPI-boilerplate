@@ -1,6 +1,7 @@
 """``bp deploy generate``: what it writes, and what a dry run leaves alone."""
 
 import pytest
+import yaml
 from typer.testing import CliRunner
 
 from cli.commands import deploy
@@ -36,6 +37,27 @@ def test_a_dry_run_over_an_existing_file_asks_nothing(project):
     assert result.exit_code == 0, result.output
     assert compose.read_text() == "keep me\n"
     assert "Overwrite" not in result.output
+
+
+def test_a_project_with_taskiq_gets_its_worker_and_scheduler(project):
+    """The services are read off the project: this one carries the feature."""
+    (project / "backend/src/infrastructure/taskiq").mkdir(parents=True)
+
+    result = runner.invoke(deploy.app, ["prod", "-o", str(project), "--yes"])
+
+    assert result.exit_code == 0, result.output
+    compose = (project / "docker-compose.yml").read_text()
+    assert "taskiq worker src.infrastructure.taskiq.worker:default_broker" in compose
+    assert "taskiq scheduler src.infrastructure.taskiq.scheduler:scheduler" in compose
+
+
+def test_a_project_without_taskiq_gets_neither(project):
+    result = runner.invoke(deploy.app, ["prod", "-o", str(project), "--yes"])
+
+    assert result.exit_code == 0, result.output
+    services = yaml.safe_load((project / "docker-compose.yml").read_text())["services"]
+    assert "worker" not in services
+    assert "scheduler" not in services
 
 
 def test_generating_writes_the_compose_file(project):

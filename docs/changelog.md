@@ -46,6 +46,12 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   labelled `retry_on_error=True` is retried; `TASKIQ_DEFAULT_RETRY_COUNT` (default 3) is how many
   times it runs in all, the first attempt included, and `0` turns retries off. A task that doesn't
   ask for retries still runs once.
+- **A scheduler for background tasks**, as its own entry point:
+  `taskiq scheduler src.infrastructure.taskiq.scheduler:scheduler` runs the schedules tasks declare
+  in a `schedule` label, over Taskiq's `LabelScheduleSource` and the broker and task imports
+  `worker.py` already set up. `bp deploy generate` writes a `scheduler` service next to the worker —
+  and writes neither for a project without the taskiq feature. Exactly one scheduler may run: each
+  one fires every schedule it finds.
 - **`FORWARDED_ALLOW_IPS`** is now documented, and the generated nginx stack puts the containers on
   a fixed subnet and trusts forwarded headers only from it
   (`bp deploy generate nginx --internal-subnet …`).

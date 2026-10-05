@@ -50,7 +50,7 @@ services:
       retries: 5
       start_period: 20s
     restart: unless-stopped
-
+{% if taskiq %}
   worker:
     build:
       context: {{ build_context }}
@@ -74,6 +74,30 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  # Run exactly one of these: each scheduler fires every schedule it finds.
+  scheduler:
+    build:
+      context: {{ build_context }}
+      dockerfile: {{ backend_dockerfile }}
+      target: prod
+    env_file:
+      - {{ env_file }}
+    environment:
+      POSTGRES_SERVER: postgres
+      CACHE_REDIS_HOST: redis
+      RATE_LIMITER_REDIS_HOST: redis
+      TASKIQ_REDIS_HOST: redis
+    working_dir: /app/src
+    command: taskiq scheduler src.infrastructure.taskiq.scheduler:scheduler
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+{% endif %}
   postgres:
     image: {{ postgres_image }}
     env_file:

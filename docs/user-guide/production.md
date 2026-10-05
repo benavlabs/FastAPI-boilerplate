@@ -199,6 +199,16 @@ docker run -d \
 
 In Kubernetes / ECS, that's a separate `Deployment` / `Service` with its own scaling. The worker doesn't accept HTTP traffic — it only consumes from the broker.
 
+If any task declares a `schedule` label, one scheduler has to run too, and **only one** — each scheduler enqueues every schedule it finds, so two of them run every cron entry twice:
+
+```bash
+docker run -d \
+    --env-file .env.production \
+    --target base \
+    myapp-api:1.0.0 \
+    sh -c "taskiq scheduler src.infrastructure.taskiq.scheduler:scheduler"
+```
+
 Tune via:
 
 - `--workers <N>` — process count
