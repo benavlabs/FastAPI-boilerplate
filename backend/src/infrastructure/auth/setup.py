@@ -14,6 +14,7 @@ boilerplate has no email pipeline, and no route gates on sudo.
 from typing import Any
 
 from crudauth import CookieConfig, CRUDAuth, NewUserContext, OAuthCredentials, SessionTransport
+from crudauth.ratelimit import LockoutConfig
 
 from ...modules.user.constants import NAME_MAX_LENGTH
 from ...modules.user.models import User
@@ -65,6 +66,12 @@ auth = CRUDAuth(
     cookies=CookieConfig(secure=settings.SESSION_SECURE_COOKIES),
     transports=[session_transport],
     rate_limiter=build_rate_limiter(),
+    lockout=LockoutConfig(
+        max_attempts=settings.LOGIN_MAX_ATTEMPTS,
+        attempt_window_seconds=settings.LOGIN_ATTEMPT_WINDOW_SECONDS,
+        lockout_base_seconds=settings.LOGIN_LOCKOUT_BASE_SECONDS,
+        lockout_max_seconds=settings.LOGIN_LOCKOUT_MAX_SECONDS,
+    ),
     trusted_proxy_hops=settings.TRUSTED_PROXY_HOPS,
     password_policy=password_policy,
     new_user_fields=_new_user_fields,

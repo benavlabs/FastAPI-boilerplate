@@ -186,6 +186,11 @@ SESSION_TIMEOUT_MINUTES=30
 SESSION_CLEANUP_INTERVAL_MINUTES=15
 MAX_SESSIONS_PER_USER=5
 SESSION_SECURE_COOKIES=true
+
+LOGIN_MAX_ATTEMPTS=5             # failures allowed inside the window, per address and per account
+LOGIN_ATTEMPT_WINDOW_SECONDS=900 # how long failures keep counting
+LOGIN_LOCKOUT_BASE_SECONDS=300   # first lockout, doubling each round
+LOGIN_LOCKOUT_MAX_SECONDS=3600   # ceiling for the doubling
 SESSION_BACKEND=redis            # redis | memory
 SESSION_REDIS_DB=2               # on the cache Redis, apart from the cache DB so a flush won't log users out
 # SESSION_REDIS_URL=             # optional dedicated session Redis, e.g. rediss://user:password@host:6380/0

@@ -200,7 +200,16 @@ For dev/test environments where CSRF gets in the way, set `CSRF_ENABLED=false`.
 
 ## Login Lockout
 
-Failed login attempts are throttled by `crudauth` itself. It applies an **escalating per-IP / per-identifier lockout** and, once tripped, returns `429 Too Many Requests` with a `Retry-After` header on `/api/v1/auth/login`. This happens automatically inside the login flow — there's nothing to wire up and no env vars to tune. Behind a reverse proxy, set `TRUSTED_PROXY_HOPS` so the lockout keys on the real client IP rather than the proxy's.
+Failed login attempts are throttled by `crudauth` itself. It applies an **escalating per-IP / per-identifier lockout** and, once tripped, returns `429 Too Many Requests` with a `Retry-After` header on `/api/v1/auth/login`. The thresholds are four settings, passed to crudauth as a `LockoutConfig` in `infrastructure/auth/setup.py`:
+
+```env
+LOGIN_MAX_ATTEMPTS=5             # failures allowed inside the window, per address and per account
+LOGIN_ATTEMPT_WINDOW_SECONDS=900 # how long failures keep counting
+LOGIN_LOCKOUT_BASE_SECONDS=300   # first lockout, doubling each round
+LOGIN_LOCKOUT_MAX_SECONDS=3600   # ceiling for the doubling
+```
+
+The window is the value that matters against a paced attack: crudauth's own default counts over 60 seconds, so five tries a minute never accumulate. A successful login clears the account's failures and the pressure its own failures put on that address. Behind a reverse proxy, set `TRUSTED_PROXY_HOPS` so the lockout keys on the real client IP rather than the proxy's.
 
 With `RATE_LIMITER_BACKEND=redis`, the counters live in Redis, and crudauth builds the lockout policy with `fail_open=False`. If that Redis is unreachable, **every login is refused** with `429` for the base lockout window rather than let through unchecked: an attacker can't disable the lockout by taking Redis down. Treat the limiter's Redis as a dependency logins need, and watch it: `GET /health/ready` answers `503` while it is unreachable, and the log names it (`rate_limiter`), alongside the database and the session store. It is its own connection (`RATE_LIMITER_REDIS_*`, against `CACHE_REDIS_*` for the cache), and the readiness probe asks each server once even when several settings point at the same one. `RATE_LIMITER_BACKEND=memory` keeps the counters in the process instead, which is fine for a single worker and useless across several.
 

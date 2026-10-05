@@ -178,6 +178,12 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   project, it checks each draw against `is_weak_secret_key`: one hex key in 12.6 million runs
   through eight consecutive digits, which production refuses at startup. Run outside a project,
   where those rules aren't there to ask, it prints the first draw as before.
+- **The login lockout's thresholds are stated, not inherited.** `LOGIN_MAX_ATTEMPTS=5`,
+  `LOGIN_ATTEMPT_WINDOW_SECONDS=900`, `LOGIN_LOCKOUT_BASE_SECONDS=300` and
+  `LOGIN_LOCKOUT_MAX_SECONDS=3600` reach crudauth as a `LockoutConfig`. The window was crudauth's
+  own default of 60 seconds, which five tries a minute never trip; counting over fifteen minutes is
+  what makes a paced attack accumulate, and a first lockout of five minutes makes resuming cost
+  more.
 - **The pre-commit hooks run what CI runs.** `docformatter`, `blacken-docs` and `mdformat` are
   gone: `ruff-format` owns formatting, and the two documentation hooks damaged what they touched —
   `mdformat` strips the indentation MkDocs content tabs need, and `blacken-docs` rewrote a sample's

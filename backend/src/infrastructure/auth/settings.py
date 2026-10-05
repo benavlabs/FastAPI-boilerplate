@@ -17,6 +17,11 @@ class AuthSettings(BaseSettings):
     """
 
     SESSION_TIMEOUT_MINUTES: int = config("SESSION_TIMEOUT_MINUTES", default=30, cast=int)
+
+    LOGIN_MAX_ATTEMPTS: int = config("LOGIN_MAX_ATTEMPTS", default=5, cast=int)
+    LOGIN_ATTEMPT_WINDOW_SECONDS: int = config("LOGIN_ATTEMPT_WINDOW_SECONDS", default=900, cast=int)
+    LOGIN_LOCKOUT_BASE_SECONDS: int = config("LOGIN_LOCKOUT_BASE_SECONDS", default=300, cast=int)
+    LOGIN_LOCKOUT_MAX_SECONDS: int = config("LOGIN_LOCKOUT_MAX_SECONDS", default=3600, cast=int)
     SESSION_CLEANUP_INTERVAL_MINUTES: int = config("SESSION_CLEANUP_INTERVAL_MINUTES", default=15, cast=int)
     MAX_SESSIONS_PER_USER: int = config("MAX_SESSIONS_PER_USER", default=5, cast=int)
     SESSION_SECURE_COOKIES: bool = config("SESSION_SECURE_COOKIES", default=True, cast=bool)

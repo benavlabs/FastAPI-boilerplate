@@ -1,5 +1,6 @@
 """Tests for the crudauth composition root wiring."""
 
+import json
 import os
 import subprocess
 import sys
@@ -11,6 +12,47 @@ from starlette.requests import Request
 from src.infrastructure.auth import setup
 from src.infrastructure.config.settings import settings
 from src.modules.user.constants import NAME_MAX_LENGTH
+
+LOCKOUT_SETTINGS = (
+    "LOGIN_MAX_ATTEMPTS",
+    "LOGIN_ATTEMPT_WINDOW_SECONDS",
+    "LOGIN_LOCKOUT_BASE_SECONDS",
+    "LOGIN_LOCKOUT_MAX_SECONDS",
+)
+
+_LOCKOUT_DEFAULTS = """
+import json
+import sys
+
+from src.infrastructure.auth.settings import AuthSettings
+
+names = json.loads(sys.argv[1])
+
+print("DEFAULTS:" + json.dumps({name: AuthSettings.model_fields[name].default for name in names}))
+"""
+
+
+def _lockout_defaults() -> dict[str, int]:
+    """The declared defaults, from an interpreter whose environment sets none of them.
+
+    The settings read their defaults from the environment when the module is imported, so
+    an exported ``LOGIN_*`` is indistinguishable from a declared default in this process.
+    """
+    child = {name: value for name, value in os.environ.items() if name not in LOCKOUT_SETTINGS}
+    result = subprocess.run(
+        [sys.executable, "-c", _LOCKOUT_DEFAULTS, json.dumps(LOCKOUT_SETTINGS)],
+        cwd=Path(__file__).resolve().parents[4],
+        capture_output=True,
+        text=True,
+        check=True,
+        env=child,
+    )
+    line = next(line for line in result.stdout.splitlines() if line.startswith("DEFAULTS:"))
+
+    defaults: dict[str, int] = json.loads(line.removeprefix("DEFAULTS:"))
+
+    return defaults
+
 
 _OAUTH_ROUTES = """
 from src.infrastructure.auth.routes import root_routers
@@ -185,3 +227,25 @@ class TestAccountsLifecycle:
                 await shutdown()
 
         assert closed
+
+
+class TestTheLoginLockout:
+    """The policy crudauth runs the login on carries this project's four settings."""
+
+    def test_the_thresholds_the_project_configured_reach_the_policy(self):
+        lockout = setup.auth.runtime.lockout
+
+        assert lockout is not None
+        assert lockout.max_attempts == settings.LOGIN_MAX_ATTEMPTS
+        assert lockout.attempt_window == settings.LOGIN_ATTEMPT_WINDOW_SECONDS
+        assert lockout.lockout_base == settings.LOGIN_LOCKOUT_BASE_SECONDS
+        assert lockout.lockout_max == settings.LOGIN_LOCKOUT_MAX_SECONDS
+
+    def test_the_declared_defaults_count_over_fifteen_minutes(self):
+        """The defaults a project gets, read from an interpreter started without the variables."""
+        assert _lockout_defaults() == {
+            "LOGIN_MAX_ATTEMPTS": 5,
+            "LOGIN_ATTEMPT_WINDOW_SECONDS": 900,
+            "LOGIN_LOCKOUT_BASE_SECONDS": 300,
+            "LOGIN_LOCKOUT_MAX_SECONDS": 3600,
+        }

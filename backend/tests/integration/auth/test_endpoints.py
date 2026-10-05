@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.infrastructure.auth import routes
 from src.infrastructure.auth.dependencies import get_optional_principal
 from src.infrastructure.auth.setup import auth as crud_auth
+from src.infrastructure.config.settings import settings
 from src.interfaces.main import app
 from src.modules.user.models import User
 
@@ -403,3 +404,38 @@ async def test_a_login_is_refused_while_the_lockout_backend_is_down(client: Asyn
     assert response.status_code == 429
     assert int(response.headers["retry-after"]) > 0
     assert "set-cookie" not in response.headers
+
+
+@pytest.mark.asyncio
+async def test_a_sixth_failure_inside_the_window_locks_the_login(client: AsyncClient, test_user: dict):
+    """Five failures, then the right password answers 429 with the configured base duration."""
+    for _ in range(5):
+        refused = await client.post(
+            "/api/v1/auth/login",
+            data={"username": test_user["username"], "password": "wrong-password"},
+        )
+        assert refused.status_code == 401
+
+    locked = await client.post(
+        "/api/v1/auth/login",
+        data={"username": test_user["username"], "password": test_user["password"]},
+    )
+
+    assert locked.status_code == 429
+    assert settings.LOGIN_LOCKOUT_BASE_SECONDS - 5 <= int(locked.headers["retry-after"]) <= settings.LOGIN_LOCKOUT_BASE_SECONDS
+    assert "set-cookie" not in locked.headers
+
+
+@pytest.mark.asyncio
+async def test_a_successful_login_clears_the_failures(client: AsyncClient, test_user: dict):
+    """Four failures, a login, four more and a login: neither run reaches the cap."""
+    credentials = {"username": test_user["username"], "password": test_user["password"]}
+
+    for _ in range(settings.LOGIN_MAX_ATTEMPTS - 1):
+        assert (await client.post("/api/v1/auth/login", data={**credentials, "password": "wrong"})).status_code == 401
+    assert (await client.post("/api/v1/auth/login", data=credentials)).status_code == 200
+
+    for _ in range(settings.LOGIN_MAX_ATTEMPTS - 1):
+        assert (await client.post("/api/v1/auth/login", data={**credentials, "password": "wrong"})).status_code == 401
+
+    assert (await client.post("/api/v1/auth/login", data=credentials)).status_code == 200
