@@ -266,7 +266,15 @@ task can say so for itself:
 async def reconcile_widgets(...): ...
 ```
 
-For finer control (exponential backoff, dead-letter queues), check the [Taskiq middlewares docs](https://taskiq-python.github.io/guide/taskiq-middlewares.html). Whichever pattern you pick, **make tasks idempotent** — at-least-once delivery means the same task can run twice on partial failures.
+Retries are immediate: the message is requeued the moment the task fails, so a task tripped up by a
+brief network blip or a rate limit spends its attempts within milliseconds. Taskiq also ships
+`SmartRetryMiddleware`, which adds a delay, exponential backoff and jitter, but its delay needs
+somewhere to hold the message: a `schedule_source` with a scheduler running, or a RabbitMQ broker
+built with a delay queue or the delayed-message-exchange plugin. On the Redis broker this project
+builds, the `delay` label is ignored and the retry is immediate again; on its RabbitMQ broker,
+publishing with a delay raises until one of those is configured.
+
+For dead-letter queues and middlewares of your own, check the [Taskiq middlewares docs](https://taskiq-python.github.io/guide/taskiq-middlewares.html). Whichever pattern you pick, **make tasks idempotent** — at-least-once delivery means the same task can run twice on partial failures.
 
 ## Monitoring
 
