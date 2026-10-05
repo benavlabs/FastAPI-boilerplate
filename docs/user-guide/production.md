@@ -311,7 +311,7 @@ livenessProbe:
 For a **readiness** probe (does the app actually have working DB / Redis connections?), use `GET /health/ready`. It runs the checks the project's wiring lists, in two groups:
 
 - `CRITICAL_READINESS_CHECKS` — the database, plus the login lockout's Redis and the session store when accounts is wired. A request can't be served without these, so one of them being unreachable answers `503` and a load balancer holds traffic back.
-- `INFORMATIONAL_READINESS_CHECKS` — the cache and the task broker. No request waits on either, so an outage there is logged and the answer stays `200`.
+- `INFORMATIONAL_READINESS_CHECKS` — the cache and the task broker. No request waits on either, so an outage there is logged and the answer stays `200`. A Redis broker is pinged; a RabbitMQ one is reported on over the live state of the connection the app holds, which reads as unavailable while that connection is being opened or reconnected.
 
 ```yaml
 readinessProbe:

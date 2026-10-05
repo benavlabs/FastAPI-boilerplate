@@ -18,6 +18,7 @@ from src.infrastructure.config.enums import TaskiqBrokerType
 from src.infrastructure.config.settings import settings
 from src.infrastructure.taskiq import brokers, lifecycle
 from src.infrastructure.taskiq.constants import BROKER_RETRY_TASK_NAME
+from src.infrastructure.taskiq.health import broker_is_reachable
 from src.infrastructure.taskiq.lifecycle import start_broker
 from src.wiring.app import LIFECYCLES
 from tests.conftest import is_docker_running
@@ -26,6 +27,7 @@ RABBITMQ_IMAGE = "rabbitmq:4-alpine"
 PUBLISHED_QUEUE = "taskiq"
 RETRY_SECONDS = 0.2
 CONNECTED_WITHIN_SECONDS = 30
+READINESS_TURNS_WITHIN_SECONDS = 30
 ATTEMPTS_WITHIN_SECONDS = 5
 
 
@@ -105,6 +107,24 @@ async def _drained_task_names(queue: str) -> set[str]:
     return names
 
 
+async def _readiness_turns(ready: bool) -> None:
+    """Wait until the broker's readiness check answers ``ready``, within a bounded wait."""
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + READINESS_TURNS_WITHIN_SECONDS
+    while True:
+        try:
+            await broker_is_reachable()
+            answered = True
+        except ConnectionError:
+            answered = False
+
+        if answered == ready:
+            return
+
+        assert loop.time() < deadline, f"readiness never answered {'ready' if ready else 'unavailable'}"
+        await asyncio.sleep(0.05)
+
+
 async def _kiq_once_connected(task: AsyncTaskiqDecoratedTask):
     """Enqueue as soon as the retry has connected, giving up after a bounded wait."""
     loop = asyncio.get_running_loop()
@@ -163,6 +183,32 @@ async def test_the_broker_is_closed_when_the_app_stops(rabbitmq_broker: AsyncBro
         await task.kiq()
 
 
+async def test_readiness_reports_the_connection_the_running_app_holds(rabbitmq_broker: AsyncBroker):
+    """Ready while the app runs, unavailable once it has stopped."""
+    lifespan = _app_lifespan()
+
+    async with lifespan(FastAPI()):
+        await broker_is_reachable()
+
+    with pytest.raises(ConnectionError):
+        await broker_is_reachable()
+
+
+@pytest.mark.filterwarnings("ignore::ResourceWarning")
+async def test_readiness_follows_a_connection_the_server_dropped(rabbitmq, rabbitmq_broker: AsyncBroker):
+    """A connection RabbitMQ closed reads as unavailable until aio-pika has reconnected."""
+    lifespan = _app_lifespan()
+
+    async with lifespan(FastAPI()):
+        await broker_is_reachable()
+
+        dropped = rabbitmq.exec(["rabbitmqctl", "close_all_connections", "readiness test"])
+        assert dropped.exit_code == 0, dropped.output
+
+        await _readiness_turns(ready=False)
+        await _readiness_turns(ready=True)
+
+
 async def test_a_worker_process_leaves_the_broker_to_the_taskiq_cli(rabbitmq_broker: AsyncBroker):
     """The worker's own startup opens the connection; the app's would open a second one."""
     task = _task(rabbitmq_broker, "tests.enqueued_from_a_worker")
@@ -208,6 +254,14 @@ class TestABrokerThatIsDownAtStartup:
             await asyncio.wait_for(two_attempts.wait(), ATTEMPTS_WITHIN_SECONDS)
 
             assert runs["startup"] == runs["shutdown"] == 2
+
+    async def test_readiness_reports_it_unavailable_while_the_retry_runs(self, monkeypatch):
+        _broker_pointed_at(monkeypatch, "127.0.0.1", _closed_port())
+        lifespan = _app_lifespan()
+
+        async with lifespan(FastAPI()):
+            with pytest.raises(ConnectionError):
+                await broker_is_reachable()
 
     async def test_the_retry_stops_with_the_app(self, monkeypatch):
         _broker_pointed_at(monkeypatch, "127.0.0.1", _closed_port())

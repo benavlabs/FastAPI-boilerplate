@@ -4,6 +4,8 @@ import asyncio
 import logging
 from contextlib import suppress
 
+from taskiq_aio_pika import AioPikaBroker
+
 from ..composition import Lifecycle
 from . import brokers
 from .constants import BROKER_RETRY_SECONDS, BROKER_RETRY_TASK_NAME
@@ -11,6 +13,19 @@ from .constants import BROKER_RETRY_SECONDS, BROKER_RETRY_TASK_NAME
 logger = logging.getLogger(__name__)
 
 _retrying: asyncio.Task[None] | None = None
+
+
+def broker_connection_is_up() -> bool:
+    """Whether the AMQP connection the broker holds is open.
+
+    ``False`` until a startup connects, and from a dropped connection until aio-pika's
+    reconnect opens it again. A broker that holds no AMQP connection answers ``False``.
+    """
+    broker = brokers.default_broker
+    if not isinstance(broker, AioPikaBroker) or broker.write_conn is None:
+        return False
+
+    return broker.write_conn.connected.is_set()
 
 
 async def _connection_error() -> Exception | None:

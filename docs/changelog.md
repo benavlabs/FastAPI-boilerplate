@@ -235,6 +235,10 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   is not an `AioPikaBroker` parameter in taskiq-aio-pika 0.6.0, so it was forwarded to the AMQP
   connection while the queue kept the library's own name. The queue a worker reads is unchanged
   (`taskiq`); the Redis broker's `queue_name="default"` is a real parameter and stays as it is.
+- **Readiness covers a RabbitMQ broker.** The `task_broker` check reads the live state of the
+  connection the app's lifespan holds — ready while it is up, unavailable while it is being opened
+  or reconnected after an outage — and names the broker it reports on either way. It stays
+  informational, so a broker outage never answers `503`.
 - **`API_PREFIX` now moves the whole API.** The OAuth routes and the `no-store` cache header are
   derived from it instead of writing `/api` out, and a prefix the router cannot mount (`v2`, `/`,
   `/api/`, empty) is refused by name when the settings load rather than raising an `AssertionError`

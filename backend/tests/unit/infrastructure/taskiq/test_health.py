@@ -1,4 +1,4 @@
-"""The broker readiness check covers the Redis broker the API actually publishes to."""
+"""The broker readiness check covers the broker the API actually publishes to."""
 
 import anyio
 import pytest
@@ -9,13 +9,15 @@ from src.infrastructure.taskiq import health
 pytestmark = pytest.mark.asyncio
 
 
-async def test_a_rabbitmq_broker_is_left_alone(monkeypatch):
-    """The API never opens it, so a probe would report on a connection nothing makes."""
+async def test_a_rabbitmq_broker_nothing_connected_is_unavailable(monkeypatch):
+    """No lifespan has opened the broker in this process, which is what the check reports on."""
     monkeypatch.setattr(settings, "TASKIQ_BROKER_TYPE", "rabbitmq")
 
-    await health.broker_is_reachable()
+    with pytest.raises(ConnectionError):
+        await health.broker_is_reachable()
 
-    assert health.broker_target() is None
+    target = health.broker_target()
+    assert target is not None and target.startswith("amqp://")
 
 
 async def test_the_redis_broker_is_pinged(monkeypatch):

@@ -146,7 +146,9 @@ until one attempt connects — repeat failures at `DEBUG`, one `INFO` line when 
 attempt is closed again, so nothing a half-finished startup opened is left behind.
 `.kiq(...)` raises `SendTaskError` while the broker is down, so a route that
 enqueues should decide what a queued-work outage means for its response. `GET /health/ready` reports
-the broker as an informational check: it never answers `503` over it.
+the broker as an informational check — it reads the live state of the connection the app holds, so
+it answers unavailable while that connection is being opened or reconnected after an outage, ready
+once it is up, and never a `503` either way.
 
 A few important constraints:
 
