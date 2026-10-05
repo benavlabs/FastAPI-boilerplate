@@ -12,7 +12,8 @@ from pathlib import Path
 
 import pytest
 
-DRILL_PATH = Path(__file__).resolve().parents[3] / "tools" / "removal_drill.py"
+BACKEND_ROOT = Path(__file__).resolve().parents[2]
+DRILL_PATH = BACKEND_ROOT.parent / "tools" / "removal_drill.py"
 
 _spec = importlib.util.spec_from_file_location("removal_drill", DRILL_PATH)
 assert _spec is not None and _spec.loader is not None
@@ -95,12 +96,31 @@ class TestReportingACheck:
         assert report.strip() == "PASS  tests        665 passed"
 
 
-def test_a_scratch_project_never_carries_the_repository_env_file():
+def test_a_scratch_project_never_carries_the_repository_env_file(tmp_path):
     """It would point a build at whatever the developer runs locally."""
-    assert ".env" in drill.COPY_EXCLUDES
+    source = tmp_path / "source"
+    (source / "backend").mkdir(parents=True)
+    (source / ".git").mkdir()
+    (source / "backend" / ".env").write_text("POSTGRES_PASSWORD=the-developers-own\n")
+    (source / ".env").write_text("SECRET_KEY=the-developers-own\n")
+    (source / "backend" / ".env.example").write_text("POSTGRES_PASSWORD=postgres\n")
+    (source / ".git" / "HEAD").write_text("ref: refs/heads/main\n")
+
+    drill.copy_repository(source, tmp_path / "project")
+
+    copied = sorted(path.relative_to(tmp_path / "project").as_posix() for path in (tmp_path / "project").rglob("*"))
+
+    assert copied == ["backend", "backend/.env.example"]
 
 
-BACKEND_ROOT = Path(__file__).resolve().parents[2]
+def test_a_scratch_project_is_built_from_the_repository(tmp_path):
+    """The copy above is the one ``build`` makes, so build it once for real."""
+    project = drill.build("core-only", tmp_path)
+
+    assert (project / "backend" / ".env.example").exists()
+    assert [path for path in project.rglob("*") if path.name == ".env"] == []
+
+
 GENERATED_FILES = (
     ("src/wiring/settings.py", "_wiring_settings"),
     ("src/wiring/app.py", "_wiring_app"),

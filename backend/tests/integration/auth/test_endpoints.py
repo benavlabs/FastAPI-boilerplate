@@ -377,3 +377,29 @@ async def test_login_finishes_through_the_session_transport(client: AsyncClient,
     assert response.status_code == 200
     assert captured["options"]["remember_me"] is True
     assert captured["options"]["metadata"]["login_type"] == "password"
+
+
+@pytest.mark.asyncio
+async def test_a_login_is_refused_while_the_lockout_backend_is_down(client: AsyncClient, test_user: dict, monkeypatch):
+    """The lockout fails closed, so an outage must not open the door to brute force.
+
+    Documented in docs/user-guide/authentication/sessions.md.
+    """
+
+    class UnreachableBackend:
+        async def get_ttl(self, key: str) -> int:
+            raise ConnectionError("limiter redis is down")
+
+        async def increment(self, key: str, amount: int, expire: int) -> int:
+            raise ConnectionError("limiter redis is down")
+
+    monkeypatch.setattr(crud_auth.runtime.lockout, "backend", UnreachableBackend())
+
+    response = await client.post(
+        "/api/v1/auth/login",
+        data={"username": test_user["username"], "password": test_user["password"]},
+    )
+
+    assert response.status_code == 429
+    assert int(response.headers["retry-after"]) > 0
+    assert "set-cookie" not in response.headers

@@ -420,15 +420,20 @@ def _tests_wiring(chosen: set[str]) -> str:
     )
 
 
+def copy_repository(source: Path, project: Path) -> None:
+    """Copy ``source`` to ``project``, leaving out what a scratch build must not carry."""
+    shutil.copytree(
+        source,
+        project,
+        ignore=shutil.ignore_patterns(*COPY_EXCLUDES),
+    )
+
+
 def build(preset: str, into: Path) -> Path:
     """Copy the repo into ``into`` and strip it down to ``preset``."""
     chosen = _selected(preset)
     project = into / preset
-    shutil.copytree(
-        REPO,
-        project,
-        ignore=shutil.ignore_patterns(*COPY_EXCLUDES),
-    )
+    copy_repository(REPO, project)
 
     for name, feature in FEATURES.items():
         if name in chosen:
