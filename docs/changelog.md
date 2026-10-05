@@ -42,6 +42,10 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   the features it has. Checks run together, each with a two-second timeout; the report is reused for
   a couple of seconds, and two checks pointed at one server are asked once. `GET /health` stays a
   liveness probe that touches nothing.
+- **Retries for background tasks.** The worker loads Taskiq's `SimpleRetryMiddleware`, so a task
+  labelled `retry_on_error=True` is retried; `TASKIQ_DEFAULT_RETRY_COUNT` (default 3) is how many
+  times it runs in all, the first attempt included, and `0` turns retries off. A task that doesn't
+  ask for retries still runs once.
 - **`FORWARDED_ALLOW_IPS`** is now documented, and the generated nginx stack puts the containers on
   a fixed subnet and trusts forwarded headers only from it
   (`bp deploy generate nginx --internal-subnet …`).

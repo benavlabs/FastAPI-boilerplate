@@ -41,6 +41,9 @@ The relevant settings live in `TaskiqSettings` (`infrastructure/config/settings.
 # Broker selection
 TASKIQ_BROKER_TYPE=redis            # or "rabbitmq"
 
+# Retries
+TASKIQ_DEFAULT_RETRY_COUNT=3        # runs in all, for a task that asks; 0 turns retries off
+
 # Redis broker (when TASKIQ_BROKER_TYPE=redis)
 TASKIQ_REDIS_HOST=redis             # use "localhost" without Docker
 TASKIQ_REDIS_PORT=6379
@@ -245,22 +248,22 @@ The `state` object is shared across all tasks running in that worker process —
 
 ## Error Handling and Retries
 
-Taskiq doesn't retry by default. If a task raises, the message is acknowledged and gone. To retry, use the built-in retry middleware:
+The worker loads Taskiq's `SimpleRetryMiddleware` (`configure_broker_lifecycle`,
+`infrastructure/taskiq/app.py`), but retrying is opt-in per task: a task that doesn't ask for it
+runs once, and if it raises the message is acknowledged and gone.
 
 ```python
-from taskiq import TaskiqMiddleware
-from taskiq.middlewares import SimpleRetryMiddleware
-
-from src.infrastructure.taskiq.brokers import default_broker
-
-default_broker.add_middlewares(SimpleRetryMiddleware(default_retry_count=3))
+@default_broker.task(task_name="widgets:rebuild_index", retry_on_error=True)
+async def rebuild_widget_index(...): ...
 ```
 
-Add this in `infrastructure/taskiq/worker.py`, next to the `configure_broker_lifecycle` call. With the middleware loaded, you can mark individual tasks for retry:
+`TASKIQ_DEFAULT_RETRY_COUNT` (default 3) is how many times such a task runs **in all**, the first
+attempt included — so two retries by default, and `0` turns retries off for every task. A single
+task can say so for itself:
 
 ```python
-@default_broker.task(retry_on_error=True, max_retries=3)
-async def flaky_task(...): ...
+@default_broker.task(task_name="widgets:reconcile", retry_on_error=True, max_retries=5)
+async def reconcile_widgets(...): ...
 ```
 
 For finer control (exponential backoff, dead-letter queues), check the [Taskiq middlewares docs](https://taskiq-python.github.io/guide/taskiq-middlewares.html). Whichever pattern you pick, **make tasks idempotent** — at-least-once delivery means the same task can run twice on partial failures.
@@ -347,7 +350,7 @@ Tasks use `DBSession`, which uses a separate engine with `poolclass=NullPool` (o
 
 ### "Tasks fail silently"
 
-Without a retry middleware, a failed task is acknowledged and gone. Either add retries (see above) or wrap your task body in a try/except that logs explicitly:
+A task that doesn't ask for retries is acknowledged and gone when it raises. Either label it `retry_on_error=True` (see above) or wrap your task body in a try/except that logs explicitly:
 
 ```python
 @default_broker.task(task_name="widgets:rebuild_index")

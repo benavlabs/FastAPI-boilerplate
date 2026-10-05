@@ -107,6 +107,7 @@ RATE_LIMITER_REDIS_POOL_SIZE=10
 
 ```env
 TASKIQ_BROKER_TYPE=redis        # or "rabbitmq"
+TASKIQ_DEFAULT_RETRY_COUNT=3    # runs in all for a task labelled retry_on_error=True; 0 turns retries off
 ```
 
 ### Redis broker

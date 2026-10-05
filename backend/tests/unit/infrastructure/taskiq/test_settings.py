@@ -1,12 +1,45 @@
 """The broker settings the taskiq feature contributes."""
 
 import os
+import subprocess
+import sys
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 from yarl import URL
 
 from src.infrastructure.config.settings import Settings, get_settings
+from src.infrastructure.taskiq.settings import TaskiqSettings
+
+BACKEND = Path(__file__).resolve().parents[4]
+RETRY_COUNT = "TASKIQ_DEFAULT_RETRY_COUNT"
+
+_DECLARED_DEFAULT = f"""
+from src.infrastructure.taskiq.settings import TaskiqSettings
+
+print("DEFAULT:" + str(TaskiqSettings.model_fields["{RETRY_COUNT}"].default))
+"""
+
+
+def _declared_retry_count() -> int:
+    """The declared default, read in an interpreter whose environment doesn't set it."""
+    child = {name: value for name, value in os.environ.items() if name != RETRY_COUNT}
+    result = subprocess.run(
+        [sys.executable, "-c", _DECLARED_DEFAULT], cwd=BACKEND, capture_output=True, text=True, check=True, env=child
+    )
+    line = next(line for line in result.stdout.splitlines() if line.startswith("DEFAULT:"))
+
+    return int(line.removeprefix("DEFAULT:"))
+
+
+def test_a_task_is_retried_three_times_unless_the_environment_says_otherwise():
+    assert _declared_retry_count() == 3
+
+
+@patch.dict(os.environ, {RETRY_COUNT: "0"})
+def test_the_retry_count_comes_from_the_environment():
+    assert TaskiqSettings().TASKIQ_DEFAULT_RETRY_COUNT == 0
 
 
 class TestTaskiqSettings:
