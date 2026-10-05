@@ -257,6 +257,8 @@ matrix. The round that followed fixed what a re-review of the refactor found.
 #### Removed
 
 - `CSRFException`, which nothing raised.
+- `TaskRegistry` / `register_task` (`infrastructure/taskiq/registry.py`), a second task registry
+  nothing wrote to. `default_broker.get_all_tasks()` is the one taskiq keeps.
 - Settings nothing read: `LOG_CORRELATION_ID`, `LOG_INCLUDE_STACKTRACE`, `LOG_PERFORMANCE_METRICS`,
   `LOG_SQL_QUERIES`, `LOG_STRUCTURED_CONTEXT`, `DEFAULT_CACHE_EXPIRATION`,
   `TASKIQ_WORKER_CONCURRENCY`, `TASKIQ_MAX_TASKS_PER_WORKER`, `POSTGRES_SYNC_PREFIX`,

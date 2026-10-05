@@ -22,17 +22,16 @@ Don't reach for a task when the operation needs to surface a result to the user 
 
 ```text
 backend/src/infrastructure/taskiq/
-├── __init__.py        Exports default_broker, DBSession, register_task, task_registry
+├── __init__.py        Docstring only: the package is kept import-free
 ├── brokers.py         Builds the Redis or RabbitMQ broker from settings
 ├── app.py             WORKER_STARTUP / WORKER_SHUTDOWN handlers (logging, engine disposal)
 ├── lifecycle.py       Opens and closes the broker in the API process
 ├── scheduler.py       Scheduler entry point: the schedules tasks declare in labels
 ├── deps.py            DBSession dependency (TaskiqDepends-wrapped AsyncSession)
-├── registry.py        Tiny in-process registry for monitoring
 └── worker.py          Worker entry point: registers the handlers on `default_broker`
 ```
 
-Importantly: **no example task ships in the boilerplate.** The infrastructure is wired up; the modules are yours to add. `register_task` and `task_registry` are available for your own bookkeeping but are optional.
+Importantly: **no example task ships in the boilerplate.** The infrastructure is wired up; the modules are yours to add.
 
 ## Configuration
 
@@ -311,7 +310,7 @@ For dead-letter queues and middlewares of your own, check the [Taskiq middleware
 
 Taskiq doesn't ship a Flower-style dashboard, but you have a few options:
 
-- **`task_registry`** (in `infrastructure/taskiq/registry.py`) is an in-process record of registered tasks for sanity-checking. Call `task_registry.get_tasks()` to list everything the worker knows about.
+- **`default_broker.get_all_tasks()`** lists every task the process has imported, name to task — the same registry the worker and the scheduler read.
 - **Logs** — every task logs through your standard logger; flow them into your existing log aggregation.
 - **Result backend** — Redis stores task results for the configured TTL; you can read them back or scan with `redis-cli`.
 - **External tools** — Taskiq has community projects for Prometheus metrics and admin UIs; see the [Taskiq docs](https://taskiq-python.github.io/) for what's current.
@@ -410,7 +409,6 @@ async def rebuild_widget_index(owner_id: int, db: DBSession) -> dict[str, Any]:
 | Worker lifecycle hooks | `backend/src/infrastructure/taskiq/app.py`                         |
 | Broker lifecycle (API) | `backend/src/infrastructure/taskiq/lifecycle.py`                   |
 | DB dependency          | `backend/src/infrastructure/taskiq/deps.py`                        |
-| Task registry          | `backend/src/infrastructure/taskiq/registry.py`                    |
 | Settings               | `backend/src/infrastructure/config/settings.py` (`TaskiqSettings`) |
 
 ## Next Steps
