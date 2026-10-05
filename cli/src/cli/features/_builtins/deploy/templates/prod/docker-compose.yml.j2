@@ -6,6 +6,9 @@
 name: {{ project_name }}
 
 services:
+  # One-shot, and nothing waits on it: run it and only then restart the rest, so a
+  # migration that fails leaves the old code serving on the old schema.
+  #     docker compose --profile migrate run --rm migrate
   migrate:
     build:
       context: {{ build_context }}
@@ -16,6 +19,7 @@ services:
     environment:
       POSTGRES_SERVER: postgres
       CONFIRM_PRODUCTION_MIGRATION: "yes"
+    profiles: ["migrate"]
     depends_on:
       postgres:
         condition: service_healthy
@@ -37,8 +41,6 @@ services:
     ports:
       - "{{ api_port }}:8000"
     depends_on:
-      migrate:
-        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       redis:
@@ -66,8 +68,6 @@ services:
     working_dir: /app/src
     command: taskiq worker src.infrastructure.taskiq.worker:default_broker --workers 2
     depends_on:
-      migrate:
-        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       redis:
@@ -90,8 +90,6 @@ services:
     working_dir: /app/src
     command: taskiq scheduler src.infrastructure.taskiq.scheduler:scheduler
     depends_on:
-      migrate:
-        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       redis:

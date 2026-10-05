@@ -118,3 +118,22 @@ def test_a_project_without_taskiq_gets_neither_worker_nor_scheduler(mode: str):
     assert "worker" not in services
     assert "scheduler" not in services
     assert "api" in services
+
+
+@pytest.mark.parametrize("mode", ["prod", "nginx"])
+def test_the_migration_runner_waits_to_be_asked(mode: str):
+    """A deploy runs it and only then restarts, so a failed migration leaves the old code serving."""
+    migrate = _compose(mode)["services"]["migrate"]
+
+    assert migrate["profiles"] == ["migrate"]
+    assert migrate["build"]["target"] == "migrate"
+
+
+@pytest.mark.parametrize("mode", ["local", "prod", "nginx"])
+def test_nothing_depends_on_a_service_behind_a_profile(mode: str):
+    """Compose refuses the whole project when a service it starts depends on a profiled one."""
+    services = _compose(mode)["services"]
+    behind_a_profile = {name for name, service in services.items() if service.get("profiles")}
+
+    for name, service in services.items():
+        assert behind_a_profile.isdisjoint(service.get("depends_on", {})), name

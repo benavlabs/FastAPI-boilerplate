@@ -33,6 +33,46 @@ def _mounted_api_paths(**environment: str) -> list[str]:
     return [path for path in line.removeprefix("PATHS:").split(",") if path]
 
 
+_CREATE_TABLES_DEFAULT = """
+from src.infrastructure.config.settings import Settings
+
+print("DEFAULT:" + str(Settings.model_fields["CREATE_TABLES_ON_STARTUP"].default))
+"""
+
+
+def _creates_tables_by_default(**environment: str) -> bool:
+    """The declared default, read in an interpreter whose environment doesn't set it."""
+    inherited = {name: value for name, value in os.environ.items() if name != "CREATE_TABLES_ON_STARTUP"}
+    result = subprocess.run(
+        [sys.executable, "-c", _CREATE_TABLES_DEFAULT],
+        cwd=Path(__file__).resolve().parents[4],
+        capture_output=True,
+        text=True,
+        check=True,
+        env={**inherited, **environment},
+    )
+    line = next(line for line in result.stdout.splitlines() if line.startswith("DEFAULT:"))
+
+    return line.removeprefix("DEFAULT:") == "True"
+
+
+class TestCreatingTablesOnStartup:
+    """The app builds its schema from the models only where a schema is disposable."""
+
+    @pytest.mark.parametrize("environment", ["local", "development"])
+    def test_it_is_on_where_the_schema_is_disposable(self, environment: str):
+        assert _creates_tables_by_default(ENVIRONMENT=environment) is True
+
+    @pytest.mark.parametrize("environment", ["staging", "production"])
+    def test_it_is_off_where_migrations_own_the_schema(self, environment: str):
+        assert _creates_tables_by_default(ENVIRONMENT=environment) is False
+
+    def test_an_unset_environment_reads_as_development(self):
+        inherited = {name: value for name, value in os.environ.items() if name != "ENVIRONMENT"}
+
+        assert _creates_tables_by_default(**inherited) is True
+
+
 class TestSettings:
     """Test cases for application settings."""
 

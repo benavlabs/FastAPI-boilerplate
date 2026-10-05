@@ -220,6 +220,13 @@ class ProductionSecurityValidator:
                 "ADMIN_ENABLED=false for production."
             )
 
+        if self.settings.CREATE_TABLES_ON_STARTUP:
+            errors.append(
+                "CREATE_TABLES_ON_STARTUP is enabled in production. A boot would build the schema "
+                "from the models, behind Alembic's back. Run 'alembic upgrade head' instead and set "
+                "CREATE_TABLES_ON_STARTUP=false."
+            )
+
         if self._is_cors_too_permissive():
             credentials_note = (
                 " The app drops CORS_ALLOW_CREDENTIALS while '*' is listed, so a page on another "

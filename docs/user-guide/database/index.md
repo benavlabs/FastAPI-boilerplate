@@ -171,7 +171,7 @@ POSTGRES_DB=postgres
 POSTGRES_ASYNC_PREFIX=postgresql+asyncpg://
 POSTGRES_POOL_SIZE=20
 POSTGRES_MAX_OVERFLOW=0
-CREATE_TABLES_ON_STARTUP=true
+CREATE_TABLES_ON_STARTUP=true   # the default in local and development
 ```
 
 The `DATABASE_URL` property on `DatabaseSettings` is computed from these. If you set `DATABASE_URL` directly in the environment it overrides everything else.

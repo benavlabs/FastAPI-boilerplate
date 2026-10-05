@@ -94,10 +94,13 @@ def generate(
     info("done. Next steps:")
     if mode == DeployMode.local:
         info("  docker compose up --build")
-    elif mode == DeployMode.prod:
-        info("  cp backend/.env.example backend/.env  # if you haven't already")
-        info("  docker compose up -d --build")
-    else:
-        info("  cp backend/.env.example backend/.env  # if you haven't already")
-        info("  docker compose up -d --build")
+        return
+
+    info("  cp backend/.env.example backend/.env  # if you haven't already")
+    info("  # with migrations/versions empty, generate and commit the baseline first:")
+    info("  #   cd backend && alembic revision --autogenerate -m baseline")
+    info("  docker compose build")
+    info("  docker compose --profile migrate run --rm migrate")
+    info("  docker compose up -d")
+    if mode == DeployMode.nginx:
         info("  curl -i http://localhost/health/ready")

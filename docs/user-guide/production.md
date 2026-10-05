@@ -113,7 +113,7 @@ LOG_FORMAT=json
 
 Notes worth calling out:
 
-- **`CREATE_TABLES_ON_STARTUP=false`** — production should run schema changes via Alembic, not by `Base.metadata.create_all` on every boot.
+- **`CREATE_TABLES_ON_STARTUP=false`** — the default outside local and development, and `true` is refused in production: schema changes go through Alembic, not `Base.metadata.create_all` on every boot.
 - **`CONFIRM_PRODUCTION_MIGRATION=yes`** — `migrations/env.py` calls `validate_production_migration` which **refuses** to run migrations against production unless this is explicitly set. Ship deployment commands with it; never set it in long-lived env files.
 - **`SESSION_SECURE_COOKIES=true`** — cookies are sent only over HTTPS. Required if you're terminating TLS at a proxy.
 - **`OPENAPI_URL=`** (empty) disables the Swagger UI and OpenAPI spec entirely. The validator warns when this is exposed in production.

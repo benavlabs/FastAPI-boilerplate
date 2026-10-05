@@ -15,10 +15,14 @@ runner = CliRunner()
 
 
 def _backend_settings(**overrides):
-    """The app's own settings object, as the command builds it."""
+    """The app's own settings object, as the command builds it.
+
+    ``CREATE_TABLES_ON_STARTUP`` is passed in because the field's default was computed
+    for the environment this test process runs in, not for the production one here.
+    """
     module = env._app_module("src.infrastructure.config.settings")
 
-    return module.Settings(ENVIRONMENT="production", **overrides)
+    return module.Settings(ENVIRONMENT="production", CREATE_TABLES_ON_STARTUP=False, **overrides)
 
 
 @pytest.fixture

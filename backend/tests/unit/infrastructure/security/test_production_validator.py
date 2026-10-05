@@ -40,6 +40,7 @@ class TestProductionSecurityValidator:
             "SESSION_SECURE_COOKIES": True,
             "SESSION_TIMEOUT_MINUTES": 30,
             "CSRF_ENABLED": True,
+            "CREATE_TABLES_ON_STARTUP": False,
             "ADMIN_ENABLED": True,
             "ADMIN_USERNAME": "secure_admin_user",
             "ADMIN_PASSWORD": "very_secure_admin_password_123",
@@ -202,6 +203,14 @@ class TestProductionSecurityValidator:
         warning_logs = [record for record in caplog.records if record.levelname == "WARNING"]
         password_warnings = [log for log in warning_logs if "DATABASE_URL is set but contains no password" in log.message]
         assert len(password_warnings) > 0
+
+    def test_creating_tables_on_startup_raises_error(self):
+        """A boot that runs create_all can change the live schema behind Alembic's back."""
+        settings = self.create_mock_settings(CREATE_TABLES_ON_STARTUP=True)
+        validator = ProductionSecurityValidator(settings)
+
+        with pytest.raises(ProductionSecurityError, match="CREATE_TABLES_ON_STARTUP"):
+            validator.validate_production_security()
 
     def test_multiple_critical_errors_combined(self):
         """Test that multiple critical errors are combined in one message."""

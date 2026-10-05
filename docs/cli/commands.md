@@ -32,11 +32,25 @@ Options:
 
 | Mode    | Stack                                                                    | Use for                                |
 |---------|--------------------------------------------------------------------------|----------------------------------------|
-| `local` | API (target `dev`) + worker + Postgres + Redis. Source mounted, hot-reload. | Local development                      |
-| `prod`  | API (target `prod`, `WORKERS` env) + worker + Postgres + Redis + migrate.  | Single-host production, no proxy       |
+| `local` | API (target `dev`) + Postgres + Redis. Source mounted, hot-reload.       | Local development                      |
+| `prod`  | API (target `prod`, `WORKERS` env) + Postgres + Redis + a `migrate` one-shot. | Single-host production, no proxy  |
 | `nginx` | `prod` + nginx reverse proxy on port 80. API exposed on internal network. | Production behind a reverse proxy      |
 
+Every mode also gets a taskiq `worker` and a single `scheduler`, for a project that carries the
+taskiq feature; a project without it gets neither.
+
 All modes target the same multi-stage `backend/Dockerfile` — no per-mode Dockerfile is generated.
+
+The `migrate` service sits behind a compose profile and nothing waits on it, so `docker compose up`
+never migrates. Run it, then restart:
+
+```bash
+docker compose --profile migrate run --rm migrate
+docker compose up -d
+```
+
+In that order a migration that fails leaves the old containers serving on the old schema, instead of
+restarting the API into a schema it can't use.
 
 #### Examples
 
@@ -77,10 +91,11 @@ Existing files are protected: if a target already exists you'll be prompted to c
 All three modes use the same service names and networking:
 
 - **`api`** — the FastAPI application
-- **`worker`** — Taskiq worker, running `taskiq worker src.infrastructure.taskiq.worker:default_broker`
+- **`worker`** (taskiq feature) — Taskiq worker, running `taskiq worker src.infrastructure.taskiq.worker:default_broker`
+- **`scheduler`** (taskiq feature) — one Taskiq scheduler, running `taskiq scheduler src.infrastructure.taskiq.scheduler:scheduler`
 - **`postgres`** — Postgres 16 (alpine), with health check
 - **`redis`** — Redis 7 (alpine), with health check
-- **`migrate`** (prod & nginx) — runs `alembic upgrade head` once, with `CONFIRM_PRODUCTION_MIGRATION=yes`. The `api` and `worker` services depend on it via `service_completed_successfully`.
+- **`migrate`** (prod & nginx) — runs `alembic upgrade head` once, with `CONFIRM_PRODUCTION_MIGRATION=yes`, behind the `migrate` profile. Nothing depends on it: a deploy runs it and only then restarts the rest.
 - **`nginx`** (nginx mode only) — Nginx 1.27 alpine, mounting the generated `nginx/default.conf` read-only
 
 The compose file references `./backend/.env` for env vars. Make sure that file exists (`cp backend/.env.example backend/.env`) before `docker compose up`.

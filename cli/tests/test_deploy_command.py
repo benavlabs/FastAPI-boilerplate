@@ -97,3 +97,24 @@ def test_a_subnet_that_names_a_network_is_accepted(project, subnet: str):
 
     assert result.exit_code == 0, result.output
     assert f'- subnet: "{subnet}"' in (project / "docker-compose.yml").read_text()
+
+
+@pytest.mark.parametrize("mode", ["prod", "nginx"])
+def test_the_next_steps_migrate_before_starting_the_stack(project, mode: str):
+    """The API doesn't create its own schema here, and nothing waits on the migrate service."""
+    result = runner.invoke(deploy.app, [mode, "-o", str(project), "--yes"])
+
+    assert result.exit_code == 0, result.output
+    steps = [line.strip() for line in result.output.splitlines()]
+    migrate = steps.index("docker compose --profile migrate run --rm migrate")
+
+    assert "alembic revision --autogenerate -m baseline" in result.output
+    assert steps.index("docker compose build") < migrate < steps.index("docker compose up -d")
+
+
+def test_the_local_next_steps_just_start_the_stack(project):
+    result = runner.invoke(deploy.app, ["local", "-o", str(project), "--yes"])
+
+    assert result.exit_code == 0, result.output
+    assert "docker compose up --build" in result.output
+    assert "migrate" not in result.output

@@ -202,7 +202,7 @@ SESSION_MAX_AGE_SECONDS = 60 * 60 * 8
 ```
 
 ### Wrong `engine` connection / "no such table"
-The admin uses the same engine as the API, which means it requires `CREATE_TABLES_ON_STARTUP=true` (default) or applied Alembic migrations. If `/admin` shows views but they're empty / error, check:
+The admin uses the same engine as the API, which means it requires `CREATE_TABLES_ON_STARTUP=true` (the default in local and development) or applied Alembic migrations. If `/admin` shows views but they're empty / error, check:
 
 ```bash
 cd backend

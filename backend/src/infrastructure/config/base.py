@@ -60,6 +60,17 @@ class EnvironmentSettings(BaseSettings):
     ENVIRONMENT: EnvironmentOption = config("ENVIRONMENT", default=EnvironmentOption.DEVELOPMENT, cast=EnvironmentOption)
 
 
+SCHEMA_BUILT_ON_STARTUP = (EnvironmentOption.LOCAL, EnvironmentOption.DEVELOPMENT)
+"""The environments where the app builds its schema from the models as it boots."""
+
+
+def _creates_tables_by_default() -> bool:
+    """Whether ``CREATE_TABLES_ON_STARTUP`` is on in the environment this process runs in."""
+    environment = config("ENVIRONMENT", default=EnvironmentOption.DEVELOPMENT, cast=EnvironmentOption)
+
+    return environment in SCHEMA_BUILT_ON_STARTUP
+
+
 class DatabaseSettings(BaseSettings):
     """Database-related settings."""
 
@@ -69,7 +80,7 @@ class DatabaseSettings(BaseSettings):
     POSTGRES_PORT: int = config("POSTGRES_PORT", default=5432)
     POSTGRES_DB: str = config("POSTGRES_DB", default="postgres")
     POSTGRES_ASYNC_PREFIX: str = config("POSTGRES_ASYNC_PREFIX", default="postgresql+asyncpg://")
-    CREATE_TABLES_ON_STARTUP: bool = config("CREATE_TABLES_ON_STARTUP", default=True, cast=bool)
+    CREATE_TABLES_ON_STARTUP: bool = config("CREATE_TABLES_ON_STARTUP", default=_creates_tables_by_default(), cast=bool)
 
     POSTGRES_POOL_SIZE: int = config("POSTGRES_POOL_SIZE", default=20, cast=int)
     POSTGRES_MAX_OVERFLOW: int = config("POSTGRES_MAX_OVERFLOW", default=0, cast=int)

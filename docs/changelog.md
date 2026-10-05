@@ -52,6 +52,9 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   `worker.py` already set up. `bp deploy generate` writes a `scheduler` service next to the worker —
   and writes neither for a project without the taskiq feature. Exactly one scheduler may run: each
   one fires every schedule it finds.
+- **The removal drill migrates.** Every preset now autogenerates its baseline against the models the
+  project kept and applies it to an empty database, so a feature that can be removed stays one
+  Alembic can describe.
 - **`FORWARDED_ALLOW_IPS`** is now documented, and the generated nginx stack puts the containers on
   a fixed subnet and trusts forwarded headers only from it
   (`bp deploy generate nginx --internal-subnet …`).
@@ -270,6 +273,13 @@ matrix. The round that followed fixed what a re-review of the refactor found.
 
 #### Breaking Changes
 
+- **`CREATE_TABLES_ON_STARTUP` is off outside local and development**, and production refuses `true`
+  with a startup error. A production deploy that relied on `Base.metadata.create_all` running on
+  boot has to generate its baseline revision once
+  (`alembic revision --autogenerate -m baseline`, reviewed and committed) and apply it before the
+  API starts — the generated compose stack has a `migrate` service for exactly that. Nothing waits
+  on that service any more either: run `docker compose --profile migrate run --rm migrate` and only
+  then `docker compose up -d`.
 - **Changing your own email address now requires the account's current password** in the `PATCH
   /api/v1/users/{username}` body (`current_password`), and answers `403` without it. Every change
   that needs the password counts against the same budget as `POST /api/v1/auth/change-password`,

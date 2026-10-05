@@ -48,7 +48,7 @@ POSTGRES_PASSWORD=changeme
 POSTGRES_DB=postgres
 POSTGRES_SERVER=postgres    # use "localhost" without Docker
 POSTGRES_PORT=5432
-CREATE_TABLES_ON_STARTUP=true
+CREATE_TABLES_ON_STARTUP=true   # the default in local and development
 ```
 
 ### Security

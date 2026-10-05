@@ -24,7 +24,7 @@ POSTGRES_DB=postgres
 POSTGRES_SERVER=postgres    # use "localhost" without Docker
 POSTGRES_PORT=5432
 POSTGRES_ASYNC_PREFIX=postgresql+asyncpg://
-CREATE_TABLES_ON_STARTUP=true
+CREATE_TABLES_ON_STARTUP=true   # on by default in local and development only
 ```
 
 | Variable | Default | Purpose |
@@ -35,7 +35,7 @@ CREATE_TABLES_ON_STARTUP=true
 | `POSTGRES_SERVER` | `localhost` | Hostname (use `postgres`, the Compose service name) |
 | `POSTGRES_PORT` | `5432` | TCP port |
 | `POSTGRES_ASYNC_PREFIX` | `postgresql+asyncpg://` | Driver prefix for async code (the app) |
-| `CREATE_TABLES_ON_STARTUP` | `true` | Auto-create tables from models on startup |
+| `CREATE_TABLES_ON_STARTUP` | `true` in local and development, `false` otherwise | Auto-create tables from models on startup; production refuses `true` |
 | `POSTGRES_POOL_SIZE` | `20` | SQLAlchemy connection pool size |
 | `POSTGRES_MAX_OVERFLOW` | `0` | Pool overflow connections |
 | `POSTGRES_POOL_PRE_PING` | `true` | Test a pooled connection before use, replacing ones the server has dropped |
