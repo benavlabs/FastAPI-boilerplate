@@ -178,6 +178,11 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   project, it checks each draw against `is_weak_secret_key`: one hex key in 12.6 million runs
   through eight consecutive digits, which production refuses at startup. Run outside a project,
   where those rules aren't there to ask, it prints the first draw as before.
+- **The admin panel's login is throttled.** Failures are counted on the login's own lockout
+  policy, against the client address and the identifier `admin-panel:<address>`, and a locked
+  address is refused before its password is compared. The panel shares the per-address budget with
+  the user login, and the address comes from `get_client_ip(request, TRUSTED_PROXY_HOPS)`, so behind
+  a proxy the caller is counted rather than the proxy.
 - **The login lockout's thresholds are stated, not inherited.** `LOGIN_MAX_ATTEMPTS=5`,
   `LOGIN_ATTEMPT_WINDOW_SECONDS=900`, `LOGIN_LOCKOUT_BASE_SECONDS=300` and
   `LOGIN_LOCKOUT_MAX_SECONDS=3600` reach crudauth as a `LockoutConfig`. The window was crudauth's

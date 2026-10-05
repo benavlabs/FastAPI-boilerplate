@@ -3,15 +3,23 @@
 import hmac
 from typing import Literal
 
+from crudauth.utils import get_client_ip
 from sqladmin.authentication import AuthenticationBackend
 from starlette.middleware import Middleware
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.requests import Request
 from starlette.types import ASGIApp, Receive, Scope, Send
 
+from ...infrastructure.auth.setup import auth as crud_auth
 from ...infrastructure.config.settings import EnvironmentOption, get_settings
+from ...infrastructure.logging import get_logger
+
+logger = get_logger()
 
 SESSION_MAX_AGE_SECONDS = 60 * 60 * 8
+
+LOCKOUT_PREFIX = "admin-panel"
+"""Prefix of the identifier the login lockout counts the panel's failures against."""
 
 
 def admin_base_url() -> str:
@@ -116,20 +124,38 @@ class AdminAuth(AuthenticationBackend):
         ]
 
     async def login(self, request: Request) -> bool:
-        """Validate login credentials and create session."""
-        form = await request.form()
+        """Validate login credentials and create session.
+
+        Failures are counted on the login's own lockout policy, against the client address
+        and the identifier ``admin-panel:<address>``, and a locked caller is refused before
+        the submitted password is compared.
+        """
         settings = get_settings()
 
         if not settings.ADMIN_USERNAME or not settings.ADMIN_PASSWORD:
             return False
 
+        lockout = crud_auth.runtime.lockout
+        address = get_client_ip(request, settings.TRUSTED_PROXY_HOPS)
+        counted_against = f"{LOCKOUT_PREFIX}:{address}"
+
+        if lockout is not None:
+            allowed, _remaining, retry_after = await lockout.check_and_record(address, counted_against)
+            if not allowed:
+                logger.warning(f"Admin login locked out for {retry_after}s")
+                return False
+
+        form = await request.form()
         username_matches = _credential_matches(form.get("username"), settings.ADMIN_USERNAME)
         password_matches = _credential_matches(form.get("password"), settings.ADMIN_PASSWORD)
 
         if username_matches and password_matches:
+            if lockout is not None:
+                await lockout.check_and_record(address, counted_against, success=True)
             request.session.update({"admin_authenticated": True})
             return True
 
+        logger.warning("Admin login failed")
         return False
 
     async def logout(self, request: Request) -> bool:
