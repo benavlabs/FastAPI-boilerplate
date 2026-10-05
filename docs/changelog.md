@@ -65,8 +65,9 @@ matrix. The round that followed fixed what a re-review of the refactor found.
 - **`get_logger()` names the logger after its caller's module**, so per-module levels and the
   structured `module` field work.
 - **Structured log lines escape quoted values**, so client text can't forge a field.
-- **The admin panel's session cookie** is its own middleware, scoped to `/admin`, `Secure` outside
-  local and development, and valid for 8 hours. Changing a user's address in the panel clears
+- **The admin panel's session cookie** is its own middleware, scoped to the panel's own mount
+  (`ADMIN_BASE_URL`, plus whatever `root_path` the request arrived through), `Secure` outside local
+  and development, and valid for 8 hours. Changing a user's address in the panel clears
   `email_verified`.
 - **The secret-key check** measures placeholders, hand-written words, repeated blocks (whole or with
   a remainder), ordered runs, walks across neighbouring keyboard keys, and words anyone would
@@ -260,12 +261,21 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   routes at `/v1/...`; it is now refused at startup, together with any prefix that does not start
   with `/` or that ends with `/`. Set a prefix such as `/api`.
 - **A naive `expires_at` on an API key answers `422`.** Send an offset (`2030-01-01T00:00:00+00:00`).
-- **Emails are stored lowercased.** Rows written before this change keep their original case; the
-  uniqueness check and the login lookup both use the canonical form, so a mixed-case row can still be
-  matched by a differently-cased signup. A data migration for existing rows is a decision, not part
-  of this change.
-- **`API_CONTACT_URL`, `API_LICENSE_IDENTIFIER`, `CONTACT_NAME`, `CONTACT_EMAIL`, `LICENSE_NAME` and
-  `API_SUMMARY` default to empty.** Set them to put your own identity in the OpenAPI document.
+- **Emails are stored lowercased, and rows written before this change are not found.** The
+  uniqueness check and every lookup use the canonical form, while the unique index stays
+  case-sensitive, so a legacy `Legacy@Example.com` row is invisible to them: a signup as
+  `legacy@example.com` succeeds and creates a second account, a Google sign-in creates another one,
+  and the owner of the legacy row can sign in by username but not by email. Lowercasing existing
+  rows, and a unique index on `lower(email)`, is a data-migration decision and not part of this
+  change.
+- **Every `API_*` document setting defaults to empty**: `API_TITLE`, `API_SUMMARY`,
+  `API_DESCRIPTION`, `API_VERSION`, `API_TERMS_OF_SERVICE`, `API_CONTACT_NAME`,
+  `API_CONTACT_EMAIL`, `API_CONTACT_URL`, `API_LICENSE_NAME`, `API_LICENSE_IDENTIFIER` and
+  `API_LICENSE_URL`. Set them to put your own identity in the OpenAPI document. `API_TITLE`,
+  `API_DESCRIPTION` and `API_VERSION` fall back to `APP_NAME`, `APP_DESCRIPTION` and `VERSION`, so
+  the document always carries a title and a version — those two have non-empty defaults — and a
+  description only once one of the pair is set. The summary, terms of service, contact and licence
+  fields are left out of the document while they are empty.
 - **`HTTPException` and friends** import from `infrastructure/http_exceptions.py`
   (was `infrastructure/auth/http_exceptions.py`).
 - **The settings listed under Removed are gone.** An `.env` that still sets them is ignored; nothing
@@ -288,6 +298,18 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   whole repeats and placeholders were. Generate one with `bp env gen-secret` (or
   `python -c 'import secrets; print(secrets.token_urlsafe(32))'`) and roll it before deploying -
   rotating `SECRET_KEY` invalidates existing sessions and admin logins.
+- **Operators are signed out of the admin panel once.** Its session cookie is now scoped to the
+  panel's mount instead of `/`, so the cookie a browser already holds is not sent to the new path.
+  Signing in again is all it takes.
+- **Logger names changed.** `get_logger()` walked one frame too far, so a module-level
+  `logger = get_logger()` came out named `importlib._bootstrap` — the import machinery — rather than
+  the module that asked for it. Every logger is now named after its own module. Per-logger
+  configuration (a level, a filter, a handler keyed by name) has to name the module, and the
+  `module` field of a `structured` or `json` line carries it.
+- **`TASKIQ_RABBITMQ_VHOST` is written literally, not pre-escaped.** The value is escaped when the
+  broker URL is built, so `%2F` now names a vhost called `%2F`
+  (`amqp://…:5672/%252F`). Write `/` for the default vhost, or the name itself (`tasks`); a leading
+  slash is dropped either way.
 - **Regenerate an nginx stack** (`bp deploy generate nginx`) to get the `X-Forwarded-For` change.
   Until then a client can send its own `X-Forwarded-For`, and uvicorn - trusting the compose
   network - reports it as `request.client`.
