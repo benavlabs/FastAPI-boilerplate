@@ -152,7 +152,10 @@ class RateLimit(Base, TimestampMixin, SoftDeleteMixin):
 | PATCH  | `/api/v1/rate-limits/{name}` | Superuser   | Update an existing rule                  |
 | DELETE | `/api/v1/rate-limits/{name}` | Superuser   | Delete a rule                            |
 
-There's **no POST endpoint** for creating rate-limit rules. To seed initial rules, you have three options:
+There's **no POST endpoint** for creating rate-limit rules. To seed initial rules, you have three
+options. Whichever you use, a seeded `path` is the route template with the API prefix in it,
+exactly as [Path Matching](#path-matching) describes: the rows below are for the default
+`API_PREFIX=/api`, and a project that moved the API seeds `/service/v1/widgets/` instead.
 
 ### Option 1: SQL / Migration
 
@@ -195,6 +198,10 @@ if __name__ == "__main__":
 ```
 
 Run with `uv run --no-sync python -m scripts.setup_rate_limits` (from `backend/`).
+
+A row whose `path` leaves the prefix out, or spells a concrete path such as `/api/v1/widgets/42`,
+is stored and then never matches anything. Read the templates off the app, as above, rather than
+typing them by hand.
 
 ### Option 3: Add a SQLAdmin View
 
