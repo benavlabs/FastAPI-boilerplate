@@ -262,9 +262,9 @@ async def test_a_provider_login_claims_an_account_whose_address_was_changed(
 ):
     """Moving a verified account onto someone else's address must not carry the trust over.
 
-    A session alone can't move the address: the PATCH is refused without the current
-    password. With it, the move clears the verification, and a provider login for the
-    new address claims the account.
+    The owner cannot move it at all through their profile; an administrator can, and the
+    move clears the verification, so a provider login for the new address claims the
+    account rather than inheriting the old address's trust.
     """
     await db_session.execute(update(User).where(User.id == test_user["id"]).values(email_verified=True))
     await db_session.commit()
@@ -280,14 +280,12 @@ async def test_a_provider_login_claims_an_account_whose_address_was_changed(
         json={"email": "victim@example.com"},
         headers={"X-CSRF-Token": login.json()["csrf_token"]},
     )
-    assert with_a_session_alone.status_code == 403
+    assert with_a_session_alone.status_code == 422
 
-    moved = await client.patch(
-        f"/api/v1/users/{test_user['username']}",
-        json={"email": "victim@example.com", "current_password": test_user["password"]},
-        headers={"X-CSRF-Token": login.json()["csrf_token"]},
+    await db_session.execute(
+        update(User).where(User.id == test_user["id"]).values(email="victim@example.com", email_verified=False)
     )
-    assert moved.status_code == 200
+    await db_session.commit()
     assert (await client.get("/api/v1/users/me")).status_code == 200
     old_session = dict(client.cookies)
     client.cookies.clear()
@@ -320,3 +318,63 @@ async def test_a_provider_login_claims_an_account_whose_address_was_changed(
     claimed = (await db_session.execute(select(User).where(User.id == test_user["id"]))).scalar_one()
     await db_session.refresh(claimed)
     assert claimed.google_id == "google-victim"
+
+
+class TestASoftDeletedAccount:
+    """``User.is_active`` is ``not is_deleted``, and crudauth refuses an inactive account."""
+
+    @staticmethod
+    async def _sign_in_as(client: AsyncClient, monkeypatch, email: str) -> str:
+        _stub_google(
+            monkeypatch,
+            {"sub": "google-deleted", "email": email, "email_verified": True, "name": "Deleted Person"},
+        )
+        state = await _start(client)
+        callback = await client.get(
+            "/api/v1/auth/oauth/callback/google",
+            params={"code": "the-code", "state": state},
+            follow_redirects=False,
+        )
+
+        assert callback.status_code == 307
+        assert "session_id" not in callback.cookies
+
+        return callback.headers["location"]
+
+    async def test_a_provider_sign_in_is_refused_and_claims_nothing(
+        self, client: AsyncClient, db_session: AsyncSession, test_user: dict, monkeypatch
+    ):
+        """Linking the provider id onto a deleted row would hand the account to whoever signs in."""
+        await db_session.execute(update(User).where(User.id == test_user["id"]).values(is_deleted=True))
+        await db_session.commit()
+
+        location = await self._sign_in_as(client, monkeypatch, test_user["email"])
+
+        assert location == f"{BASE}?error=account_inactive"
+        refused = await db_session.get_one(User, test_user["id"])
+        await db_session.refresh(refused)
+        assert refused.google_id is None
+        assert refused.oauth_provider is None
+
+    async def test_the_refused_sign_in_leaves_the_row_as_it_was(
+        self, client: AsyncClient, db_session: AsyncSession, test_user: dict, monkeypatch
+    ):
+        """An unverified address stays unverified, and the password still signs in once restored."""
+        await db_session.execute(update(User).where(User.id == test_user["id"]).values(is_deleted=True))
+        await db_session.commit()
+
+        await self._sign_in_as(client, monkeypatch, test_user["email"])
+
+        untouched = await db_session.get_one(User, test_user["id"])
+        await db_session.refresh(untouched)
+        assert untouched.email_verified is False
+        assert untouched.email == test_user["email"]
+
+        await db_session.execute(update(User).where(User.id == test_user["id"]).values(is_deleted=False))
+        await db_session.commit()
+        signed_in = await client.post(
+            "/api/v1/auth/login",
+            data={"username": test_user["username"], "password": test_user["password"]},
+        )
+
+        assert signed_in.status_code == 200
