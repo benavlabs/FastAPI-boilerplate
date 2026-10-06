@@ -7,6 +7,7 @@ checking for common misconfigurations that could lead to security vulnerabilitie
 from typing import Any
 from urllib.parse import unquote, urlsplit
 
+from ..config.enums import EmailBackend
 from ..config.settings import EnvironmentOption, Settings
 from ..logging import get_logger
 from .secret_key import is_weak_secret_key
@@ -218,6 +219,13 @@ class ProductionSecurityValidator:
                 "Admin interface is enabled (ADMIN_ENABLED=true) but ADMIN_USERNAME and/or "
                 "ADMIN_PASSWORD are not set. Set both to strong, unique values or set "
                 "ADMIN_ENABLED=false for production."
+            )
+
+        if self.settings.EMAIL_BACKEND == EmailBackend.CONSOLE.value:
+            errors.append(
+                "EMAIL_BACKEND is 'console' in production. That backend logs every message in full, "
+                "so password-reset and verification links would be written to the logs instead of "
+                "being delivered. Set EMAIL_BACKEND=smtp and configure EMAIL_SMTP_*."
             )
 
         if self.settings.CREATE_TABLES_ON_STARTUP:

@@ -41,6 +41,7 @@ class TestProductionSecurityValidator:
             "SESSION_TIMEOUT_MINUTES": 30,
             "CSRF_ENABLED": True,
             "CREATE_TABLES_ON_STARTUP": False,
+            "EMAIL_BACKEND": "smtp",
             "ADMIN_ENABLED": True,
             "ADMIN_USERNAME": "secure_admin_user",
             "ADMIN_PASSWORD": "very_secure_admin_password_123",
@@ -203,6 +204,14 @@ class TestProductionSecurityValidator:
         warning_logs = [record for record in caplog.records if record.levelname == "WARNING"]
         password_warnings = [log for log in warning_logs if "DATABASE_URL is set but contains no password" in log.message]
         assert len(password_warnings) > 0
+
+    def test_the_console_email_backend_raises_error(self):
+        """It logs every message in full, which would put working reset links in the logs."""
+        settings = self.create_mock_settings(EMAIL_BACKEND="console")
+        validator = ProductionSecurityValidator(settings)
+
+        with pytest.raises(ProductionSecurityError, match="EMAIL_BACKEND"):
+            validator.validate_production_security()
 
     def test_creating_tables_on_startup_raises_error(self):
         """A boot that runs create_all can change the live schema behind Alembic's back."""

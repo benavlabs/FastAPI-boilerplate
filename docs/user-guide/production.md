@@ -113,6 +113,7 @@ LOG_FORMAT=json
 
 Notes worth calling out:
 
+- **`EMAIL_BACKEND=smtp`** — `console` is refused in production: it logs every message in full, so password-reset and verification links would end up in the logs instead of being delivered.
 - **`CREATE_TABLES_ON_STARTUP=false`** — the default outside local and development, and `true` is refused in production: schema changes go through Alembic, not `Base.metadata.create_all` on every boot.
 - **`CONFIRM_PRODUCTION_MIGRATION=yes`** — `migrations/env.py` calls `validate_production_migration` which **refuses** to run migrations against production unless this is explicitly set. Ship deployment commands with it; never set it in long-lived env files.
 - **`SESSION_SECURE_COOKIES=true`** — cookies are sent only over HTTPS. Required if you're terminating TLS at a proxy.
@@ -372,6 +373,7 @@ Before shipping:
 - [ ] All Redis instances have `*_REDIS_PASSWORD` set
 - [ ] `ADMIN_ENABLED=false` (or restricted at the network layer)
 - [ ] Database migrations run via the `migrate` Dockerfile stage with `CONFIRM_PRODUCTION_MIGRATION=yes`
+- [ ] `EMAIL_BACKEND=smtp`, with `EMAIL_SMTP_*` configured
 - [ ] `CREATE_TABLES_ON_STARTUP=false`
 - [ ] Pre-commit and CI are running on every PR (lint, mypy, tests)
 - [ ] Backups configured for the production database and Redis (if you're using Redis for sessions / state you can't lose)

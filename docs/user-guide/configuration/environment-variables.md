@@ -103,6 +103,37 @@ RATE_LIMITER_REDIS_CONNECT_TIMEOUT=5
 RATE_LIMITER_REDIS_POOL_SIZE=10
 ```
 
+## Email
+
+```env
+EMAIL_BACKEND=console           # or "smtp"
+EMAIL_FROM=no-reply@localhost
+EMAIL_FROM_NAME=
+```
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `EMAIL_BACKEND` | `console` | `console` logs each message and sends nothing; `smtp` delivers. Production refuses `console` |
+| `EMAIL_FROM` | `no-reply@localhost` | The address the account emails come from |
+| `EMAIL_FROM_NAME` | empty | The display name beside it |
+
+### SMTP
+
+```env
+EMAIL_SMTP_HOST=
+EMAIL_SMTP_PORT=587
+EMAIL_SMTP_USER=
+EMAIL_SMTP_PASSWORD=
+EMAIL_SMTP_STARTTLS=true
+EMAIL_SMTP_TIMEOUT_SECONDS=10
+```
+
+`EMAIL_BACKEND=smtp` with no `EMAIL_SMTP_HOST` is refused by name when the sender is built.
+`EMAIL_SMTP_STARTTLS` verifies the server's certificate and hostname, so a server presenting a
+self-signed certificate is refused rather than trusted; turn it off only for a relay on a network
+you own. With the taskiq feature present, delivery is enqueued as the `email:send` task and a worker
+does the sending, so no request waits on the mail server.
+
 ## Background Tasks (Taskiq)
 
 ```env

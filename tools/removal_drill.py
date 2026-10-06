@@ -304,6 +304,7 @@ def _wiring_app(chosen: set[str]) -> str:
 
 def _wiring_hooks(chosen: set[str]) -> str:
     imports = [
+        "from crudauth import EmailSender",
         "from ..infrastructure.composition import (\n"
         "    PermissionSource,\n"
         "    RateLimitResolver,\n"
@@ -337,8 +338,15 @@ def _wiring_hooks(chosen: set[str]) -> str:
         imports.append("from ..infrastructure.cache.health import readiness as cache_readiness")
         informational.append("cache_readiness")
     if "taskiq" in chosen:
+        imports.append("from ..infrastructure.taskiq.email import queued_sender")
         imports.append("from ..infrastructure.taskiq.health import readiness as broker_readiness")
         informational.append("broker_readiness")
+
+    if "taskiq" in chosen:
+        sender = "queued_sender"
+    else:
+        imports.append("from ..infrastructure.email.factory import build_sender")
+        sender = "build_sender()"
 
     critical_checks = "(" + ", ".join(critical) + ",)"
     informational_checks = ("(" + ", ".join(informational) + ",)") if informational else "()"
@@ -346,7 +354,8 @@ def _wiring_hooks(chosen: set[str]) -> str:
     return (
         '''"""The contributions features make to each other\'s extension points."""\n\n'''
         + "\n".join(sorted(imports))
-        + f"\n\nPERMISSION_SOURCES: tuple[PermissionSource, ...] = {sources}\n"
+        + f"\n\nEMAIL_SENDER: EmailSender = {sender}\n"
+        f"PERMISSION_SOURCES: tuple[PermissionSource, ...] = {sources}\n"
         f"RATE_LIMIT_RESOLVERS: tuple[RateLimitResolver, ...] = {resolvers}\n"
         f"TIER_DELETE_GUARDS: tuple[TierDeleteGuard, ...] = {guards}\n"
         f"TIER_DELETE_RELEASES: tuple[TierDeleteRelease, ...] = {releases}\n"

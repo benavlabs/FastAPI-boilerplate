@@ -11,6 +11,13 @@ class CacheBackend(StrEnum):
     MEMORY = "memory"
 
 
+class EmailBackend(StrEnum):
+    """How account emails are delivered."""
+
+    CONSOLE = "console"
+    SMTP = "smtp"
+
+
 class SessionBackend(StrEnum):
     """Session storage backend types.
 

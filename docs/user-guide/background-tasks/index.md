@@ -26,12 +26,13 @@ backend/src/infrastructure/taskiq/
 ├── brokers.py         Builds the Redis or RabbitMQ broker from settings
 ├── app.py             WORKER_STARTUP / WORKER_SHUTDOWN handlers (logging, engine disposal)
 ├── lifecycle.py       Opens and closes the broker in the API process
+├── email.py           The email:send task, and the sender that enqueues it
 ├── scheduler.py       Scheduler entry point: the schedules tasks declare in labels
 ├── deps.py            DBSession dependency (TaskiqDepends-wrapped AsyncSession)
 └── worker.py          Worker entry point: registers the handlers on `default_broker`
 ```
 
-Importantly: **no example task ships in the boilerplate.** The infrastructure is wired up; the modules are yours to add.
+One task ships: `email:send`, which delivers the account emails (`infrastructure/taskiq/email.py`), so no request waits on a mail server. Beyond it the infrastructure is wired up and the task modules are yours to add.
 
 ## Configuration
 

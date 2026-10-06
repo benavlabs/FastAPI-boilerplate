@@ -55,6 +55,12 @@ matrix. The round that followed fixed what a re-review of the refactor found.
 - **The removal drill migrates.** Every preset now autogenerates its baseline against the models the
   project kept and applies it to an empty database, so a feature that can be removed stays one
   Alembic can describe.
+- **A sender for the account emails.** `EMAIL_BACKEND` picks it: `console` logs each message with
+  its link and sends nothing (the default, so a fresh project needs no mail server), `smtp` delivers
+  over `EMAIL_SMTP_*` with the server's certificate verified. With the taskiq feature present the
+  wiring hands delivery to the `email:send` task, so no request waits on the mail server; without it
+  the request sends directly. `EMAIL_BACKEND=smtp` without `EMAIL_SMTP_HOST` is refused when the app
+  starts, on either path, and production refuses `console`: it would log working reset links.
 - **`FORWARDED_ALLOW_IPS`** is now documented, and the generated nginx stack puts the containers on
   a fixed subnet and trusts forwarded headers only from it
   (`bp deploy generate nginx --internal-subnet …`).

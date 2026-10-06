@@ -12,7 +12,7 @@ from pydantic_settings import BaseSettings
 from sqlalchemy.engine import URL
 from starlette.config import Config
 
-from .enums import LogFormat, LogLevel
+from .enums import EmailBackend, LogFormat, LogLevel
 
 logger = logging.getLogger(__name__)
 
@@ -207,6 +207,21 @@ class AppSettings(BaseSettings):
     VERSION: str = config("VERSION", default="0.1.0")
 
 
+class EmailSettings(BaseSettings):
+    """How the account emails are delivered, and who they come from."""
+
+    EMAIL_BACKEND: str = config("EMAIL_BACKEND", default=EmailBackend.CONSOLE.value)
+    EMAIL_FROM: str = config("EMAIL_FROM", default="no-reply@localhost")
+    EMAIL_FROM_NAME: str = config("EMAIL_FROM_NAME", default="")
+
+    EMAIL_SMTP_HOST: str = config("EMAIL_SMTP_HOST", default="")
+    EMAIL_SMTP_PORT: int = config("EMAIL_SMTP_PORT", default=587, cast=int)
+    EMAIL_SMTP_USER: str = config("EMAIL_SMTP_USER", default="")
+    EMAIL_SMTP_PASSWORD: str = config("EMAIL_SMTP_PASSWORD", default="")
+    EMAIL_SMTP_STARTTLS: bool = config("EMAIL_SMTP_STARTTLS", default=True, cast=bool)
+    EMAIL_SMTP_TIMEOUT_SECONDS: int = config("EMAIL_SMTP_TIMEOUT_SECONDS", default=10, cast=int)
+
+
 class SecuritySettings(BaseSettings):
     """Security validation settings, and the secret every signed value derives from."""
 
@@ -256,6 +271,7 @@ class LoggingSettings(BaseSettings):
 class CoreSettings(
     EnvironmentSettings,
     DatabaseSettings,
+    EmailSettings,
     CORSSettings,
     CompressionSettings,
     ClientCacheSettings,
