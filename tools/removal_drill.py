@@ -340,7 +340,6 @@ def _wiring_hooks(chosen: set[str]) -> str:
         imports.append("from ..infrastructure.taskiq.health import readiness as broker_readiness")
         informational.append("broker_readiness")
 
-
     critical_checks = "(" + ", ".join(critical) + ",)"
     informational_checks = ("(" + ", ".join(informational) + ",)") if informational else "()"
 
