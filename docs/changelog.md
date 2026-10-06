@@ -55,6 +55,11 @@ matrix. The round that followed fixed what a re-review of the refactor found.
 - **The removal drill migrates.** Every preset now autogenerates its baseline against the models the
   project kept and applies it to an empty database, so a feature that can be removed stays one
   Alembic can describe.
+- **crudauth 0.7.5.** The account routes come from it, and this release carries the fixes the email
+  flows and OAuth need: an inactive account is sent no recovery mail and its outstanding links are
+  refused (0.7.5), an OAuth sign-in refuses an inactive account before linking or claiming it
+  (0.7.4), and `repo.gated_register_fields()` names the privileged fields an app's own signup
+  schema must not offer (0.7.2) — a test holds this project's `UserCreate` to that.
 - **A sender for the account emails.** `EMAIL_BACKEND` picks it: `console` logs each message with
   its link and sends nothing (the default, so a fresh project needs no mail server), `smtp` delivers
   over `EMAIL_SMTP_*` with the server's certificate verified. With the taskiq feature present the

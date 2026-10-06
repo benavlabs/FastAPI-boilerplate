@@ -16,6 +16,11 @@ def test_the_password_field_documents_the_configured_policy():
     assert f"At least {settings.PASSWORD_MIN_LENGTH} characters" in field["description"]
 
 
+def test_the_signup_schema_offers_no_field_crudauth_gates():
+    """A registration drops crudauth's privileged fields; this schema never asks for one."""
+    assert not auth.repo.gated_register_fields(UserCreate.model_fields)
+
+
 def test_the_schema_leaves_enforcement_to_the_policy():
     """A weak password parses, so it's rejected by crudauth and never echoed in a validation error."""
     user = UserCreate(name="Test User", username="testuser", email="user.userson@example.com", password="weak")
