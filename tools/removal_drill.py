@@ -382,11 +382,7 @@ def _wiring_cache(chosen: set[str]) -> str:
     else:
         source = "from ..infrastructure.uncached import cached"
 
-    return (
-        '"""The decorator a route caches its response with."""\n\n'
-        f"{source}\n\n"
-        '__all__ = ["cached"]\n'
-    )
+    return f'"""The decorator a route caches its response with."""\n\n{source}\n\n__all__ = ["cached"]\n'
 
 
 def _wiring_models(chosen: set[str]) -> str:
