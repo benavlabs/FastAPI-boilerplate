@@ -60,6 +60,9 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   refused (0.7.5), an OAuth sign-in refuses an inactive account before linking or claiming it
   (0.7.4), and `repo.gated_register_fields()` names the privileged fields an app's own signup
   schema must not offer (0.7.2) — a test holds this project's `UserCreate` to that.
+- **A provider-only account can set its first password** through the reset link, which proves the
+  address first; `POST /set-password` stays unmounted, since a borrowed session must not be able to
+  put a password on such an account.
 - **The account recovery flows**, mounted from crudauth under `/api/v1/auth`: email verification
   (`email/verify-request`, `email/verify-confirm`), password reset (`password/reset-request`,
   `password/reset-confirm`) and a confirmed email change (`email/change-request`,
@@ -293,6 +296,12 @@ matrix. The round that followed fixed what a re-review of the refactor found.
 
 #### Breaking Changes
 
+- **`PATCH /api/v1/users/{username}` no longer takes `email`** (or the `current_password` that
+  gated it); both now answer `422`. An account moves its address through
+  `POST /api/v1/auth/email/change-request`, which confirms the new address and notifies the old one,
+  and an administrator can still correct one from the admin panel, whose form carries the field. The
+  password-gated direct change is gone, with its `EmailChangeNeedsPasswordError` /
+  `ProviderAccountEmailChangeError` and the budget it counted against.
 - **`CREATE_TABLES_ON_STARTUP` is off outside local and development**, and production refuses `true`
   with a startup error. A production deploy that relied on `Base.metadata.create_all` running on
   boot has to generate its baseline revision once

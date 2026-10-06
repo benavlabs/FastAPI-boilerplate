@@ -15,7 +15,6 @@ from src.infrastructure.auth.dependencies import (
     get_current_superuser,
     get_current_user,
 )
-from src.infrastructure.auth.password_attempts import PASSWORD_ATTEMPT_ACTION
 from src.infrastructure.auth.setup import auth as crud_auth
 from src.interfaces.main import app
 from src.modules.user.models import User
@@ -174,6 +173,7 @@ def mock_oauth_settings(monkeypatch):
 
 
 TEST_CLIENT_IP = "127.0.0.1"
+PASSWORD_ATTEMPT_ACTION = "change_password"
 
 
 async def _reset_limiter_keys(*keys: str) -> None:

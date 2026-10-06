@@ -121,10 +121,6 @@ class UserUpdate(EncodableText, PartialUpdate):
             examples=["userberg"],
         ),
     ] = None
-    email: Annotated[
-        EmailStr | None,
-        Field(max_length=EMAIL_MAX_LENGTH, examples=["user.userberg@example.com"]),
-    ] = None
     profile_image_url: Annotated[
         str | None,
         Field(
@@ -134,22 +130,18 @@ class UserUpdate(EncodableText, PartialUpdate):
     ] = None
 
 
-class UserSelfUpdate(UserUpdate):
-    """Schema for the fields a user may change on their own account."""
-
-    current_password: Annotated[
-        str | None,
-        Field(exclude=True, description="Required when the email changes"),
-    ] = None
-
-
 class UserAdminUpdate(UserUpdate):
     """Schema for updates only an administrator may make.
 
-    Adds the OAuth identifiers and the verification flag, which the public profile
-    update leaves out.
+    Adds the address, the OAuth identifiers and the verification flag, which the
+    public profile update leaves out: an account moves its own address through
+    ``POST /api/v1/auth/email/change-request``, which confirms the new one.
     """
 
+    email: Annotated[
+        EmailStr | None,
+        Field(max_length=EMAIL_MAX_LENGTH, examples=["user.userberg@example.com"]),
+    ] = None
     google_id: str | None = None
     github_id: str | None = None
     oauth_provider: str | None = None

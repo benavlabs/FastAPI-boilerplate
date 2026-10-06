@@ -3,17 +3,14 @@
 from typing import Any
 
 import pytest
-from crudauth import make_unusable_password
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.modules.common.exceptions import PermissionDeniedError
 from src.modules.user.crud import crud_users
 from src.modules.user.exceptions import (
-    EmailChangeNeedsPasswordError,
-    ProviderAccountEmailChangeError,
     UserExistsError,
 )
-from src.modules.user.schemas import UserCreate, UserUpdate
+from src.modules.user.schemas import UserAdminUpdate, UserCreate, UserUpdate
 from src.modules.user.service import UserService
 
 UPDATE = "user.update"
@@ -95,26 +92,6 @@ def test_a_holder_can_edit_someone_weaker(user_service: UserService):
     )
 
 
-def test_a_holder_cannot_change_another_users_email(user_service: UserService):
-    """A verified provider email resolves a login to an account, so this is a takeover."""
-    with pytest.raises(PermissionDeniedError, match="email"):
-        user_service.verify_no_privilege_escalation(
-            _user("bob"),
-            UserUpdate(email="attacker@example.com"),
-            frozenset({UPDATE}),
-            frozenset(),
-        )
-
-
-def test_submitting_the_email_a_user_already_has_is_not_a_change(user_service: UserService):
-    user_service.verify_no_privilege_escalation(
-        _user("bob", email="bob@example.com"),
-        UserUpdate(email="bob@example.com", name="New Name"),
-        frozenset({UPDATE}),
-        frozenset(),
-    )
-
-
 # =============================================================================
 # What signup is allowed to write
 # =============================================================================
@@ -151,9 +128,7 @@ async def test_changing_the_email_drops_the_verification(user_service: UserServi
     """A verified address doesn't vouch for the next one the owner types in."""
     await crud_users.update(db=db_session, object={"email_verified": True}, id=test_user["id"])
 
-    await user_service.update(
-        test_user["id"], UserUpdate(email="moved@example.com"), db_session, current_password=test_user["password"]
-    )
+    await user_service.update(test_user["id"], UserAdminUpdate(email="moved@example.com"), db_session)
 
     moved = await _stored(db_session, test_user["id"])
     assert moved["email"] == "moved@example.com"
@@ -177,7 +152,7 @@ async def test_resubmitting_the_same_email_keeps_the_verification(
     """A form that posts every field must not cost the user their verification."""
     await crud_users.update(db=db_session, object={"email_verified": True}, id=test_user["id"])
 
-    await user_service.update(test_user["id"], UserUpdate(email=test_user["email"]), db_session)
+    await user_service.update(test_user["id"], UserAdminUpdate(email=test_user["email"]), db_session)
 
     unchanged = await _stored(db_session, test_user["id"])
     assert unchanged["email_verified"] is True
@@ -218,83 +193,14 @@ async def test_changing_to_the_same_address_in_another_case_is_refused(
     )
 
     with pytest.raises(UserExistsError):
-        await user_service.update(
-            test_user["id"], UserUpdate(email="TAKEN@example.com"), db_session, current_password=test_user["password"]
-        )
+        await user_service.update(test_user["id"], UserAdminUpdate(email="TAKEN@example.com"), db_session)
 
 
 async def test_an_updated_address_is_stored_in_canonical_form(
     user_service: UserService, db_session: AsyncSession, test_user: dict
 ):
-    await user_service.update(
-        test_user["id"], UserUpdate(email="Moved@Example.COM"), db_session, current_password=test_user["password"]
-    )
+    """An administrator's update goes through the same canonicalisation as a signup."""
+    await user_service.update(test_user["id"], UserAdminUpdate(email="Moved@Example.COM"), db_session)
 
     moved = await _stored(db_session, test_user["id"])
-    assert moved["email"] == "moved@example.com"
-
-
-async def test_an_email_change_without_the_password_is_refused(
-    user_service: UserService, db_session: AsyncSession, test_user: dict
-):
-    """The service refuses the change when no requester is given."""
-    with pytest.raises(EmailChangeNeedsPasswordError):
-        await user_service.update(test_user["id"], UserUpdate(email="moved@example.com"), db_session)
-
-    unchanged = await _stored(db_session, test_user["id"])
-    assert unchanged["email"] == test_user["email"]
-
-
-async def test_an_email_change_by_another_user_needs_no_password(
-    user_service: UserService, db_session: AsyncSession, test_user: dict, test_superuser: dict
-):
-    await user_service.update(test_user["id"], UserUpdate(email="moved@example.com"), db_session, requester=test_superuser)
-
-    moved = await _stored(db_session, test_user["id"])
-    assert moved["email"] == "moved@example.com"
-
-
-async def test_an_account_without_a_usable_password_cannot_move_its_address(
-    user_service: UserService, db_session: AsyncSession, test_user: dict
-):
-    await crud_users.update(db=db_session, object={"hashed_password": make_unusable_password()}, id=test_user["id"])
-
-    with pytest.raises(ProviderAccountEmailChangeError):
-        await user_service.update(
-            test_user["id"], UserUpdate(email="moved@example.com"), db_session, current_password="anything"
-        )
-
-
-async def test_a_requester_who_is_not_a_superuser_needs_the_password(
-    user_service: UserService, db_session: AsyncSession, test_user: dict, test_user_2: dict
-):
-    with pytest.raises(EmailChangeNeedsPasswordError):
-        await user_service.update(test_user["id"], UserUpdate(email="moved@example.com"), db_session, requester=test_user_2)
-
-
-async def test_a_requester_without_an_id_needs_the_password(
-    user_service: UserService, db_session: AsyncSession, test_user: dict
-):
-    with pytest.raises(EmailChangeNeedsPasswordError):
-        await user_service.update(
-            test_user["id"], UserUpdate(email="moved@example.com"), db_session, requester={"is_superuser": True}
-        )
-
-
-async def test_a_superuser_changing_their_own_address_needs_the_password(
-    user_service: UserService, db_session: AsyncSession, test_superuser: dict
-):
-    with pytest.raises(EmailChangeNeedsPasswordError):
-        await user_service.update(
-            test_superuser["id"], UserUpdate(email="moved@example.com"), db_session, requester=test_superuser
-        )
-
-    await user_service.update(
-        test_superuser["id"],
-        UserUpdate(email="moved@example.com"),
-        db_session,
-        requester=test_superuser,
-        current_password=test_superuser["password"],
-    )
-    moved = await _stored(db_session, test_superuser["id"])
     assert moved["email"] == "moved@example.com"

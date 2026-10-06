@@ -92,9 +92,10 @@ async def test_a_user_still_edits_their_own_profile(client: AsyncClient, db_sess
     assert owner.name == "My New Name"
 
 
-async def test_a_superuser_can_change_another_users_email(
+async def test_not_even_a_superuser_changes_an_address_through_this_route(
     client: AsyncClient, db_session: AsyncSession, test_superuser: dict, test_user_2: dict
 ):
+    """The address moves through the confirmed flow; the admin panel is the other way in."""
     csrf_token = await _login(client, test_superuser)
 
     response = await client.patch(
@@ -103,7 +104,7 @@ async def test_a_superuser_can_change_another_users_email(
         headers={"X-CSRF-Token": csrf_token},
     )
 
-    assert response.status_code == 200
+    assert response.status_code == 422
 
 
 async def test_a_contributed_source_lets_a_holder_through(client: AsyncClient, test_user: dict, monkeypatch):

@@ -8,7 +8,7 @@ import itertools
 
 import pytest
 from fastapi.routing import APIRoute
-from httpx import AsyncClient, Response
+from httpx import AsyncClient
 
 from src.infrastructure.config.settings import settings
 from src.infrastructure.ratelimit.dependency import api_rate_limit_dependency
@@ -91,46 +91,6 @@ def throttled(monkeypatch):
     monkeypatch.setattr(settings, "RATE_LIMITER_ENABLED", True)
     monkeypatch.setattr(settings, "DEFAULT_RATE_LIMIT_LIMIT", 100)
     monkeypatch.setattr(settings, "DEFAULT_RATE_LIMIT_PERIOD", 3600)
-
-
-class TestTheHeadersOnACountedEmailChange:
-    """The email-change guard counts without taking over the API throttle's headers."""
-
-    async def test_a_successful_change_reports_the_api_budget(self, auth_client: AsyncClient, test_user: dict, throttled: None):
-        response = await auth_client.patch(
-            f"/api/v1/users/{test_user['username']}",
-            json={"email": "moved@example.com", "current_password": test_user["password"]},
-        )
-
-        assert response.status_code == 200
-        assert response.headers["X-RateLimit-Limit"] == "100"
-
-    async def test_a_refused_change_reports_the_api_budget(self, auth_client: AsyncClient, test_user: dict, throttled: None):
-        response = await auth_client.patch(
-            f"/api/v1/users/{test_user['username']}",
-            json={"email": "moved@example.com", "current_password": "WrongPassword1!"},
-        )
-
-        assert response.status_code == 403
-        assert response.headers["X-RateLimit-Limit"] == "100"
-
-    async def test_the_guess_that_runs_out_of_budget_reports_that_budget(
-        self, auth_client: AsyncClient, test_user: dict, throttled: None
-    ):
-        async def guess() -> Response:
-            return await auth_client.patch(
-                f"/api/v1/users/{test_user['username']}",
-                json={"email": "moved@example.com", "current_password": "WrongPassword1!"},
-            )
-
-        refused = [await guess() for _ in range(5)]
-        out_of_budget = await guess()
-
-        assert [response.status_code for response in refused] == [403] * 5
-        assert out_of_budget.status_code == 429
-        assert out_of_budget.headers["X-RateLimit-Limit"] == "5"
-        assert out_of_budget.headers["X-RateLimit-Remaining"] == "0"
-        assert out_of_budget.headers["Retry-After"]
 
 
 @pytest.mark.usefixtures("fresh_login_lockout")

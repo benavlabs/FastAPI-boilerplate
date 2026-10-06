@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from crudauth import get_password_hash_async
-from crudauth.utils import canonical_email, is_unusable_password, verify_password_async
+from crudauth.utils import canonical_email
 from fastcrud.types import GetMultiResponseDict
 from sqlalchemy.exc import MultipleResultsFound, NoResultFound
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,8 +17,6 @@ from ..common.exceptions import (
 )
 from .crud import crud_users
 from .exceptions import (
-    EmailChangeNeedsPasswordError,
-    ProviderAccountEmailChangeError,
     UserExistsError,
     UserNotFoundError,
 )
@@ -247,8 +245,6 @@ class UserService:
         user_id: int,
         user_update: UserUpdate,
         db: AsyncSession,
-        requester: dict[str, Any] | None = None,
-        current_password: str | None = None,
     ) -> dict[str, Any]:
         """Update user information.
 
@@ -259,9 +255,6 @@ class UserService:
             user_id: ID of the user to update.
             user_update: Fields to update with new values.
             db: Database session for the operation.
-            requester: The user making the request. Only a superuser acting on another
-                account changes an address without ``current_password``.
-            current_password: The account's current password, required when the email changes.
 
         Returns:
             Updated user data dictionary.
@@ -271,10 +264,8 @@ class UserService:
             UserExistsError: If email or username conflicts with existing users.
 
         Note:
-            Validates uniqueness when updating email or username.
-            Changing the email clears ``email_verified`` and requires the
-            account's current password.
-            Only non-deleted users can be updated.
+            Validates uniqueness when updating email or username, and an address that
+            moves clears ``email_verified``. Only non-deleted users can be updated.
 
         Example:
             ```python
@@ -295,9 +286,6 @@ class UserService:
             update_data["email"] = canonical_email(update_data["email"])
 
         if "email" in update_data and update_data["email"] != existing_user["email"]:
-            if self.email_change_needs_password(requester, user_id):
-                await self._confirm_email_change(existing_user, current_password)
-
             email_exists = await crud_users.exists(db=db, email=update_data["email"])
             if email_exists:
                 raise UserExistsError("Email already registered")
@@ -315,32 +303,6 @@ class UserService:
         if not updated_user:
             raise UserNotFoundError(f"User with ID {user_id} not found")
         return updated_user
-
-    @staticmethod
-    def _is_superuser_acting_on_another(requester: dict[str, Any] | None, user_id: int) -> bool:
-        """Whether the requester is a superuser and the account is not their own."""
-        return bool(
-            requester and requester.get("is_superuser") and requester.get("id") is not None and requester.get("id") != user_id
-        )
-
-    @classmethod
-    def email_change_needs_password(cls, requester: dict[str, Any] | None, user_id: int) -> bool:
-        """Whether an email change on ``user_id`` has to be confirmed with the account's password."""
-        return not cls._is_superuser_acting_on_another(requester, user_id)
-
-    async def _confirm_email_change(self, user: dict[str, Any], current_password: str | None) -> None:
-        """Verify the account's current password before its address moves.
-
-        Raises:
-            ProviderAccountEmailChangeError: The account has no usable password.
-            EmailChangeNeedsPasswordError: The password is missing or wrong.
-        """
-        stored = user.get("hashed_password") or ""
-        if is_unusable_password(stored):
-            raise ProviderAccountEmailChangeError("Account has no usable password")
-
-        if not current_password or not await verify_password_async(current_password, stored):
-            raise EmailChangeNeedsPasswordError("Current password missing or incorrect")
 
     async def check_update_permission(self, requester_user: dict[str, Any], target_username: str) -> bool:
         """Check if user has permission to update another user.
@@ -442,8 +404,6 @@ class UserService:
         Editing an account is a way to take it over, so a non-superuser holding
         ``user.update`` may only edit accounts weaker than their own: not a
         superuser, and holding nothing the requester doesn't already hold.
-        The email address is how a verified provider login is matched to an
-        existing account, so only a superuser may change someone else's.
 
         Args:
             target_user: The user being updated.
@@ -459,10 +419,6 @@ class UserService:
 
         if not set(target_permissions) <= set(requester_permissions):
             raise PermissionDeniedError("You don't have permission to update profile on this user")
-
-        submitted = values.model_dump(exclude_unset=True)
-        if "email" in submitted and submitted["email"] != target_user.get("email"):
-            raise PermissionDeniedError("Only a superuser can change another user's email address")
 
     async def delete(self, user_id: int, db: AsyncSession) -> None:
         """Soft delete a user.

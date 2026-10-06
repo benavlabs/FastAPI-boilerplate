@@ -113,7 +113,7 @@ async def test_an_update_holder_can_edit_a_weaker_user(
 async def test_an_update_holder_cannot_change_another_users_email(
     client: AsyncClient, db_session: AsyncSession, test_user: dict, test_user_2: dict
 ):
-    """A verified provider email links a social login to an account, so this is superuser-only."""
+    """The route takes no address at all, so a holder cannot reach one this way."""
     await _grant(db_session, test_user["id"], "editor", "user.update")
     csrf_token = await _login(client, test_user)
 
@@ -123,7 +123,7 @@ async def test_an_update_holder_cannot_change_another_users_email(
         headers={"X-CSRF-Token": csrf_token},
     )
 
-    assert response.status_code == 403
+    assert response.status_code == 422
     target = await db_session.get_one(User, test_user_2["id"])
     await db_session.refresh(target)
     assert target.email == test_user_2["email"]

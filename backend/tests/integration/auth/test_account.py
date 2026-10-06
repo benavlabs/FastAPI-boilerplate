@@ -104,17 +104,8 @@ async def test_changing_a_password_needs_a_session(client: AsyncClient, test_use
     assert response.status_code == 401
 
 
-class TestPasswordGuessesShareOneBudget:
-    """Guesses through the email-change path and through change-password count together."""
-
-    async def _patch_with(self, client: AsyncClient, user: dict, csrf: str, password: str) -> int:
-        response = await client.patch(
-            f"/api/v1/users/{user['username']}",
-            json={"email": "moved@example.com", "current_password": password},
-            headers={"X-CSRF-Token": csrf},
-        )
-
-        return response.status_code
+class TestTheChangePasswordBudget:
+    """crudauth caps the guesses one account may make, successes included."""
 
     async def _change_password_with(self, client: AsyncClient, csrf: str, password: str) -> int:
         response = await client.post(
@@ -125,48 +116,19 @@ class TestPasswordGuessesShareOneBudget:
 
         return response.status_code
 
-    async def test_the_sixth_wrong_guess_through_the_patch_is_refused(self, client: AsyncClient, test_user: dict):
+    async def test_the_sixth_wrong_guess_is_refused(self, client: AsyncClient, test_user: dict):
         csrf = await _login(client, test_user)
 
-        refused = [await self._patch_with(client, test_user, csrf, "WrongPassword1!") for _ in range(5)]
-        sixth = await self._patch_with(client, test_user, csrf, "WrongPassword1!")
+        refused = [await self._change_password_with(client, csrf, "WrongPassword1!") for _ in range(5)]
+        sixth = await self._change_password_with(client, csrf, "WrongPassword1!")
 
-        assert refused == [403, 403, 403, 403, 403]
+        assert refused == [401, 401, 401, 401, 401]
         assert sixth == 429
-
-    async def test_guesses_through_the_patch_exhaust_change_password_too(self, client: AsyncClient, test_user: dict):
-        csrf = await _login(client, test_user)
-
-        for _ in range(5):
-            assert await self._patch_with(client, test_user, csrf, "WrongPassword1!") == 403
-
-        assert await self._change_password_with(client, csrf, test_user["password"]) == 429
-
-    async def test_guesses_through_change_password_exhaust_the_patch_too(self, client: AsyncClient, test_user: dict):
-        csrf = await _login(client, test_user)
-
-        for _ in range(5):
-            assert await self._change_password_with(client, csrf, "WrongPassword1!") == 401
-
-        assert await self._patch_with(client, test_user, csrf, test_user["password"]) == 429
-
-    async def test_an_update_that_leaves_the_address_alone_spends_nothing(self, client: AsyncClient, test_user: dict):
-        csrf = await _login(client, test_user)
-
-        for index in range(10):
-            renamed = await client.patch(
-                f"/api/v1/users/{test_user['username']}",
-                json={"name": f"Renamed {index}"},
-                headers={"X-CSRF-Token": csrf},
-            )
-            assert renamed.status_code == 200
-
-        assert await self._patch_with(client, test_user, csrf, test_user["password"]) == 200
 
     async def test_the_right_password_on_the_first_try_succeeds(self, client: AsyncClient, test_user: dict):
         csrf = await _login(client, test_user)
 
-        assert await self._patch_with(client, test_user, csrf, test_user["password"]) == 200
+        assert await self._change_password_with(client, csrf, test_user["password"]) == 200
 
 
 async def test_setting_a_password_is_not_a_route_this_app_exposes(client: AsyncClient, test_user: dict):
@@ -220,64 +182,3 @@ async def test_the_account_routes_appear_once_in_the_api_docs():
         "/api/v1/auth/me": ["Authentication"],
         "/api/v1/auth/change-password": ["Authentication"],
     }
-
-
-class TestASuperuserCorrectingAnotherAccountsAddress:
-    """A superuser moving another account's address, which spends no budget."""
-
-    async def _patch_email(self, client: AsyncClient, username: str, csrf: str, email: str) -> int:
-        response = await client.patch(
-            f"/api/v1/users/{username}",
-            json={"email": email},
-            headers={"X-CSRF-Token": csrf},
-        )
-
-        return response.status_code
-
-    async def test_six_corrections_in_a_row_all_succeed(self, client: AsyncClient, test_superuser: dict, test_user_2: dict):
-        csrf = await _login(client, test_superuser)
-
-        codes = [
-            await self._patch_email(client, test_user_2["username"], csrf, f"moved{index}@example.com") for index in range(6)
-        ]
-
-        assert codes == [200] * 6
-
-    async def test_the_targets_own_password_budget_is_untouched(
-        self, client: AsyncClient, test_superuser: dict, test_user_2: dict
-    ):
-        csrf = await _login(client, test_superuser)
-        for index in range(6):
-            assert await self._patch_email(client, test_user_2["username"], csrf, f"moved{index}@example.com") == 200
-
-        client.cookies.clear()
-        own_csrf = await _login(client, test_user_2)
-        changed = await client.post(
-            "/api/v1/auth/change-password",
-            json={"current_password": test_user_2["password"], "new_password": NEW_PASSWORD},
-            headers={"X-CSRF-Token": own_csrf},
-        )
-
-        assert changed.status_code == 200
-
-    async def test_a_superuser_changing_their_own_address_is_still_counted(self, client: AsyncClient, test_superuser: dict):
-        csrf = await _login(client, test_superuser)
-
-        refused = [
-            (
-                await client.patch(
-                    f"/api/v1/users/{test_superuser['username']}",
-                    json={"email": "moved@example.com", "current_password": "WrongPassword1!"},
-                    headers={"X-CSRF-Token": csrf},
-                )
-            ).status_code
-            for _ in range(5)
-        ]
-        sixth = await client.patch(
-            f"/api/v1/users/{test_superuser['username']}",
-            json={"email": "moved@example.com", "current_password": "WrongPassword1!"},
-            headers={"X-CSRF-Token": csrf},
-        )
-
-        assert refused == [403] * 5
-        assert sixth.status_code == 429
