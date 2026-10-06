@@ -71,6 +71,14 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   `500`. `GET /api/v1/rate-limits/` ships cached, with its writes clearing every page; it takes the
   decorator from `wiring/cache.py`, which hands a project without the cache feature one that caches
   nothing.
+- **A role management API** under `/api/v1/roles`, with the rbac feature: list, read, create,
+  rename and delete roles, replace what a role carries, and assign or unassign it. Each route is
+  gated by its own `role.*` permission and runs the delegation checks, so a caller can neither grant
+  a permission nor assign a role carrying one that they don't hold themselves — including emptying or
+  relabelling a role stronger than they are, or changing the roles of an account that is a superuser
+  or holds something they don't, which is the rule a `user.update` holder is already held to. A refused delegation answers `403` and writes nothing; an unregistered
+  permission name answers `422` without echoing it. `GET /api/v1/users/{user_id}/roles` reads an
+  account's roles.
 - **`GET /api/v1/permissions`** lists every registered permission grouped by resource, and
   **`GET /api/v1/permissions/me`** lists what the caller effectively holds — from every
   `PermissionSource` the project wired, every registered permission for a superuser, and never a

@@ -276,8 +276,11 @@ def _wiring_app(chosen: set[str]) -> str:
         imports.append("from ..modules.api_keys.routes import router as api_keys_router")
         collection_mounts.append('RouterMount(api_keys_router, "/api-keys", throttled=True)')
     if "rbac" in chosen:
-        imports.append("from ..modules.role.routes import permissions_router")
+        imports.append("from ..modules.role.routes import permissions_router, user_roles_router")
+        imports.append("from ..modules.role.routes import router as roles_router")
+        user_mounts.append('RouterMount(user_roles_router, "/users", throttled=True)')
         collection_mounts.append('RouterMount(permissions_router, "/permissions", throttled=True)')
+        collection_mounts.append('RouterMount(roles_router, "/roles", throttled=True)')
     if "cache" in chosen:
         imports.append("from ..infrastructure.cache.initialize import lifecycle as cache_lifecycle")
         lifecycles.append("cache_lifecycle")

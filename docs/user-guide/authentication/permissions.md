@@ -136,6 +136,44 @@ db.add(UserRole(user_id=user_id, role_id=role.id))
 await db.commit()
 ```
 
+## Managing Roles
+
+The rbac feature mounts a role API under `/api/v1/roles`. Every route is gated by its own
+`role.*` permission **and** by the delegation checks: a caller can neither grant a permission nor
+assign a role carrying one unless they hold it themselves. Superusers pass both.
+
+| Route | Permission | Also checked |
+|---|---|---|
+| `GET /api/v1/roles/` | `role.read` | — |
+| `GET /api/v1/roles/{role_id}` | `role.read` | — |
+| `POST /api/v1/roles/` | `role.create` | the caller holds every permission the new role carries |
+| `PATCH /api/v1/roles/{role_id}` | `role.update` | the caller holds everything the role carries |
+| `PUT /api/v1/roles/{role_id}/permissions` | `role.update` | the caller holds every permission the change adds **or removes** |
+| `DELETE /api/v1/roles/{role_id}` | `role.delete` | the caller holds everything the role carries |
+| `POST /api/v1/roles/{role_id}/users/{user_id}` | `role.assign` | the caller holds everything the role carries, **and** the account is not a superuser and holds nothing the caller doesn't |
+| `DELETE /api/v1/roles/{role_id}/users/{user_id}` | `role.assign` | the same |
+| `GET /api/v1/users/{user_id}/roles` | `role.read` | — |
+
+```bash
+# Create a role carrying permissions you hold
+curl -X POST http://localhost:8000/api/v1/roles/ -b cookies.txt \
+  -H "Content-Type: application/json" -H "X-CSRF-Token: <token>" \
+  -d '{"name": "editor", "description": "Edits profiles", "permissions": ["user.read", "user.update"]}'
+
+# Hand it to somebody
+curl -X POST http://localhost:8000/api/v1/roles/3/users/42 -b cookies.txt -H "X-CSRF-Token: <token>"
+```
+
+Only registered permission names are accepted: anything else answers `422`, and the refusal doesn't
+echo what was sent. A refused delegation answers `403` and writes nothing — including the reverse
+cases: emptying or relabelling a role whose permissions the caller doesn't hold, and changing the
+roles of an account stronger than the caller's own. That last rule is the one a `user.update` holder
+is already held to when editing an account, because changing which roles an account holds is
+another way to take it over.
+
+A role name is unique, and the unique constraint has the last word: two requests racing for one name
+give the loser a `409`, not a `500`.
+
 ## Reading the Permissions
 
 Two routes read them, both needing a session (the rbac feature mounts them):
@@ -154,8 +192,12 @@ curl http://localhost:8000/api/v1/permissions/me -b cookies.txt
 A superuser's own listing is every registered permission. A stored grant whose name is no longer
 registered appears in neither: the registry is what makes a name mean anything.
 
+RBAC here is **global roles**: a role means the same thing everywhere in the project, and there is
+no per-tenant or per-object scoping. A permission answers "may this account do this kind of thing",
+not "may it do this to that row" — ownership checks stay in the services.
+
 !!! info "Not shipped yet"
-    Role CRUD endpoints, admin-panel views for roles, and narrowing an API key to a subset of its owner's permissions are follow-up work. This change ships the models, the registry, the route guards and the two read routes above.
+    Admin-panel views for roles, and narrowing an API key to a subset of its owner's permissions, are follow-up work.
 
 ## Superuser Authorization
 

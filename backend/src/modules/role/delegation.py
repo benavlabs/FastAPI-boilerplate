@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...infrastructure.auth.authorization import load_permissions
 from ...infrastructure.permissions import all_permissions
+from ..user.crud import crud_users
 from .models import RolePermission
 
 
@@ -64,3 +65,27 @@ async def can_assign_role(db: AsyncSession, principal: Principal, role_id: int) 
     held = await load_permissions(db, principal.user_id)
 
     return carried <= held
+
+
+async def can_change_roles_of(db: AsyncSession, principal: Principal, user_id: int) -> bool:
+    """Whether a principal may change which roles an account holds.
+
+    Changing an account's roles is a way to take it over, so a caller may only reach an
+    account weaker than their own: not a superuser, and holding nothing the caller does
+    not already hold. This is the same rule a ``user.update`` holder is held to when
+    editing an account.
+    """
+    if principal.is_superuser:
+        return True
+
+    target = await crud_users.get(db=db, id=user_id, is_deleted=False)
+    if target is None:
+        return False
+
+    if target.get("is_superuser", False):
+        return False
+
+    held = await load_permissions(db, principal.user_id)
+    theirs = await load_permissions(db, user_id)
+
+    return theirs <= held
