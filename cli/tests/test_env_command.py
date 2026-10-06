@@ -17,12 +17,18 @@ runner = CliRunner()
 def _backend_settings(**overrides):
     """The app's own settings object, as the command builds it.
 
-    ``CREATE_TABLES_ON_STARTUP`` and ``EMAIL_BACKEND`` are passed in because their defaults
-    describe a development environment, not the production one these settings stand for.
+    ``CREATE_TABLES_ON_STARTUP``, ``EMAIL_BACKEND`` and ``FRONTEND_URL`` are passed in because
+    their defaults describe a development environment, not the production one these stand for.
     """
     module = env._app_module("src.infrastructure.config.settings")
 
-    return module.Settings(ENVIRONMENT="production", CREATE_TABLES_ON_STARTUP=False, EMAIL_BACKEND="smtp", **overrides)
+    return module.Settings(
+        ENVIRONMENT="production",
+        CREATE_TABLES_ON_STARTUP=False,
+        EMAIL_BACKEND="smtp",
+        FRONTEND_URL="https://app.example.com",
+        **overrides,
+    )
 
 
 @pytest.fixture
