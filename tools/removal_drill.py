@@ -375,6 +375,20 @@ def _wiring_email(chosen: set[str]) -> str:
     )
 
 
+def _wiring_cache(chosen: set[str]) -> str:
+    """The decorator a route caches its response with: the real one where there is a cache."""
+    if "cache" in chosen:
+        source = "from ..infrastructure.cache.decorator import cache as cached"
+    else:
+        source = "from ..infrastructure.uncached import cached"
+
+    return (
+        '"""The decorator a route caches its response with."""\n\n'
+        f"{source}\n\n"
+        '__all__ = ["cached"]\n'
+    )
+
+
 def _wiring_models(chosen: set[str]) -> str:
     imports: list[str] = []
     model_bases, schema_bases = [], []
@@ -477,6 +491,7 @@ def build(preset: str, into: Path) -> Path:
     (project / "backend/src/wiring/app.py").write_text(_wiring_app(chosen))
     (project / "backend/src/wiring/hooks.py").write_text(_wiring_hooks(chosen))
     (project / "backend/src/wiring/email.py").write_text(_wiring_email(chosen))
+    (project / "backend/src/wiring/cache.py").write_text(_wiring_cache(chosen))
     (project / "backend/src/wiring/models.py").write_text(_wiring_models(chosen))
     if "admin" in chosen:
         (project / "backend/src/wiring/admin.py").write_text(_wiring_admin(chosen))

@@ -6,7 +6,10 @@ All examples use the boilerplate's real APIs: the [`@cache` decorator](redis-cac
 
 ## Picking a Key Naming Scheme
 
-The decorator generates keys as `{formatted_key_prefix}:{resource_id}`. Your job is to pick a `key_prefix` (and any `{kwarg}` placeholders) that:
+The decorator generates keys as `{formatted_key_prefix}[:{resource_id}][:q={query}][:u={caller}]`:
+the resource id when the route has one, the request's query string sorted (so `?a=1&b=2` and
+`?b=2&a=1` share one entry, and two pages never do), and the caller's id unless the route passes
+`per_caller=False`. Your job is to pick a `key_prefix` (and any `{kwarg}` placeholders) that:
 
 1. **Doesn't collide** with unrelated caches
 2. **Matches your invalidation surface** — if you'll wipe by user, include the user identifier
@@ -299,28 +302,33 @@ async def get_widget(widget_id: int, db: AsyncSession) -> dict | None:
 
 Keep negative TTLs **much shorter** than positive ones — the row will appear eventually and you don't want users to keep getting 404s for a minute after creation.
 
-## Per-User vs Global Caches
+## Per-Caller vs Shared Caches
 
-The single biggest mistake when adding `@cache` to an endpoint that returns user-specific data is keying only by resource ID. Two concrete problems:
+A cached response is per caller by default, so a personalized route cannot serve one person's
+response to another. The caller is read off the route's own arguments — a `Principal`'s `user_id`,
+or the `current_user` mapping `CurrentUserDep` provides:
 
 ```python
-# WRONG — every user gets user 1's data
 @router.get("/me/dashboard")
-@cache(key_prefix="dashboard", resource_id_name="user_id")
-async def my_dashboard(request: Request, user_id: int, ...):
+@cache(key_prefix="dashboard")
+async def my_dashboard(request: Request, current_user: CurrentUserDep, ...):
     ...
+# → dashboard:u=5, and dashboard:u=9 for somebody else
 ```
 
-Multiple users hit `dashboard:1` (the user_id of the first cached request) and see each other's data. Two fixes:
+A route whose response is the same for everybody says so, and shares one entry:
 
 ```python
-# Include user in the prefix
-@cache(key_prefix="dashboard_for_user_{user_id}", resource_id_name="user_id")
-# → dashboard_for_user_5:5  ← key includes user
-
-# Or just don't cache personalized responses
-# (often the right call — Redis hits add latency for hot per-user data anyway)
+@cache(key_prefix="rate_limits", per_caller=False)
 ```
+
+**When is `per_caller=False` safe?** When the response doesn't depend on who asked: it holds no
+personal data, and no part of it is filtered by the caller's permissions, tier or ownership. If you
+have to think about it, leave the default on — or don't cache the route at all, since a hot per-user
+response often costs more in cache round trips than it saves.
+
+A route that keeps the default and resolves no caller is **not cached**: the decorator logs a
+warning and calls through, rather than share one entry between everyone.
 
 ## Picking TTLs
 

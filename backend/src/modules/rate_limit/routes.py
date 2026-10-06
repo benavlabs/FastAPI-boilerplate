@@ -1,10 +1,11 @@
 from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from fastcrud import PaginatedListResponse, compute_offset, paginated_response
 
 from ...infrastructure.auth.deps import CurrentSuperUserDep, CurrentUserDep
 from ...infrastructure.dependencies import AsyncSessionDep
+from ...wiring.cache import cached
 from ..common.pagination import ItemsPerPageDep, PageDep
 from ..user.dependencies import UserServiceDep
 from .dependencies import RateLimitServiceDep
@@ -14,6 +15,12 @@ from .schemas import (
 )
 
 router = APIRouter(tags=["Rate Limits"])
+
+RATE_LIMITS_CACHE_PREFIX = "rate_limits"
+"""The prefix every cached page of the listing is stored under, and what a write clears."""
+
+RATE_LIMITS_CACHE_SECONDS = 300
+"""How long a page of the listing is served from the cache."""
 user_rate_limits_router = APIRouter(tags=["Rate Limits"])
 
 
@@ -39,7 +46,9 @@ user_rate_limits_router = APIRouter(tags=["Rate Limits"])
     },
     response_description="A paginated list of rate limits with their configuration details",
 )
+@cached(key_prefix=RATE_LIMITS_CACHE_PREFIX, expiration=RATE_LIMITS_CACHE_SECONDS, per_caller=False)
 async def get_rate_limits(
+    request: Request,
     db: AsyncSessionDep,
     _: CurrentSuperUserDep,
     rate_limit_service: RateLimitServiceDep,
@@ -124,7 +133,14 @@ async def get_rate_limit(
     },
     response_description="Success confirmation message",
 )
+@cached(
+    key_prefix=RATE_LIMITS_CACHE_PREFIX,
+    resource_id_name="name",
+    pattern_to_invalidate_extra=[f"{RATE_LIMITS_CACHE_PREFIX}:*"],
+    per_caller=False,
+)
 async def update_rate_limit(
+    request: Request,
     name: str,
     values: RateLimitUpdate,
     db: AsyncSessionDep,
@@ -164,7 +180,14 @@ async def update_rate_limit(
     },
     response_description="Success confirmation message",
 )
+@cached(
+    key_prefix=RATE_LIMITS_CACHE_PREFIX,
+    resource_id_name="name",
+    pattern_to_invalidate_extra=[f"{RATE_LIMITS_CACHE_PREFIX}:*"],
+    per_caller=False,
+)
 async def delete_rate_limit(
+    request: Request,
     name: str,
     db: AsyncSessionDep,
     rate_limit_service: RateLimitServiceDep,

@@ -41,8 +41,13 @@ The decorator builds the cache key as `widget:{widget_id}`. On cache hits, the h
 
 ### How It Works
 
-1. **GET requests**: check the cache → return on hit, run the handler + cache the response on miss
-2. **PUT/PATCH/POST/DELETE**: run the handler, then **delete** the cache key for the same `(key_prefix, resource_id)`. Optional extras (`to_invalidate_extra`, `pattern_to_invalidate_extra`) trigger additional invalidations
+1. **GET requests**: check the cache → return on hit, run the handler + cache the response on miss.
+   An empty answer (`[]`, `{}`, `""`) is cached and served like any other, so a page with nothing on
+   it isn't re-read on every request
+2. **PUT/PATCH/POST/DELETE**: run the handler, then **delete** the cache key for the same
+   `(key_prefix, resource_id)` — the write's own query string is not part of that key, so what it
+   clears is the entry for the resource and not an entry nobody stored. A listing's pages each have
+   their own key, so clearing all of them needs `pattern_to_invalidate_extra`
 3. **Fail-open**: if the cache backend errors out, the decorator logs a warning and falls through to run the handler. Your endpoint stays available
 
 ### Decorator Parameters
@@ -56,8 +61,12 @@ The decorator builds the cache key as `widget:{widget_id}`. On cache hits, the h
     to_invalidate_extra: dict[str, Any] | None = None,
     pattern_to_invalidate_extra: list[str] | None = None,
     backend_name: str | None = None,                  # if you've registered multiple backends
+    per_caller: bool = True,                          # one entry per caller, unless the response is shared
 )
 ```
+
+The key is `prefix[:resource_id][:q=sorted query][:u=caller]`. Two pages of one listing, and two
+callers of one route, never share an entry.
 
 ### `key_prefix` — Cache Namespace
 
@@ -94,7 +103,38 @@ async def get_widget(request: Request, widget_id: int, ...): ...
 async def get_user(request: Request, username: str, ...): ...
 ```
 
-If the decorator can't infer a resource ID, it logs a warning and skips caching for that request — the handler still runs normally.
+If the decorator can't infer a resource ID, the key simply has no id part — which is what a
+listing wants, since its query string already identifies the page.
+
+### `per_caller` — Who the Entry Belongs To
+
+By default each caller gets their own entry, keyed by the `user_id` of a `Principal` argument or the
+`id` in a `current_user` mapping. A route whose response is identical for everyone passes
+`per_caller=False` to share one entry; see
+[Per-Caller vs Shared Caches](cache-strategies.md#per-caller-vs-shared-caches) for when that is
+safe. A route that keeps the default but resolves no caller is **not cached at all**: the decorator
+logs a warning and calls through, rather than hand one person's response to the next.
+
+### What ships cached
+
+`GET /api/v1/rate-limits/` is the one shipped route with the decorator on it: a superuser-only
+listing of tier configuration, the same for every caller (`per_caller=False`), cached for
+`RATE_LIMITS_CACHE_SECONDS`. Its `PATCH` and `DELETE` carry
+`pattern_to_invalidate_extra=["rate_limits:*"]`, so a change clears every cached page. Pattern
+invalidation needs a backend that supports it — Redis does; the memcached backend logs that it
+cannot.
+
+It reaches the decorator through `wiring/cache.py` rather than importing it:
+
+```python
+from ...wiring.cache import cached
+
+@cached(key_prefix="rate_limits", per_caller=False)
+```
+
+The cache is a feature a project can remove, so the wiring hands a route either the real decorator
+or `infrastructure/uncached.py`, which returns the route unchanged. A route therefore asks for
+caching without depending on whether this project kept the cache.
 
 ## Invalidation
 

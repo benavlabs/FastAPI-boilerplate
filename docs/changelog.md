@@ -60,6 +60,17 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   refused (0.7.5), an OAuth sign-in refuses an inactive account before linking or claiming it
   (0.7.4), and `repo.gated_register_fields()` names the privileged fields an app's own signup
   schema must not offer (0.7.2) — a test holds this project's `UserCreate` to that.
+- **The `@cache` key covers the query string and the caller.** A cached response used to be keyed
+  by `prefix:resource_id` alone, so two pages of one listing shared an entry and an authenticated
+  route could serve one caller's response to another. The key is now
+  `prefix[:resource_id][:q=sorted query][:u=caller]`; a route whose response is the same for
+  everybody opts out with `per_caller=False`, and one that keeps the default but resolves no caller
+  is not cached at all. An empty answer (`[]`, `{}`, `""`) is now stored and served instead of
+  reading as a miss, and a write invalidates the entry for its resource rather than one keyed by its
+  own query string, and a cache it cannot reach is logged and stepped over instead of answering
+  `500`. `GET /api/v1/rate-limits/` ships cached, with its writes clearing every page; it takes the
+  decorator from `wiring/cache.py`, which hands a project without the cache feature one that caches
+  nothing.
 - **`GET /api/v1/permissions`** lists every registered permission grouped by resource, and
   **`GET /api/v1/permissions/me`** lists what the caller effectively holds — from every
   `PermissionSource` the project wired, every registered permission for a superuser, and never a
