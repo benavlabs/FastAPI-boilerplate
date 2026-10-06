@@ -77,10 +77,10 @@ curl -X POST http://localhost:8000/api/v1/auth/logout -b cookies.txt
 
 Routes use `Depends(get_current_user)` to require an authenticated session.
 
-### 2. OAuth (Google)
+### 2. OAuth (Google and GitHub)
 
-For social sign-in — Google OAuth 2.0 with PKCE is wired up. The browser goes to Google, signs
-in, and comes back to a callback that creates the session and sends it on to your app.
+For social sign-in — OAuth 2.0 with PKCE. The browser goes to the provider, signs in, and comes
+back to a callback that creates the session and sends it on to your app.
 
 ```text
 # Link or redirect the browser to (redirect_to is optional, same-origin paths only):
@@ -92,9 +92,14 @@ GET /api/v1/auth/oauth/callback/google?code=...&state=...
 # → session + CSRF cookies set, 307 to /dashboard (or to OAUTH_REDIRECT_BASE_URL)
 ```
 
-Register `{OAUTH_REDIRECT_BASE_URL}/api/v1/auth/oauth/callback/google` as the redirect URI in the
-Google console; `OAUTH_REDIRECT_BASE_URL` is the public origin of the API, without a path. The
-paths above follow `API_PREFIX`, so a project that moved the API registers the moved callback.
+GitHub works the same way, on `/api/v1/auth/oauth/github` and
+`/api/v1/auth/oauth/callback/github`.
+
+Register `{OAUTH_REDIRECT_BASE_URL}/api/v1/auth/oauth/callback/<provider>` as the redirect URI with
+each provider — in the Google console, and as the "Authorization callback URL" of a GitHub OAuth app
+(Settings → Developer settings → OAuth Apps → New OAuth App). `OAUTH_REDIRECT_BASE_URL` is the
+public origin of the API, without a path. The paths above follow `API_PREFIX`, so a project that
+moved the API registers the moved callback.
 
 A failed sign-in - the user declined, or their address is longer than the `email` column - sends
 the browser to `OAUTH_REDIRECT_BASE_URL?error=<code>`. A callback whose `state` doesn't match the
@@ -103,9 +108,21 @@ with `error=invalid_state` and no session, since it may be a login-CSRF attempt;
 a sign-in that took too long or finished in another browser, so offer to start again.
 New accounts take their display name from the Google profile.
 
-Only Google is wired when its credentials are configured. The router is supplied by crudauth: PKCE,
-browser-bound single-use state, and safe same-origin redirects. Add another provider in
-`infrastructure/auth/setup.py` using `OAuthCredentials`.
+A provider is wired when **both** of its settings are set — `OAUTH_GOOGLE_CLIENT_ID` and
+`OAUTH_GOOGLE_CLIENT_SECRET`, `OAUTH_GITHUB_CLIENT_ID` and `OAUTH_GITHUB_CLIENT_SECRET` — so a
+project can run either, both, or neither, and a client id without its secret wires nothing. With no
+provider configured the OAuth router isn't mounted at all.
+
+GitHub reports its addresses separately (`GET /user/emails`), and crudauth's provider picks the
+primary verified one. An address GitHub has not verified is refused:
+`?error=email_unverified`, with no account created and no session — an unverified address must not
+be able to claim one. GitHub accounts without a public name fall back to the login handle for the
+display name.
+
+The router is supplied by crudauth: PKCE, browser-bound single-use state, and safe same-origin
+redirects. Add a further provider in `infrastructure/auth/setup.py` by listing its name in
+`OAUTH_PROVIDERS` and giving it `OAUTH_<NAME>_CLIENT_ID` / `_CLIENT_SECRET` settings, as long as
+crudauth registers a provider class under that name.
 
 ### 3. API Keys (Machine-to-Machine)
 

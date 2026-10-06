@@ -5,7 +5,9 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
+import pytest
 from crudauth import NewUserContext
 from starlette.requests import Request
 
@@ -64,7 +66,11 @@ print("PATHS:" + ",".join(route.path for router in root_routers for route in rou
 
 
 def _oauth_routes(**environment: str) -> tuple[str, list[str]]:
-    """The OAuth prefix and the paths its router serves, read from a cold interpreter."""
+    """The OAuth prefix and the paths its router serves, read from a cold interpreter.
+
+    Every provider's credentials are passed explicitly, so what the developer's own
+    environment holds cannot decide which routes the child mounts.
+    """
     result = subprocess.run(
         [sys.executable, "-c", _OAUTH_ROUTES],
         cwd=Path(__file__).resolve().parents[4],
@@ -75,6 +81,8 @@ def _oauth_routes(**environment: str) -> tuple[str, list[str]]:
             **os.environ,
             "OAUTH_GOOGLE_CLIENT_ID": "client-id",
             "OAUTH_GOOGLE_CLIENT_SECRET": "client-secret",
+            "OAUTH_GITHUB_CLIENT_ID": "",
+            "OAUTH_GITHUB_CLIENT_SECRET": "",
             **environment,
         },
     )
@@ -143,30 +151,74 @@ class TestOAuthWiring:
 
 
 class TestOAuthProviderSelection:
-    """Only a fully configured Google is wired; the boilerplate has no other provider route."""
+    """A provider is wired when both of its credentials are set, and only then."""
 
-    def test_google_is_wired_when_both_credentials_are_set(self, monkeypatch):
-        monkeypatch.setattr(settings, "OAUTH_GOOGLE_CLIENT_ID", "client-id")
-        monkeypatch.setattr(settings, "OAUTH_GOOGLE_CLIENT_SECRET", "client-secret")
+    @pytest.fixture
+    def credentials(self, monkeypatch):
+        """The four OAuth settings, as a project's environment would leave them."""
 
-        providers = setup._oauth_providers()
+        def configured(**values: str) -> dict[str, Any]:
+            for provider in ("GOOGLE", "GITHUB"):
+                for part in ("CLIENT_ID", "CLIENT_SECRET"):
+                    name = f"OAUTH_{provider}_{part}"
+                    monkeypatch.setattr(settings, name, values.get(name, ""))
+
+            return setup._oauth_providers()
+
+        return configured
+
+    def test_google_alone_is_wired_from_its_own_credentials(self, credentials):
+        providers = credentials(OAUTH_GOOGLE_CLIENT_ID="google-id", OAUTH_GOOGLE_CLIENT_SECRET="google-secret")
 
         assert set(providers) == {"google"}
-        assert providers["google"].client_id == "client-id"
+        assert (providers["google"].client_id, providers["google"].client_secret) == ("google-id", "google-secret")
 
-    def test_google_is_dropped_when_a_credential_is_missing(self, monkeypatch):
-        monkeypatch.setattr(settings, "OAUTH_GOOGLE_CLIENT_ID", "client-id")
-        monkeypatch.setattr(settings, "OAUTH_GOOGLE_CLIENT_SECRET", "")
+    def test_github_alone_is_wired_from_its_own_credentials(self, credentials):
+        providers = credentials(OAUTH_GITHUB_CLIENT_ID="github-id", OAUTH_GITHUB_CLIENT_SECRET="github-secret")
 
-        assert setup._oauth_providers() == {}
+        assert set(providers) == {"github"}
+        assert (providers["github"].client_id, providers["github"].client_secret) == ("github-id", "github-secret")
 
-    def test_github_credentials_do_not_add_an_unrouted_provider(self, monkeypatch):
-        monkeypatch.setattr(settings, "OAUTH_GOOGLE_CLIENT_ID", "")
-        monkeypatch.setattr(settings, "OAUTH_GOOGLE_CLIENT_SECRET", "")
-        monkeypatch.setattr(settings, "OAUTH_GITHUB_CLIENT_ID", "gh-id")
-        monkeypatch.setattr(settings, "OAUTH_GITHUB_CLIENT_SECRET", "gh-secret")
+    def test_both_are_wired_together(self, credentials):
+        providers = credentials(
+            OAUTH_GOOGLE_CLIENT_ID="google-id",
+            OAUTH_GOOGLE_CLIENT_SECRET="google-secret",
+            OAUTH_GITHUB_CLIENT_ID="github-id",
+            OAUTH_GITHUB_CLIENT_SECRET="github-secret",
+        )
 
-        assert setup._oauth_providers() == {}
+        assert set(providers) == {"google", "github"}
+
+    @pytest.mark.parametrize(
+        "configured",
+        [
+            {"OAUTH_GOOGLE_CLIENT_ID": "google-id"},
+            {"OAUTH_GOOGLE_CLIENT_SECRET": "google-secret"},
+            {"OAUTH_GITHUB_CLIENT_ID": "github-id"},
+            {"OAUTH_GITHUB_CLIENT_SECRET": "github-secret"},
+        ],
+    )
+    def test_half_a_provider_is_no_provider(self, credentials, configured: dict[str, str]):
+        """A client id without its secret cannot complete a sign-in, so the route stays off."""
+        assert credentials(**configured) == {}
+
+    def test_a_project_that_configured_none_mounts_no_oauth_router(self):
+        prefix, paths = _oauth_routes(OAUTH_GOOGLE_CLIENT_ID="", OAUTH_GOOGLE_CLIENT_SECRET="")
+
+        assert prefix == "/api/v1/auth/oauth"
+        assert paths == []
+
+    @pytest.mark.parametrize(
+        "configured",
+        [
+            {"OAUTH_GOOGLE_CLIENT_ID": "google-id", "OAUTH_GOOGLE_CLIENT_SECRET": "google-secret"},
+            {"OAUTH_GITHUB_CLIENT_ID": "github-id", "OAUTH_GITHUB_CLIENT_SECRET": "github-secret"},
+        ],
+    )
+    def test_one_configured_provider_mounts_the_oauth_router(self, configured: dict[str, str]):
+        _, paths = _oauth_routes(**{"OAUTH_GOOGLE_CLIENT_ID": "", "OAUTH_GOOGLE_CLIENT_SECRET": "", **configured})
+
+        assert paths == ["/api/v1/auth/oauth/{provider}", "/api/v1/auth/oauth/callback/{provider}"]
 
 
 class TestNewUserFields:

@@ -271,7 +271,7 @@ OAUTH_REDIRECT_BASE_URL=http://localhost:8000
 OAUTH_GOOGLE_CLIENT_ID=
 OAUTH_GOOGLE_CLIENT_SECRET=
 
-# GitHub OAuth (data model anticipates it; no provider/routes wired — see Authentication)
+# GitHub OAuth (leave empty to disable)
 OAUTH_GITHUB_CLIENT_ID=
 OAUTH_GITHUB_CLIENT_SECRET=
 ```

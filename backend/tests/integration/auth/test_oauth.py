@@ -1,7 +1,9 @@
 """Google sign-in through crudauth's OAuth router, as the app mounts it."""
 
+from typing import Any
 from urllib.parse import parse_qs, urlparse
 
+import httpx
 import pytest
 from fastapi.routing import APIRoute
 from httpx import AsyncClient
@@ -18,6 +20,7 @@ pytestmark = pytest.mark.asyncio
 
 BASE = settings.OAUTH_REDIRECT_BASE_URL.rstrip("/")
 CALLBACK = f"{BASE}/api/v1/auth/oauth/callback/google"
+GITHUB_CALLBACK = f"{BASE}/api/v1/auth/oauth/callback/github"
 
 
 def _stub_google(monkeypatch, profile: dict) -> None:
@@ -378,3 +381,82 @@ class TestASoftDeletedAccount:
         )
 
         assert signed_in.status_code == 200
+
+
+def _stub_github_http(monkeypatch, profile: dict[str, Any], emails: list[dict[str, Any]]) -> None:
+    """Answer GitHub's token, profile and email endpoints without leaving the process.
+
+    crudauth's GitHub provider opens its own ``httpx.AsyncClient``, so the client class is
+    what gets replaced: every request it makes is served from here.
+    """
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/access_token"):
+            return httpx.Response(200, json={"access_token": "github-access-token", "token_type": "bearer"})
+        if request.url.path.endswith("/user/emails"):
+            return httpx.Response(200, json=emails)
+        if request.url.path.endswith("/user"):
+            return httpx.Response(200, json=profile)
+
+        raise AssertionError(f"the provider asked for {request.url}")
+
+    opened = httpx.AsyncClient
+
+    def answered(*arguments: Any, **keywords: Any) -> httpx.AsyncClient:
+        return opened(transport=httpx.MockTransport(respond))
+
+    monkeypatch.setattr(httpx, "AsyncClient", answered)
+
+
+async def _sign_in_with_github(client: AsyncClient) -> httpx.Response:
+    state = await client.get("/api/v1/auth/oauth/github", follow_redirects=False)
+    assert state.status_code == 307
+    echoed = parse_qs(urlparse(state.headers["location"]).query)["state"][0]
+
+    return await client.get(
+        "/api/v1/auth/oauth/callback/github",
+        params={"code": "the-code", "state": echoed},
+        follow_redirects=False,
+    )
+
+
+async def test_github_is_wired_alongside_google(client: AsyncClient):
+    assert set(auth.oauth_providers) == {"google", "github"}
+    assert auth.oauth_providers["github"].redirect_uri == GITHUB_CALLBACK
+
+
+async def test_a_github_sign_in_creates_the_account_from_its_verified_address(
+    client: AsyncClient, db_session: AsyncSession, monkeypatch
+):
+    _stub_github_http(
+        monkeypatch,
+        {"id": 4242, "login": "ada", "name": "Ada Lovelace", "avatar_url": "https://avatars/ada"},
+        [{"email": "ada@example.com", "primary": True, "verified": True}],
+    )
+
+    callback = await _sign_in_with_github(client)
+
+    assert callback.status_code == 307
+    assert "session_id" in callback.cookies
+    signed_in = (await db_session.execute(select(User).where(User.email == "ada@example.com"))).scalar_one()
+    await db_session.refresh(signed_in)
+    assert signed_in.github_id == "4242"
+    assert signed_in.oauth_provider == "github"
+    assert signed_in.email_verified is True
+
+
+async def test_an_address_github_never_verified_is_refused(client: AsyncClient, db_session: AsyncSession, monkeypatch):
+    """An unverified primary address cannot vouch for an account, so none is created."""
+    _stub_github_http(
+        monkeypatch,
+        {"id": 5151, "login": "grace", "name": "Grace Hopper", "avatar_url": "https://avatars/grace"},
+        [{"email": "grace@example.com", "primary": True, "verified": False}],
+    )
+
+    callback = await _sign_in_with_github(client)
+
+    assert callback.status_code == 307
+    assert callback.headers["location"] == f"{BASE}?error=email_unverified"
+    assert "session_id" not in callback.cookies
+    refused = (await db_session.execute(select(User).where(User.email == "grace@example.com"))).scalar_one_or_none()
+    assert refused is None

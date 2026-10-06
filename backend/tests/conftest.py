@@ -7,6 +7,8 @@ os.environ.setdefault("SESSION_BACKEND", "memory")
 os.environ.setdefault("RATE_LIMITER_BACKEND", "memory")
 os.environ.setdefault("OAUTH_GOOGLE_CLIENT_ID", "test-google-client-id")
 os.environ.setdefault("OAUTH_GOOGLE_CLIENT_SECRET", "test-google-client-secret")
+os.environ.setdefault("OAUTH_GITHUB_CLIENT_ID", "test-github-client-id")
+os.environ.setdefault("OAUTH_GITHUB_CLIENT_SECRET", "test-github-client-secret")
 # Tests run over http (base_url http://test), so the session/CSRF cookies must not be
 # Secure-only or httpx won't send them back on follow-up requests.
 os.environ.setdefault("SESSION_SECURE_COOKIES", "false")

@@ -7,8 +7,8 @@ connections via ``auth.initialize()`` / ``auth.shutdown()`` (see ``app_factory``
 
 Wires a single session transport (sessions + CSRF + escalating login lockout)
 over the configured session backend, the limiter behind the login lockout, the
-password policy, the email recovery flows over the sender the wiring chose, and Google OAuth when
-it's configured. Sudo is intentionally not configured: no route gates on it.
+password policy, the email recovery flows over the sender the wiring chose, and every OAuth
+provider whose credentials are configured. Sudo is intentionally not configured: no route gates on it.
 """
 
 from typing import Any
@@ -27,6 +27,8 @@ from .limiter import build_rate_limiter, rate_limiter_redis_client
 from .password_policy import password_policy
 
 OAUTH_PREFIX = f"{settings.API_PREFIX}/v1/auth/oauth"
+OAUTH_PROVIDERS = ("google", "github")
+"""The providers this project reads credentials for, each named as crudauth registers it."""
 
 
 def _session_transport() -> SessionTransport:
@@ -48,14 +50,15 @@ def _new_user_fields(context: NewUserContext) -> dict[str, Any]:
 
 
 def _oauth_providers() -> dict[str, OAuthCredentials]:
-    if settings.OAUTH_GOOGLE_CLIENT_ID and settings.OAUTH_GOOGLE_CLIENT_SECRET:
-        return {
-            "google": OAuthCredentials(
-                client_id=settings.OAUTH_GOOGLE_CLIENT_ID,
-                client_secret=settings.OAUTH_GOOGLE_CLIENT_SECRET,
-            )
-        }
-    return {}
+    """Every provider crudauth ships whose client id and secret are both configured."""
+    configured = {}
+    for provider in OAUTH_PROVIDERS:
+        client_id = getattr(settings, f"OAUTH_{provider.upper()}_CLIENT_ID")
+        client_secret = getattr(settings, f"OAUTH_{provider.upper()}_CLIENT_SECRET")
+        if client_id and client_secret:
+            configured[provider] = OAuthCredentials(client_id=client_id, client_secret=client_secret)
+
+    return configured
 
 
 session_transport = _session_transport()

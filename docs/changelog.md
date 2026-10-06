@@ -60,6 +60,14 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   refused (0.7.5), an OAuth sign-in refuses an inactive account before linking or claiming it
   (0.7.4), and `repo.gated_register_fields()` names the privileged fields an app's own signup
   schema must not offer (0.7.2) — a test holds this project's `UserCreate` to that.
+- **`GET /api/v1/permissions`** lists every registered permission grouped by resource, and
+  **`GET /api/v1/permissions/me`** lists what the caller effectively holds — from every
+  `PermissionSource` the project wired, every registered permission for a superuser, and never a
+  grant whose name the registry no longer knows. Both come with the rbac feature.
+- **GitHub sign-in**, beside Google. A provider is wired when both of its settings are set
+  (`OAUTH_GITHUB_CLIENT_ID` / `OAUTH_GITHUB_CLIENT_SECRET`), so a project can run either, both or
+  neither, and the settings that used to be read by nothing now wire up the routes. An address
+  GitHub has not verified is refused with `?error=email_unverified` and creates no account.
 - **A provider-only account can set its first password** through the reset link, which proves the
   address first; `POST /set-password` stays unmounted, since a borrowed session must not be able to
   put a password on such an account.
