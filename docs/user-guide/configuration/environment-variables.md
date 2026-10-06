@@ -109,6 +109,7 @@ RATE_LIMITER_REDIS_POOL_SIZE=10
 EMAIL_BACKEND=console           # or "smtp"
 EMAIL_FROM=no-reply@localhost
 EMAIL_FROM_NAME=
+FRONTEND_URL=http://localhost:3000
 ```
 
 | Variable | Default | Purpose |
@@ -116,6 +117,7 @@ EMAIL_FROM_NAME=
 | `EMAIL_BACKEND` | `console` | `console` logs each message and sends nothing; `smtp` delivers. Production refuses `console` |
 | `EMAIL_FROM` | `no-reply@localhost` | The address the account emails come from |
 | `EMAIL_FROM_NAME` | empty | The display name beside it |
+| `FRONTEND_URL` | `http://localhost:3000` | Your frontend, which the recovery links point at. Production refuses an empty or `localhost` value |
 
 ### SMTP
 

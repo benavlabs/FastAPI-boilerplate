@@ -124,6 +124,66 @@ The full key is returned only on creation, in `api_key`. The rest of the respons
 `GET /api/v1/api-keys/{id}` reports, minus `key_metadata` and `last_used_ip`, which that route still
 carries. Each key has its own permissions, usage limits, and audit trail (`KeyUsage` rows).
 
+## Recovery Flows (Email)
+
+crudauth's recovery router is mounted under the same prefix, so the project ships email
+verification, password reset and a confirmed email change:
+
+```text
+POST /api/v1/auth/email/verify-request    {"email": "..."}
+POST /api/v1/auth/email/verify-confirm    {"token": "..."}
+POST /api/v1/auth/password/reset-request  {"email": "..."}
+POST /api/v1/auth/password/reset-confirm  {"token": "...", "new_password": "..."}
+POST /api/v1/auth/email/change-request    {"new_email": "...", "password": "..."}   # authenticated
+POST /api/v1/auth/email/change-confirm    {"token": "..."}
+```
+
+The `-request` routes answer the same whether or not the address belongs to an account, so they
+can't be used to find out who has one, and they are rate limited per client address and per target
+address. Delivery goes through the sender [`EMAIL_BACKEND`](../configuration/environment-variables.md#email)
+names.
+
+What crudauth guarantees, and this project's tests hold it to:
+
+- A token is single-use, and dies early when the password, the address or `token_version` changes.
+- A completed reset ends **every** session the account had, so a stolen one doesn't survive it.
+- A confirmed email change notifies the **old** address (`email_changed`), which is how the previous
+  owner finds out.
+- An inactive account is sent nothing, and the links it already has stop working. `User.is_active`
+  is `not is_deleted`, so a soft-deleted account is covered.
+
+### Where the links point
+
+The boilerplate serves no pages, so the links are built for **your** frontend:
+
+```env
+FRONTEND_URL=https://app.example.com
+```
+
+```text
+{FRONTEND_URL}/verify-email?token=...
+{FRONTEND_URL}/reset-password?token=...
+{FRONTEND_URL}/confirm-email-change?token=...
+```
+
+Each page reads `token` from the query string and POSTs it to the matching `-confirm` route.
+`FRONTEND_URL` is required in production: an empty or `localhost` value is refused at startup,
+because every link built from it would be one nobody can open.
+
+In development the default `console` backend logs the whole message, link included, so there is no
+frontend to run — copy the token out of the log and confirm by hand:
+
+```bash
+curl -X POST http://localhost:8000/api/v1/auth/password/reset-request \
+    -H "Content-Type: application/json" -d '{"email": "you@example.com"}'
+# the API log prints: ... Subject: Reset your password
+#                     ... http://localhost:3000/reset-password?token=eyJhbGciOi...
+
+curl -X POST http://localhost:8000/api/v1/auth/password/reset-confirm \
+    -H "Content-Type: application/json" \
+    -d '{"token": "eyJhbGciOi...", "new_password": "An0therPassword!"}'
+```
+
 ## Key Features
 
 ### Server-Side Sessions
@@ -152,7 +212,7 @@ carries. Each key has its own permissions, usage limits, and audit trail (`KeyUs
 
 ### Login Lockout
 
-`crudauth` throttles the login endpoint internally with an escalating per-IP / per-identifier lockout — there are no env vars to tune. When the limit is hit, `POST /api/v1/auth/login` returns `429 Too Many Requests` with a `Retry-After` header telling the client how long to wait. Behind a reverse proxy, set `TRUSTED_PROXY_HOPS` so the lockout keys on the real client IP rather than the proxy's.
+`crudauth` throttles the login endpoint internally with an escalating per-IP / per-identifier lockout, whose thresholds are the `LOGIN_*` settings ([Authentication & Security](../configuration/environment-variables.md#authentication--security)). When the limit is hit, `POST /api/v1/auth/login` returns `429 Too Many Requests` with a `Retry-After` header telling the client how long to wait. Behind a reverse proxy, set `TRUSTED_PROXY_HOPS` so the lockout keys on the real client IP rather than the proxy's.
 
 ## Authentication Patterns
 

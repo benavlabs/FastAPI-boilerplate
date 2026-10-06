@@ -60,6 +60,15 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   refused (0.7.5), an OAuth sign-in refuses an inactive account before linking or claiming it
   (0.7.4), and `repo.gated_register_fields()` names the privileged fields an app's own signup
   schema must not offer (0.7.2) — a test holds this project's `UserCreate` to that.
+- **The account recovery flows**, mounted from crudauth under `/api/v1/auth`: email verification
+  (`email/verify-request`, `email/verify-confirm`), password reset (`password/reset-request`,
+  `password/reset-confirm`) and a confirmed email change (`email/change-request`,
+  `email/change-confirm`). The request routes answer the same for an address with no account, a
+  token is single-use, a completed reset ends every session the account had, a confirmed change
+  notifies the old address, and an inactive account — a soft-deleted one included — is sent nothing
+  and has its outstanding links refused. `FRONTEND_URL` is where the links point (your own pages,
+  which POST the token to the matching confirm route); production refuses an empty or `localhost`
+  value.
 - **A sender for the account emails.** `EMAIL_BACKEND` picks it: `console` logs each message with
   its link and sends nothing (the default, so a fresh project needs no mail server), `smtp` delivers
   over `EMAIL_SMTP_*` with the server's certificate verified. With the taskiq feature present the

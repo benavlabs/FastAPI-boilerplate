@@ -7,17 +7,18 @@ connections via ``auth.initialize()`` / ``auth.shutdown()`` (see ``app_factory``
 
 Wires a single session transport (sessions + CSRF + escalating login lockout)
 over the configured session backend, the limiter behind the login lockout, the
-password policy, and Google OAuth when it's configured. Email recovery and sudo are intentionally not configured - the
-boilerplate has no email pipeline, and no route gates on sudo.
+password policy, the email recovery flows over the sender the wiring chose, and Google OAuth when
+it's configured. Sudo is intentionally not configured: no route gates on it.
 """
 
 from typing import Any
 
-from crudauth import CookieConfig, CRUDAuth, NewUserContext, OAuthCredentials, SessionTransport
+from crudauth import CookieConfig, CRUDAuth, EmailConfig, NewUserContext, OAuthCredentials, SessionTransport
 from crudauth.ratelimit import LockoutConfig
 
 from ...modules.user.constants import NAME_MAX_LENGTH
 from ...modules.user.models import User
+from ...wiring.email import EMAIL_SENDER
 from ..composition import Lifecycle
 from ..config.enums import SessionBackend
 from ..config.settings import settings
@@ -58,6 +59,7 @@ def _oauth_providers() -> dict[str, OAuthCredentials]:
 
 
 session_transport = _session_transport()
+email_config = EmailConfig(sender=EMAIL_SENDER, frontend_url=settings.FRONTEND_URL.rstrip("/"))
 
 auth = CRUDAuth(
     session=async_session,
@@ -75,6 +77,7 @@ auth = CRUDAuth(
     trusted_proxy_hops=settings.TRUSTED_PROXY_HOPS,
     password_policy=password_policy,
     new_user_fields=_new_user_fields,
+    email=email_config,
     oauth=_oauth_providers() or None,
     redirect_base_url=settings.OAUTH_REDIRECT_BASE_URL.rstrip("/"),
     oauth_paths={

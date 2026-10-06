@@ -304,7 +304,6 @@ def _wiring_app(chosen: set[str]) -> str:
 
 def _wiring_hooks(chosen: set[str]) -> str:
     imports = [
-        "from crudauth import EmailSender",
         "from ..infrastructure.composition import (\n"
         "    PermissionSource,\n"
         "    RateLimitResolver,\n"
@@ -338,15 +337,9 @@ def _wiring_hooks(chosen: set[str]) -> str:
         imports.append("from ..infrastructure.cache.health import readiness as cache_readiness")
         informational.append("cache_readiness")
     if "taskiq" in chosen:
-        imports.append("from ..infrastructure.taskiq.email import queued_sender")
         imports.append("from ..infrastructure.taskiq.health import readiness as broker_readiness")
         informational.append("broker_readiness")
 
-    if "taskiq" in chosen:
-        sender = "queued_sender"
-    else:
-        imports.append("from ..infrastructure.email.factory import build_sender")
-        sender = "build_sender()"
 
     critical_checks = "(" + ", ".join(critical) + ",)"
     informational_checks = ("(" + ", ".join(informational) + ",)") if informational else "()"
@@ -354,13 +347,29 @@ def _wiring_hooks(chosen: set[str]) -> str:
     return (
         '''"""The contributions features make to each other\'s extension points."""\n\n'''
         + "\n".join(sorted(imports))
-        + f"\n\nEMAIL_SENDER: EmailSender = {sender}\n"
-        f"PERMISSION_SOURCES: tuple[PermissionSource, ...] = {sources}\n"
+        + f"\n\nPERMISSION_SOURCES: tuple[PermissionSource, ...] = {sources}\n"
         f"RATE_LIMIT_RESOLVERS: tuple[RateLimitResolver, ...] = {resolvers}\n"
         f"TIER_DELETE_GUARDS: tuple[TierDeleteGuard, ...] = {guards}\n"
         f"TIER_DELETE_RELEASES: tuple[TierDeleteRelease, ...] = {releases}\n"
         f"CRITICAL_READINESS_CHECKS: tuple[ReadinessCheck, ...] = {critical_checks}\n"
         f"INFORMATIONAL_READINESS_CHECKS: tuple[ReadinessCheck, ...] = {informational_checks}\n"
+    )
+
+
+def _wiring_email(chosen: set[str]) -> str:
+    """The sender the account emails go out through: queued where there is a worker."""
+    if "taskiq" in chosen:
+        source = "from ..infrastructure.taskiq.email import queued_sender"
+        sender = "queued_sender"
+    else:
+        source = "from ..infrastructure.email.factory import build_sender"
+        sender = "build_sender()"
+
+    return (
+        '"""The sender the account emails go out through."""\n\n'
+        "from crudauth import EmailSender\n\n"
+        f"{source}\n\n"
+        f"EMAIL_SENDER: EmailSender = {sender}\n"
     )
 
 
@@ -465,6 +474,7 @@ def build(preset: str, into: Path) -> Path:
     (project / "backend/src/wiring/settings.py").write_text(_wiring_settings(chosen))
     (project / "backend/src/wiring/app.py").write_text(_wiring_app(chosen))
     (project / "backend/src/wiring/hooks.py").write_text(_wiring_hooks(chosen))
+    (project / "backend/src/wiring/email.py").write_text(_wiring_email(chosen))
     (project / "backend/src/wiring/models.py").write_text(_wiring_models(chosen))
     if "admin" in chosen:
         (project / "backend/src/wiring/admin.py").write_text(_wiring_admin(chosen))
@@ -637,7 +647,7 @@ def check(project: Path, python: Path) -> list[Result]:
         "PATH": "/usr/bin:/bin",
         "PYTHONPATH": str(backend),
         "ENVIRONMENT": "local",
-        "SECRET_KEY": "drill-secret-key",
+        "SECRET_KEY": "drill-secret-key-with-32-bytes-at-least",
         "SESSION_BACKEND": "memory",
         "RATE_LIMITER_BACKEND": "memory",
         "HOME": str(Path.home()),

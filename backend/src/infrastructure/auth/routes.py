@@ -1,6 +1,7 @@
 """The account routes this project mounts, and the OAuth router it mounts outside the API prefix.
 
-``router`` carries crudauth's account router under ``/auth``, with ``set-password`` left out.
+``router`` carries crudauth's account router under ``/auth``, with ``set-password`` left out,
+and its recovery router: email verification, password reset and the confirmed email change.
 ``root_routers`` carries crudauth's OAuth router when a provider is configured, and is empty
 when none is.
 """
@@ -9,6 +10,7 @@ from typing import Annotated, Any, cast
 
 from crudauth import Principal
 from crudauth.account import build_account_router
+from crudauth.email.router import build_email_router
 from crudauth.exceptions import ForbiddenException, UnauthorizedException
 from crudauth.ratelimit import KeyBy
 from crudauth.utils import is_cross_site
@@ -34,6 +36,12 @@ _account_router.routes = [
 for _account_route in _account_router.routes:
     cast(APIRoute, _account_route).tags = []
 router.include_router(_account_router)
+
+if crud_auth.emails is not None:
+    _email_router = build_email_router(auth=crud_auth, service=crud_auth.emails)
+    for _email_route in _email_router.routes:
+        cast(APIRoute, _email_route).tags = []
+    router.include_router(_email_router)
 
 root_routers: tuple[APIRouter, ...] = (crud_auth.oauth_router,) if crud_auth.oauth is not None else ()
 

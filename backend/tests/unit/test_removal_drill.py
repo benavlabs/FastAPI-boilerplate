@@ -125,6 +125,7 @@ GENERATED_FILES = (
     ("src/wiring/settings.py", "_wiring_settings"),
     ("src/wiring/app.py", "_wiring_app"),
     ("src/wiring/hooks.py", "_wiring_hooks"),
+    ("src/wiring/email.py", "_wiring_email"),
     ("src/wiring/models.py", "_wiring_models"),
     ("src/wiring/admin.py", "_wiring_admin"),
     ("scripts/seeders.py", "_seeders"),

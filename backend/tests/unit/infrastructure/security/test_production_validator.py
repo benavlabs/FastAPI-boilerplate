@@ -42,6 +42,7 @@ class TestProductionSecurityValidator:
             "CSRF_ENABLED": True,
             "CREATE_TABLES_ON_STARTUP": False,
             "EMAIL_BACKEND": "smtp",
+            "FRONTEND_URL": "https://app.example.com",
             "ADMIN_ENABLED": True,
             "ADMIN_USERNAME": "secure_admin_user",
             "ADMIN_PASSWORD": "very_secure_admin_password_123",
@@ -204,6 +205,17 @@ class TestProductionSecurityValidator:
         warning_logs = [record for record in caplog.records if record.levelname == "WARNING"]
         password_warnings = [log for log in warning_logs if "DATABASE_URL is set but contains no password" in log.message]
         assert len(password_warnings) > 0
+
+    @pytest.mark.parametrize(
+        "frontend_url", ["", "   ", "http://localhost:3000", "http://127.0.0.1:3000", "http://0.0.0.0", "http://[::1]"]
+    )
+    def test_a_frontend_url_nobody_can_open_raises_error(self, frontend_url: str):
+        """Every recovery link is built from it, so a local one makes all of them dead."""
+        settings = self.create_mock_settings(FRONTEND_URL=frontend_url)
+        validator = ProductionSecurityValidator(settings)
+
+        with pytest.raises(ProductionSecurityError, match="FRONTEND_URL"):
+            validator.validate_production_security()
 
     def test_the_console_email_backend_raises_error(self):
         """It logs every message in full, which would put working reset links in the logs."""

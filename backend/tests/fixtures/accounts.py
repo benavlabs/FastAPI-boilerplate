@@ -5,6 +5,7 @@ import time
 import pytest
 import pytest_asyncio
 from crudauth import Principal, get_password_hash
+from crudauth.utils import canonical_email
 from faker import Faker
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -192,6 +193,23 @@ async def reset_password_budget(user_id: int) -> None:
     key = f"ratelimit:{PASSWORD_ATTEMPT_ACTION}:{user_id}"
 
     await _reset_limiter_keys(key, f"{key}:{window}")
+
+
+RECOVERY_ACTIONS = ("email_verify_request", "password_reset_request", "email_change_request")
+
+
+async def reset_recovery_budgets(*addresses: str) -> None:
+    """Clear the recovery-flow budgets: the test client's per-address caps and its per-IP ones.
+
+    Both are counted in the process the suite runs in, so they carry from test to test.
+    """
+    for action in RECOVERY_ACTIONS:
+        limit = crud_auth.rate_limits[action]
+        window = int(time.time()) // limit.seconds * limit.seconds
+        per_address = [f"email:{action}:{canonical_email(address)}" for address in addresses]
+        per_ip = f"ratelimit:{action}:{TEST_CLIENT_IP}"
+
+        await _reset_limiter_keys(per_ip, f"{per_ip}:{window}", *per_address)
 
 
 @pytest_asyncio.fixture

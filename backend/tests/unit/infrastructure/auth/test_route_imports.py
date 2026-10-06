@@ -32,7 +32,7 @@ def _in_a_cold_process(code: str) -> subprocess.CompletedProcess[str]:
         env={
             "PATH": "/usr/bin:/bin",
             "PYTHONPATH": str(backend),
-            "SECRET_KEY": "test_secret_key_for_tests",
+            "SECRET_KEY": "test_secret_key_for_tests_with_32_bytes_at_least",
             "SESSION_BACKEND": "memory",
             "RATE_LIMITER_BACKEND": "memory",
         },

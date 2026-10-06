@@ -214,6 +214,8 @@ class EmailSettings(BaseSettings):
     EMAIL_FROM: str = config("EMAIL_FROM", default="no-reply@localhost")
     EMAIL_FROM_NAME: str = config("EMAIL_FROM_NAME", default="")
 
+    FRONTEND_URL: str = config("FRONTEND_URL", default="http://localhost:3000")
+
     EMAIL_SMTP_HOST: str = config("EMAIL_SMTP_HOST", default="")
     EMAIL_SMTP_PORT: int = config("EMAIL_SMTP_PORT", default=587, cast=int)
     EMAIL_SMTP_USER: str = config("EMAIL_SMTP_USER", default="")

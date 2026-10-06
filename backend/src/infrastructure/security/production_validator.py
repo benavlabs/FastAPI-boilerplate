@@ -14,6 +14,8 @@ from .secret_key import is_weak_secret_key
 
 logger = get_logger()
 
+LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", "0.0.0.0"})
+
 
 class ProductionSecurityError(Exception):
     """Exception raised when critical security issues are found in production.
@@ -147,6 +149,14 @@ class ProductionSecurityValidator:
         """
         return getattr(self.settings, name, default)
 
+    def _is_frontend_url_local(self) -> bool:
+        """Whether ``FRONTEND_URL`` is empty, or names a host only this machine can reach."""
+        url = self.settings.FRONTEND_URL.strip()
+        if not url:
+            return True
+
+        return (urlsplit(url).hostname or "") in LOCAL_HOSTS
+
     def _is_production(self) -> bool:
         """Check if the application is running in production environment.
 
@@ -219,6 +229,14 @@ class ProductionSecurityValidator:
                 "Admin interface is enabled (ADMIN_ENABLED=true) but ADMIN_USERNAME and/or "
                 "ADMIN_PASSWORD are not set. Set both to strong, unique values or set "
                 "ADMIN_ENABLED=false for production."
+            )
+
+        if self._is_frontend_url_local():
+            errors.append(
+                f"FRONTEND_URL is {self.settings.FRONTEND_URL!r} in production. The verification, "
+                "password-reset and email-change links are built from it, so every one of them "
+                "would point at a host the recipient cannot open. Set it to the project's own "
+                "frontend."
             )
 
         if self.settings.EMAIL_BACKEND == EmailBackend.CONSOLE.value:
