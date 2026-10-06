@@ -307,6 +307,13 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   `python scripts/cleanup_api_key_json.py` from `backend/` once after upgrading; it sets those
   columns to `{}` wherever they hold a null, reports how many rows it touched, and is safe to run
   again.
+- **One account per address, case-insensitively.** `User` now declares `ix_user_email_lower`, a
+  unique index over `lower(email)`, so two rows can no longer hold the same address in different
+  case — including through the admin panel, which writes through SQLAlchemy rather than the signup
+  schema. A database written by an older version may hold such a pair, and creating the index on it
+  fails: run `python scripts/canonicalize_emails.py` from `backend/` first. It rewrites every
+  address into the trimmed, lowercased form every lookup uses and adds the index, or, while two
+  accounts hold one address, names them and changes nothing. Safe to run again.
 - **The legacy OpenAPI identity settings are gone.** Rename `CONTACT_NAME`, `CONTACT_EMAIL` and
   `LICENSE_NAME` in your environment to `API_CONTACT_NAME`, `API_CONTACT_EMAIL` and
   `API_LICENSE_NAME`; the old names are now read by nothing, so a project that keeps them publishes

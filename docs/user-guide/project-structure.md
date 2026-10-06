@@ -29,6 +29,7 @@ backend/
 │   ├── script.py.mako
 │   └── versions/
 ├── scripts/                  # One-off setup scripts
+│   ├── canonicalize_emails.py
 │   ├── cleanup_api_key_json.py
 │   ├── create_first_superuser.py
 │   ├── create_first_tier.py
@@ -194,7 +195,8 @@ scripts/
 ├── create_first_superuser.py # Just the admin user
 ├── create_first_tier.py      # Just the default tier
 ├── create_tables.py          # Just the database tables
-└── cleanup_api_key_json.py   # One-off repair for legacy API key rows
+├── cleanup_api_key_json.py   # One-off repair for legacy API key rows
+└── canonicalize_emails.py    # One-off repair for addresses stored with case or spaces
 ```
 
 The most common entry point is `setup_initial_data` which calls all three.
@@ -224,6 +226,18 @@ uv run --no-sync python scripts/cleanup_api_key_json.py
 
 It reports how many rows each column was repaired in, changes nothing else, and is safe to run
 again.
+
+`canonicalize_emails.py` is the same kind of one-off, for a database written before addresses were
+stored canonically. It rewrites every address into the trimmed, lowercased form every lookup uses
+and adds the `ix_user_email_lower` unique index over it:
+
+```bash
+uv run --no-sync python scripts/canonicalize_emails.py
+```
+
+While two accounts hold one address once case and whitespace are ignored it changes nothing, names
+those addresses and exits `1`: which account keeps the address is a decision for a person. Merge or
+rename them and run it again.
 
 ## Tests (`backend/tests/`)
 

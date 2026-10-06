@@ -39,7 +39,9 @@ curl -X POST http://localhost:8000/api/v1/users/ \
 
 The route delegates to `UserService.create`, which:
 
-1. Checks `email` is unique → raises `UserExistsError` if not (→ 409)
+1. Checks `email` is unique → raises `UserExistsError` if not (→ 409). Addresses are stored
+   trimmed and lowercased, and `ix_user_email_lower` keeps the database from holding the same
+   address twice in different case even when a write goes around the service
 2. Checks `username` is unique → raises `UserExistsError` if not (→ 409)
 3. Hashes the password with bcrypt via `get_password_hash`
 4. Builds a `UserCreateInternal` (schema with `hashed_password` instead of `password`)
@@ -341,6 +343,9 @@ The actual model lives in `modules/user/models.py`. Trimmed:
 ```python
 class User(Base, TimestampMixin, SoftDeleteMixin):
     __tablename__ = "user"
+    __table_args__ = (
+        Index("ix_user_email_lower", text("lower(email)"), unique=True),
+    )
 
     id: Mapped[int] = mapped_column(
         "id", autoincrement=True, nullable=False,

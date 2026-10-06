@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, String
+from sqlalchemy import DateTime, Index, String, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ...infrastructure.database.models import SoftDeleteMixin, TimestampMixin
@@ -17,6 +17,7 @@ class User(Base, TimestampMixin, SoftDeleteMixin, UserModelExtensions):
     """
 
     __tablename__ = "user"
+    __table_args__ = (Index("ix_user_email_lower", text("lower(email)"), unique=True),)
 
     id: Mapped[int] = mapped_column(
         "id",
