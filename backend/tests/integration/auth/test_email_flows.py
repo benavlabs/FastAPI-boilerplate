@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 import pytest_asyncio
-from crudauth import EmailContext, EmailSender
+from crudauth import EmailContext, EmailSender, make_unusable_password
 from crudauth.email.constants import EmailKind
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -147,6 +147,32 @@ class TestResettingAPassword:
         assert with_the_old.status_code == 401
         await _login(client, test_user, NEW_PASSWORD)
         await other.aclose()
+
+
+class TestAnAccountWithNoPassword:
+    """A provider-only account has no password to change, so the reset link sets its first."""
+
+    async def test_the_reset_link_sets_a_first_password(
+        self, client: AsyncClient, test_user: dict, delivered: list[dict[str, Any]], db_session: AsyncSession
+    ):
+        stored = await db_session.get(User, test_user["id"])
+        assert stored is not None
+        stored.hashed_password = make_unusable_password()
+        await db_session.commit()
+
+        refused = await client.post(
+            "/api/v1/auth/login", data={"username": test_user["username"], "password": test_user["password"]}
+        )
+        assert refused.status_code == 401
+
+        await client.post("/api/v1/auth/password/reset-request", json={"email": test_user["email"]})
+        reset = await client.post(
+            "/api/v1/auth/password/reset-confirm",
+            json={"token": _token_of(delivered[0]), "new_password": NEW_PASSWORD},
+        )
+
+        assert reset.status_code == 200
+        await _login(client, test_user, NEW_PASSWORD)
 
 
 class TestChangingAnAddress:
