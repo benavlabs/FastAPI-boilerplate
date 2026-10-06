@@ -275,6 +275,9 @@ def _wiring_app(chosen: set[str]) -> str:
     if "api_keys" in chosen:
         imports.append("from ..modules.api_keys.routes import router as api_keys_router")
         collection_mounts.append('RouterMount(api_keys_router, "/api-keys", throttled=True)')
+    if "rbac" in chosen:
+        imports.append("from ..modules.role.routes import permissions_router")
+        collection_mounts.append('RouterMount(permissions_router, "/permissions", throttled=True)')
     if "cache" in chosen:
         imports.append("from ..infrastructure.cache.initialize import lifecycle as cache_lifecycle")
         lifecycles.append("cache_lifecycle")

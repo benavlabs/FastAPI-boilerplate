@@ -136,8 +136,26 @@ db.add(UserRole(user_id=user_id, role_id=role.id))
 await db.commit()
 ```
 
+## Reading the Permissions
+
+Two routes read them, both needing a session (the rbac feature mounts them):
+
+```bash
+# Every permission the running project has, grouped by the resource that declared it —
+# what a UI offers when it builds a role, since a role may carry nothing else.
+curl http://localhost:8000/api/v1/permissions -b cookies.txt
+# → {"permissions": {"api_key": ["api_key.read", ...], "role": ["role.read", ...], ...}}
+
+# What the caller holds, from every source the project wired.
+curl http://localhost:8000/api/v1/permissions/me -b cookies.txt
+# → {"permissions": ["user.update"]}
+```
+
+A superuser's own listing is every registered permission. A stored grant whose name is no longer
+registered appears in neither: the registry is what makes a name mean anything.
+
 !!! info "Not shipped yet"
-    Role and permission CRUD endpoints, admin-panel views for roles, and narrowing an API key to a subset of its owner's permissions are follow-up work. This change ships the models, the registry, and the route guards.
+    Role CRUD endpoints, admin-panel views for roles, and narrowing an API key to a subset of its owner's permissions are follow-up work. This change ships the models, the registry, the route guards and the two read routes above.
 
 ## Superuser Authorization
 
