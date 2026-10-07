@@ -31,7 +31,7 @@ class TestTextTheDatabaseCannotStore:
     """A lone surrogate is refused wherever it sits, and never echoed back."""
 
     async def test_a_nested_value_on_create(self, auth_client: AsyncClient):
-        response = await _create(auth_client, '{"name": "Nested", "permissions": {"a": "' + SURROGATE + '"}}')
+        response = await _create(auth_client, '{"name": "Nested", "usage_limits": {"a": "' + SURROGATE + '"}}')
 
         assert response.status_code == 422
         assert "ud800" not in response.text

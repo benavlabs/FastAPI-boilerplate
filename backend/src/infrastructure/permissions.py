@@ -106,6 +106,19 @@ def permission_groups() -> dict[str, tuple[str, ...]]:
     }
 
 
+def registered_permissions(names: list[str]) -> list[str]:
+    """``names`` with the duplicates dropped, refusing one the registry doesn't know.
+
+    Raises:
+        ValueError: A name is not a registered permission, so nothing would ever check it.
+    """
+    unknown = sorted(set(names) - all_permissions())
+    if unknown:
+        raise ValueError(f"Unknown permission(s): {', '.join(unknown)}")
+
+    return sorted(set(names))
+
+
 def is_known_permission(permission_name: str) -> bool:
     """Return whether a permission is registered."""
     discover_permissions()

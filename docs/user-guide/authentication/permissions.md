@@ -12,11 +12,11 @@ The boilerplate ships five overlapping mechanisms. Pick the one(s) that fit your
 | **Superuser flag** | `User.is_superuser` boolean | Admin-only operations |
 | **Resource ownership** | Service-layer permission checks | "Users can only edit their own X" |
 | **Tier-based limits** | `Tier` model + `RateLimit` rules | Subscription gating, rate limits |
-| **API key permissions** | `KeyPermission` model (resource + action) | Programmatic access control |
+| **API key scope** | `APIKey.permissions`, a list of registry permission names | What a key is allowed to do, once a key can authenticate a request |
 
 These compose. A typical request goes through:
 
-1. **Authentication** — session cookie (or API key) identifies *who*
+1. **Authentication** — the session cookie identifies *who*
 2. **Coarse access** — role permissions, or the superuser flag, for privileged endpoints
 3. **Fine-grained access** — service-layer ownership / tier checks
 4. **Rate limiting** — tier-based per-route limits (separate concern)
@@ -392,108 +392,44 @@ curl -X POST http://localhost:8000/api/v1/rate-limits/ \
   }'
 ```
 
-## API Key Permissions
+## API Key Scope
 
-For programmatic access, API keys carry their own per-key permission model. Each key can have multiple `KeyPermission` rows, where a permission is `(resource, action, allow/deny, optional conditions)`.
-
-### Permission Model
+A key's scope is a list of registry permission names — the same vocabulary a role carries and
+`require_permissions` gates on — stored on the key row:
 
 ```python
 # modules/api_keys/models.py
-class KeyPermission(Base, TimestampMixin):
-    __tablename__ = "key_permissions"
+class APIKey(Base, TimestampMixin):
+    __tablename__ = "api_keys"
 
-    api_key_id: Mapped[int] = mapped_column(ForeignKey("api_keys.id", ondelete="CASCADE"))
-    resource: Mapped[KeyPermissionResource] = mapped_column(index=True)
-    action: Mapped[KeyPermissionAction] = mapped_column(index=True)
-    conditions: Mapped[dict[str, Any] | None] = mapped_column(JSON, default=None)
-    is_allowed: Mapped[bool] = mapped_column(Boolean, default=True)
+    permissions: Mapped[list[str]] = mapped_column(JSON, insert_default=list)
 ```
 
-### Resources and Actions
-
-The `KeyPermissionResource` and `KeyPermissionAction` enums in `modules/api_keys/enums.py` define the shape of a permission row:
-
-```python
-class KeyPermissionResource(StrEnum):
-    USER_PROFILE = "user_profile"
-    ANALYTICS = "analytics"
-    ADMIN = "admin"
-    BILLING = "billing"
-    API_KEYS = "api_keys"
-    WILDCARD = "*"
-    # ... plus a few legacy values inherited from the upstream template
-
-
-class KeyPermissionAction(StrEnum):
-    READ = "read"
-    WRITE = "write"
-    DELETE = "delete"
-    CREATE = "create"
-    UPDATE = "update"
-    LIST = "list"
-    ADMIN = "admin"
-    WILDCARD = "*"
-```
-
-`*` is a wildcard — `(resource="*", action="*")` is full access; `(resource="user_profile", action="*")` is full access to the user_profile resource.
-
-!!! info "Customize the enums"
-    The enum values are starting points. Edit `modules/api_keys/enums.py` to match the resources and actions your API actually exposes. The default values include some leftovers from the upstream template (e.g. `conversations`, `credits`) — feel free to drop them.
-
-### Granting Permissions on a New Key
-
-Permissions are passed at creation time:
+Create and update validate every name against the registry, so a scope can only name a permission
+the project declares. An unregistered name answers `422` without echoing what was sent, and the
+names come back deduplicated and sorted. A key created without `permissions` is **unscoped**: it
+names its owner and carries no permission at all.
 
 ```bash
 curl -X POST http://localhost:8000/api/v1/api-keys/ \
   -b cookies.txt \
   -H "Content-Type: application/json" \
   -H "X-CSRF-Token: <token>" \
-  -d '{
-    "name": "Read-only analytics integration",
-    "permissions": {
-      "analytics": ["read", "list"],
-      "user_profile": ["read"]
-    },
-    "usage_limits": {}
-  }'
+  -d '{"name": "Read-only integration", "permissions": ["user.read"], "usage_limits": {}}'
 ```
 
-The service translates the dict into `KeyPermission` rows.
+A stored name the registry no longer knows is read back as it is and counts for nothing, the same
+way a role's stale grant does.
 
-### Checking Permissions in a Route
+!!! warning "Storing a scope is not enforcing one"
+    A key's scope is stored and validated, and nothing reads it yet. No request authenticates with
+    a key — `X-API-Key` is not wired — and no route narrows a caller's permissions to a key's
+    scope, so a scope has no effect on what anybody can do. A key can also be scoped to a
+    permission its own creator doesn't hold, which is likewise refused only once the scope is
+    enforced.
 
-When a request comes in via API key, you can guard endpoints by required `(resource, action)`. The boilerplate doesn't ship a built-in `require_permission(...)` decorator — the API key flow is left flexible so you can wire it however suits your app:
-
-```python
-async def require_key_permission(
-    resource: KeyPermissionResource,
-    action: KeyPermissionAction,
-    db: AsyncSession,
-    api_key: dict[str, Any],
-) -> None:
-    has_permission = await crud_key_permissions.exists(
-        db=db,
-        api_key_id=api_key["id"],
-        resource=resource,
-        action=action,
-        is_allowed=True,
-    )
-    # also check wildcards
-    if not has_permission:
-        has_wildcard = await crud_key_permissions.exists(
-            db=db,
-            api_key_id=api_key["id"],
-            resource=KeyPermissionResource.WILDCARD,
-            action=KeyPermissionAction.WILDCARD,
-            is_allowed=True,
-        )
-        if not has_wildcard:
-            raise PermissionDeniedError(f"API key lacks {resource}:{action}")
-```
-
-How API keys are authenticated (parsing the header, looking up the row, checking the status) is up to you — `KeyStatus` defines the lifecycle (`ACTIVE`, `INACTIVE`, `SUSPENDED`, `EXPIRED`, `REVOKED`).
+`KeyStatus` defines the lifecycle a project can put a key through (`ACTIVE`, `INACTIVE`,
+`SUSPENDED`, `EXPIRED`, `REVOKED`); the routes ship `is_active` and `expires_at`.
 
 ## Combining Patterns
 

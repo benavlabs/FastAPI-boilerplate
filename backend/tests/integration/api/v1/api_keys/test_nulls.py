@@ -17,7 +17,7 @@ pytestmark = pytest.mark.asyncio
 
 @pytest.mark.parametrize(
     ("field", "accepted"),
-    [("name", "Renamed"), ("is_active", False), ("permissions", {}), ("usage_limits", {})],
+    [("name", "Renamed"), ("is_active", False), ("permissions", []), ("usage_limits", {})],
 )
 async def test_an_explicit_null_is_refused(auth_client: AsyncClient, field: str, accepted):
     """Every 422 carries the same generic body, so the control says the null caused this one."""
@@ -47,7 +47,7 @@ async def test_the_listing_still_works_after_a_refused_null(auth_client: AsyncCl
     assert refused.status_code == 422
     assert refused.json()["detail"] == INVALID_REQUEST
     assert listing.status_code == 200
-    assert listing.json()["data"][0]["permissions"] == {}
+    assert listing.json()["data"][0]["permissions"] == []
 
 
 async def test_revocation_stays_one_way_against_a_null(auth_client: AsyncClient):
@@ -86,5 +86,5 @@ async def test_the_cleanup_makes_a_legacy_null_row_readable_again(
 
     assert before.status_code == 500
     assert after.status_code == 200
-    assert after.json()["data"][0]["permissions"] == {}
+    assert after.json()["data"][0]["permissions"] == []
     assert after.json()["data"][0]["usage_limits"] == {}

@@ -5,8 +5,9 @@ from typing import Annotated, Any, ClassVar
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator
 
+from ...infrastructure.permissions import registered_permissions
 from ..common.schemas import EncodableText, PartialUpdate, TimestampSchema, not_nullable_columns, within_utc_range
-from .enums import HTTPMethod, KeyPermissionAction, KeyPermissionResource
+from .enums import HTTPMethod
 from .models import APIKey
 
 VALID_HTTP_METHODS = {m.value for m in HTTPMethod}
@@ -18,10 +19,19 @@ class APIKeyBase(EncodableText):
     _expiry_within_range = field_validator("expires_at")(within_utc_range)
 
     name: Annotated[str, Field(min_length=1, max_length=100, description="Human-readable name for the API key")]
-    permissions: dict[str, Any] = Field(default_factory=dict, description="Permission settings")
+    permissions: list[str] = Field(
+        default_factory=list,
+        description="Registry permission names the key is scoped to",
+        examples=[["user.read", "user.update"]],
+    )
     usage_limits: dict[str, Any] = Field(default_factory=dict, description="Usage limits per key")
     expires_at: AwareDatetime | None = Field(default=None, description="Key expiration timestamp")
     key_metadata: dict[str, Any] | None = Field(default=None, description="Additional key metadata")
+
+    @field_validator("permissions")
+    @classmethod
+    def _registered(cls, names: list[str]) -> list[str]:
+        return registered_permissions(names)
 
 
 class APIKeyCreate(APIKeyBase):
@@ -46,11 +56,16 @@ class APIKeyUpdate(EncodableText, PartialUpdate):
     NOT_NULLABLE: ClassVar[tuple[str, ...]] = not_nullable_columns(APIKey)
 
     name: Annotated[str, Field(min_length=1, max_length=100)] | None = None
-    permissions: dict[str, Any] | None = None
+    permissions: list[str] | None = None
     usage_limits: dict[str, Any] | None = None
     is_active: bool | None = None
     expires_at: AwareDatetime | None = None
     key_metadata: dict[str, Any] | None = None
+
+    @field_validator("permissions")
+    @classmethod
+    def _registered(cls, names: list[str] | None) -> list[str] | None:
+        return None if names is None else registered_permissions(names)
 
 
 class APIKeyRead(TimestampSchema):
@@ -62,7 +77,7 @@ class APIKeyRead(TimestampSchema):
     user_id: int
     name: str = Field(description="Human-readable name for the API key")
     key_prefix: str
-    permissions: dict[str, Any] = Field(description="Permission settings")
+    permissions: list[str] = Field(description="Registry permission names the key is scoped to")
     usage_limits: dict[str, Any] = Field(description="Usage limits per key")
     expires_at: datetime | None = Field(description="Key expiration timestamp")
     key_metadata: dict[str, Any] | None = Field(description="Additional key metadata")
@@ -135,43 +150,6 @@ class KeyUsageRead(TimestampSchema):
     usage_metadata: dict[str, Any] | None = Field(description="Additional usage metadata")
 
 
-class KeyPermissionBase(BaseModel):
-    """Base schema for key permission data."""
-
-    resource: Annotated[KeyPermissionResource, Field(description="Resource type")]
-    action: Annotated[KeyPermissionAction, Field(description="Action type")]
-    conditions: dict[str, Any] | None = Field(default=None, description="Additional conditions")
-    is_allowed: bool = Field(default=True, description="Whether permission is granted")
-
-
-class KeyPermissionCreate(KeyPermissionBase):
-    """Schema for creating a new key permission."""
-
-    api_key_id: int
-
-
-class KeyPermissionUpdate(BaseModel):
-    """Schema for updating an existing key permission."""
-
-    conditions: dict[str, Any] | None = None
-    is_allowed: bool | None = None
-
-
-class KeyPermissionRead(TimestampSchema, KeyPermissionBase):
-    """Schema for reading key permission data."""
-
-    model_config = ConfigDict(from_attributes=True)
-
-    id: int
-    api_key_id: int
-
-
-class APIKeyWithPermissions(APIKeyRead):
-    """Schema for API key with its permissions."""
-
-    permissions_list: list[KeyPermissionRead] = Field(default_factory=list, description="Detailed permissions")
-
-
 class KeyUsageAnalytics(BaseModel):
     """Schema for key usage analytics."""
 
@@ -202,8 +180,6 @@ class APIKeyValidationRequest(BaseModel):
     """Schema for API key validation requests."""
 
     api_key: str = Field(description="API key to validate")
-    resource: KeyPermissionResource = Field(description="Resource being accessed")
-    action: KeyPermissionAction = Field(description="Action being performed")
 
 
 class APIKeyValidationResponse(BaseModel):
@@ -212,6 +188,6 @@ class APIKeyValidationResponse(BaseModel):
     is_valid: bool
     api_key_id: int | None = None
     user_id: int | None = None
-    permissions: dict[str, Any] | None = None
+    permissions: list[str] | None = None
     usage_limits: dict[str, Any] | None = None
     error_message: str | None = None

@@ -316,6 +316,10 @@ matrix. The round that followed fixed what a re-review of the refactor found.
 
 #### Removed
 
+- **The `key_permissions` table and its vocabulary**: the `KeyPermission` model, the
+  `KeyPermissionResource` / `KeyPermissionAction` enums, the four `KeyPermission*` schemas,
+  `APIKeyWithPermissions`, `crud_key_permissions` and `APIKeyService._check_permission`. An API
+  key's scope is `APIKey.permissions` alone. See Breaking Changes.
 - `CSRFException`, which nothing raised.
 - `TaskRegistry` / `register_task` (`infrastructure/taskiq/registry.py`), a second task registry
   nothing wrote to. `default_broker.get_all_tasks()` is the one taskiq keeps.
@@ -330,6 +334,27 @@ matrix. The round that followed fixed what a re-review of the refactor found.
 
 #### Breaking Changes
 
+- **An API key's scope is a list of registry permission names.** `APIKey.permissions` held a
+  free-form JSON object, and a second copy of a key's scope lived in `key_permissions` rows keyed by
+  a vocabulary of their own (`conversations`, `credits`, `user_profile`, `*`, …) that no route could
+  check. Both are gone: `permissions` is now a `list[str]` of registered permission names —
+  the same names a role carries and `require_permissions` gates on — validated on create and
+  update, where an unregistered name answers `422`. `GET`/`POST`/`PATCH /api/v1/api-keys/` all
+  speak the list; a client sending the old object gets `422`.
+
+    Nothing translates the old vocabulary, since none of its values is a registered permission. Run
+    `python scripts/cleanup_api_key_json.py` once after upgrading: it empties every `permissions`
+    value that isn't a JSON array, so those keys are unscoped and keep working for identity, and
+    rescope them with the names your project registers. A row left holding an object makes the
+    owner's listing answer `500`.
+
+    A deployment that already has a `key_permissions` table still has it: the model is gone, so the
+    next `alembic revision --autogenerate` drops the table and every scope stored in it. Run the
+    cleanup script and rescope the keys that need it before serving from the new revision.
+
+    `APIKeyService.validate_api_key` no longer takes `resource` and `action` — it matches a key to
+    a live row and reports its owner and its scope. `APIKeyValidationRequest` lost the same two
+    fields.
 - **`PATCH /api/v1/users/{username}` no longer takes `email`** (or the `current_password` that
   gated it); both now answer `422`. An account moves its address through
   `POST /api/v1/auth/email/change-request`, which confirms the new address and notifies the old one,

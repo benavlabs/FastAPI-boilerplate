@@ -15,8 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...infrastructure.logging import get_logger
 from ..common.exceptions import PermissionDeniedError, ResourceNotFoundError, ValidationError
-from .crud import crud_api_keys, crud_key_permissions, crud_key_usage
-from .enums import KeyPermissionAction, KeyPermissionResource
+from .crud import crud_api_keys, crud_key_usage
 from .models import APIKey, KeyUsage
 from .schemas import (
     APIKeyCreate,
@@ -45,10 +44,10 @@ def _extends_expiry(current: datetime | None, proposed: datetime | None) -> bool
 
 
 class APIKeyService:
-    """Service for managing API keys, permissions, and usage tracking.
+    """Service for managing API keys, their scope, and usage tracking.
 
     Provides high-level operations for API key lifecycle management,
-    permission validation, usage tracking, and analytics.
+    validation, usage tracking, and analytics.
     """
 
     def __init__(self):
@@ -299,20 +298,16 @@ class APIKeyService:
     async def validate_api_key(
         self,
         api_key: str,
-        resource: str,
-        action: str,
         db: AsyncSession,
     ) -> APIKeyValidationResponse:
-        """Validate an API key and check permissions.
+        """Match an API key to a live key row, and report its owner and its scope.
 
         Args:
             api_key: API key to validate
-            resource: Resource being accessed
-            action: Action being performed
             db: Database session
 
         Returns:
-            Validation response with key details and permissions
+            Validation response with key details and the permission names it carries
         """
         prefix_start = len("fai_")
         prefix_end = prefix_start + self.key_prefix_length
@@ -350,19 +345,6 @@ class APIKeyService:
             return APIKeyValidationResponse(
                 is_valid=False,
                 error_message="API key has expired",
-            )
-
-        has_permission = await self._check_permission(
-            api_key_id=key["id"],
-            resource=resource,
-            action=action,
-            db=db,
-        )
-
-        if not has_permission:
-            return APIKeyValidationResponse(
-                is_valid=False,
-                error_message=f"No permission for {action} on {resource}",
             )
 
         await crud_api_keys.update(
@@ -584,69 +566,3 @@ class APIKeyService:
         stmt = select(func.count(), func.count().filter(APIKey.is_active)).where(APIKey.user_id == user_id)
         total, active = (await db.execute(stmt)).one()
         return int(total), int(active)
-
-    async def _check_permission(
-        self,
-        api_key_id: int,
-        resource: str,
-        action: str,
-        db: AsyncSession,
-    ) -> bool:
-        """Check if an API key has permission for a resource/action.
-
-        Args:
-            api_key_id: API key ID
-            resource: Resource type
-            action: Action type
-            db: Database session
-
-        Returns:
-            True if permission granted, False otherwise
-        """
-        resource_enum = None
-        action_enum = None
-
-        try:
-            resource_enum = KeyPermissionResource(resource)
-        except ValueError:
-            pass
-
-        try:
-            action_enum = KeyPermissionAction(action)
-        except ValueError:
-            pass
-
-        permission = None
-        if resource_enum and action_enum:
-            permission = await crud_key_permissions.get(
-                db=db,
-                api_key_id=api_key_id,
-                resource=resource_enum,
-                action=action_enum,
-            )
-
-        if not permission and action_enum:
-            permission = await crud_key_permissions.get(
-                db=db,
-                api_key_id=api_key_id,
-                resource=KeyPermissionResource.WILDCARD,
-                action=action_enum,
-            )
-
-        if not permission and resource_enum:
-            permission = await crud_key_permissions.get(
-                db=db,
-                api_key_id=api_key_id,
-                resource=resource_enum,
-                action=KeyPermissionAction.WILDCARD,
-            )
-
-        if not permission:
-            permission = await crud_key_permissions.get(
-                db=db,
-                api_key_id=api_key_id,
-                resource=KeyPermissionResource.WILDCARD,
-                action=KeyPermissionAction.WILDCARD,
-            )
-
-        return permission["is_allowed"] if permission else False

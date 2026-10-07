@@ -3,7 +3,7 @@
 import src.modules.api_keys.models  # noqa: F401  (registers the tables)
 from src.infrastructure.database.session import Base
 
-API_KEYS_TABLES = ("api_keys", "key_usage", "key_permissions")
+API_KEYS_TABLES = ("api_keys", "key_usage")
 
 
 def _is_implicit(index) -> bool:

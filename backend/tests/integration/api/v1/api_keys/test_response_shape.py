@@ -34,7 +34,7 @@ async def test_the_create_response_is_the_read_schema_minus_those_two(auth_clien
     assert body["name"] == "Fields Key"
     assert body["api_key"].startswith(f"fai_{body['key_prefix']}_")
     assert body["is_active"] is True
-    assert body["permissions"] == {}
+    assert body["permissions"] == []
     assert body["usage_limits"] == {}
     assert body["expires_at"] is None
 

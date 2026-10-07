@@ -34,7 +34,7 @@ router = APIRouter(tags=["API Keys"])
     for building developer-facing products and integrations.
 
     - **name**: Human-readable name for the API key
-    - **permissions**: Permission settings for the key
+    - **permissions**: Registry permission names the key is scoped to
     - **usage_limits**: Usage limits specific to this key
     - **expires_at**: Optional expiration timestamp, with a UTC offset
 
@@ -116,7 +116,7 @@ async def get_user_api_keys(
     - **key_id**: ID of the API key to retrieve
 
     Users can only access their own API keys.
-    Returns comprehensive key information including usage limits and permissions.
+    Returns comprehensive key information including usage limits and the key's scope.
     """,
     responses={
         200: {"description": "API key details retrieved successfully"},
@@ -149,7 +149,7 @@ async def get_api_key(
 
     - **key_id**: ID of the API key to update
 
-    Allows updating name, permissions, usage limits, active status, and expiration.
+    Allows updating name, scope, usage limits, active status, and expiration.
     Users can only update their own API keys.
     """,
     responses={

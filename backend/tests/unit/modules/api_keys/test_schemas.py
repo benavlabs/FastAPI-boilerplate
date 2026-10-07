@@ -21,7 +21,7 @@ STORED_KEY = {
     "user_id": 2,
     "name": "Stored Key",
     "key_prefix": "fai_test",
-    "permissions": {},
+    "permissions": ["user.read"],
     "usage_limits": {},
     "expires_at": None,
     "key_metadata": None,
@@ -87,6 +87,40 @@ class TestAReadSchemaDescribesTheRow:
 
     def test_a_stored_status_code_outside_the_range_is_read_as_it_is(self):
         assert KeyUsageRead.model_validate({**STORED_USAGE, "status_code": 0}).status_code == 0
+
+    def test_a_stored_name_the_registry_no_longer_knows_is_read_as_it_is(self):
+        """A key keeps working after a permission is renamed out of the registry."""
+        stored = APIKeyRead.model_validate({**STORED_KEY, "permissions": ["user.read", "widget.explode"]})
+
+        assert stored.permissions == ["user.read", "widget.explode"]
+
+
+class TestAKeysScopeIsRegistryPermissionNames:
+    """A key is scoped by the same vocabulary a role carries and a route gates on."""
+
+    def test_a_registered_name_is_accepted(self):
+        assert APIKeyCreate(name="Key", permissions=["user.read"]).permissions == ["user.read"]
+
+    def test_the_names_come_back_deduplicated_and_sorted(self):
+        scope = APIKeyCreate(name="Key", permissions=["user.update", "user.read", "user.read"]).permissions
+
+        assert scope == ["user.read", "user.update"]
+
+    def test_an_unregistered_name_is_refused_on_create(self):
+        with pytest.raises(ValidationError, match="widget.explode"):
+            APIKeyCreate(name="Key", permissions=["widget.explode"])
+
+    def test_an_unregistered_name_is_refused_on_update(self):
+        with pytest.raises(ValidationError, match="widget.explode"):
+            APIKeyUpdate(permissions=["user.read", "widget.explode"])
+
+    def test_a_key_is_unscoped_by_default(self):
+        assert APIKeyCreate(name="Key").permissions == []
+
+    def test_an_object_is_refused_where_the_names_belong(self):
+        """The shape an older version stored names nothing the registry knows."""
+        with pytest.raises(ValidationError):
+            APIKeyCreate(name="Key", permissions={"conversations": ["read"]})
 
 
 class TestTheInputSchemasKeepTheirRules:

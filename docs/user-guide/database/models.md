@@ -12,7 +12,7 @@ backend/src/modules/
 ├── role/models.py          # Role, RolePermission, UserRole
 ├── tier/models.py          # Tier
 ├── rate_limit/models.py    # RateLimit
-└── api_keys/models.py      # APIKey, KeyUsage, KeyPermission
+└── api_keys/models.py      # APIKey, KeyUsage
 ```
 
 The shared base class and reusable mixins live in `backend/src/infrastructure/database/`:

@@ -232,9 +232,9 @@ The boilerplate ships with these models (one per feature module):
 - Mixins: `TimestampMixin`, `SoftDeleteMixin`
 - Table name: **`rate_limits`**
 
-### `APIKey`, `KeyUsage`, `KeyPermission` — `modules/api_keys/models.py`
-- API key issuance with per-key permissions and usage tracking
-- Table names: `api_keys`, `key_usage`, `key_permissions`
+### `APIKey`, `KeyUsage` — `modules/api_keys/models.py`
+- API key issuance, each key scoped by a list of registry permission names, with usage tracking
+- Table names: `api_keys`, `key_usage`
 
 ## Directory Structure
 

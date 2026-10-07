@@ -5,26 +5,13 @@ from typing import Annotated, Any, ClassVar
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from ...infrastructure.permissions import all_permissions
+from ...infrastructure.permissions import registered_permissions
 from ..common.schemas import PartialUpdate, not_nullable_columns
 from .constants import ROLE_NAME_MAX_LENGTH
 from .models import Role as RoleModel
 
 RoleName = Annotated[str, Field(min_length=1, max_length=ROLE_NAME_MAX_LENGTH, examples=["editor"])]
 RoleDescription = Annotated[str | None, Field(max_length=500, examples=["Edits other people's profiles"])]
-
-
-def registered_permissions(names: list[str]) -> list[str]:
-    """``names`` with the duplicates dropped, refusing one the registry doesn't know.
-
-    Raises:
-        ValueError: A name is not a registered permission, so nothing would ever check it.
-    """
-    unknown = sorted(set(names) - all_permissions())
-    if unknown:
-        raise ValueError(f"Unknown permission(s): {', '.join(unknown)}")
-
-    return sorted(set(names))
 
 
 class RolePermissions(BaseModel):

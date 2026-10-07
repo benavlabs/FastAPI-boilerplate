@@ -9,14 +9,12 @@ import pytest_asyncio
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.modules.api_keys.crud import crud_api_keys, crud_key_permissions
-from src.modules.api_keys.enums import KeyPermissionAction, KeyPermissionResource
+from src.modules.api_keys.crud import crud_api_keys
 from src.modules.api_keys.models import APIKey, KeyUsage
 from src.modules.api_keys.schemas import (
     APIKeyCreate,
     APIKeyCreateInternal,
     APIKeyUpdate,
-    KeyPermissionCreate,
     KeyUsageCreate,
 )
 from src.modules.api_keys.service import APIKeyService
@@ -33,7 +31,7 @@ def api_key_service():
 async def test_api_key(api_key_service, db_session: AsyncSession, test_user: dict):
     """Create a test API key."""
     key_data = APIKeyCreate(
-        name="Test API Key", permissions={"read": True, "write": True}, usage_limits={"requests_per_day": 1000}
+        name="Test API Key", permissions=["user.read", "user.update"], usage_limits={"requests_per_day": 1000}
     )
 
     response = await api_key_service.create_api_key(user_id=test_user["id"], key_data=key_data, db=db_session)
@@ -44,7 +42,7 @@ async def test_api_key(api_key_service, db_session: AsyncSession, test_user: dic
 @pytest.mark.asyncio
 async def test_create_api_key(api_key_service, db_session: AsyncSession, test_user: dict):
     """Test creating a new API key."""
-    key_data = APIKeyCreate(name="Test Key", permissions={"read": True, "write": True}, usage_limits={"requests_per_day": 1000})
+    key_data = APIKeyCreate(name="Test Key", permissions=["user.read", "user.update"], usage_limits={"requests_per_day": 1000})
 
     response = await api_key_service.create_api_key(user_id=test_user["id"], key_data=key_data, db=db_session)
 
@@ -155,32 +153,20 @@ async def test_delete_api_key(api_key_service, db_session: AsyncSession, test_us
 
 @pytest.mark.asyncio
 async def test_validate_api_key_success(api_key_service, db_session: AsyncSession, test_user: dict, test_api_key):
-    """Test successful API key validation."""
-    # Add permission for the key
-    permission_data = KeyPermissionCreate(
-        api_key_id=test_api_key["id"],
-        resource=KeyPermissionResource.CONVERSATIONS,
-        action=KeyPermissionAction.READ,
-        is_allowed=True,
-    )
-    await crud_key_permissions.create(db=db_session, object=permission_data)
-
-    validation = await api_key_service.validate_api_key(
-        api_key=test_api_key["api_key"], resource="conversations", action="read", db=db_session
-    )
+    """A live key reports its owner and the permission names it carries."""
+    validation = await api_key_service.validate_api_key(api_key=test_api_key["api_key"], db=db_session)
 
     assert validation.is_valid is True
     assert validation.api_key_id == test_api_key["id"]
     assert validation.user_id == test_user["id"]
+    assert validation.permissions == ["user.read", "user.update"]
     assert validation.error_message is None
 
 
 @pytest.mark.asyncio
 async def test_validate_api_key_invalid(api_key_service, db_session: AsyncSession):
     """Test validation with invalid API key."""
-    validation = await api_key_service.validate_api_key(
-        api_key="fai_invalid_key_12345", resource="conversations", action="read", db=db_session
-    )
+    validation = await api_key_service.validate_api_key(api_key="fai_invalid_key_12345", db=db_session)
 
     assert validation.is_valid is False
     assert "Invalid API key" in validation.error_message
@@ -192,9 +178,7 @@ async def test_validate_api_key_inactive(api_key_service, db_session: AsyncSessi
     # Deactivate the key
     await api_key_service.delete_api_key(key_id=test_api_key["id"], user_id=test_user["id"], db=db_session)
 
-    validation = await api_key_service.validate_api_key(
-        api_key=test_api_key["api_key"], resource="conversations", action="read", db=db_session
-    )
+    validation = await api_key_service.validate_api_key(api_key=test_api_key["api_key"], db=db_session)
 
     assert validation.is_valid is False
     assert "inactive" in validation.error_message
@@ -212,42 +196,10 @@ async def test_validate_api_key_expired(api_key_service, db_session: AsyncSessio
 
     expired_key = await api_key_service.create_api_key(user_id=test_user["id"], key_data=key_data, db=db_session)
 
-    validation = await api_key_service.validate_api_key(
-        api_key=expired_key["api_key"], resource="conversations", action="read", db=db_session
-    )
+    validation = await api_key_service.validate_api_key(api_key=expired_key["api_key"], db=db_session)
 
     assert validation.is_valid is False
     assert "expired" in validation.error_message
-
-
-@pytest.mark.asyncio
-async def test_validate_api_key_no_permission(api_key_service, db_session: AsyncSession, test_user: dict, test_api_key):
-    """Test validation with no permissions."""
-    validation = await api_key_service.validate_api_key(
-        api_key=test_api_key["api_key"], resource="admin", action="delete", db=db_session
-    )
-
-    assert validation.is_valid is False
-    assert "No permission" in validation.error_message
-
-
-@pytest.mark.asyncio
-async def test_wildcard_permissions(api_key_service, db_session: AsyncSession, test_user: dict, test_api_key):
-    """Test wildcard permission validation."""
-    # Add wildcard permission
-    permission_data = KeyPermissionCreate(
-        api_key_id=test_api_key["id"],
-        resource=KeyPermissionResource.WILDCARD,
-        action=KeyPermissionAction.WILDCARD,
-        is_allowed=True,
-    )
-    await crud_key_permissions.create(db=db_session, object=permission_data)
-
-    validation = await api_key_service.validate_api_key(
-        api_key=test_api_key["api_key"], resource="any_resource", action="any_action", db=db_session
-    )
-
-    assert validation.is_valid is True
 
 
 @pytest.mark.asyncio
@@ -552,22 +504,12 @@ async def test_validate_api_key_with_underscore_in_prefix(api_key_service, db_se
         "user_id": test_user["id"],
         "key_hash": forced_hash,
         "key_prefix": forced_prefix,
-        "permissions": {},
+        "permissions": [],
         "usage_limits": {},
     }
     await crud_api_keys.create(db=db_session, object=APIKeyCreateInternal(**key_dict))
 
-    forced_key = await crud_api_keys.get(db=db_session, key_prefix=forced_prefix)
-    assert forced_key is not None
-    permission_data = KeyPermissionCreate(
-        api_key_id=forced_key["id"],
-        resource=KeyPermissionResource.WILDCARD,
-        action=KeyPermissionAction.WILDCARD,
-        is_allowed=True,
-    )
-    await crud_key_permissions.create(db=db_session, object=permission_data)
-
-    validation = await api_key_service.validate_api_key(api_key=api_key, resource="anything", action="anything", db=db_session)
+    validation = await api_key_service.validate_api_key(api_key=api_key, db=db_session)
 
     assert validation.is_valid is True
 
@@ -668,11 +610,9 @@ async def test_validation_hashes_off_the_event_loop(api_key_service, db_session:
         return verified
 
     with patch.object(api_key_service, "_verify_api_key", recording_verify):
-        validation = await api_key_service.validate_api_key(
-            api_key=test_api_key["api_key"], resource="conversations", action="read", db=db_session
-        )
+        validation = await api_key_service.validate_api_key(api_key=test_api_key["api_key"], db=db_session)
 
-    assert validation.error_message == "No permission for read on conversations"
+    assert validation.is_valid is True
     assert threads
     assert threading.main_thread().name not in threads
 

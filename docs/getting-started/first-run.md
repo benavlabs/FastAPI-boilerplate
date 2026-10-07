@@ -62,7 +62,7 @@ Check that tables were created:
     psql -h localhost -U postgres -d postgres -c "\dt"
     ```
 
-You should see tables like `user`, `tiers`, `rate_limits`, `api_keys`, `key_usage`, `key_permissions`.
+You should see tables like `user`, `tiers`, `rate_limits`, `api_keys`, `key_usage`.
 
 ## Initial Setup
 
