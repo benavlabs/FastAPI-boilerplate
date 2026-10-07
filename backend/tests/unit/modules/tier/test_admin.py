@@ -68,6 +68,14 @@ class TestThePanelPuttingAUserOnATier:
 
         return UserAdmin()
 
+    async def test_the_tier_field_renders_on_both_forms(self, user_view: UserAdmin):
+        """The form rule names the ``tier`` relationship, which sqladmin scaffolds into a field."""
+        create_fields = (await user_view.scaffold_form(user_view.form_create_rules))()._fields
+        edit_fields = (await user_view.scaffold_form(user_view.form_edit_rules))()._fields
+
+        assert "tier" in create_fields
+        assert "tier" in edit_fields
+
     async def _choices(self, view: UserAdmin) -> list[str]:
         form = await view.scaffold_form(view.form_edit_rules)
 

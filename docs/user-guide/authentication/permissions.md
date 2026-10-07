@@ -196,8 +196,14 @@ RBAC here is **global roles**: a role means the same thing everywhere in the pro
 no per-tenant or per-object scoping. A permission answers "may this account do this kind of thing",
 not "may it do this to that row" — ownership checks stay in the services.
 
+With the admin feature the panel carries the same three tables — see
+[Admin Panel](../admin-panel/index.md#whats-included). The panel signs in with the `ADMIN_*`
+credentials rather than as an account, and those already let it set `is_superuser` on anybody, so
+there is no weaker operator for the delegation checks above to hold back there. What the panel does
+enforce is that a grant names a permission the registry knows.
+
 !!! info "Not shipped yet"
-    Admin-panel views for roles, and narrowing an API key to a subset of its owner's permissions, are follow-up work.
+    Narrowing an API key to a subset of its owner's permissions is follow-up work.
 
 ## Superuser Authorization
 

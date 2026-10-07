@@ -43,6 +43,7 @@ jobs:
           - core-only
           - accounts-only
           - accounts-rbac
+          - accounts-admin
           - accounts-rbac-tiers
           - accounts-cache-taskiq
           - everything

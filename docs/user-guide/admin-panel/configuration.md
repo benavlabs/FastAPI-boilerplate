@@ -31,7 +31,7 @@ The variables map to two settings classes in `src/infrastructure/config/settings
 2. If `ADMIN_ENABLED=false`, the function returns `None` and the admin panel is **not mounted**
 3. Otherwise, an `AdminAuth` backend is constructed using `SECRET_KEY`
 4. A SQLAdmin `Admin` instance is created against the app's existing database `engine`
-5. The views listed in `src/wiring/admin.py` are registered: `UserAdmin` and `TierAdmin`, each shipped by its own feature
+5. The views listed in `src/wiring/admin.py` are registered: `UserAdmin`, `TierAdmin` and the three role views, each shipped by its own feature
 6. The admin app is mounted at `/admin`
 
 ## Login Authentication

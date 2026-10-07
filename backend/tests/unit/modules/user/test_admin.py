@@ -89,7 +89,7 @@ async def test_creating_a_row_says_nothing_about_verification():
 
 
 class TestWhatThePanelShows:
-    """The password hash never reaches a page, and the tier selector has to render."""
+    """The password hash never reaches a page or the edit form."""
 
     def test_the_password_hash_is_in_neither_the_list_nor_the_detail_view(self):
         view = UserAdmin()
@@ -98,17 +98,14 @@ class TestWhatThePanelShows:
         assert "hashed_password" not in view._details_prop_names
         assert "hashed_password" not in view._export_prop_names
 
-    async def test_the_tier_field_renders_on_both_forms(self, db_session: AsyncSession, monkeypatch):
-        """The form rule names the ``tier`` relationship, which sqladmin scaffolds into a field."""
+    async def test_the_edit_form_has_no_password_field(self, db_session: AsyncSession, monkeypatch):
+        """A reset goes through the API's change-password route, not the panel."""
         view = UserAdmin()
         maker = async_sessionmaker(bind=db_session.bind, class_=AsyncSession, expire_on_commit=False)
         monkeypatch.setattr(UserAdmin, "session_maker", maker, raising=False)
 
-        create_fields = (await view.scaffold_form(view.form_create_rules))()._fields
         edit_fields = (await view.scaffold_form(view.form_edit_rules))()._fields
 
-        assert "tier" in create_fields
-        assert "tier" in edit_fields
         assert "hashed_password" not in edit_fields
 
 

@@ -35,14 +35,19 @@ Visit <http://localhost:8000/admin>, enter those credentials, and you're in.
 ## What's Included
 
 Each feature ships its own views, and `src/wiring/admin.py` lists the ones this
-project registers. Out of the box that is two:
+project registers. Out of the box that is five:
 
 | View | Source | Notes |
 |------|--------|-------|
 | **Users** | `modules/user/admin.py` | Create / edit / delete users; password hashing applied automatically; soft-delete-aware; shows the tier column only when the tiers feature contributed one |
 | **Tiers** | `modules/tier/admin.py` | Manage subscription tiers; lists and counts only live ones; uses `TierService.permanent_delete` to prevent orphaning users / rate limits |
+| **Roles** | `modules/role/admin.py` | Create / rename / delete roles; the listing shows the permissions each one carries |
+| **Role permissions** | `modules/role/admin.py` | One grant per row; the permission field is a picker over the registry |
+| **User roles** | `modules/role/admin.py` | Who holds which role; the listing, its count and the account picker all leave out accounts a soft delete has taken out |
 
-Both are categorized under "Users & Access" and provide search, sort, filter, and CSV export.
+All five are categorized under "Users & Access"; Users and Tiers provide search, sort, filter, and
+CSV export. The three role views come with the rbac feature, and each view with the feature that
+owns its table, so a project without one of them registers fewer.
 
 If you want admin views for `RateLimit`, `APIKey`, etc., follow the [Adding Models](adding-models.md) guide.
 
@@ -58,6 +63,26 @@ Click any user row → **Edit**. You can change the name, username, email, the t
 
 The tier picker lists only tiers a soft delete hasn't taken out, and a save that still names a
 deleted one is refused with "That tier has been deleted. Pick another one."
+
+### Giving an Account a Role
+
+A role is built in two places: **Roles → Create** names it, and **Role permissions → Create** adds
+one permission to it per row. The permission field offers only names the registry knows, and a write
+that goes around the form is refused by the model as well, so a grant the project could never check
+cannot be stored. A grant and a holding are a pair of rows with nothing else to edit, so both views
+create and delete rather than edit: to change a role's permissions, delete the grant and add
+another.
+
+**User roles → Create** hands a role to an account. The listing, the total it paginates by and the
+account picker all leave out accounts a soft delete has taken out — they are nobody to hand a role
+to — while the API's `GET /api/v1/users/{user_id}/roles` still reads what such an account held.
+
+!!! warning "The panel is above the delegation checks"
+    The API refuses to grant a permission, or to touch an account, stronger than the caller
+    ([Permissions](../authentication/permissions.md#managing-roles)). The panel has no such caller:
+    it signs in with `ADMIN_USERNAME` / `ADMIN_PASSWORD`, and those credentials already let it set
+    `is_superuser` on any user, so there is no weaker operator to hold back. Whoever can reach
+    `/admin` can grant anything the registry knows.
 
 ### Deleting a Tier
 
@@ -132,6 +157,7 @@ Or keep it enabled but restrict network access at the load balancer / proxy leve
 | Dataclass-model mixin | `backend/src/interfaces/admin/mixins.py` |
 | User view | `backend/src/modules/user/admin.py` |
 | Tier view | `backend/src/modules/tier/admin.py` |
+| Role, grant and holder views | `backend/src/modules/role/admin.py` |
 | View registry | `backend/src/wiring/admin.py` |
 
 ## Next Steps

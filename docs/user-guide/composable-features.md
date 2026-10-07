@@ -67,7 +67,8 @@ knowing that tiers exist.
 | taskiq | – | `infrastructure/taskiq/` |
 
 A few files belong to a *combination*: `modules/user/admin.py` exists only with
-accounts **and** admin, and `modules/tier/admin.py` only with tiers **and** admin.
+accounts **and** admin, `modules/tier/admin.py` only with tiers **and** admin, and
+`modules/role/admin.py` only with rbac **and** admin.
 
 ## Checking that removal still works
 
@@ -103,6 +104,7 @@ The presets run in CI as a matrix:
 | `core-only` | every feature can go at once |
 | `accounts-only` | permission checks fall back to superuser-only without rbac |
 | `accounts-rbac` | permissions work without tiers, throttling, cache or taskiq |
+| `accounts-admin` | the panel registers only the views the project's features own |
 | `accounts-rbac-tiers` | tiers and the API throttle work without per-tier limits |
 | `accounts-cache-taskiq` | the infrastructure features stand alone |
 | `everything` | a regenerated wiring reproduces this repository |

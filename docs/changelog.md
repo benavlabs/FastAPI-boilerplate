@@ -12,7 +12,7 @@ ___
 
 Every feature in the boilerplate can now be removed: its routes, models, settings, admin views,
 seeders and tests come out together, and the project still imports, lints, type-checks and passes
-the remaining tests. `tools/removal_drill.py` proves it for six presets, and CI runs them as a
+the remaining tests. `tools/removal_drill.py` proves it for seven presets, and CI runs them as a
 matrix. The round that followed fixed what a re-review of the refactor found.
 
 ---
@@ -28,8 +28,9 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   [Composable Features](user-guide/composable-features.md).
 - **Contribution shapes** in `infrastructure/composition.py`: `RouterMount`, `Lifecycle`,
   `PermissionSource`, `RateLimitResolver`, `TierDeleteGuard`, `TierDeleteRelease`, `ReadinessCheck`.
-- **`tools/removal_drill.py`** — builds the repository without each feature and runs five checks
-  (the app imports, every module imports, ruff, mypy, tests) per preset.
+- **`tools/removal_drill.py`** — builds the repository without each feature and runs six checks
+  (the app imports, every module imports, ruff, mypy, tests, and a migration baseline that applies
+  to an empty database) per preset.
 - **`scripts/cleanup_api_key_json.py`** — a one-off repair for API key rows whose `permissions` or
   `usage_limits` hold a JSON null, which an older version could store and no validated read can
   parse.
@@ -79,6 +80,12 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   or holds something they don't, which is the rule a `user.update` holder is already held to. A refused delegation answers `403` and writes nothing; an unregistered
   permission name answers `422` without echoing it. `GET /api/v1/users/{user_id}/roles` reads an
   account's roles.
+- **Admin-panel views for the RBAC tables**, with rbac **and** admin: roles, the grants that make
+  them up, and who holds them. The role listing shows the permissions each role carries, the grant
+  form offers only names the registry knows, and the holder listing, its count and its account
+  picker leave out accounts a soft delete has taken out. The panel signs in with the `ADMIN_*`
+  credentials, which already set `is_superuser` on anybody, so the API's delegation checks have no
+  weaker operator to hold back there.
 - **`GET /api/v1/permissions`** lists every registered permission grouped by resource, and
   **`GET /api/v1/permissions/me`** lists what the caller effectively holds — from every
   `PermissionSource` the project wired, every registered permission for a superuser, and never a

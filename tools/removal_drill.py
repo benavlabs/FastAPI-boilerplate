@@ -110,6 +110,10 @@ FEATURES: dict[str, Feature] = {
                 "backend/src/modules/tier/admin.py",
                 "backend/tests/unit/modules/tier/test_admin.py",
             ),
+            "rbac": (
+                "backend/src/modules/role/admin.py",
+                "backend/tests/unit/modules/role/test_admin.py",
+            ),
         },
     ),
     "cache": Feature(
@@ -139,6 +143,7 @@ PRESETS: dict[str, tuple[str, ...]] = {
     "core-only": (),
     "accounts-only": ("accounts",),
     "accounts-rbac": ("accounts", "rbac"),
+    "accounts-admin": ("accounts", "admin"),
     "accounts-rbac-tiers": ("accounts", "rbac", "tiers", "ratelimit"),
     "accounts-cache-taskiq": ("accounts", "cache", "taskiq"),
     "everything": tuple(FEATURES),
@@ -420,6 +425,9 @@ def _wiring_admin(chosen: set[str]) -> str:
     if "tiers" in chosen:
         imports.append("from ..modules.tier.admin import TierAdmin")
         views.append("TierAdmin")
+    if "rbac" in chosen:
+        imports.append("from ..modules.role.admin import RoleAdmin, RolePermissionAdmin, UserRoleAdmin")
+        views.extend(["RoleAdmin", "RolePermissionAdmin", "UserRoleAdmin"])
     body = "(\n    " + ",\n    ".join(views) + ",\n)" if views else "()"
     return (
         '"""The model views the admin panel registers."""\n\n'
