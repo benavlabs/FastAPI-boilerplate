@@ -31,6 +31,17 @@ async def get_current_principal(
     return principal
 
 
+async def get_session_principal(
+    principal: Annotated[Principal, Depends(auth.current_user(transport="session"))],
+) -> Principal:
+    """The principal of a route only a signed-in session may reach.
+
+    Only the session transport is tried, so a request authenticated by another
+    credential — an API key — answers 401 here however valid that credential is.
+    """
+    return principal
+
+
 async def get_optional_principal(
     principal: Annotated[Principal | None, Depends(auth.current_user(optional=True))],
 ) -> Principal | None:

@@ -16,9 +16,13 @@ from .dependencies import (
     get_current_superuser,
     get_current_user,
     get_optional_user,
+    get_session_principal,
 )
 
 CurrentPrincipalDep = Annotated[Principal, Depends(get_current_principal)]
+
+SessionPrincipalDep = Annotated[Principal, Depends(get_session_principal)]
+"""The caller of a route reserved for a signed-in session; another credential answers 401."""
 
 CurrentPermissionsDep = Annotated[frozenset[str], Depends(get_current_permissions)]
 """The caller's effective permissions, resolved once per request."""

@@ -16,7 +16,7 @@ The boilerplate ships five overlapping mechanisms. Pick the one(s) that fit your
 
 These compose. A typical request goes through:
 
-1. **Authentication** — the session cookie identifies *who*
+1. **Authentication** — the session cookie, or an API key, identifies *who*
 2. **Coarse access** — role permissions, or the superuser flag, for privileged endpoints
 3. **Fine-grained access** — service-layer ownership / tier checks
 4. **Rate limiting** — tier-based per-route limits (separate concern)
@@ -422,11 +422,10 @@ A stored name the registry no longer knows is read back as it is and counts for 
 way a role's stale grant does.
 
 !!! warning "Storing a scope is not enforcing one"
-    A key's scope is stored and validated, and nothing reads it yet. No request authenticates with
-    a key — `X-API-Key` is not wired — and no route narrows a caller's permissions to a key's
-    scope, so a scope has no effect on what anybody can do. A key can also be scoped to a
-    permission its own creator doesn't hold, which is likewise refused only once the scope is
-    enforced.
+    A key authenticates a request as its owner ([API keys](index.md#3-api-keys-machine-to-machine)),
+    and nothing reads its scope yet: no route narrows a caller's permissions to it, so a key can do
+    whatever its owner can, whatever it is scoped to. A key can also be scoped to a permission its
+    own creator doesn't hold. Both are refused once the narrowing ships.
 
 `KeyStatus` defines the lifecycle a project can put a key through (`ACTIVE`, `INACTIVE`,
 `SUSPENDED`, `EXPIRED`, `REVOKED`); the routes ship `is_active` and `expires_at`.

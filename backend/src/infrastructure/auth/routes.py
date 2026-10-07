@@ -4,6 +4,10 @@
 and its recovery router: email verification, password reset and the confirmed email change.
 ``root_routers`` carries crudauth's OAuth router when a provider is configured, and is empty
 when none is.
+
+The routes in ``SESSION_ONLY_PATHS`` are mounted behind ``get_session_principal``: changing a
+password, moving an address and ending a session are things an account does while signed in,
+not things another credential does on its behalf.
 """
 
 from typing import Annotated, Any, cast
@@ -20,7 +24,7 @@ from fastapi.routing import APIRoute
 from ...modules.user.crud import crud_users
 from ..dependencies import AsyncSessionDep
 from ..logging import get_logger
-from .dependencies import get_current_principal, get_optional_principal
+from .dependencies import get_optional_principal, get_session_principal
 from .deps import OAuth2FormDep
 from .setup import auth as crud_auth
 from .setup import session_transport
@@ -29,19 +33,31 @@ logger = get_logger()
 
 router = APIRouter(tags=["Authentication"])
 
+SESSION_ONLY_PATHS = ("/change-password", "/email/change-request")
+"""The crudauth routes this project reserves for a signed-in session."""
+
+
+def _mount(source: APIRouter) -> None:
+    """Mount ``source``'s routes under ``router``, each with the gates its path calls for."""
+    open_router, session_only = APIRouter(), APIRouter()
+    for route in source.routes:
+        api_route = cast(APIRoute, route)
+        api_route.tags = []
+        target = session_only if api_route.path in SESSION_ONLY_PATHS else open_router
+        target.routes.append(api_route)
+
+    router.include_router(open_router)
+    router.include_router(session_only, dependencies=[Depends(get_session_principal)])
+
+
 _account_router = build_account_router(crud_auth, crud_auth.sessions)
 _account_router.routes = [
     route for route in _account_router.routes if isinstance(route, APIRoute) and route.path != "/set-password"
 ]
-for _account_route in _account_router.routes:
-    cast(APIRoute, _account_route).tags = []
-router.include_router(_account_router)
+_mount(_account_router)
 
 if crud_auth.emails is not None:
-    _email_router = build_email_router(auth=crud_auth, service=crud_auth.emails)
-    for _email_route in _email_router.routes:
-        cast(APIRoute, _email_route).tags = []
-    router.include_router(_email_router)
+    _mount(build_email_router(auth=crud_auth, service=crud_auth.emails))
 
 root_routers: tuple[APIRouter, ...] = (crud_auth.oauth_router,) if crud_auth.oauth is not None else ()
 
@@ -121,7 +137,7 @@ async def login(
 )
 async def logout(
     response: Response,
-    principal: Annotated[Principal, Depends(get_current_principal)],
+    principal: Annotated[Principal, Depends(get_session_principal)],
 ) -> dict[str, str]:
     """Logout endpoint to terminate the session and clear cookies (CSRF-protected)."""
     session_id = principal.metadata.get("session_id")
@@ -155,7 +171,7 @@ async def logout(
 )
 async def logout_all(
     response: Response,
-    principal: Annotated[Principal, Depends(get_current_principal)],
+    principal: Annotated[Principal, Depends(get_session_principal)],
     keep_current: bool = Query(False, description="Keep the calling session and sign out every other device"),
 ) -> dict[str, Any]:
     """Terminate the current user's sessions (CSRF-protected); ``keep_current`` spares the calling one."""

@@ -80,6 +80,19 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   or holds something they don't, which is the rule a `user.update` holder is already held to. A refused delegation answers `403` and writes nothing; an unregistered
   permission name answers `422` without echoing it. `GET /api/v1/users/{user_id}/roles` reads an
   account's roles.
+- **An `X-API-Key` transport**, with the api_keys feature: a request carrying a valid key is
+  authenticated as the key's owner, with `transport="apikey"` on the principal, no CSRF token
+  required and no cookie in the answer. A key that is unknown, malformed, revoked, expired or whose
+  owner a soft delete has taken out answers `401` — on a route that answers anonymous callers too,
+  since a credential that is present and wrong is not an absent one. The session transport is tried
+  first, so a request carrying both is its session. `src/wiring/transports.py` registers it, so a
+  project without the feature has no second transport, and the drill generates that file.
+- **Session-only routes.** `POST /api/v1/auth/change-password`, `POST /api/v1/auth/email/change-request`,
+  `POST /api/v1/auth/logout`, `POST /api/v1/auth/logout-all` and every `/api/v1/api-keys/` route take
+  a session principal and nothing else, so a key can neither escalate through them nor manage keys.
+  `DELETE /api/v1/users/{username}` takes one too, so a key cannot close the account that issued it.
+  `POST /api/v1/auth/refresh-csrf` already read the cookie directly, so a key has never reached it. A
+  password change still revokes only sessions: a key carries no password, and is revoked on its own.
 - **Admin-panel views for the RBAC tables**, with rbac **and** admin: roles, the grants that make
   them up, and who holds them. The role listing shows the permissions each role carries, the grant
   form offers only names the registry knows, and the holder listing, its count and its account
@@ -119,6 +132,13 @@ matrix. The round that followed fixed what a re-review of the refactor found.
 
 #### Changed
 
+- **API keys are hashed with SHA-256**, as `sha256$<digest>` of the key. A key is 256 bits from
+  `secrets.token_urlsafe`, not a password, so a salted work factor bought nothing and cost a scrypt
+  derivation per request — which anyone holding a key prefix, and listings show them, could make the
+  server pay on junk. A request now finds its row through one indexed lookup on `key_hash`. A key
+  stored with the old `scrypt$…` hash still authenticates, through the prefix lookup and the same
+  verification as before, and its row is rewritten as a digest on that first use, so each old key
+  pays for scrypt once.
 - **Emails are stored canonically** (lowercased, as crudauth looks them up), on signup, on update and
   in the admin panel. `UserService.get_by_email` canonicalises its lookup, so seeding a superuser
   with a mixed-case `ADMIN_EMAIL` is idempotent.

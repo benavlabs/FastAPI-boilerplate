@@ -1,10 +1,15 @@
-"""API endpoints for API key management."""
+"""API endpoints for API key management.
+
+Every route here is reserved for a signed-in session: a key must not mint, read, rescope
+or revoke a key, its own included.
+"""
 
 from typing import Any
 
-from fastapi import APIRouter, Path, Query
+from fastapi import APIRouter, Depends, Path, Query
 from fastcrud import PaginatedListResponse, compute_offset, paginated_response
 
+from ...infrastructure.auth.dependencies import get_session_principal
 from ...infrastructure.auth.deps import CurrentUserDep
 from ...infrastructure.dependencies import AsyncSessionDep
 from ..common.pagination import MAX_INTEGER_ID, ItemsPerPageDep, PageDep
@@ -19,7 +24,7 @@ from .schemas import (
     UserAPIKeySummary,
 )
 
-router = APIRouter(tags=["API Keys"])
+router = APIRouter(tags=["API Keys"], dependencies=[Depends(get_session_principal)])
 
 
 @router.post(

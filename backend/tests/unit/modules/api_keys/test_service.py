@@ -1,12 +1,16 @@
 """Tests for API key management service."""
 
+import base64
+import hashlib
+import secrets
 import threading
 from datetime import UTC, datetime, timedelta
+from typing import Any, NoReturn
 from unittest.mock import patch
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import update
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.modules.api_keys.crud import crud_api_keys
@@ -19,6 +23,20 @@ from src.modules.api_keys.schemas import (
 )
 from src.modules.api_keys.service import APIKeyService
 from src.modules.common.exceptions import PermissionDeniedError, ResourceNotFoundError, ValidationError
+
+
+def scrypt_hash(api_key: str, n: int = 2**14, r: int = 8, p: int = 1) -> str:
+    """The salted scrypt hash an older version of the service wrote for ``api_key``."""
+    salt = secrets.token_bytes(16)
+    derived = hashlib.scrypt(api_key.encode("utf-8"), salt=salt, n=n, r=r, p=p, dklen=32)
+    encoded = (base64.b64encode(value).decode("ascii") for value in (salt, derived))
+
+    return "$".join(["scrypt", str(n), str(r), str(p), *encoded])
+
+
+def _no_scrypt(*args: Any, **kwargs: Any) -> NoReturn:
+    """A stand-in for ``hashlib.scrypt`` that fails the test if a call reaches it."""
+    raise AssertionError("scrypt was called")
 
 
 @pytest.fixture
@@ -58,8 +76,8 @@ async def test_create_api_key(api_key_service, db_session: AsyncSession, test_us
 @pytest.mark.asyncio
 async def test_api_key_generation_unique(api_key_service):
     """Test that API key generation produces unique keys."""
-    key1, prefix1, hash1 = await api_key_service._generate_api_key()
-    key2, prefix2, hash2 = await api_key_service._generate_api_key()
+    key1, prefix1, hash1 = api_key_service._generate_api_key()
+    key2, prefix2, hash2 = api_key_service._generate_api_key()
 
     assert key1 != key2
     assert prefix1 != prefix2
@@ -470,20 +488,25 @@ async def test_user_summary_key_counts_not_page_capped(api_key_service, db_sessi
     assert len(summary["keys"]) == 50
 
 
-@pytest.mark.asyncio
-async def test_api_key_hash_roundtrip(api_key_service):
-    """Hashing produces a fresh salt each call; verifying must still succeed."""
+def test_a_key_is_stored_as_a_digest_of_itself(api_key_service):
+    """A key carries 256 bits of randomness, so its hash needs no salt and no work factor."""
     test_key = "fai_test_key_12345"
+    expected = hashlib.sha256(test_key.encode("utf-8")).hexdigest()
 
-    hash1 = api_key_service._hash_api_key(test_key)
-    hash2 = api_key_service._hash_api_key(test_key)
+    stored = api_key_service._hash_api_key(test_key)
 
-    assert hash1 != hash2
-    assert hash1.startswith("scrypt$")
-    assert hash2.startswith("scrypt$")
-    assert api_key_service._verify_api_key(test_key, hash1)
-    assert api_key_service._verify_api_key(test_key, hash2)
-    assert not api_key_service._verify_api_key("fai_wrong_key", hash1)
+    assert stored == f"sha256${expected}"
+    assert api_key_service._hash_api_key(test_key) == stored
+
+
+def test_a_hash_an_older_version_stored_still_verifies(api_key_service):
+    """The scrypt form is only verified, never written, so a stored key keeps working."""
+    test_key = "fai_test_key_12345"
+    stored = scrypt_hash(test_key)
+
+    assert stored.startswith("scrypt$")
+    assert api_key_service._verify_api_key(test_key, stored)
+    assert not api_key_service._verify_api_key("fai_wrong_key", stored)
 
 
 @pytest.mark.asyncio
@@ -494,7 +517,7 @@ async def test_validate_api_key_with_underscore_in_prefix(api_key_service, db_se
     substring and the key_prefix lookup misses, breaking validation for the (rare) keys that draw
     underscores.
     """
-    api_key, prefix, key_hash = await api_key_service._generate_api_key()
+    api_key, prefix, key_hash = api_key_service._generate_api_key()
     forced_prefix = "ab_cd_ef"
     api_key = f"fai_{forced_prefix}_{api_key.split('_', 2)[2]}"
     forced_hash = api_key_service._hash_api_key(api_key)
@@ -597,24 +620,77 @@ async def test_an_expiry_can_be_brought_forward(api_key_service, db_session, tes
     assert updated["expires_at"].replace(tzinfo=UTC) == sooner.replace(microsecond=sooner.microsecond)
 
 
-@pytest.mark.asyncio
-async def test_validation_hashes_off_the_event_loop(api_key_service, db_session: AsyncSession, test_api_key):
-    """scrypt is sized to take real time; on the loop thread it stalls every other request."""
-    threads: list[str] = []
-    real_verify = api_key_service._verify_api_key
+class TestAKeyStoredBeforeTheDigest:
+    """The scrypt fallback: it authenticates, it moves the row over, and it runs once."""
 
-    def recording_verify(api_key: str, stored_hash: str) -> bool:
-        threads.append(threading.current_thread().name)
-        verified: bool = real_verify(api_key, stored_hash)
+    @pytest_asyncio.fixture
+    async def legacy_key(self, api_key_service, db_session: AsyncSession, test_user: dict):
+        """A key whose row holds the scrypt hash an older version wrote."""
+        minted = await api_key_service.create_api_key(
+            user_id=test_user["id"], key_data=APIKeyCreate(name="Legacy Key"), db=db_session
+        )
+        await db_session.execute(
+            update(APIKey).where(APIKey.id == minted["id"]).values(key_hash=scrypt_hash(minted["api_key"]))
+        )
+        await db_session.commit()
 
-        return verified
+        return minted
 
-    with patch.object(api_key_service, "_verify_api_key", recording_verify):
-        validation = await api_key_service.validate_api_key(api_key=test_api_key["api_key"], db=db_session)
+    async def _stored_hash(self, db_session: AsyncSession, key_id: int) -> str:
+        stored = await db_session.execute(select(APIKey.key_hash).where(APIKey.id == key_id))
 
-    assert validation.is_valid is True
-    assert threads
-    assert threading.main_thread().name not in threads
+        return str(stored.scalar_one())
+
+    async def test_it_authenticates_and_its_row_moves_over(self, api_key_service, db_session: AsyncSession, legacy_key: dict):
+        validation = await api_key_service.validate_api_key(api_key=legacy_key["api_key"], db=db_session)
+
+        assert validation.is_valid is True
+        assert validation.api_key_id == legacy_key["id"]
+        assert await self._stored_hash(db_session, legacy_key["id"]) == api_key_service._hash_api_key(legacy_key["api_key"])
+
+    async def test_the_fallback_verifies_off_the_event_loop(self, api_key_service, db_session: AsyncSession, legacy_key: dict):
+        """scrypt is sized to take real time; on the loop thread it stalls every other request."""
+        threads: list[str] = []
+        real_verify = api_key_service._verify_api_key
+
+        def recording_verify(api_key: str, stored_hash: str) -> bool:
+            threads.append(threading.current_thread().name)
+            verified: bool = real_verify(api_key, stored_hash)
+
+            return verified
+
+        with patch.object(api_key_service, "_verify_api_key", recording_verify):
+            validation = await api_key_service.validate_api_key(api_key=legacy_key["api_key"], db=db_session)
+
+        assert validation.is_valid is True
+        assert threads
+        assert threading.main_thread().name not in threads
+
+    async def test_it_pays_for_scrypt_once(self, api_key_service, db_session: AsyncSession, legacy_key: dict, monkeypatch):
+        """The row holds a digest after the first call, so the second finds it by lookup."""
+        await api_key_service.validate_api_key(api_key=legacy_key["api_key"], db=db_session)
+        monkeypatch.setattr(hashlib, "scrypt", _no_scrypt)
+
+        validation = await api_key_service.validate_api_key(api_key=legacy_key["api_key"], db=db_session)
+
+        assert validation.is_valid is True
+
+
+async def test_a_junk_key_sharing_a_migrated_keys_prefix_is_refused_without_scrypt(
+    api_key_service, db_session: AsyncSession, test_api_key, monkeypatch
+):
+    """Prefixes are listed, so a stranger holding one must not be able to make the server derive.
+
+    Only a prefix whose row still holds a scrypt hash costs a verification, and only until
+    that key is next used.
+    """
+    monkeypatch.setattr(hashlib, "scrypt", _no_scrypt)
+    presented = test_api_key["api_key"][:-4] + "beef"
+
+    validation = await api_key_service.validate_api_key(api_key=presented, db=db_session)
+
+    assert validation.is_valid is False
+    assert validation.error_message == "Invalid API key"
 
 
 @pytest.mark.asyncio

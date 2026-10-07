@@ -383,6 +383,20 @@ def _wiring_email(chosen: set[str]) -> str:
     )
 
 
+def _wiring_transports(chosen: set[str]) -> str:
+    """The authentication transports registered beside the session one."""
+    docstring = '"""The authentication transports this project registers beside the session one."""\n\n'
+    if "api_keys" not in chosen:
+        return f"{docstring}from crudauth import Transport\n\nEXTRA_TRANSPORTS: tuple[Transport, ...] = ()\n"
+
+    return (
+        f"{docstring}"
+        "from crudauth import Transport\n\n"
+        "from ..modules.api_keys.transport import APIKeyTransport\n\n"
+        "EXTRA_TRANSPORTS: tuple[Transport, ...] = (APIKeyTransport(),)\n"
+    )
+
+
 def _wiring_cache(chosen: set[str]) -> str:
     """The decorator a route caches its response with: the real one where there is a cache."""
     if "cache" in chosen:
@@ -498,6 +512,7 @@ def build(preset: str, into: Path) -> Path:
     (project / "backend/src/wiring/app.py").write_text(_wiring_app(chosen))
     (project / "backend/src/wiring/hooks.py").write_text(_wiring_hooks(chosen))
     (project / "backend/src/wiring/email.py").write_text(_wiring_email(chosen))
+    (project / "backend/src/wiring/transports.py").write_text(_wiring_transports(chosen))
     (project / "backend/src/wiring/cache.py").write_text(_wiring_cache(chosen))
     (project / "backend/src/wiring/models.py").write_text(_wiring_models(chosen))
     if "admin" in chosen:

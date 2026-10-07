@@ -14,6 +14,7 @@ from src.infrastructure.auth.dependencies import (
     get_current_principal,
     get_current_superuser,
     get_current_user,
+    get_session_principal,
 )
 from src.infrastructure.auth.setup import auth as crud_auth
 from src.interfaces.main import app
@@ -103,7 +104,8 @@ def _principal_for(user: dict) -> Principal:
     """The crudauth principal the session transport would resolve for this user.
 
     The auth fixtures override the dict-compat dependencies, so anything reading
-    the principal directly (permission checks, session routes) needs it too.
+    the principal directly (permission checks, session routes) needs it too, the
+    session-only dependency included: these clients stand for a signed-in session.
     """
     return Principal(
         user_id=user["id"],
@@ -125,6 +127,7 @@ async def auth_client(client: AsyncClient, test_user: dict):
 
     app.dependency_overrides[get_current_user] = override_get_current_user
     app.dependency_overrides[get_current_principal] = override_get_current_principal
+    app.dependency_overrides[get_session_principal] = override_get_current_principal
     return client
 
 
@@ -140,6 +143,7 @@ async def auth_client_2(client: AsyncClient, test_user_2: dict):
 
     app.dependency_overrides[get_current_user] = override_get_current_user
     app.dependency_overrides[get_current_principal] = override_get_current_principal
+    app.dependency_overrides[get_session_principal] = override_get_current_principal
     return client
 
 
@@ -158,6 +162,7 @@ async def superuser_auth_client(client: AsyncClient, test_superuser: dict):
 
     app.dependency_overrides[get_current_user] = override_get_current_user
     app.dependency_overrides[get_current_principal] = override_get_current_principal
+    app.dependency_overrides[get_session_principal] = override_get_current_principal
     app.dependency_overrides[get_current_superuser] = override_get_current_superuser
     return client
 

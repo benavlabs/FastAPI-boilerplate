@@ -5,10 +5,12 @@ It is constructed here, not in the lifespan, because routers and ``current_user`
 dependencies reference it at import time; the lifespan only opens and closes its
 connections via ``auth.initialize()`` / ``auth.shutdown()`` (see ``app_factory``).
 
-Wires a single session transport (sessions + CSRF + escalating login lockout)
-over the configured session backend, the limiter behind the login lockout, the
-password policy, the email recovery flows over the sender the wiring chose, and every OAuth
-provider whose credentials are configured. Sudo is intentionally not configured: no route gates on it.
+Wires the session transport (sessions + CSRF + escalating login lockout) over the
+configured session backend, whatever other transports the wiring selected, the limiter
+behind the login lockout, the password policy, the email recovery flows over the sender the
+wiring chose, and every OAuth provider whose credentials are configured. The session
+transport comes first, so a request carrying both a cookie and another credential is its
+session. Sudo is intentionally not configured: no route gates on it.
 """
 
 from typing import Any
@@ -19,6 +21,7 @@ from crudauth.ratelimit import LockoutConfig
 from ...modules.user.constants import NAME_MAX_LENGTH
 from ...modules.user.models import User
 from ...wiring.email import EMAIL_SENDER
+from ...wiring.transports import EXTRA_TRANSPORTS
 from ..composition import Lifecycle
 from ..config.enums import SessionBackend
 from ..config.settings import settings
@@ -69,7 +72,7 @@ auth = CRUDAuth(
     user_model=User,
     SECRET_KEY=settings.SECRET_KEY,
     cookies=CookieConfig(secure=settings.SESSION_SECURE_COOKIES),
-    transports=[session_transport],
+    transports=[session_transport, *EXTRA_TRANSPORTS],
     rate_limiter=build_rate_limiter(),
     lockout=LockoutConfig(
         max_attempts=settings.LOGIN_MAX_ATTEMPTS,

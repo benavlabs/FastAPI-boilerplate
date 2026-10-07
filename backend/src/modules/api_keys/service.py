@@ -29,6 +29,9 @@ from .schemas import (
 
 logger = get_logger()
 
+SHA256_SCHEME = "sha256"
+SCRYPT_SCHEME = "scrypt"
+
 _SCRYPT_N = 2**14
 _SCRYPT_R = 8
 _SCRYPT_P = 1
@@ -55,11 +58,8 @@ class APIKeyService:
         self.key_prefix_length = 8
         self.key_length = 48
 
-    async def _generate_api_key(self) -> tuple[str, str, str]:
+    def _generate_api_key(self) -> tuple[str, str, str]:
         """Generate a new API key with prefix and hash.
-
-        The hash runs in a worker thread: scrypt is sized to take real time, and
-        on the event loop it would stall every other request while it ran.
 
         Returns:
             Tuple of (full_key, prefix, hash)
@@ -67,38 +67,32 @@ class APIKeyService:
         raw_key = secrets.token_urlsafe(self.key_length)
         prefix = raw_key[: self.key_prefix_length]
         api_key = f"fai_{prefix}_{raw_key[self.key_prefix_length :]}"
-        key_hash = await anyio.to_thread.run_sync(self._hash_api_key, api_key)
 
-        return api_key, prefix, key_hash
+        return api_key, prefix, self._hash_api_key(api_key)
 
     def _hash_api_key(self, api_key: str) -> str:
-        """Hash an API key for storage using scrypt with a per-row salt.
+        """Hash an API key for storage.
 
-        Stored format: ``scrypt$N$r$p$salt_b64$derived_b64``. Non-deterministic;
-        DB lookup uses ``key_prefix`` (already indexed) instead of ``key_hash``.
-
-        Callers run this in a worker thread, through ``_generate_api_key``.
+        Stored format: ``sha256$hexdigest``. A key is 256 bits of randomness from
+        ``secrets.token_urlsafe``, not a password, so it needs no salt and no work
+        factor: the digest is deterministic, which lets a request find its row by a
+        single indexed lookup on ``key_hash``.
         """
-        salt = secrets.token_bytes(16)
-        derived = hashlib.scrypt(
-            api_key.encode("utf-8"),
-            salt=salt,
-            n=_SCRYPT_N,
-            r=_SCRYPT_R,
-            p=_SCRYPT_P,
-            dklen=_SCRYPT_DKLEN,
-        )
-        salt_b64 = base64.b64encode(salt).decode("ascii")
-        derived_b64 = base64.b64encode(derived).decode("ascii")
-        return f"scrypt${_SCRYPT_N}${_SCRYPT_R}${_SCRYPT_P}${salt_b64}${derived_b64}"
+        digest = hashlib.sha256(api_key.encode("utf-8")).hexdigest()
+
+        return f"{SHA256_SCHEME}${digest}"
 
     def _verify_api_key(self, api_key: str, stored_hash: str) -> bool:
-        """Verify a candidate ``api_key`` against a stored scrypt hash."""
+        """Verify a candidate ``api_key`` against a hash an older version stored.
+
+        Only the ``scrypt$N$r$p$salt_b64$derived_b64`` form gets here: a key stored as a
+        digest is found by the lookup instead. Callers run it in a worker thread.
+        """
         try:
             scheme, n_str, r_str, p_str, salt_b64, derived_b64 = stored_hash.split("$", 5)
         except ValueError:
             return False
-        if scheme != "scrypt":
+        if scheme != SCRYPT_SCHEME:
             return False
         try:
             n = int(n_str)
@@ -134,7 +128,7 @@ class APIKeyService:
         Returns:
             Created API key with full key (only shown once)
         """
-        api_key, prefix, key_hash = await self._generate_api_key()
+        api_key, prefix, key_hash = self._generate_api_key()
 
         key_dict = key_data.model_dump()
         key_dict.update(
@@ -318,15 +312,7 @@ class APIKeyService:
             )
         prefix = api_key[prefix_start:prefix_end]
 
-        result = await db.execute(select(APIKey).where(APIKey.key_prefix == prefix).execution_options(populate_existing=True))
-        candidates = result.scalars().all()
-
-        matched: APIKey | None = None
-        for candidate in candidates:
-            if await anyio.to_thread.run_sync(self._verify_api_key, api_key, candidate.key_hash):
-                matched = candidate
-                break
-
+        matched = await self._row_for(api_key, prefix, db)
         if matched is None:
             return APIKeyValidationResponse(
                 is_valid=False,
@@ -362,6 +348,40 @@ class APIKeyService:
             permissions=key["permissions"],
             usage_limits=key["usage_limits"],
         )
+
+    async def _row_for(self, api_key: str, prefix: str, db: AsyncSession) -> APIKey | None:
+        """The key row ``api_key`` belongs to, or ``None``.
+
+        A digest finds its row through the unique index on ``key_hash``. A row an older
+        version stored as scrypt is found by prefix and verified, then rewritten as a
+        digest, so each of those keys pays for scrypt once.
+        """
+        stored = await db.execute(
+            select(APIKey).where(APIKey.key_hash == self._hash_api_key(api_key)).execution_options(populate_existing=True)
+        )
+        matched = stored.scalar_one_or_none()
+        if matched is not None:
+            return matched
+
+        return await self._rehashed(api_key, prefix, db)
+
+    async def _rehashed(self, api_key: str, prefix: str, db: AsyncSession) -> APIKey | None:
+        """The key row holding a scrypt hash of ``api_key``, rewritten as a digest."""
+        legacy = await db.execute(
+            select(APIKey)
+            .where(APIKey.key_prefix == prefix, APIKey.key_hash.startswith(f"{SCRYPT_SCHEME}$"))
+            .execution_options(populate_existing=True)
+        )
+        for candidate in legacy.scalars().all():
+            if await anyio.to_thread.run_sync(self._verify_api_key, api_key, candidate.key_hash):
+                candidate.key_hash = self._hash_api_key(api_key)
+                await db.commit()
+                await db.refresh(candidate)
+                logger.info(f"Rehashed API key {candidate.id} from scrypt to sha256")
+
+                return candidate
+
+        return None
 
     async def record_usage(
         self,

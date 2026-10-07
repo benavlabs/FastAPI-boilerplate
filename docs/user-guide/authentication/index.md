@@ -131,15 +131,47 @@ For server-to-server clients, programs, scripts, integrations:
 ```bash
 # Create a key (requires an authenticated session)
 curl -X POST "http://localhost:8000/api/v1/api-keys/" \
-  -H "Content-Type: application/json" \
+  -H "Content-Type: application/json" -H "X-CSRF-Token: <token>" \
   -b cookies.txt \
-  -d '{"name": "Integration Key", "permissions": {}, "usage_limits": {}}'
+  -d '{"name": "Integration Key", "permissions": ["user.read"], "usage_limits": {}}'
 # → { "api_key": "shown ONCE — store securely", "id": 1, "key_prefix": "...", ... }
+
+# Call with it, in the X-API-Key header
+curl http://localhost:8000/api/v1/auth/me -H "X-API-Key: fai_..."
+# → { "user_id": 1, "username": "admin", ..., "via": "apikey" }
 ```
 
 The full key is returned only on creation, in `api_key`. The rest of the response is what
 `GET /api/v1/api-keys/{id}` reports, minus `key_metadata` and `last_used_ip`, which that route still
-carries. Each key has its own permissions, usage limits, and audit trail (`KeyUsage` rows).
+carries. Each key has its own scope ([registry permission names](permissions.md#api-key-scope)),
+usage limits, and audit trail (`KeyUsage` rows).
+
+A request carrying a valid key is authenticated as the key's owner, with `transport="apikey"` on the
+principal and no CSRF token required: CSRF guards a cookie the browser attaches by itself, and a key
+is sent deliberately. A key request is answered without a cookie, so it never becomes a session. A
+key that is unknown, malformed, revoked, expired or whose owner a soft delete has taken out answers
+`401`, including on a route that otherwise answers anonymous callers — a credential that is present
+and wrong is not an absent one.
+
+A session cookie wins when a request carries both, and these routes take **only** a session, so a
+key cannot use itself to escalate or to hide its tracks:
+
+| Route | Why |
+|-------|-----|
+| `POST /api/v1/auth/change-password` | an account changes its own password while signed in |
+| `POST /api/v1/auth/email/change-request` | the same, for the address a recovery flow would use |
+| `POST /api/v1/auth/logout`, `/logout-all` | a key holds no session to end |
+| `DELETE /api/v1/users/{username}` | a key must not close the account that issued it |
+| every `/api/v1/api-keys/` route | a key must not mint, read, rescope or revoke a key, its own included |
+
+A password change revokes the account's other **sessions**; it does not revoke its keys, which carry
+no password. Revoke a key that may have leaked with `DELETE /api/v1/api-keys/{id}`.
+
+A key is stored as `sha256$<digest>` of itself: 256 bits from `secrets.token_urlsafe` need no salt
+and no work factor, and a deterministic digest lets a request find its row by one indexed lookup. A
+key an older version stored with a salted scrypt hash still authenticates, and its row is rewritten
+as a digest the first time it does — until then, a request carrying that key's prefix still costs one
+scrypt verification, so run the old keys once after upgrading.
 
 ## Recovery Flows (Email)
 

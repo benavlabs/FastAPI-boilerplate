@@ -4,7 +4,12 @@ from fastapi import APIRouter
 from fastcrud import PaginatedListResponse, compute_offset, paginated_response
 
 from ...infrastructure.auth.authorization import load_permissions, require_permissions
-from ...infrastructure.auth.deps import CurrentPermissionsDep, CurrentSuperUserDep, CurrentUserDep
+from ...infrastructure.auth.deps import (
+    CurrentPermissionsDep,
+    CurrentSuperUserDep,
+    CurrentUserDep,
+    SessionPrincipalDep,
+)
 from ...infrastructure.dependencies import AsyncSessionDep
 from ..common.pagination import ItemsPerPageDep, PageDep
 from .dependencies import UserServiceDep
@@ -232,12 +237,14 @@ async def update_user_profile(
             Permission rules:
             - Regular users can only deactivate their own accounts
             - Administrators can deactivate any user's account
+            - The caller must be signed in to a session; an API key cannot close an account
 
             Deactivated accounts cannot be used for login and are typically hidden
             from regular user listings.
             """,
     responses={
         200: {"description": "Account deactivated successfully"},
+        401: {"description": "Not signed in to a session"},
         403: {"description": "Not authorized to deactivate this account"},
         404: {"description": "User not found"},
     },
@@ -248,8 +255,9 @@ async def delete_user_account(
     current_user: CurrentUserDep,
     db: AsyncSessionDep,
     user_service: UserServiceDep,
+    _: SessionPrincipalDep,
 ) -> dict[str, str]:
-    """Soft delete a user account."""
+    """Soft delete a user account, for a caller signed in to a session."""
     await user_service.verify_user_permission(current_user, username, "delete this account")
     user = await user_service.get_by_username(username, db)
 

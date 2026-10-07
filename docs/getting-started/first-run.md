@@ -161,12 +161,18 @@ curl -X POST "http://localhost:8000/api/v1/api-keys/" \
   -b cookies.txt \
   -d '{
     "name": "My Integration Key",
-    "permissions": {},
+    "permissions": ["user.read"],
     "usage_limits": {}
   }'
 ```
 
 ⚠️ **The full API key is shown once in the response.** Store it securely.
+
+Call with it in the `X-API-Key` header, which authenticates the request as the key's owner:
+
+```bash
+curl http://localhost:8000/api/v1/auth/me -H "X-API-Key: fai_..."
+```
 
 List your keys:
 
