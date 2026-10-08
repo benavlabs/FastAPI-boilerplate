@@ -153,8 +153,27 @@ async def test_login_soft_deleted_user_rejected(client: AsyncClient, db_session:
 
 
 @pytest.mark.asyncio
+async def test_logout_runs_the_after_logout_hook(client: AsyncClient, test_user: dict, monkeypatch):
+    """An audit log hangs off this hook, and it names the session that ended."""
+    logged: list[tuple[dict, str | None]] = []
+
+    async def record(user: dict, *, request, context) -> None:
+        logged.append((user, context.session_handle))
+
+    monkeypatch.setattr(crud_auth.hooks, "on_after_logout", record)
+    session_id, csrf_token = await _login(client, test_user)
+
+    response = await client.post("/api/v1/auth/logout", headers={"X-CSRF-Token": csrf_token})
+
+    assert response.status_code == 200
+    assert [(user["username"], handle) for user, handle in logged] == [
+        (test_user["username"], crud_auth.sessions.session_handle(session_id))
+    ]
+
+
+@pytest.mark.asyncio
 async def test_logout_unauthenticated_returns_401(client: AsyncClient):
-    """Logout with no session is rejected (the route depends on get_current_principal)."""
+    """Logout with no session is rejected (the route depends on get_session_principal)."""
     response = await client.post("/api/v1/auth/logout")
     assert response.status_code == 401
 

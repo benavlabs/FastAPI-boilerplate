@@ -146,7 +146,12 @@ The store never holds a session id or a CSRF token: each is kept under an HMAC k
 `SECRET_KEY`. Read access to the store yields nothing anybody can sign in with, and changing
 `SECRET_KEY` signs everyone out.
 
-Logout (`POST /api/v1/auth/logout`) terminates the session record and clears the cookies. To end every session the user holds on all devices (e.g. after a suspected compromise), use `POST /api/v1/auth/logout-all`. See [Logout All Sessions](#logout-all-sessions).
+Logout (`POST /api/v1/auth/logout`) hands the request to the session transport's
+`complete_logout`, which terminates the session record, clears the cookies of every configured
+transport and runs the `on_after_logout` hook with the ended session's handle — so an audit log
+registered through `AuthHooks` sees a logout the same way it sees a login. To end every session the
+user holds on all devices (e.g. after a suspected compromise), use `POST /api/v1/auth/logout-all`.
+See [Logout All Sessions](#logout-all-sessions).
 
 ## CSRF Protection
 

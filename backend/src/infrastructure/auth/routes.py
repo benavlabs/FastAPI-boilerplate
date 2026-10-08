@@ -127,7 +127,7 @@ async def login(
 
             This endpoint:
             - Invalidates the active session in the storage backend
-            - Clears all session-related cookies from the client
+            - Clears the cookies of every configured transport
 
             After logout, the user will need to authenticate again to access
             protected resources. Any existing session tokens will no longer be valid.
@@ -136,14 +136,17 @@ async def login(
     response_description="Confirmation of successful logout",
 )
 async def logout(
+    request: Request,
     response: Response,
-    principal: Annotated[Principal, Depends(get_session_principal)],
+    db: AsyncSessionDep,
+    _: Annotated[Principal, Depends(get_session_principal)],
 ) -> dict[str, str]:
-    """Logout endpoint to terminate the session and clear cookies (CSRF-protected)."""
-    session_id = principal.metadata.get("session_id")
-    if session_id:
-        await crud_auth.sessions.revoke(session_id, owner_id=principal.user_id)
-    crud_auth.sessions.clear_session_cookies(response)
+    """End the session the cookie names, clear the cookies and run the logout hook.
+
+    The session transport does all of it (CSRF-protected); the dependency is what
+    reserves the route for a session.
+    """
+    await session_transport.complete_logout(request, response, db)
 
     return {"message": "Logged out successfully"}
 
