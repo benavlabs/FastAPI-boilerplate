@@ -146,6 +146,10 @@ The store never holds a session id or a CSRF token: each is kept under an HMAC k
 `SECRET_KEY`. Read access to the store yields nothing anybody can sign in with, and changing
 `SECRET_KEY` signs everyone out.
 
+crudauth's session-management routes are mounted beside the project's own: `GET /sessions`,
+`DELETE /sessions/{handle}`, `POST /logout-all` and `POST /csrf/refresh` — see
+[Manage Devices](#manage-devices).
+
 Logout (`POST /api/v1/auth/logout`) hands the request to the session transport's
 `complete_logout`, which terminates the session record, clears the cookies of every configured
 transport and runs the `on_after_logout` hook with the ended session's handle — so an audit log
@@ -183,7 +187,7 @@ await fetch('/api/v1/users/', {
 });
 ```
 
-Need a fresh token mid-session? Hit `POST /api/v1/auth/refresh-csrf` — it returns a new token and sets the cookie.
+Need a fresh token mid-session? Hit `POST /api/v1/auth/csrf/refresh` — it returns the session's token, minting a new one only when the old is gone or expired, and sets the cookie.
 
 ## Passwords
 
@@ -337,8 +341,12 @@ curl -X POST http://localhost:8000/api/v1/users/ \
 ### Refresh CSRF Token
 
 ```bash
-curl -X POST http://localhost:8000/api/v1/auth/refresh-csrf -b cookies.txt
+curl -X POST http://localhost:8000/api/v1/auth/csrf/refresh -b cookies.txt
 ```
+
+It self-heals: a token that is still valid comes back unchanged, so a client that calls it on every
+page load doesn't rotate a healthy one. Rate limited per address (crudauth's `csrf_refresh` default:
+30 per hour).
 
 ### Logout
 
@@ -359,7 +367,7 @@ curl -X POST http://localhost:8000/api/v1/auth/logout-all \
 Terminates **every** session for the current user across all devices, including this one, and clears the cookies:
 
 ```json
-{ "message": "All sessions terminated. Please log in again.", "terminated_count": 3 }
+{ "detail": "Signed out of all sessions.", "revoked": 3 }
 ```
 
 To sign out only the *other* devices and stay logged in here, pass `keep_current=true`:
@@ -372,6 +380,34 @@ curl -X POST "http://localhost:8000/api/v1/auth/logout-all?keep_current=true" \
 
 No re-authentication step is required, because this is the action a user needs when they can't trust their current session. It's rate limited per user (crudauth's `logout_all` default: 10 per hour).
 
+### Manage Devices
+
+```bash
+curl http://localhost:8000/api/v1/auth/sessions -b cookies.txt
+```
+
+```json
+[
+  {"id": "7f3c…", "device": "Chrome on macOS", "ip": "203.0.113.7",
+   "created_at": "2026-10-08T09:12:44Z", "last_activity": "2026-10-08T11:03:02Z", "current": true}
+]
+```
+
+Every session the account holds, with the caller's flagged `current`. `id` is the session's
+*handle*, never its id, so the listing is safe to render in a page: nothing in it authenticates.
+Sign one device out with it:
+
+```bash
+curl -X DELETE http://localhost:8000/api/v1/auth/sessions/7f3c… \
+  -b cookies.txt \
+  -H "X-CSRF-Token: <token-from-login-response>"
+```
+
+Ownership is checked, and a handle that belongs to somebody else answers `404` — the same as one
+that doesn't exist, so the route reveals nothing. Revoking the caller's own handle clears its
+cookies. Every session backend this project offers can list a user's sessions: memory scans its
+entries, Redis keeps a per-user index, and the database store has a `user_id` column.
+
 ## Key Files
 
 | Component | Location |
@@ -379,7 +415,8 @@ No re-authentication step is required, because this is the action a user needs w
 | `auth = CRUDAuth(...)` singleton | `backend/src/infrastructure/auth/setup.py` |
 | Dependencies | `backend/src/infrastructure/auth/dependencies.py` |
 | OAuth configuration | `backend/src/infrastructure/auth/setup.py` |
-| Login/logout/logout-all/OAuth routes | `backend/src/infrastructure/auth/routes.py` |
+| Login, logout and OAuth routes | `backend/src/infrastructure/auth/routes.py` |
+| Session management routes | crudauth's `build_session_management_router`, mounted in `routes.py` |
 | HTTP exceptions (fastcrud re-export) | `backend/src/infrastructure/http_exceptions.py` |
 | Auth settings | `backend/src/infrastructure/config/settings.py` (`AuthSettings`) |
 

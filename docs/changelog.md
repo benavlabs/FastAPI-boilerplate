@@ -83,6 +83,12 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   or holds something they don't, which is the rule a `user.update` holder is already held to. A refused delegation answers `403` and writes nothing; an unregistered
   permission name answers `422` without echoing it. `GET /api/v1/users/{user_id}/roles` reads an
   account's roles.
+- **A device list.** `GET /api/v1/auth/sessions` reports every session an account holds — device, IP,
+  when it signed in, when it was last active, and which one is the caller's — and
+  `DELETE /api/v1/auth/sessions/{handle}` signs one of them out. Both come from crudauth's
+  session-management router, both take a session principal and nothing else, and a session is named
+  by its handle rather than its id, so the listing is safe to render. A handle belonging to another
+  account answers `404`.
 - **`SESSION_BACKEND=database` and `RATE_LIMITER_BACKEND=database`**, which keep sessions, CSRF
   tokens, the one-time tokens behind the email flows, the OAuth state and the rate-limit counters in
   two tables of the project's own database — `crudauth_store` and `crudauth_counters` — so several
@@ -380,6 +386,12 @@ matrix. The round that followed fixed what a re-review of the refactor found.
 
 #### Breaking Changes
 
+- **`POST /api/v1/auth/refresh-csrf` is now `POST /api/v1/auth/csrf/refresh`**, and
+  `POST /api/v1/auth/logout-all` answers `{"detail": …, "revoked": N}` where it answered
+  `{"message": …, "terminated_count": N}`. Both routes now come from crudauth's
+  session-management router, with the device list, rather than being written here: the CSRF refresh
+  gained a self-heal (a token that is still valid comes back unchanged) and a per-address rate
+  limit, and `logout-all` keeps its `keep_current` query. A client calling the old path gets `404`.
 - **An unknown `SESSION_BACKEND` is refused when the app starts.** A value crudauth has no store
   for — `memcached`, say, left over from before sessions moved to crudauth — used to fall through to
   memory sessions, which start fine and then lose every session on each deploy and share none

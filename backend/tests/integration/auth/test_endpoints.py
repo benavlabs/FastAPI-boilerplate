@@ -154,6 +154,73 @@ async def test_login_soft_deleted_user_rejected(client: AsyncClient, db_session:
     assert response.status_code == 401
 
 
+class TestTheDeviceList:
+    """``GET /sessions`` and ``DELETE /sessions/{handle}``, crudauth's own routes."""
+
+    async def test_it_lists_every_session_and_flags_the_caller(self, client: AsyncClient, test_user: dict):
+        await _clear_sessions(test_user)
+        async with _another_browser(test_user) as (other, other_session_id):
+            own_session_id, _ = await _login(client, test_user)
+
+            listed = await client.get("/api/v1/auth/sessions")
+
+            assert listed.status_code == 200
+            sessions = listed.json()
+            assert {entry["id"] for entry in sessions} == {
+                crud_auth.sessions.session_handle(own_session_id),
+                crud_auth.sessions.session_handle(other_session_id),
+            }
+            assert [entry["id"] for entry in sessions if entry["current"]] == [
+                crud_auth.sessions.session_handle(own_session_id)
+            ]
+
+    async def test_a_session_is_listed_by_its_handle_and_never_its_id(self, client: AsyncClient, test_user: dict):
+        """The listing is safe to put in a page: nothing in it authenticates."""
+        await _clear_sessions(test_user)
+        session_id, _ = await _login(client, test_user)
+
+        sessions = (await client.get("/api/v1/auth/sessions")).json()
+
+        assert session_id not in str(sessions)
+
+    async def test_one_device_can_be_signed_out(self, client: AsyncClient, test_user: dict):
+        await _clear_sessions(test_user)
+        async with _another_browser(test_user) as (other, other_session_id):
+            _, csrf_token = await _login(client, test_user)
+            handle = crud_auth.sessions.session_handle(other_session_id)
+
+            revoked = await client.delete(f"/api/v1/auth/sessions/{handle}", headers={"X-CSRF-Token": csrf_token})
+
+            assert revoked.status_code == 200
+            assert await _is_authenticated(other, other_session_id) is False
+            assert [entry["current"] for entry in (await client.get("/api/v1/auth/sessions")).json()] == [True]
+
+    async def test_somebody_elses_session_is_not_found(
+        self, client: AsyncClient, test_user: dict, test_user_2: dict, fresh_login_lockout
+    ):
+        """Ownership is checked, and a refusal says no more than 404 would."""
+        theirs, _ = await _login(client, test_user_2)
+        client.cookies.clear()
+        _, csrf_token = await _login(client, test_user)
+
+        response = await client.delete(
+            f"/api/v1/auth/sessions/{crud_auth.sessions.session_handle(theirs)}",
+            headers={"X-CSRF-Token": csrf_token},
+        )
+
+        assert response.status_code == 404
+        assert await crud_auth.sessions.validate_session(theirs) is not None
+
+    async def test_signing_a_device_out_needs_the_csrf_header(self, client: AsyncClient, test_user: dict):
+        session_id, _ = await _login(client, test_user)
+        handle = crud_auth.sessions.session_handle(session_id)
+
+        response = await client.delete(f"/api/v1/auth/sessions/{handle}")
+
+        assert response.status_code in (401, 403)
+        assert await crud_auth.sessions.validate_session(session_id) is not None
+
+
 class TestTheAbsoluteSessionCap:
     """``SESSION_ABSOLUTE_TIMEOUT_HOURS`` ends a session however active it stays."""
 
@@ -282,7 +349,7 @@ async def test_logout_all_terminates_every_session(client: AsyncClient, test_use
         response = await client.post("/api/v1/auth/logout-all", headers={"X-CSRF-Token": csrf_token})
 
         assert response.status_code == 200
-        assert response.json()["terminated_count"] == 2
+        assert response.json()["revoked"] == 2
         assert any(c.startswith("session_id=") for c in response.headers.get_list("set-cookie"))
         assert await _is_authenticated(other, other_session_id) is False
 
@@ -301,7 +368,7 @@ async def test_logout_all_keep_current_spares_calling_session(client: AsyncClien
         )
 
         assert response.status_code == 200
-        assert response.json()["terminated_count"] == 1
+        assert response.json()["revoked"] == 1
         assert not any(c.startswith("session_id=") for c in response.headers.get_list("set-cookie"))
         assert await _is_authenticated(client, own_session_id) is True
         assert await _is_authenticated(other, other_session_id) is False
@@ -338,14 +405,14 @@ async def test_logout_all_without_csrf_token_rejected(client: AsyncClient, test_
 
 @pytest.mark.asyncio
 async def test_refresh_csrf_token_success(client: AsyncClient, test_user: dict):
-    """With a valid session cookie, /refresh-csrf mints a fresh token (no CSRF header needed)."""
+    """With a valid session cookie, /csrf/refresh mints a fresh token (no CSRF header needed)."""
     login = await client.post(
         "/api/v1/auth/login",
         data={"username": test_user["username"], "password": test_user["password"]},
     )
     assert login.status_code == 200
 
-    response = await client.post("/api/v1/auth/refresh-csrf")
+    response = await client.post("/api/v1/auth/csrf/refresh")
 
     assert response.status_code == 200
     assert response.json()["csrf_token"]
@@ -353,9 +420,20 @@ async def test_refresh_csrf_token_success(client: AsyncClient, test_user: dict):
 
 @pytest.mark.asyncio
 async def test_refresh_csrf_token_no_session_returns_401(client: AsyncClient):
-    """/refresh-csrf with no session cookie is unauthorized."""
-    response = await client.post("/api/v1/auth/refresh-csrf")
+    """/csrf/refresh with no session cookie is unauthorized."""
+    response = await client.post("/api/v1/auth/csrf/refresh")
     assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_refreshing_a_token_that_is_still_valid_hands_the_same_one_back(client: AsyncClient, test_user: dict):
+    """crudauth's route self-heals: a healthy token is returned, not rotated."""
+    _, csrf_token = await _login(client, test_user)
+
+    response = await client.post("/api/v1/auth/csrf/refresh")
+
+    assert response.status_code == 200
+    assert response.json()["csrf_token"] == csrf_token
 
 
 @pytest.mark.asyncio

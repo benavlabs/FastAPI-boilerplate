@@ -2,6 +2,8 @@
 
 ``router`` carries crudauth's account router under ``/auth``, with ``set-password`` left out,
 and its recovery router: email verification, password reset and the confirmed email change.
+crudauth's session-management router comes with them: ``GET /sessions``,
+``DELETE /sessions/{session_handle}``, ``POST /logout-all`` and ``POST /csrf/refresh``.
 ``root_routers`` carries crudauth's OAuth router when a provider is configured, and is empty
 when none is.
 
@@ -15,10 +17,10 @@ from typing import Annotated, Any, cast
 from crudauth import Principal
 from crudauth.account import build_account_router
 from crudauth.email.router import build_email_router
-from crudauth.exceptions import ForbiddenException, UnauthorizedException
-from crudauth.ratelimit import KeyBy
+from crudauth.exceptions import ForbiddenException
+from crudauth.transports.session.management import build_session_management_router
 from crudauth.utils import is_cross_site
-from fastapi import APIRouter, Depends, Form, Query, Request, Response
+from fastapi import APIRouter, Depends, Form, Request, Response
 from fastapi.routing import APIRoute
 
 from ...modules.user.crud import crud_users
@@ -55,6 +57,8 @@ _account_router.routes = [
     route for route in _account_router.routes if isinstance(route, APIRoute) and route.path != "/set-password"
 ]
 _mount(_account_router)
+
+_mount(build_session_management_router(crud_auth, crud_auth.sessions))
 
 if crud_auth.emails is not None:
     _mount(build_email_router(auth=crud_auth, service=crud_auth.emails))
@@ -149,83 +153,6 @@ async def logout(
     await session_transport.complete_logout(request, response, db)
 
     return {"message": "Logged out successfully"}
-
-
-@router.post(
-    "/logout-all",
-    summary="Logout All Sessions",
-    description="""
-            Terminates every active session for the current user, across all devices.
-
-            Use this to "log out everywhere" after a suspected compromise. By default it
-            invalidates every session the user holds, including the one making the
-            request, and clears the current client's cookies.
-
-            Pass keep_current=true to keep the calling session and sign out only the
-            other devices.
-            """,
-    responses={
-        200: {"description": "Sessions terminated"},
-        401: {"description": "Not authenticated"},
-        429: {"description": "Too many requests, try again later"},
-    },
-    response_description="Confirmation with the number of sessions terminated",
-    dependencies=[Depends(crud_auth.rate_limit("logout_all", key=KeyBy.USER))],
-)
-async def logout_all(
-    response: Response,
-    principal: Annotated[Principal, Depends(get_session_principal)],
-    keep_current: bool = Query(False, description="Keep the calling session and sign out every other device"),
-) -> dict[str, Any]:
-    """Terminate the current user's sessions (CSRF-protected); ``keep_current`` spares the calling one."""
-    spared_session_id = principal.metadata.get("session_id") if keep_current else None
-    terminated = await crud_auth.sessions.revoke_all(principal.user_id, exclude=spared_session_id)
-    if spared_session_id:
-        return {"message": "All other sessions terminated.", "terminated_count": terminated}
-
-    crud_auth.sessions.clear_session_cookies(response)
-
-    return {"message": "All sessions terminated. Please log in again.", "terminated_count": terminated}
-
-
-@router.post(
-    "/refresh-csrf",
-    summary="Refresh CSRF Token",
-    description="""
-            Generates a new CSRF token for the current session.
-
-            This endpoint should be called to obtain a fresh CSRF token when:
-            - The current token is about to expire
-            - After a certain period of inactivity
-            - When increased security is needed for sensitive operations
-
-            The new token is returned in the response and also set as a cookie.
-            """,
-    responses={200: {"description": "New CSRF token generated successfully"}, 401: {"description": "Not authenticated"}},
-    response_description="The new CSRF token for the session",
-)
-async def refresh_csrf_token(
-    request: Request,
-    response: Response,
-) -> dict[str, str]:
-    """Generate a new CSRF token for the current session.
-
-    Deliberately resolves the session cookie directly rather than via
-    ``current_user`` - requiring a valid CSRF header to refresh CSRF would defeat
-    the recovery purpose. The session cookie is httpOnly and the new token only
-    lands in the (same-origin-readable) cookie + body.
-    """
-    sessions = crud_auth.sessions
-    session_id = request.cookies.get(sessions.session_cookie_name)
-    session = await sessions.validate_session(session_id) if session_id else None
-    if session is None or session_id is None:
-        raise UnauthorizedException("Not authenticated")
-
-    ttl_seconds = sessions.timeout_seconds_for(session.metadata)
-    csrf_token = await sessions.regenerate_csrf_token(session_id, expiration_seconds=ttl_seconds)
-    sessions.set_csrf_cookie(response, csrf_token, max_age=ttl_seconds)
-
-    return {"csrf_token": csrf_token}
 
 
 @router.get("/check-auth")

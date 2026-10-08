@@ -191,7 +191,8 @@ What ships out of the box:
 | `POST/GET/PATCH/DELETE /api/v1/users/*` | `modules/user/routes.py` | Open create; reads/updates need a session, and a lookup by username returns no email. Listing every user needs the `user.read` permission |
 | `GET /api/v1/tiers/*` | `modules/tier/routes.py` | Authenticated list + lookup by name |
 | `GET/PATCH/DELETE /api/v1/rate-limits/*` | `modules/rate_limit/routes.py` | Superuser only |
-| `POST /api/v1/auth/login`, `logout`, `logout-all`, `refresh-csrf`, `check-auth` | `infrastructure/auth/routes.py` | Session auth |
+| `POST /api/v1/auth/login`, `logout`, `check-auth` | `infrastructure/auth/routes.py` | Session auth |
+| `GET /api/v1/auth/sessions`, `DELETE /api/v1/auth/sessions/{handle}`, `POST /api/v1/auth/logout-all`, `POST /api/v1/auth/csrf/refresh` | crudauth, mounted in `infrastructure/auth/routes.py` | Device management |
 | `POST /api/v1/auth/change-password`, `GET /api/v1/auth/me` | crudauth's account router, mounted in `infrastructure/auth/routes.py` | Session auth; `set-password` is not mounted |
 | `GET /api/v1/auth/oauth/{provider}`, `oauth/callback/{provider}` | crudauth router mounted in `infrastructure/auth/routes.py` | Google OAuth (configured in `infrastructure/auth/setup.py`) |
 | `POST/GET/PATCH/DELETE /api/v1/api-keys/*` | `modules/api_keys/routes.py` | Authenticated key management |

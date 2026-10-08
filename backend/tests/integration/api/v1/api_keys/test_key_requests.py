@@ -27,7 +27,8 @@ SESSION_ONLY_ROUTES = [
     ("GET", "/api/v1/api-keys/", None),
     ("POST", "/api/v1/api-keys/", {"name": "Minted By A Key"}),
     ("GET", "/api/v1/api-keys/summary/user", None),
-    ("POST", "/api/v1/auth/refresh-csrf", None),
+    ("POST", "/api/v1/auth/csrf/refresh", None),
+    ("GET", "/api/v1/auth/sessions", None),
     ("DELETE", "/api/v1/users/{username}", None),
 ]
 

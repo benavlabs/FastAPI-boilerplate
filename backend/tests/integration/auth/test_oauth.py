@@ -194,19 +194,25 @@ async def test_a_provider_error_sends_the_browser_back_with_an_error(client: Asy
 
 
 async def test_the_auth_paths_keep_their_existing_contract():
-    """The migration to crudauth must not move the URLs clients already call."""
+    """The migration to crudauth must not move the URLs clients already call.
+
+    ``/refresh-csrf`` is the one that moved, to crudauth's ``/csrf/refresh`` when the
+    session-management routes were adopted.
+    """
     paths = {route.path for route in app.routes if isinstance(route, APIRoute)}
 
     for path in (
         "/api/v1/auth/login",
         "/api/v1/auth/logout",
         "/api/v1/auth/logout-all",
-        "/api/v1/auth/refresh-csrf",
+        "/api/v1/auth/csrf/refresh",
         "/api/v1/auth/check-auth",
         "/api/v1/auth/oauth/{provider}",
         "/api/v1/auth/oauth/callback/{provider}",
     ):
         assert path in paths
+
+    assert "/api/v1/auth/refresh-csrf" not in paths
 
 
 @pytest.mark.usefixtures("fresh_login_lockout")

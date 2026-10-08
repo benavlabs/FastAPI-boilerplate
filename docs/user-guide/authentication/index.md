@@ -161,6 +161,7 @@ key cannot use itself to escalate or to hide its tracks:
 | `POST /api/v1/auth/change-password` | an account changes its own password while signed in |
 | `POST /api/v1/auth/email/change-request` | the same, for the address a recovery flow would use |
 | `POST /api/v1/auth/logout`, `/logout-all` | a key holds no session to end |
+| `GET /api/v1/auth/sessions`, `DELETE /api/v1/auth/sessions/{handle}` | a key holds no device to list or sign out |
 | `DELETE /api/v1/users/{username}` | a key must not close the account that issued it |
 | every `/api/v1/api-keys/` route | a key must not mint, read, rescope or revoke a key, its own included |
 
