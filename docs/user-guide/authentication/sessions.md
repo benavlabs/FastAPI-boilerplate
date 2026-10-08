@@ -125,7 +125,8 @@ The login route delegates to the `crudauth` `auth` singleton (see [Auth Architec
 
 1. Applies its per-IP / per-identifier login lockout (returns `429` + `Retry-After` if tripped)
 2. Validates the credentials against the user row (soft-deleted users — `is_active == False` — are rejected)
-3. Writes a session record to the configured backend (Redis by default)
+3. Writes a session record to the configured backend (Redis by default), under an HMAC of the
+   session id rather than the id itself
 4. Generates a CSRF token bound to the session
 5. Sets two cookies on the response:
     - `session_id` — HTTP-only, the session identifier
@@ -134,9 +135,16 @@ The login route delegates to the `crudauth` `auth` singleton (see [Auth Architec
 On every subsequent request, the auth dependency (via crudauth):
 
 1. Reads `session_id` from cookies
-2. Looks it up in the configured backend; rejects expired or missing sessions
+2. Looks it up in the configured backend, by that same HMAC; rejects expired or missing sessions
 3. For mutating requests (POST/PUT/DELETE/PATCH), validates the CSRF token if `CSRF_ENABLED=true`
 4. Hands back a `Principal`; `get_current_user` then re-loads the full user row (joined with the `Tier` relationship via `lazy="selectin"`)
+
+Signing in again ends the session the browser presented, so a cookie somebody copied stops working
+at the account's next login.
+
+The store never holds a session id or a CSRF token: each is kept under an HMAC keyed with
+`SECRET_KEY`. Read access to the store yields nothing anybody can sign in with, and changing
+`SECRET_KEY` signs everyone out.
 
 Logout (`POST /api/v1/auth/logout`) terminates the session record and clears the cookies. To end every session the user holds on all devices (e.g. after a suspected compromise), use `POST /api/v1/auth/logout-all`. See [Logout All Sessions](#logout-all-sessions).
 

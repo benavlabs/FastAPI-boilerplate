@@ -56,11 +56,14 @@ matrix. The round that followed fixed what a re-review of the refactor found.
 - **The removal drill migrates.** Every preset now autogenerates its baseline against the models the
   project kept and applies it to an empty database, so a feature that can be removed stays one
   Alembic can describe.
-- **crudauth 0.7.5.** The account routes come from it, and this release carries the fixes the email
-  flows and OAuth need: an inactive account is sent no recovery mail and its outstanding links are
-  refused (0.7.5), an OAuth sign-in refuses an inactive account before linking or claiming it
-  (0.7.4), and `repo.gated_register_fields()` names the privileged fields an app's own signup
-  schema must not offer (0.7.2) — a test holds this project's `UserCreate` to that.
+- **crudauth 0.8.2.** The account routes come from it. 0.8 keeps every session id and CSRF token
+  under an HMAC of its value keyed with `SECRET_KEY`, so read access to the session store yields
+  nothing that can sign in, and ends the session a browser presented when that browser signs in
+  again — a copied cookie dies at the account's next login. See Breaking Changes. The release also
+  carries the fixes the email flows and OAuth need: an inactive account is sent no recovery mail and
+  its outstanding links are refused (0.7.5), an OAuth sign-in refuses an inactive account before
+  linking or claiming it (0.7.4), and `repo.gated_register_fields()` names the privileged fields an
+  app's own signup schema must not offer (0.7.2) — a test holds this project's `UserCreate` to that.
 - **The `@cache` key covers the query string and the caller.** A cached response used to be keyed
   by `prefix:resource_id` alone, so two pages of one listing shared an entry and an authenticated
   route could serve one caller's response to another. The key is now
@@ -354,6 +357,11 @@ matrix. The round that followed fixed what a re-review of the refactor found.
 
 #### Breaking Changes
 
+- **Upgrading signs every user out once.** crudauth 0.8 looks a session up under an HMAC of its id
+  keyed with `SECRET_KEY`; sessions written by 0.7 are stored under the raw id and are no longer
+  found, so every signed-in user logs in again after the deploy. From now on, changing `SECRET_KEY`
+  does the same. Nothing else here is affected: `/set-password` and MFA, which 0.8.1 put behind a
+  fresh sign-in, are not mounted by this project.
 - **An API key's scope is a list of registry permission names.** `APIKey.permissions` held a
   free-form JSON object, and a second copy of a key's scope lived in `key_permissions` rows keyed by
   a vocabulary of their own (`conversations`, `credits`, `user_profile`, `*`, …) that no route could

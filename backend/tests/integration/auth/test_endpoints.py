@@ -5,12 +5,14 @@ FastAPI dependency to simulate authenticated / anonymous callers.
 """
 
 import threading
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from unittest.mock import patch
 
 import bcrypt
 import pytest
 from crudauth import Principal, get_password_hash
-from httpx import AsyncClient, Response
+from httpx import ASGITransport, AsyncClient, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.infrastructure.auth import routes
@@ -190,6 +192,19 @@ async def _login(client: AsyncClient, user: dict) -> tuple[str, str]:
     return response.cookies["session_id"], response.json()["csrf_token"]
 
 
+@asynccontextmanager
+async def _another_browser(user: dict) -> AsyncIterator[tuple[AsyncClient, str]]:
+    """A second signed-in client and its session id, closed however the test ends.
+
+    A login revokes the session the browser it came from presented, so two sessions of
+    one account need two cookie jars.
+    """
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as other:
+        session_id, _ = await _login(other, user)
+
+        yield other, session_id
+
+
 async def _is_authenticated(client: AsyncClient, session_id: str | None = None) -> bool:
     """check-auth as the client's current session, or as ``session_id`` when given."""
     if session_id is not None:
@@ -206,34 +221,47 @@ async def _is_authenticated(client: AsyncClient, session_id: str | None = None) 
 async def test_logout_all_terminates_every_session(client: AsyncClient, test_user: dict):
     """logout-all revokes every session of the user (not just the caller's) and clears cookies."""
     await _clear_sessions(test_user)
-    first_session_id, _ = await _login(client, test_user)
-    _, csrf_token = await _login(client, test_user)
+    async with _another_browser(test_user) as (other, other_session_id):
+        _, csrf_token = await _login(client, test_user)
 
-    response = await client.post("/api/v1/auth/logout-all", headers={"X-CSRF-Token": csrf_token})
+        response = await client.post("/api/v1/auth/logout-all", headers={"X-CSRF-Token": csrf_token})
 
-    assert response.status_code == 200
-    assert response.json()["terminated_count"] == 2
-    assert any(c.startswith("session_id=") for c in response.headers.get_list("set-cookie"))
-    assert await _is_authenticated(client, first_session_id) is False
+        assert response.status_code == 200
+        assert response.json()["terminated_count"] == 2
+        assert any(c.startswith("session_id=") for c in response.headers.get_list("set-cookie"))
+        assert await _is_authenticated(other, other_session_id) is False
 
 
 @pytest.mark.asyncio
 async def test_logout_all_keep_current_spares_calling_session(client: AsyncClient, test_user: dict):
     """keep_current=true revokes the other sessions but keeps the caller's session and cookies."""
     await _clear_sessions(test_user)
+    async with _another_browser(test_user) as (other, other_session_id):
+        own_session_id, csrf_token = await _login(client, test_user)
+
+        response = await client.post(
+            "/api/v1/auth/logout-all",
+            params={"keep_current": "true"},
+            headers={"X-CSRF-Token": csrf_token},
+        )
+
+        assert response.status_code == 200
+        assert response.json()["terminated_count"] == 1
+        assert not any(c.startswith("session_id=") for c in response.headers.get_list("set-cookie"))
+        assert await _is_authenticated(client, own_session_id) is True
+        assert await _is_authenticated(other, other_session_id) is False
+
+
+@pytest.mark.asyncio
+async def test_signing_in_again_ends_the_session_the_browser_presented(client: AsyncClient, test_user: dict):
+    """A copied cookie stops working as soon as the browser it came from signs in again."""
+    await _clear_sessions(test_user)
     first_session_id, _ = await _login(client, test_user)
-    _, csrf_token = await _login(client, test_user)
 
-    response = await client.post(
-        "/api/v1/auth/logout-all",
-        params={"keep_current": "true"},
-        headers={"X-CSRF-Token": csrf_token},
-    )
+    second_session_id, _ = await _login(client, test_user)
 
-    assert response.status_code == 200
-    assert response.json()["terminated_count"] == 1
-    assert not any(c.startswith("session_id=") for c in response.headers.get_list("set-cookie"))
-    assert await _is_authenticated(client) is True
+    assert second_session_id != first_session_id
+    assert await _is_authenticated(client, second_session_id) is True
     assert await _is_authenticated(client, first_session_id) is False
 
 

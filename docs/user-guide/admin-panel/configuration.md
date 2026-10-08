@@ -94,7 +94,8 @@ If you change it, also update any internal links in your frontend or operational
     expire (8 hours), and logging out only clears the cookie at the new path. Browsers send the
     longer-path cookie first and Starlette keeps the last value, so an old `path=/` cookie can
     outlive a logout. Clear the `admin_session` cookie in your browser once after upgrading, or
-    change `SECRET_KEY` to invalidate every old admin session at once.
+    change `SECRET_KEY` to invalidate every old admin session at once — which also signs every
+    account out of the API, since crudauth keys its session store with `SECRET_KEY` too.
 
 ## Database Connection
 

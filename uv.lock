@@ -642,7 +642,7 @@ wheels = [
 
 [[package]]
 name = "crudauth"
-version = "0.7.5"
+version = "0.8.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "bcrypt" },
@@ -653,9 +653,9 @@ dependencies = [
     { name = "python-multipart" },
     { name = "sqlalchemy" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/df/61/0adf5265d822aafd481e38ec962e75cd02c58f3f4b13426606e06ae8793c/crudauth-0.7.5.tar.gz", hash = "sha256:742ba2b198496d7fe190ae6281d14ae6c91b726a036faf95ac470581afbb5031", size = 149531, upload-time = "2026-10-06T03:06:32.37Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/3e/eb/891b8369bb33fb7e2402c1bc4af02c166e5aef562f46772831f8b9a4b99c/crudauth-0.8.2.tar.gz", hash = "sha256:f07983f45fd76c5fcbb1c2da2f879c7e60bd49fd628c6668f05e785783a197f1", size = 168321, upload-time = "2026-10-07T19:30:19.632Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/f2/0b/c029e806d35e457347f7064538d92c6fcf022fb8a32c9d3f33f5c52e90a4/crudauth-0.7.5-py3-none-any.whl", hash = "sha256:fde1843752c97b77ff74155af5c62d9738174c6990a6c5175e4c25f36d05f11c", size = 201012, upload-time = "2026-10-06T03:06:33.626Z" },
+    { url = "https://files.pythonhosted.org/packages/c4/b4/4eda142f16d1c773e0cf3e8ce50d67926d47af9f3cb5f484c39b11bfcb81/crudauth-0.8.2-py3-none-any.whl", hash = "sha256:738e6a1adef2afbce38db81429ec8c936cb99e9e438f3081456783ad8c1f7ec0", size = 222015, upload-time = "2026-10-07T19:30:17.658Z" },
 ]
 
 [package.optional-dependencies]
@@ -864,7 +864,7 @@ requires-dist = [
     { name = "aiosqlite", specifier = ">=0.21.0" },
     { name = "alembic", specifier = ">=1.16.4" },
     { name = "asyncpg", specifier = ">=0.30.0" },
-    { name = "crudauth", extras = ["all"], specifier = ">=0.7.5,<0.8.0" },
+    { name = "crudauth", extras = ["all"], specifier = ">=0.8.2,<0.9.0" },
     { name = "faker", specifier = ">=37.1.0" },
     { name = "fastapi", extras = ["standard"], specifier = ">=0.115.8" },
     { name = "fastcrud", specifier = ">=0.21.0" },
