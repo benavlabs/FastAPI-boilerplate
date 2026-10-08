@@ -255,6 +255,24 @@ class TestSessionTransportWiring:
         assert transport.session_timeout_minutes == 7
         assert transport.cleanup_interval_minutes == 3
 
+    def test_no_absolute_cap_is_configured_by_default(self):
+        """A session ends on the idle timeout alone unless a project asks for a cap."""
+        assert settings.SESSION_ABSOLUTE_TIMEOUT_HOURS is None
+        assert setup._session_transport().absolute_timeout_hours is None
+
+    def test_the_absolute_cap_reaches_the_transport(self, monkeypatch):
+        monkeypatch.setattr(settings, "SESSION_ABSOLUTE_TIMEOUT_HOURS", 12)
+
+        assert setup._session_transport().absolute_timeout_hours == 12
+
+    @pytest.mark.parametrize("hours", [0, -1])
+    def test_a_cap_below_an_hour_is_refused(self, monkeypatch, hours: int):
+        """The library would take it and expire every session as soon as it was created."""
+        monkeypatch.setattr(settings, "SESSION_ABSOLUTE_TIMEOUT_HOURS", hours)
+
+        with pytest.raises(ValueError, match="SESSION_ABSOLUTE_TIMEOUT_HOURS"):
+            setup._session_transport()
+
 
 class TestAccountsLifecycle:
     """What the app runs for accounts on startup and shutdown."""

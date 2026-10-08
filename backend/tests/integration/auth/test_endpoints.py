@@ -7,11 +7,13 @@ FastAPI dependency to simulate authenticated / anonymous callers.
 import threading
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
 
 import bcrypt
 import pytest
 from crudauth import Principal, get_password_hash
+from crudauth.transports.session.schemas import SessionData
 from httpx import ASGITransport, AsyncClient, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -150,6 +152,40 @@ async def test_login_soft_deleted_user_rejected(client: AsyncClient, db_session:
     )
 
     assert response.status_code == 401
+
+
+class TestTheAbsoluteSessionCap:
+    """``SESSION_ABSOLUTE_TIMEOUT_HOURS`` ends a session however active it stays."""
+
+    @pytest.fixture
+    def capped_at_twelve_hours(self, monkeypatch):
+        monkeypatch.setattr(crud_auth.sessions, "absolute_timeout", timedelta(hours=12))
+
+    async def _age(self, session_id: str, hours: int) -> None:
+        """Move the session's sign-in time ``hours`` into the past."""
+        signed_in_at = datetime.now(UTC) - timedelta(hours=hours)
+
+        def backdate(session: SessionData) -> None:
+            session.created_at = signed_in_at
+
+        assert await crud_auth.sessions.modify_session(session_id, backdate) is not None
+
+    async def test_a_session_past_the_cap_is_refused_and_gone(
+        self, client: AsyncClient, test_user: dict, capped_at_twelve_hours
+    ):
+        session_id, _ = await _login(client, test_user)
+        await self._age(session_id, hours=13)
+
+        authenticated = await _is_authenticated(client, session_id)
+
+        assert authenticated is False
+        assert await crud_auth.sessions.validate_session(session_id) is None
+
+    async def test_a_session_inside_the_cap_is_untouched(self, client: AsyncClient, test_user: dict, capped_at_twelve_hours):
+        session_id, _ = await _login(client, test_user)
+        await self._age(session_id, hours=11)
+
+        assert await _is_authenticated(client, session_id) is True
 
 
 @pytest.mark.asyncio

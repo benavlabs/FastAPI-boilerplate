@@ -34,6 +34,20 @@ OAUTH_PROVIDERS = ("google", "github")
 """The providers this project reads credentials for, each named as crudauth registers it."""
 
 
+def _absolute_timeout_hours() -> int | None:
+    """``SESSION_ABSOLUTE_TIMEOUT_HOURS``, or ``None`` where no cap is configured.
+
+    Raises:
+        ValueError: The setting is below one hour, which would expire every session as
+            soon as it was created.
+    """
+    hours = settings.SESSION_ABSOLUTE_TIMEOUT_HOURS
+    if hours is not None and hours < 1:
+        raise ValueError(f"SESSION_ABSOLUTE_TIMEOUT_HOURS={hours!r} isn't supported; leave it unset for no cap.")
+
+    return hours
+
+
 def _session_transport() -> SessionTransport:
     """Cookie sessions on ``SESSION_BACKEND``, on their own Redis database when Redis-backed."""
     use_redis = settings.SESSION_BACKEND == SessionBackend.REDIS
@@ -43,6 +57,7 @@ def _session_transport() -> SessionTransport:
         csrf=settings.CSRF_ENABLED,
         max_sessions_per_user=settings.MAX_SESSIONS_PER_USER,
         session_timeout_minutes=settings.SESSION_TIMEOUT_MINUTES,
+        absolute_timeout_hours=_absolute_timeout_hours(),
         cleanup_interval_minutes=settings.SESSION_CLEANUP_INTERVAL_MINUTES,
     )
 

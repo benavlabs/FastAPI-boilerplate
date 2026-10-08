@@ -83,6 +83,10 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   or holds something they don't, which is the rule a `user.update` holder is already held to. A refused delegation answers `403` and writes nothing; an unregistered
   permission name answers `422` without echoing it. `GET /api/v1/users/{user_id}/roles` reads an
   account's roles.
+- **`SESSION_ABSOLUTE_TIMEOUT_HOURS`**, the most a session may live from sign-in however active it
+  stays, for a project that wants a periodic re-login. Unset by default, so the idle
+  `SESSION_TIMEOUT_MINUTES` stays the only timeout; a value below one hour is refused when the app
+  starts. A session past the cap is removed and its next request answers `401`.
 - **An `X-API-Key` transport**, with the api_keys feature: a request carrying a valid key is
   authenticated as the key's owner, with `transport="apikey"` on the principal, no CSRF token
   required and no cookie in the answer. A key that is unknown, malformed, revoked, expired or whose

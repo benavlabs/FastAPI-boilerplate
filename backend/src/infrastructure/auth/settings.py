@@ -17,6 +17,7 @@ class AuthSettings(BaseSettings):
     """
 
     SESSION_TIMEOUT_MINUTES: int = config("SESSION_TIMEOUT_MINUTES", default=30, cast=int)
+    SESSION_ABSOLUTE_TIMEOUT_HOURS: int | None = config("SESSION_ABSOLUTE_TIMEOUT_HOURS", default=None, cast=int)
 
     LOGIN_MAX_ATTEMPTS: int = config("LOGIN_MAX_ATTEMPTS", default=5, cast=int)
     LOGIN_ATTEMPT_WINDOW_SECONDS: int = config("LOGIN_ATTEMPT_WINDOW_SECONDS", default=900, cast=int)

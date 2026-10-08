@@ -153,6 +153,15 @@ registered through `AuthHooks` sees a logout the same way it sees a login. To en
 user holds on all devices (e.g. after a suspected compromise), use `POST /api/v1/auth/logout-all`.
 See [Logout All Sessions](#logout-all-sessions).
 
+### Two timeouts
+
+`SESSION_TIMEOUT_MINUTES` is an idle timeout: every authenticated request slides it forward, so a
+session in use never ends on its own. `SESSION_ABSOLUTE_TIMEOUT_HOURS` caps a session from sign-in
+however active it stays, for a project that wants a periodic re-login. It is unset by default, which
+leaves the idle timeout as the only one; a value below 1 is refused at startup rather than expiring
+every session the moment it is created. A session past the cap is removed, not just rejected, and
+the next request answers `401`.
+
 ## CSRF Protection
 
 Session auth ships with CSRF protection. For non-GET requests, send the CSRF token via either:
@@ -259,6 +268,7 @@ SESSION_REDIS_DB=2                   # on the cache Redis; isolated from cache (
 
 # Lifetime
 SESSION_TIMEOUT_MINUTES=30           # inactive sessions expire
+# SESSION_ABSOLUTE_TIMEOUT_HOURS=12  # the most a session may live from sign-in; unset for no cap
 SESSION_CLEANUP_INTERVAL_MINUTES=15  # how often the storage backend sweeps expired entries
 
 # Per-user cap
