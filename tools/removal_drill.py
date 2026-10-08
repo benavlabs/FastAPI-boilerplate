@@ -383,6 +383,15 @@ def _wiring_email(chosen: set[str]) -> str:
     )
 
 
+def _wiring_tables(chosen: set[str]) -> str:
+    """The modules outside ``src/modules`` whose tables belong on ``Base.metadata``."""
+    docstring = '"""Modules outside ``src/modules`` that declare tables on ``Base.metadata``."""\n\n'
+    modules = ['"src.infrastructure.auth.store"'] if "accounts" in chosen else []
+    listed = f"({modules[0]},)" if modules else "()"
+
+    return f"{docstring}TABLE_MODULES: tuple[str, ...] = {listed}\n"
+
+
 def _wiring_transports(chosen: set[str]) -> str:
     """The authentication transports registered beside the session one."""
     docstring = '"""The authentication transports this project registers beside the session one."""\n\n'
@@ -512,6 +521,7 @@ def build(preset: str, into: Path) -> Path:
     (project / "backend/src/wiring/app.py").write_text(_wiring_app(chosen))
     (project / "backend/src/wiring/hooks.py").write_text(_wiring_hooks(chosen))
     (project / "backend/src/wiring/email.py").write_text(_wiring_email(chosen))
+    (project / "backend/src/wiring/tables.py").write_text(_wiring_tables(chosen))
     (project / "backend/src/wiring/transports.py").write_text(_wiring_transports(chosen))
     (project / "backend/src/wiring/cache.py").write_text(_wiring_cache(chosen))
     (project / "backend/src/wiring/models.py").write_text(_wiring_models(chosen))

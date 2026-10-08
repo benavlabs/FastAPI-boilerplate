@@ -82,7 +82,7 @@ CACHE_REDIS_HOST=<redis-host>
 CACHE_REDIS_PASSWORD=<redis-password>
 
 # Sessions
-SESSION_BACKEND=redis                  # redis | memory, on the cache Redis unless SESSION_REDIS_URL is set
+SESSION_BACKEND=redis                  # redis | database | memory; Redis unless SESSION_REDIS_URL is set
 SESSION_SECURE_COOKIES=true            # required when serving over HTTPS
 CSRF_ENABLED=true
 TRUSTED_PROXY_HOPS=1                    # set to the number of proxies in front of the app
@@ -385,7 +385,7 @@ Before shipping:
 
 Horizontal scaling is straightforward — add more `prod` containers behind your load balancer. Sessions are stored in Redis (when `SESSION_BACKEND=redis`), so any instance can serve any user.
 
-If you're stuck on `SESSION_BACKEND=memory`, you can't horizontally scale safely: each instance has its own session table. Switch backends before scaling.
+If you're stuck on `SESSION_BACKEND=memory`, you can't horizontally scale safely: each instance has its own session table. Switch backends before scaling — to `redis`, or to `database`, which shares sessions and login-lockout counters through this project's own database and needs no Redis at all.
 
 ### Database
 
@@ -413,7 +413,7 @@ Read the message — it tells you which check failed. Don't bypass it; fix the u
 
 ### "Sessions invalidate after every deploy"
 
-You're on `SESSION_BACKEND=memory`. Switch to `redis`; sessions use the cache's Redis connection, or `SESSION_REDIS_URL` when set. (Sessions support only `redis` and `memory`; memcached is not a session backend.)
+You're on `SESSION_BACKEND=memory`. Switch to `redis` — sessions use the cache's Redis connection, or `SESSION_REDIS_URL` when set — or to `database`, which stores them in `crudauth_store` beside your own tables. (Memcached is not a session backend.)
 
 ### "Sudden burst of 429s after a config change"
 

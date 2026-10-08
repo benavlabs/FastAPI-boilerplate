@@ -241,7 +241,7 @@ LOGIN_LOCKOUT_MAX_SECONDS=3600   # ceiling for the doubling
 
 The window is the value that matters against a paced attack: crudauth's own default counts over 60 seconds, so five tries a minute never accumulate. A successful login clears the account's failures and the pressure its own failures put on that address. The admin panel counts on this same policy, so an address guessing passwords is slowed at both doors. Behind a reverse proxy, set `TRUSTED_PROXY_HOPS` so the lockout keys on the real client IP rather than the proxy's.
 
-With `RATE_LIMITER_BACKEND=redis`, the counters live in Redis, and crudauth builds the lockout policy with `fail_open=False`. If that Redis is unreachable, **every login is refused** with `429` for the base lockout window rather than let through unchecked: an attacker can't disable the lockout by taking Redis down. Treat the limiter's Redis as a dependency logins need, and watch it: `GET /health/ready` answers `503` while it is unreachable, and the log names it (`rate_limiter`), alongside the database and the session store. It is its own connection (`RATE_LIMITER_REDIS_*`, against `CACHE_REDIS_*` for the cache), and the readiness probe asks each server once even when several settings point at the same one. `RATE_LIMITER_BACKEND=memory` keeps the counters in the process instead, which is fine for a single worker and useless across several.
+With `RATE_LIMITER_BACKEND=redis`, the counters live in Redis, and crudauth builds the lockout policy with `fail_open=False`. If that Redis is unreachable, **every login is refused** with `429` for the base lockout window rather than let through unchecked: an attacker can't disable the lockout by taking Redis down. Treat the limiter's Redis as a dependency logins need, and watch it: `GET /health/ready` answers `503` while it is unreachable, and the log names it (`rate_limiter`), alongside the database and the session store. It is its own connection (`RATE_LIMITER_REDIS_*`, against `CACHE_REDIS_*` for the cache), and the readiness probe asks each server once even when several settings point at the same one. `RATE_LIMITER_BACKEND=memory` keeps the counters in the process instead, which is fine for a single worker and useless across several. `RATE_LIMITER_BACKEND=database` keeps them in `crudauth_counters`, shared by every worker; the database's own readiness check then covers them, and the `rate_limiter` check reports nothing to reach.
 
 ## Session Limits
 
@@ -256,13 +256,21 @@ Sessions are stored server-side. Configure via `SESSION_BACKEND`:
 | `redis` *(default)* | Production. Supports key expiration, pattern scans for cleanup, persists across restarts |
 | `memory` | Tests only. Cleared on restart, not safe for multi-process deploys |
 
-The backends ship inside the `crudauth` library, not the boilerplate — `setup.py` just selects `redis` or `memory` based on `SESSION_BACKEND`. (Memcached is no longer a session option; it remains available for the general cache and rate limiter.)
+The backends ship inside the `crudauth` library, not the boilerplate — `setup.py` just selects `redis`, `database` or `memory` based on `SESSION_BACKEND`, and a value it has no store for is refused when the app starts. (Memcached is no longer a session option; it remains available for the general cache and rate limiter.)
+
+`database` keeps sessions, CSRF tokens, the one-time tokens behind the email flows and the OAuth
+state in two tables of this project's own database — `crudauth_store` and `crudauth_counters` —
+so several workers share them with no Redis to run. The tables are declared on the project's
+`Base.metadata`, so `alembic revision --autogenerate` writes them beside your own and
+`CREATE_TABLES_ON_STARTUP` creates them in development: switching to or from `database` is a
+schema change, and wants one migration. Expired rows are deleted as the store writes, and
+`DatabaseStore.purge_expired()` clears them all if you would rather run that on a schedule.
 
 ## Configuration
 
 ```env
 # Backend
-SESSION_BACKEND=redis                # redis | memory
+SESSION_BACKEND=redis                # redis | database | memory
 SESSION_REDIS_DB=2                   # on the cache Redis; isolated from cache (0), rate limiter (1), and taskiq (3)
 # SESSION_REDIS_URL=                 # optional dedicated session Redis, e.g. rediss://user:password@host:6380/0
 

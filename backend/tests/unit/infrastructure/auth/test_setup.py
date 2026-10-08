@@ -255,6 +255,21 @@ class TestSessionTransportWiring:
         assert transport.session_timeout_minutes == 7
         assert transport.cleanup_interval_minutes == 3
 
+    @pytest.mark.parametrize("backend", ["redis", "memory", "database"])
+    def test_the_session_backend_setting_names_the_store(self, monkeypatch, backend: str):
+        monkeypatch.setattr(settings, "SESSION_BACKEND", backend)
+
+        transport = setup._session_transport()
+
+        assert transport.backend == backend
+        assert (transport.redis_url is not None) is (backend == "redis")
+
+    def test_a_backend_crudauth_has_no_store_for_is_refused(self, monkeypatch):
+        monkeypatch.setattr(settings, "SESSION_BACKEND", "memcached")
+
+        with pytest.raises(ValueError, match="SESSION_BACKEND"):
+            setup._session_transport()
+
     def test_no_absolute_cap_is_configured_by_default(self):
         """A session ends on the idle timeout alone unless a project asks for a cap."""
         assert settings.SESSION_ABSOLUTE_TIMEOUT_HOURS is None

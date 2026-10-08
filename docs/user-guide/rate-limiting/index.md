@@ -68,8 +68,9 @@ That's all that's required. The limiter is enabled with `RATE_LIMITER_ENABLED=tr
 # Master toggle for the API limits (the login lockout runs either way)
 RATE_LIMITER_ENABLED=true
 
-# Where counters live: redis (default) or memory. Memory is per process, so it only
-# holds for a single worker. The memcached limiter was removed; that value fails at startup.
+# Where counters live: redis (default), database or memory. Memory is per process, so it
+# only holds for a single worker. Database keeps them in this project's own tables, shared
+# by every worker. The memcached limiter was removed; that value fails at startup.
 RATE_LIMITER_BACKEND=redis
 
 # Defaults applied when the user has no tier or no matching rate-limit row
@@ -88,6 +89,17 @@ RATE_LIMITER_REDIS_POOL_SIZE=10
 When `RATE_LIMITER_ENABLED=false`, the router-level dependency is a no-op. This is useful in tests
 and for isolating performance issues. The login lockout still counts on `RATE_LIMITER_BACKEND`, and
 fails closed: with that backend unreachable, logins are refused rather than left unthrottled.
+
+`RATE_LIMITER_BACKEND=database` counts in `crudauth_counters`, a table of this project's own
+database, so several workers share one count with no Redis to run. It matters most for the login
+lockout: with `memory`, each of N workers counts failures separately and an attacker gets N times
+the attempts. Expired counters are deleted as the store writes (about as many rows as the writes
+that created them), so nothing accumulates. Selecting it adds that table and `crudauth_store` to the
+schema — one migration, or `CREATE_TABLES_ON_STARTUP` in development.
+
+Every rate-limited request is a database write, not only a login: the API limits count there too.
+Under heavy API traffic prefer Redis, and keep `database` for the deployments whose reason to exist
+is running without one.
 
 ## User-Tier vs IP-Based Limits
 

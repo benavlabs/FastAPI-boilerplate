@@ -237,7 +237,7 @@ curl -X POST http://localhost:8000/api/v1/auth/password/reset-confirm \
 
 ### Server-Side Sessions
 
-- **Session storage**: Redis by default; memory available (`SESSION_BACKEND` env var)
+- **Session storage**: Redis by default; the project's own database or memory available (`SESSION_BACKEND` env var)
 - **HTTP-only cookies**: `session_id` cookie cannot be read by JavaScript
 - **CSRF tokens**: Returned on login, also set as a cookie, must be sent in `X-CSRF-Token` for state-changing requests
 - **Configurable timeout**: `SESSION_TIMEOUT_MINUTES`
@@ -386,7 +386,7 @@ SESSION_TIMEOUT_MINUTES=30
 SESSION_CLEANUP_INTERVAL_MINUTES=15
 MAX_SESSIONS_PER_USER=5
 SESSION_SECURE_COOKIES=true
-SESSION_BACKEND=redis             # redis | memory
+SESSION_BACKEND=redis             # redis | database | memory
 
 # CSRF
 CSRF_ENABLED=true                  # set false for dev/test

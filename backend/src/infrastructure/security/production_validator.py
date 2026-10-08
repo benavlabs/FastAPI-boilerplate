@@ -517,7 +517,7 @@ class ProductionSecurityValidator:
                 }
             )
 
-        if self._feature_setting("RATE_LIMITER_ENABLED", False):
+        if self._feature_setting("RATE_LIMITER_BACKEND", "") == "redis":
             configs.append(
                 {
                     "service": "rate_limiter",

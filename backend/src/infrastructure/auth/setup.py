@@ -10,7 +10,9 @@ configured session backend, whatever other transports the wiring selected, the l
 behind the login lockout, the password policy, the email recovery flows over the sender the
 wiring chose, and every OAuth provider whose credentials are configured. The session
 transport comes first, so a request carrying both a cookie and another credential is its
-session. Sudo is intentionally not configured: no route gates on it.
+session. ``SESSION_BACKEND=database`` hands crudauth the database store, which then also
+holds the one-time-token and OAuth-state stores. Sudo is intentionally not configured: no
+route gates on it.
 """
 
 from typing import Any
@@ -28,6 +30,7 @@ from ..config.settings import settings
 from ..database.session import async_session
 from .limiter import build_rate_limiter, rate_limiter_redis_client
 from .password_policy import password_policy
+from .store import database_store
 
 OAUTH_PREFIX = f"{settings.API_PREFIX}/v1/auth/oauth"
 OAUTH_PROVIDERS = ("google", "github")
@@ -48,12 +51,25 @@ def _absolute_timeout_hours() -> int | None:
     return hours
 
 
+def _session_backend() -> SessionBackend:
+    """The backend ``SESSION_BACKEND`` names.
+
+    Raises:
+        ValueError: The setting names a backend crudauth has no store for.
+    """
+    try:
+        return SessionBackend(settings.SESSION_BACKEND)
+    except ValueError as unsupported:
+        supported = ", ".join(repr(backend.value) for backend in SessionBackend)
+        raise ValueError(f"SESSION_BACKEND={settings.SESSION_BACKEND!r} isn't supported; use {supported}.") from unsupported
+
+
 def _session_transport() -> SessionTransport:
     """Cookie sessions on ``SESSION_BACKEND``, on their own Redis database when Redis-backed."""
-    use_redis = settings.SESSION_BACKEND == SessionBackend.REDIS
+    backend = _session_backend()
     return SessionTransport(
-        backend=SessionBackend.REDIS.value if use_redis else SessionBackend.MEMORY.value,
-        redis_url=settings.SESSION_REDIS_URL if use_redis else None,
+        backend=backend.value,
+        redis_url=settings.SESSION_REDIS_URL if backend == SessionBackend.REDIS else None,
         csrf=settings.CSRF_ENABLED,
         max_sessions_per_user=settings.MAX_SESSIONS_PER_USER,
         session_timeout_minutes=settings.SESSION_TIMEOUT_MINUTES,
@@ -88,6 +104,7 @@ auth = CRUDAuth(
     SECRET_KEY=settings.SECRET_KEY,
     cookies=CookieConfig(secure=settings.SESSION_SECURE_COOKIES),
     transports=[session_transport, *EXTRA_TRANSPORTS],
+    database_store=database_store if _session_backend() == SessionBackend.DATABASE else None,
     rate_limiter=build_rate_limiter(),
     lockout=LockoutConfig(
         max_attempts=settings.LOGIN_MAX_ATTEMPTS,

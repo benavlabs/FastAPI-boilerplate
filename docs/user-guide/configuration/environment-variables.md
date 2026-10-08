@@ -87,7 +87,7 @@ the user's tier and path, falling back to the defaults below, and each path keep
 
 ```env
 RATE_LIMITER_ENABLED=true
-RATE_LIMITER_BACKEND=redis        # or memory (per process, single worker only)
+RATE_LIMITER_BACKEND=redis        # or database (shared), or memory (per process, single worker only)
 DEFAULT_RATE_LIMIT_LIMIT=100
 DEFAULT_RATE_LIMIT_PERIOD=60
 ```
@@ -225,7 +225,7 @@ LOGIN_MAX_ATTEMPTS=5             # failures allowed inside the window, per addre
 LOGIN_ATTEMPT_WINDOW_SECONDS=900 # how long failures keep counting
 LOGIN_LOCKOUT_BASE_SECONDS=300   # first lockout, doubling each round
 LOGIN_LOCKOUT_MAX_SECONDS=3600   # ceiling for the doubling
-SESSION_BACKEND=redis            # redis | memory
+SESSION_BACKEND=redis            # redis | database | memory
 SESSION_REDIS_DB=2               # on the cache Redis, apart from the cache DB so a flush won't log users out
 # SESSION_REDIS_URL=             # optional dedicated session Redis, e.g. rediss://user:password@host:6380/0
 

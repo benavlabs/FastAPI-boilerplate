@@ -83,6 +83,16 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   or holds something they don't, which is the rule a `user.update` holder is already held to. A refused delegation answers `403` and writes nothing; an unregistered
   permission name answers `422` without echoing it. `GET /api/v1/users/{user_id}/roles` reads an
   account's roles.
+- **`SESSION_BACKEND=database` and `RATE_LIMITER_BACKEND=database`**, which keep sessions, CSRF
+  tokens, the one-time tokens behind the email flows, the OAuth state and the rate-limit counters in
+  two tables of the project's own database — `crudauth_store` and `crudauth_counters` — so several
+  workers share them with no Redis to run. The counters matter as much as the sessions: with
+  `memory`, each of N workers counts login failures on its own and an attacker gets N times the
+  attempts. Either setting on its own builds the store, and each keeps its own backend, so sessions
+  on Redis with counters in the database is a valid pair. The tables are declared on the project's
+  `Base.metadata`, so `CREATE_TABLES_ON_STARTUP` creates them and `alembic revision --autogenerate`
+  writes them beside the project's own; selecting the backend is a schema change and wants one
+  migration.
 - **`SESSION_ABSOLUTE_TIMEOUT_HOURS`**, the most a session may live from sign-in however active it
   stays, for a project that wants a periodic re-login. Unset by default, so the idle
   `SESSION_TIMEOUT_MINUTES` stays the only timeout; a value below one hour is refused when the app
@@ -139,6 +149,10 @@ matrix. The round that followed fixed what a re-review of the refactor found.
 
 #### Changed
 
+- **The production validator stops describing a Redis connection for a limiter that isn't on
+  Redis.** It listed `RATE_LIMITER_REDIS_*` whenever `RATE_LIMITER_ENABLED` was true, so a project
+  counting in memory (and now in the database) was warned about a Redis it never opened. It now
+  reads `RATE_LIMITER_BACKEND`.
 - **`POST /api/v1/auth/logout` runs through crudauth's `complete_logout`** instead of revoking the
   session and clearing the cookies by hand. The answer is unchanged, and the route still takes a
   session principal and nothing else, but every configured transport's cookies are now cleared and
@@ -366,6 +380,10 @@ matrix. The round that followed fixed what a re-review of the refactor found.
 
 #### Breaking Changes
 
+- **An unknown `SESSION_BACKEND` is refused when the app starts.** A value crudauth has no store
+  for — `memcached`, say, left over from before sessions moved to crudauth — used to fall through to
+  memory sessions, which start fine and then lose every session on each deploy and share none
+  between workers. The app now fails at startup, naming the values it supports.
 - **Upgrading signs every user out once.** crudauth 0.8 looks a session up under an HMAC of its id
   keyed with `SECRET_KEY`; sessions written by 0.7 are stored under the raw id and are no longer
   found, so every signed-in user logs in again after the deploy. From now on, changing `SECRET_KEY`

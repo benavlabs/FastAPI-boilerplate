@@ -112,7 +112,7 @@ SECRET_KEY=your-super-secret-key-here
 
 SESSION_TIMEOUT_MINUTES=30
 SESSION_SECURE_COOKIES=true
-SESSION_BACKEND=redis           # redis | memory
+SESSION_BACKEND=redis           # redis | database | memory
 CSRF_ENABLED=true
 TRUSTED_PROXY_HOPS=0            # trusted reverse proxies in front of the app
 ```

@@ -31,6 +31,7 @@ class TestProductionSecurityValidator:
             "REDIS_PASSWORD": "secure_redis_password",
             "CACHE_BACKEND": "memcached",
             "RATE_LIMITER_ENABLED": False,
+            "RATE_LIMITER_BACKEND": "memory",
             "SESSION_BACKEND": "redis",
             "CORS_ENABLED": True,
             "CORS_ORIGINS": "https://example.com",
@@ -265,6 +266,7 @@ class TestProductionSecurityValidator:
         settings = self.create_mock_settings(
             CACHE_BACKEND="redis",
             RATE_LIMITER_ENABLED=True,
+            RATE_LIMITER_BACKEND="redis",
             # Both using same Redis instance
             CACHE_REDIS_HOST="localhost",
             CACHE_REDIS_PORT=6379,
@@ -318,6 +320,16 @@ class TestProductionSecurityValidator:
 
         shared_warnings = [record for record in caplog.records if "sharing the same Redis instance" in record.message]
         assert shared_warnings == []
+
+    @pytest.mark.parametrize("backend", ["memory", "database"])
+    def test_a_limiter_off_redis_is_not_reported_as_a_redis_connection(self, backend: str):
+        """A limiter counting in the process or in the database opens no Redis to check."""
+        settings = self.create_mock_settings(
+            RATE_LIMITER_ENABLED=True, RATE_LIMITER_BACKEND=backend, SESSION_BACKEND="memory", SESSION_REDIS_URL=""
+        )
+        validator = ProductionSecurityValidator(settings)
+
+        assert validator._get_redis_configurations() == []
 
     def test_session_redis_url_with_tls_and_password_passes_redis_checks(self, caplog):
         """A rediss:// session URL with credentials satisfies the password and TLS checks."""
