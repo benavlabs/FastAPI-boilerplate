@@ -1,0 +1,222 @@
+# API Keys
+
+A key is for a program: a script, a server, an integration calling the API without a browser and
+without a password. It belongs to an account, carries a scope of its own, and can be revoked on its
+own. Keys come with the api_keys feature; a project without that feature has no key routes, no
+`X-API-Key` transport and no usage tables.
+
+## Creating a key
+
+Minting a key is something an account does while signed in: every `/api/v1/api-keys/` route takes a
+session and refuses a key, so no key can mint another.
+
+```bash
+curl -X POST http://localhost:8000/api/v1/api-keys/ \
+  -b cookies.txt \
+  -H "Content-Type: application/json" \
+  -H "X-CSRF-Token: <token-from-login-response>" \
+  -d '{
+    "name": "Nightly importer",
+    "permissions": ["user.read"],
+    "usage_limits": {"requests_per_minute": 60, "requests_per_day": 10000},
+    "expires_at": "2027-01-01T00:00:00Z"
+  }'
+```
+
+```json
+{
+  "id": 1,
+  "api_key": "fai_7Qd3kP0r_… shown once",
+  "key_prefix": "7Qd3kP0r",
+  "name": "Nightly importer",
+  "permissions": ["user.read"],
+  "usage_limits": {"requests_per_minute": 60, "requests_per_day": 10000},
+  "expires_at": "2027-01-01T00:00:00Z",
+  "is_active": true,
+  "last_used_at": null
+}
+```
+
+The full key is in `api_key` and appears **only** in this response — nothing stores it, so a lost
+key is replaced rather than recovered. `key_prefix` is the readable handle: it identifies the key in
+a listing without being a credential.
+
+| Field | What it does |
+|---|---|
+| `name` | yours, for telling keys apart |
+| `permissions` | the key's scope: registry permission names, each one the caller holds ([what a key holds](#what-a-key-holds)) |
+| `usage_limits` | requests per window ([usage limits](#usage-limits)) |
+| `expires_at` | when the key stops working; optional, and can later be brought forward but never pushed back |
+| `key_metadata` | anything your project wants to hang off the key; never returned by the create route |
+
+## Calling with a key
+
+```bash
+curl http://localhost:8000/api/v1/auth/me -H "X-API-Key: fai_7Qd3kP0r_…"
+```
+
+```json
+{"user_id": 1, "username": "importer", "email": "…", "is_superuser": false, "scopes": ["user.read"], "via": "apikey"}
+```
+
+The request is authenticated as the key's owner, with `transport="apikey"` on the principal. No CSRF
+token is needed — CSRF guards a cookie the browser attaches by itself, and a key is sent
+deliberately — and the answer carries no cookie, so a key request never becomes a session. When a
+request carries both a session cookie and a key, the session wins.
+
+A key that is unknown, malformed, revoked, expired, or whose owner a soft delete has taken out
+answers `401`. So does one of those on a route that otherwise answers anonymous callers: a
+credential that is present and wrong is not an absent one.
+
+## What a key holds
+
+A key-authenticated request holds **its owner's permissions, narrowed to the key's scope**. The
+scope only ever narrows: a permission the owner loses disappears from the key at its next request,
+and a key scoped to nothing holds nothing beyond naming its owner.
+
+```bash
+curl http://localhost:8000/api/v1/permissions/me -H "X-API-Key: fai_…"
+# → {"permissions": ["user.read"]}
+```
+
+A key's scope may name only permissions its creator holds when it is minted, so a key is never
+stronger than the credential that made it, and **a key is never a superuser** — the flag reaches
+ownership checks no scope can express. [Permissions](permissions.md#what-a-key-holds) has the detail
+and the reasoning.
+
+## What a key cannot do
+
+These routes take a session and nothing else, so a key can neither escalate through them nor erase
+its own tracks:
+
+| Route | Why |
+|---|---|
+| `POST /api/v1/auth/change-password` | an account changes its own password while signed in |
+| `POST /api/v1/auth/email/change-request` | the same, for the address a recovery flow would use |
+| `POST /api/v1/auth/logout`, `/logout-all` | a key holds no session to end |
+| `GET /api/v1/auth/sessions`, `DELETE /api/v1/auth/sessions/{handle}` | a key holds no device to list or sign out |
+| `DELETE /api/v1/users/{username}` | a key must not close the account that issued it |
+| every `/api/v1/api-keys/` route | a key must not mint, read, rescope or revoke a key, its own included |
+
+Ownership is a separate axis from the scope: a key can still act on what its owner owns, so it can
+edit its owner's own profile however it is scoped. The routes above are the ones where that would
+matter.
+
+## Usage limits
+
+A key may carry a request count per window, any or all of three:
+
+```json
+{"requests_per_minute": 60, "requests_per_hour": 1000, "requests_per_day": 10000}
+```
+
+Nothing else is accepted — a name no window counts answers `422`, so a limit that would enforce
+nothing cannot be stored. Each window is counted per key id through the limiter behind the login
+lockout, so the counts are shared by every worker unless `RATE_LIMITER_BACKEND=memory`
+([rate limiting](../rate-limiting/index.md)).
+
+A key that fills a window answers `429` with `Retry-After`. That happens as the key authenticates,
+so it covers every route the key could reach, including those the API throttle leaves alone. A key
+with no limits is not counted at all, and counting fails open: a limiter that can't be reached lets
+the request through rather than taking the API down with it.
+
+A limit stored before this vocabulary existed — anything outside those three names — reads back as
+it is and counts for nothing, the way a stored permission the registry no longer knows grants
+nothing. Rewrite such a key's `usage_limits` to have it enforced.
+
+## What a key's usage records
+
+Every request a key authenticates writes one row:
+
+```bash
+curl http://localhost:8000/api/v1/api-keys/1/usage -b cookies.txt
+curl http://localhost:8000/api/v1/api-keys/1/analytics -b cookies.txt
+curl http://localhost:8000/api/v1/api-keys/summary/user -b cookies.txt
+```
+
+The row carries the path, the method, the status the client actually got, how long the request took,
+the address and the user agent. Refusals are recorded too — the `429`s from the key's own limits and
+the `500`s from a route that raised — so an owner can see a key being throttled or failing. A
+session request records nothing.
+
+The write runs as a background task after the response, so no client waits for it, and the same task
+stamps `last_used_at` and `last_used_ip` on the key. Authenticating a request therefore writes
+nothing itself. "Last used" trails by however long that task takes, and a process that dies before
+it runs doesn't record that request at all.
+
+Both the row and the key record the address the trusted-proxy boundary resolved
+(`TRUSTED_PROXY_HOPS`), not the socket's, so a deployment behind a proxy records its clients rather
+than the proxy.
+
+## Revoking, expiring and rotating
+
+```bash
+# Narrow a key, or bring its expiry forward
+curl -X PATCH http://localhost:8000/api/v1/api-keys/1 \
+  -b cookies.txt -H "Content-Type: application/json" -H "X-CSRF-Token: <token>" \
+  -d '{"permissions": [], "expires_at": "2026-11-01T00:00:00Z"}'
+
+# Revoke it
+curl -X DELETE http://localhost:8000/api/v1/api-keys/1 -b cookies.txt -H "X-CSRF-Token: <token>"
+```
+
+Revoking is one way: a revoked key cannot be reactivated, and an expiry can be brought forward but
+never pushed back, so neither route can be used to widen a key quietly. Rotate by creating the new
+key, moving the client onto it, then revoking the old one — both work at once, and the usage rows
+show when the old one stops being called.
+
+A password change revokes the account's other **sessions**; it does not revoke its keys, which carry
+no password. A key you believe has leaked has to be revoked.
+
+## How a key is stored
+
+A key is `secrets.token_urlsafe(48)` — 256 bits of randomness the server generates — stored as
+`sha256$<digest>` of itself. The digest is deterministic, so a request finds its row through one
+indexed lookup on `key_hash`.
+
+!!! note "Why not a slow hash"
+    A work factor (bcrypt, scrypt, Argon2) exists to make *guessing* expensive, which matters for a
+    password a human chose. There is nothing to guess here: a key is server-generated randomness, so
+    a slow hash buys no security — and it costs. An earlier version used scrypt, which made every
+    request pay a derivation and, because `key_prefix` appears in listings, let anybody holding a
+    prefix make the server pay it on junk requests. A code scanner may flag SHA-256 on something it
+    reads as a password; for this column that reading is wrong. Account passwords in this project
+    are hashed by crudauth with bcrypt and are not involved.
+
+A key stored by an older version under a salted scrypt hash still authenticates — found by prefix
+and verified the old way — and its row is rewritten as a digest the first time it is used. Until
+then, a request carrying that key's prefix still costs one verification, so run the old keys once
+after upgrading.
+
+## `X-API-Key` in the interactive docs
+
+`/docs` has no field for the key: the header is not declared as an OpenAPI security scheme. A global
+declaration would claim every route accepts a key, which isn't true — the routes above refuse one —
+and per-route declarations would have to be kept in step with those refusals by hand. To add one
+anyway, give the routes that should advertise it a dependency of their own:
+
+```python
+from fastapi import Security
+from fastapi.security import APIKeyHeader
+
+api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
+
+
+@router.get("/widgets/", dependencies=[Security(api_key_header)])
+async def list_widgets(...): ...
+```
+
+The transport authenticates the request either way; the scheme only tells the document, and Swagger,
+that the header is expected.
+
+## Key Files
+
+| Component | Location |
+|---|---|
+| Transport (`X-API-Key`) | `backend/src/modules/api_keys/transport.py` |
+| Service (minting, validation, usage) | `backend/src/modules/api_keys/service.py` |
+| Usage recorder (middleware) | `backend/src/modules/api_keys/usage.py` |
+| Limit windows | `backend/src/modules/api_keys/limits.py` |
+| Routes | `backend/src/modules/api_keys/routes.py` |
+| Models (`APIKey`, `KeyUsage`) | `backend/src/modules/api_keys/models.py` |
+| Transport registration | `backend/src/wiring/transports.py` |

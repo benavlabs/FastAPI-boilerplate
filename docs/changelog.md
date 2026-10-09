@@ -83,6 +83,11 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   or holds something they don't, which is the rule a `user.update` holder is already held to. A refused delegation answers `403` and writes nothing; an unregistered
   permission name answers `422` without echoing it. `GET /api/v1/users/{user_id}/roles` reads an
   account's roles.
+- **An API-keys guide**, [API Keys](user-guide/authentication/api-keys.md): creating and scoping a
+  key, calling with `X-API-Key`, what a key holds and what it cannot do, the usage limits and the
+  rows every request writes, revoking and rotating, how a key is stored and why that storage is a
+  plain digest, and how to declare the header in the OpenAPI document if a project wants it in
+  `/docs`. The authentication overview keeps the two commands and points at it.
 - **Usage limits on an API key, enforced per key.** `usage_limits` takes a request count per
   window — `requests_per_minute`, `requests_per_hour`, `requests_per_day` — counted per key id
   through the limiter behind the login lockout, so several workers share one count on a shared

@@ -115,6 +115,7 @@ name = "FastAPI on PyPI"
         { "Sessions" = "user-guide/authentication/sessions.md" },
         { "User Management" = "user-guide/authentication/user-management.md" },
         { "Permissions" = "user-guide/authentication/permissions.md" },
+        { "API Keys" = "user-guide/authentication/api-keys.md" },
     ] },
     { "Admin Panel" = [
         { "Overview" = "user-guide/admin-panel/index.md" },

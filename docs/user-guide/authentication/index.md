@@ -126,80 +126,29 @@ crudauth registers a provider class under that name.
 
 ### 3. API Keys (Machine-to-Machine)
 
-For server-to-server clients, programs, scripts, integrations:
+For server-to-server clients, programs, scripts, integrations. A key belongs to an account, carries
+a scope of its own, and is revoked on its own:
 
 ```bash
-# Create a key (requires an authenticated session)
+# Create one (while signed in; the full key is shown once)
 curl -X POST "http://localhost:8000/api/v1/api-keys/" \
   -H "Content-Type: application/json" -H "X-CSRF-Token: <token>" \
   -b cookies.txt \
   -d '{"name": "Integration Key", "permissions": ["user.read"], "usage_limits": {"requests_per_minute": 60}}'
-# → { "api_key": "shown ONCE — store securely", "id": 1, "key_prefix": "...", ... }
 
 # Call with it, in the X-API-Key header
 curl http://localhost:8000/api/v1/auth/me -H "X-API-Key: fai_..."
 # → { "user_id": 1, "username": "admin", ..., "via": "apikey" }
 ```
 
-The full key is returned only on creation, in `api_key`. The rest of the response is what
-`GET /api/v1/api-keys/{id}` reports, minus `key_metadata` and `last_used_ip`, which that route still
-carries. Each key has its own scope ([registry permission names](permissions.md#api-key-scope)),
-usage limits, and audit trail (`KeyUsage` rows).
+A key-authenticated request is its owner, holding that owner's permissions narrowed to the key's
+scope, and never that owner's superuser flag. It needs no CSRF token, is answered without a cookie,
+and is refused outright by the routes an account must be signed in for — the password, the address,
+the sessions, closing the account, and managing keys. Every request it makes is counted against the
+key's own limits and recorded as a usage row.
 
-#### Usage limits
-
-A key may carry a limit per window — `requests_per_minute`, `requests_per_hour`,
-`requests_per_day`, any or all of them — and nothing else: a name no window counts is refused with
-`422`, so a limit that would enforce nothing can't be stored. Each window is counted per key id
-through the same limiter as the login lockout (`RATE_LIMITER_BACKEND`), so several workers share one
-count unless that backend is `memory`. A key that fills a window answers `429` with `Retry-After`,
-from the transport rather than a route, so every route the key could reach is covered — including
-the ones the API throttle leaves alone. A key with no limits is not counted at all. Counting fails
-open: a limiter that can't be reached lets the request through rather than taking the API down.
-
-#### What a key's usage records
-
-Every request a key authenticates writes one `KeyUsage` row — the path, the method, the status the
-client actually got, how long it took, the address and the user agent — and the write runs as a
-background task after the response, so no client waits for it. A refusal is recorded too, `429`s
-and server errors included, so an owner can see a key being throttled or failing. A session request
-records nothing. `GET /api/v1/api-keys/{id}/usage` reads the rows back and
-`GET /api/v1/api-keys/{id}/analytics` summarises them.
-
-The same background task stamps `last_used_at` and `last_used_ip` on the key, so authenticating a
-request writes nothing itself. Both the row and the key record the address the trusted-proxy
-boundary resolved (`TRUSTED_PROXY_HOPS`), not the socket's, so a deployment behind a proxy records
-its clients rather than the proxy. "Last used" therefore trails by however long the task takes, and
-a process that dies before the task runs doesn't record that request at all.
-
-A request carrying a valid key is authenticated as the key's owner, holding that owner's permissions
-narrowed to the key's scope ([what a key holds](permissions.md#what-a-key-holds)), with
-`transport="apikey"` on the principal and no CSRF token required: CSRF guards a cookie the browser attaches by itself, and a key
-is sent deliberately. A key request is answered without a cookie, so it never becomes a session. A
-key that is unknown, malformed, revoked, expired or whose owner a soft delete has taken out answers
-`401`, including on a route that otherwise answers anonymous callers — a credential that is present
-and wrong is not an absent one.
-
-A session cookie wins when a request carries both, and these routes take **only** a session, so a
-key cannot use itself to escalate or to hide its tracks:
-
-| Route | Why |
-|-------|-----|
-| `POST /api/v1/auth/change-password` | an account changes its own password while signed in |
-| `POST /api/v1/auth/email/change-request` | the same, for the address a recovery flow would use |
-| `POST /api/v1/auth/logout`, `/logout-all` | a key holds no session to end |
-| `GET /api/v1/auth/sessions`, `DELETE /api/v1/auth/sessions/{handle}` | a key holds no device to list or sign out |
-| `DELETE /api/v1/users/{username}` | a key must not close the account that issued it |
-| every `/api/v1/api-keys/` route | a key must not mint, read, rescope or revoke a key, its own included |
-
-A password change revokes the account's other **sessions**; it does not revoke its keys, which carry
-no password. Revoke a key that may have leaked with `DELETE /api/v1/api-keys/{id}`.
-
-A key is stored as `sha256$<digest>` of itself: 256 bits from `secrets.token_urlsafe` need no salt
-and no work factor, and a deterministic digest lets a request find its row by one indexed lookup. A
-key an older version stored with a salted scrypt hash still authenticates, and its row is rewritten
-as a digest the first time it does — until then, a request carrying that key's prefix still costs one
-scrypt verification, so run the old keys once after upgrading.
+**[API Keys](api-keys.md)** covers all of it: creating and scoping a key, calling with it, what it
+cannot do, the limits and the usage rows, revoking and rotating, and how a key is stored.
 
 ## Recovery Flows (Email)
 

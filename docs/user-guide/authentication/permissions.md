@@ -202,9 +202,6 @@ credentials rather than as an account, and those already let it set `is_superuse
 there is no weaker operator for the delegation checks above to hold back there. What the panel does
 enforce is that a grant names a permission the registry knows.
 
-!!! info "Not shipped yet"
-    Narrowing an API key to a subset of its owner's permissions is follow-up work.
-
 ## Superuser Authorization
 
 The User model has an `is_superuser: bool` column. Endpoints that should only be accessible to admins use the `get_current_superuser` dependency:
@@ -447,7 +444,7 @@ credential minting it.
     Ownership is a separate axis: a scope narrows permissions, not what an account owns, so a key
     can still edit its owner's own profile. The dangerous self-service routes — the password, the
     address, closing the account, managing keys — take a session and refuse a key outright
-    ([API keys](index.md#3-api-keys-machine-to-machine)).
+    ([API keys](api-keys.md#what-a-key-cannot-do)).
 
 `KeyStatus` defines the lifecycle a project can put a key through (`ACTIVE`, `INACTIVE`,
 `SUSPENDED`, `EXPIRED`, `REVOKED`); the routes ship `is_active` and `expires_at`.
