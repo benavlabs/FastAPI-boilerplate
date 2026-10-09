@@ -83,6 +83,20 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   or holds something they don't, which is the rule a `user.update` holder is already held to. A refused delegation answers `403` and writes nothing; an unregistered
   permission name answers `422` without echoing it. `GET /api/v1/users/{user_id}/roles` reads an
   account's roles.
+- **A key holds its owner's permissions, narrowed to its scope.** A key-authenticated request holds
+  what its owner holds — every `PermissionSource`, and for a superuser every registered permission —
+  intersected with the key's own scope, so the scope only ever narrows: a permission the owner loses
+  disappears from the key, and a key scoped to nothing holds nothing beyond identity.
+  `GET /api/v1/permissions/me` reports the narrowed set. A credential carrying a scope is never a
+  superuser, because the flag grants what no scope can name: the transport cancels it on the
+  principal and records the account's flag in the credential's metadata, where only the narrowing
+  reads it. So every consumer gets it right without remembering — `require_permissions`, the
+  superuser-only routes, the delegation checks behind the role routes (which now compare against
+  what the credential holds rather than reloading the owner's grants), and the ownership checks
+  behind editing an account or reading its tier and rate limits.
+- **A key's scope may name only permissions its creator holds.** `POST /api/v1/api-keys/`, and a
+  `PATCH` that widens a scope, answer `403` when the scope names something the calling session
+  doesn't hold, and write nothing. An unscoped key needs no permission at all.
 - **A device list.** `GET /api/v1/auth/sessions` reports every session an account holds — device, IP,
   when it signed in, when it was last active, and which one is the caller's — and
   `DELETE /api/v1/auth/sessions/{handle}` signs one of them out. Both come from crudauth's

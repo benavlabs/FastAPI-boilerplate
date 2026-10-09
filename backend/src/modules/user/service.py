@@ -304,7 +304,9 @@ class UserService:
             raise UserNotFoundError(f"User with ID {user_id} not found")
         return updated_user
 
-    async def check_update_permission(self, requester_user: dict[str, Any], target_username: str) -> bool:
+    async def check_update_permission(
+        self, requester_user: dict[str, Any], target_username: str, *, is_superuser: bool
+    ) -> bool:
         """Check if user has permission to update another user.
 
         Determines if the requesting user has permission to update the target user.
@@ -317,18 +319,27 @@ class UserService:
         Returns:
             True if the user has permission, False otherwise.
 
+        Args:
+            is_superuser: Whether the credential making the request is a superuser's. A
+                credential carrying a scope never is, whatever its account is marked.
+
         Note:
             Permission rules:
             - Superusers can update any user
             - Regular users can only update their own profile
         """
-        if requester_user.get("is_superuser", False):
+        if is_superuser:
             return True
 
         return requester_user.get("username") == target_username
 
     async def verify_user_permission(
-        self, requester_user: dict[str, Any], target_username: str, action_description: str = "perform this action"
+        self,
+        requester_user: dict[str, Any],
+        target_username: str,
+        action_description: str = "perform this action",
+        *,
+        is_superuser: bool,
     ) -> None:
         """Verify user has permission to perform an action on another user.
 
@@ -354,7 +365,7 @@ class UserService:
             )
             ```
         """
-        has_permission = await self.check_update_permission(requester_user, target_username)
+        has_permission = await self.check_update_permission(requester_user, target_username, is_superuser=is_superuser)
         if not has_permission:
             raise PermissionDeniedError(f"You don't have permission to {action_description} on this user")
 
@@ -363,6 +374,8 @@ class UserService:
         requester_user: dict[str, Any],
         target_username: str,
         permissions: Collection[str],
+        *,
+        is_superuser: bool,
     ) -> None:
         """Verify the requester may update this profile at all.
 
@@ -377,7 +390,7 @@ class UserService:
         Raises:
             PermissionDeniedError: If the requester may not update this profile.
         """
-        if self.is_self_or_superuser(requester_user, target_username):
+        if self.is_self_or_superuser(requester_user, target_username, is_superuser=is_superuser):
             return
 
         if UserPermission.UPDATE.value in permissions:
@@ -385,9 +398,13 @@ class UserService:
 
         raise PermissionDeniedError("You don't have permission to update profile on this user")
 
-    def is_self_or_superuser(self, requester_user: dict[str, Any], target_username: str) -> bool:
-        """Whether the requester owns this profile or may act on any of them."""
-        if requester_user.get("is_superuser", False):
+    def is_self_or_superuser(self, requester_user: dict[str, Any], target_username: str, *, is_superuser: bool) -> bool:
+        """Whether the requester owns this profile or may act on any of them.
+
+        ``is_superuser`` is the acting credential's, not the account's: a credential
+        carrying a scope never acts as a superuser.
+        """
+        if is_superuser:
             return True
 
         return requester_user.get("username") == target_username

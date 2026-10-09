@@ -80,6 +80,7 @@ async def test_get_optional_user_returns_dict():
 async def test_get_current_superuser_denies_non_superuser():
     with pytest.raises(ForbiddenException):
         await deps.get_current_superuser(
+            principal=Principal(user_id=1, transport="session"),
             current_user={"id": 1, "is_superuser": False},
         )
 
@@ -87,5 +88,6 @@ async def test_get_current_superuser_denies_non_superuser():
 @pytest.mark.asyncio
 async def test_get_current_superuser_allows_superuser():
     user = {"id": 1, "is_superuser": True}
+    principal = Principal(user_id=1, transport="session", is_superuser=True)
 
-    assert await deps.get_current_superuser(current_user=user) == user
+    assert await deps.get_current_superuser(principal=principal, current_user=user) == user

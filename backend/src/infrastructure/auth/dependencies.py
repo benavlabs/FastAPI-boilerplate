@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...modules.user.crud import crud_users
 from ..database.session import async_session
+from .scope import carries_a_scope
 from .setup import auth
 
 
@@ -90,10 +91,15 @@ async def get_optional_user(
 
 
 async def get_current_superuser(
+    principal: Annotated[Principal, Depends(get_current_principal)],
     current_user: Annotated[dict[str, Any], Depends(get_current_user)],
 ) -> dict[str, Any]:
-    """Get the current user as a dict, requiring superuser privileges (403 otherwise)."""
-    if not current_user.get("is_superuser", False):
+    """Get the current user as a dict, requiring superuser privileges (403 otherwise).
+
+    A credential that carries a scope is refused however its account is marked: the flag
+    grants what no scope can name.
+    """
+    if carries_a_scope(principal) or not principal.is_superuser:
         raise ForbiddenException("Insufficient privileges")
 
     return current_user

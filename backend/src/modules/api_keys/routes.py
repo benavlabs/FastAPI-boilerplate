@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, Path, Query
 from fastcrud import PaginatedListResponse, compute_offset, paginated_response
 
 from ...infrastructure.auth.dependencies import get_session_principal
-from ...infrastructure.auth.deps import CurrentUserDep
+from ...infrastructure.auth.deps import CurrentPermissionsDep, CurrentUserDep
 from ...infrastructure.dependencies import AsyncSessionDep
 from ..common.pagination import MAX_INTEGER_ID, ItemsPerPageDep, PageDep
 from .dependencies import APIKeyServiceDep
@@ -39,7 +39,7 @@ router = APIRouter(tags=["API Keys"], dependencies=[Depends(get_session_principa
     for building developer-facing products and integrations.
 
     - **name**: Human-readable name for the API key
-    - **permissions**: Registry permission names the key is scoped to
+    - **permissions**: Registry permission names the key is scoped to, each one the caller holds
     - **usage_limits**: Usage limits specific to this key
     - **expires_at**: Optional expiration timestamp, with a UTC offset
 
@@ -56,6 +56,7 @@ router = APIRouter(tags=["API Keys"], dependencies=[Depends(get_session_principa
 async def create_api_key(
     key_data: APIKeyCreate,
     current_user: CurrentUserDep,
+    held: CurrentPermissionsDep,
     api_key_service: APIKeyServiceDep,
     db: AsyncSessionDep,
 ) -> dict[str, Any]:
@@ -64,6 +65,7 @@ async def create_api_key(
         user_id=current_user["id"] if isinstance(current_user, dict) else current_user.id,
         key_data=key_data,
         db=db,
+        held=held,
     )
 
 
@@ -169,6 +171,7 @@ async def get_api_key(
 async def update_api_key(
     update_data: APIKeyUpdate,
     current_user: CurrentUserDep,
+    held: CurrentPermissionsDep,
     api_key_service: APIKeyServiceDep,
     db: AsyncSessionDep,
     key_id: int = Path(..., ge=1, le=MAX_INTEGER_ID, description="API key ID"),
@@ -179,6 +182,7 @@ async def update_api_key(
         user_id=current_user["id"] if isinstance(current_user, dict) else current_user.id,
         update_data=update_data,
         db=db,
+        held=held,
     )
 
 

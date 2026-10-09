@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends
 from fastcrud import PaginatedListResponse, compute_offset, paginated_response
 
 from ...infrastructure.auth.authorization import get_current_permissions, require_permissions
-from ...infrastructure.auth.deps import CurrentPrincipalDep, CurrentUserDep
+from ...infrastructure.auth.deps import CurrentPermissionsDep, CurrentPrincipalDep, CurrentUserDep
 from ...infrastructure.dependencies import AsyncSessionDep
 from ...infrastructure.permissions import permission_groups
 from ..common.pagination import ItemsPerPageDep, PageDep
@@ -133,10 +133,11 @@ async def create_role(
     values: RoleCreate,
     db: AsyncSessionDep,
     principal: CurrentPrincipalDep,
+    held: CurrentPermissionsDep,
     role_service: RoleServiceDep,
 ) -> dict[str, Any]:
     """Create a role carrying the permissions it was given."""
-    return await role_service.create(values.name, values.description, values.permissions, principal, db)
+    return await role_service.create(values.name, values.description, values.permissions, principal, db, held)
 
 
 @router.patch(
@@ -164,10 +165,11 @@ async def update_role(
     values: RoleUpdate,
     db: AsyncSessionDep,
     principal: CurrentPrincipalDep,
+    held: CurrentPermissionsDep,
     role_service: RoleServiceDep,
 ) -> dict[str, Any]:
     """Change a role's name or description."""
-    return await role_service.update(role_id, values.model_dump(exclude_unset=True), principal, db)
+    return await role_service.update(role_id, values.model_dump(exclude_unset=True), principal, db, held)
 
 
 @router.put(
@@ -195,10 +197,11 @@ async def set_role_permissions(
     values: RolePermissions,
     db: AsyncSessionDep,
     principal: CurrentPrincipalDep,
+    held: CurrentPermissionsDep,
     role_service: RoleServiceDep,
 ) -> dict[str, Any]:
     """Replace the permissions a role carries."""
-    return await role_service.set_permissions(role_id, values.permissions, principal, db)
+    return await role_service.set_permissions(role_id, values.permissions, principal, db, held)
 
 
 @router.delete(
@@ -221,10 +224,11 @@ async def delete_role(
     role_id: int,
     db: AsyncSessionDep,
     principal: CurrentPrincipalDep,
+    held: CurrentPermissionsDep,
     role_service: RoleServiceDep,
 ) -> dict[str, str]:
     """Delete a role."""
-    await role_service.delete(role_id, principal, db)
+    await role_service.delete(role_id, principal, db, held)
 
     return {"message": "Role deleted"}
 
@@ -255,10 +259,11 @@ async def assign_role(
     user_id: int,
     db: AsyncSessionDep,
     principal: CurrentPrincipalDep,
+    held: CurrentPermissionsDep,
     role_service: RoleServiceDep,
 ) -> dict[str, str]:
     """Give an account a role."""
-    await role_service.assign(role_id, user_id, principal, db)
+    await role_service.assign(role_id, user_id, principal, db, held)
 
     return {"message": "Role assigned"}
 
@@ -282,10 +287,11 @@ async def unassign_role(
     user_id: int,
     db: AsyncSessionDep,
     principal: CurrentPrincipalDep,
+    held: CurrentPermissionsDep,
     role_service: RoleServiceDep,
 ) -> dict[str, str]:
     """Take a role away from an account."""
-    await role_service.unassign(role_id, user_id, principal, db)
+    await role_service.unassign(role_id, user_id, principal, db, held)
 
     return {"message": "Role unassigned"}
 

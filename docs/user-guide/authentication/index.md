@@ -146,8 +146,9 @@ The full key is returned only on creation, in `api_key`. The rest of the respons
 carries. Each key has its own scope ([registry permission names](permissions.md#api-key-scope)),
 usage limits, and audit trail (`KeyUsage` rows).
 
-A request carrying a valid key is authenticated as the key's owner, with `transport="apikey"` on the
-principal and no CSRF token required: CSRF guards a cookie the browser attaches by itself, and a key
+A request carrying a valid key is authenticated as the key's owner, holding that owner's permissions
+narrowed to the key's scope ([what a key holds](permissions.md#what-a-key-holds)), with
+`transport="apikey"` on the principal and no CSRF token required: CSRF guards a cookie the browser attaches by itself, and a key
 is sent deliberately. A key request is answered without a cookie, so it never becomes a session. A
 key that is unknown, malformed, revoked, expired or whose owner a soft delete has taken out answers
 `401`, including on a route that otherwise answers anonymous callers — a credential that is present

@@ -421,11 +421,33 @@ curl -X POST http://localhost:8000/api/v1/api-keys/ \
 A stored name the registry no longer knows is read back as it is and counts for nothing, the same
 way a role's stale grant does.
 
-!!! warning "Storing a scope is not enforcing one"
-    A key authenticates a request as its owner ([API keys](index.md#3-api-keys-machine-to-machine)),
-    and nothing reads its scope yet: no route narrows a caller's permissions to it, so a key can do
-    whatever its owner can, whatever it is scoped to. A key can also be scoped to a permission its
-    own creator doesn't hold. Both are refused once the narrowing ships.
+### What a key holds
+
+A key-authenticated request holds **its owner's permissions, narrowed to the key's scope**. The scope
+never grants: a permission the owner loses disappears from the key at the next request, and a key
+scoped to nothing holds nothing — it names its owner and that is all. `GET /api/v1/permissions/me`
+answers with the narrowed set, so a client can read exactly what its key can do.
+
+A key's scope may name only permissions its creator holds at the time: `POST /api/v1/api-keys/` and
+a `PATCH` that widens one answer `403` otherwise, so a key can never be minted stronger than the
+credential minting it.
+
+!!! warning "A key is never a superuser"
+    `is_superuser` grants what no scope can name — it bypasses the ownership checks in the services,
+    not just permission gates — so a credential carrying a scope is held to that scope whatever the
+    account is marked. A superuser's key scoped to `["user.read"]` holds `user.read`, passes a route
+    gated on it, and is refused by `require_permissions("role.read")` and by every superuser-only
+    route. The superuser's own session is unaffected.
+
+    This holds everywhere the flag was read: the delegation checks behind the role routes compare
+    against what the *credential* holds, so a superuser's key scoped to `role.assign` cannot assign
+    a role carrying anything its scope lacks; and editing another account, or reading its tier or
+    rate limits, goes by the acting credential's flag rather than the account's row.
+
+    Ownership is a separate axis: a scope narrows permissions, not what an account owns, so a key
+    can still edit its owner's own profile. The dangerous self-service routes — the password, the
+    address, closing the account, managing keys — take a session and refuse a key outright
+    ([API keys](index.md#3-api-keys-machine-to-machine)).
 
 `KeyStatus` defines the lifecycle a project can put a key through (`ACTIVE`, `INACTIVE`,
 `SUSPENDED`, `EXPIRED`, `REVOKED`); the routes ship `is_active` and `expires_at`.

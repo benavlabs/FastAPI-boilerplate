@@ -220,7 +220,7 @@ class TestRenaming:
         principal = Principal(user_id=manager["user"]["id"], is_superuser=False)
 
         with pytest.raises(RoleExistsError):
-            await service.create("taken", None, ["user.read"], principal, db_session)
+            await service.create("taken", None, ["user.read"], principal, db_session, frozenset({"user.read"}))
 
         remaining = await db_session.execute(select(Role).where(Role.name == "taken"))
         assert len(remaining.scalars().all()) == 1

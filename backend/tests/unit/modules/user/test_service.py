@@ -38,26 +38,32 @@ def _user(username: str, *, is_superuser: bool = False, email: str = "target@exa
 # Who may update a profile at all
 # =============================================================================
 async def test_a_user_can_update_their_own_profile_without_the_permission(user_service: UserService):
-    await user_service.verify_update_permission(_user("alice"), "alice", frozenset())
+    await user_service.verify_update_permission(_user("alice"), "alice", frozenset(), is_superuser=False)
 
 
 async def test_a_user_cannot_update_another_profile_without_the_permission(user_service: UserService):
     with pytest.raises(PermissionDeniedError):
-        await user_service.verify_update_permission(_user("alice"), "bob", frozenset())
+        await user_service.verify_update_permission(_user("alice"), "bob", frozenset(), is_superuser=False)
 
 
 async def test_the_update_permission_allows_editing_another_profile(user_service: UserService):
-    await user_service.verify_update_permission(_user("alice"), "bob", frozenset({UPDATE}))
+    await user_service.verify_update_permission(_user("alice"), "bob", frozenset({UPDATE}), is_superuser=False)
 
 
 async def test_a_superuser_can_update_another_profile(user_service: UserService):
-    await user_service.verify_update_permission(_user("alice", is_superuser=True), "bob", frozenset())
+    await user_service.verify_update_permission(_user("alice", is_superuser=True), "bob", frozenset(), is_superuser=True)
+
+
+async def test_a_superusers_scoped_credential_cannot_update_another_profile(user_service: UserService):
+    """The acting credential decides, not the row: a key carries no superuser flag."""
+    with pytest.raises(PermissionDeniedError):
+        await user_service.verify_update_permission(_user("alice", is_superuser=True), "bob", frozenset(), is_superuser=False)
 
 
 async def test_the_update_permission_does_not_grant_the_other_actions(user_service: UserService):
     """``user.update`` is about updating; deleting another account stays owner-or-superuser."""
     with pytest.raises(PermissionDeniedError):
-        await user_service.verify_user_permission(_user("alice"), "bob", "delete this account")
+        await user_service.verify_user_permission(_user("alice"), "bob", "delete this account", is_superuser=False)
 
 
 # =============================================================================

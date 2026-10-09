@@ -20,6 +20,7 @@ from ..composition import PermissionSource
 from ..database.session import async_session
 from ..permissions import all_permissions
 from .dependencies import get_current_principal
+from .scope import carries_a_scope, owner_is_superuser
 
 
 async def load_permissions(
@@ -64,19 +65,29 @@ async def get_current_permissions(
     principal: Annotated[Principal, Depends(get_current_principal)],
     db: Annotated[AsyncSession, Depends(async_session)],
 ) -> frozenset[str]:
-    """The current user's effective permissions, resolved once per request.
+    """The current caller's effective permissions, resolved once per request.
 
-    FastAPI caches a dependency's result for the length of a request, so however
-    many ``require_permissions`` guards and route parameters ask for permissions,
-    the sources are asked once.
+    A credential that carries a scope holds its owner's permissions — a superuser's being
+    every registered one, read from the credential's own record of that flag rather than
+    from the principal, whose flag a scoped credential never carries — narrowed to that
+    scope, so a scope naming nothing holds nothing. FastAPI caches
+    a dependency's result for the length of a request, so however many
+    ``require_permissions`` guards and route parameters ask for permissions, the sources
+    are asked once.
     """
+    if carries_a_scope(principal):
+        held = await load_permissions(db, principal.user_id, is_superuser=owner_is_superuser(principal))
+
+        return held & frozenset(principal.scopes)
+
     return await load_permissions(db, principal.user_id, is_superuser=principal.is_superuser)
 
 
 def require_permissions(*needed: str) -> Any:
     """A dependency that answers 403 unless the caller holds every named permission.
 
-    Superusers pass without a lookup. Unknown names are a programming error and
+    A superuser's own session passes without a lookup; a credential carrying a scope is
+    held to that scope, superuser or not. Unknown names are a programming error and
     raise at import time, when the route is declared, rather than at request time.
 
     Example:
@@ -95,7 +106,7 @@ def require_permissions(*needed: str) -> Any:
         principal: Annotated[Principal, Depends(get_current_principal)],
         permissions: Annotated[frozenset[str], Depends(get_current_permissions)],
     ) -> Principal:
-        if principal.is_superuser or required <= permissions:
+        if (principal.is_superuser and not carries_a_scope(principal)) or required <= permissions:
             return principal
 
         raise ForbiddenException("Insufficient permissions")

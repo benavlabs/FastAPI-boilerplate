@@ -3,7 +3,7 @@ from typing import Any
 from fastapi import APIRouter
 from fastcrud import PaginatedListResponse, compute_offset, paginated_response
 
-from ...infrastructure.auth.deps import CurrentSuperUserDep, CurrentUserDep
+from ...infrastructure.auth.deps import CurrentPrincipalDep, CurrentSuperUserDep, CurrentUserDep
 from ...infrastructure.dependencies import AsyncSessionDep
 from ..common.pagination import ItemsPerPageDep, PageDep
 from ..user.dependencies import UserServiceDep
@@ -83,11 +83,14 @@ async def get_user_tier(
     username: str,
     db: AsyncSessionDep,
     current_user: CurrentUserDep,
+    principal: CurrentPrincipalDep,
     user_service: UserServiceDep,
     tier_service: TierServiceDep,
 ) -> dict[str, Any]:
     """Get detailed tier information for a user."""
-    await user_service.verify_user_permission(current_user, username, "view tier information")
+    await user_service.verify_user_permission(
+        current_user, username, "view tier information", is_superuser=principal.is_superuser
+    )
 
     user = await user_service.get_by_username(username, db)
     return await tier_service.get_for_user(user["id"], db)

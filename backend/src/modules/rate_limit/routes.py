@@ -3,7 +3,7 @@ from typing import Any
 from fastapi import APIRouter, Request
 from fastcrud import PaginatedListResponse, compute_offset, paginated_response
 
-from ...infrastructure.auth.deps import CurrentSuperUserDep, CurrentUserDep
+from ...infrastructure.auth.deps import CurrentPrincipalDep, CurrentSuperUserDep, CurrentUserDep
 from ...infrastructure.dependencies import AsyncSessionDep
 from ...wiring.cache import cached
 from ..common.pagination import ItemsPerPageDep, PageDep
@@ -229,10 +229,11 @@ async def get_user_rate_limits(
     username: str,
     db: AsyncSessionDep,
     current_user: CurrentUserDep,
+    principal: CurrentPrincipalDep,
     user_service: UserServiceDep,
     rate_limit_service: RateLimitServiceDep,
 ) -> dict[str, Any]:
     """Get rate limits for a user."""
-    await user_service.verify_user_permission(current_user, username, "view rate limits")
+    await user_service.verify_user_permission(current_user, username, "view rate limits", is_superuser=principal.is_superuser)
     user = await user_service.get_by_username(username, db)
     return await rate_limit_service.get_for_user(user["id"], db)

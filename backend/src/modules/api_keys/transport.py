@@ -1,9 +1,12 @@
 """The ``X-API-Key`` transport: a request authenticated by a key, as the key's owner."""
 
+from dataclasses import replace
+
 from crudauth import AuthContext, Principal, Transport
 from crudauth.exceptions import UnauthorizedException
 from starlette.requests import Request
 
+from ...infrastructure.auth.scope import SCOPE_OWNER_IS_SUPERUSER
 from .service import APIKeyService
 
 API_KEY_HEADER = "X-API-Key"
@@ -18,6 +21,10 @@ class APIKeyTransport(Transport):
     A request without the header carries no credential here, so the facade moves on to
     the next transport. A header that carries anything else answers 401: a key that is
     unknown, revoked, expired, or whose owner a soft delete has taken out.
+
+    The principal carries the key's scope, which narrows what its owner holds, and never
+    the owner's superuser flag: that flag reaches ownership checks no scope can express,
+    so it is recorded in the metadata for the narrowing to read and nothing else.
     """
 
     name = TRANSPORT_NAME
@@ -36,9 +43,15 @@ class APIKeyTransport(Transport):
         if owner is None or not ctx.repo.is_active(owner):
             raise UnauthorizedException(INVALID_KEY)
 
-        return ctx.build_principal(
+        principal = ctx.build_principal(
             user_id=ctx.repo.user_id(owner),
             user=owner,
             transport=self.name,
-            metadata={"api_key_id": validated.api_key_id},
+            scopes=tuple(validated.permissions or ()),
+            metadata={
+                "api_key_id": validated.api_key_id,
+                SCOPE_OWNER_IS_SUPERUSER: ctx.repo.is_superuser(owner),
+            },
         )
+
+        return replace(principal, is_superuser=False)

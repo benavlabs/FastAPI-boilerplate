@@ -38,6 +38,17 @@ _SCRYPT_P = 1
 _SCRYPT_DKLEN = 32
 
 
+def _refuse_a_wider_scope(scope: list[str], held: frozenset[str]) -> None:
+    """Raise unless every permission in ``scope`` is one the caller holds.
+
+    Raises:
+        PermissionDeniedError: The scope names a permission the caller doesn't hold.
+    """
+    beyond = sorted(set(scope) - held)
+    if beyond:
+        raise PermissionDeniedError(f"You don't hold: {', '.join(beyond)}")
+
+
 def _extends_expiry(current: datetime | None, proposed: datetime | None) -> bool:
     """Whether a proposed expiry gives the key more life than it has now."""
     if current is None:
@@ -117,6 +128,7 @@ class APIKeyService:
         user_id: int,
         key_data: APIKeyCreate,
         db: AsyncSession,
+        held: frozenset[str] = frozenset(),
     ) -> dict[str, Any]:
         """Create a new API key for a user.
 
@@ -124,10 +136,16 @@ class APIKeyService:
             user_id: User ID
             key_data: API key creation data
             db: Database session
+            held: The permissions the caller holds; the key's scope may name no other.
 
         Returns:
             Created API key with full key (only shown once)
+
+        Raises:
+            PermissionDeniedError: The scope names a permission the caller doesn't hold.
         """
+        _refuse_a_wider_scope(key_data.permissions, held)
+
         api_key, prefix, key_hash = self._generate_api_key()
 
         key_dict = key_data.model_dump()
@@ -228,6 +246,7 @@ class APIKeyService:
         user_id: int,
         update_data: APIKeyUpdate,
         db: AsyncSession,
+        held: frozenset[str] = frozenset(),
     ) -> dict[str, Any]:
         """Update an API key.
 
@@ -236,10 +255,17 @@ class APIKeyService:
             user_id: User ID (for ownership verification)
             update_data: Update data
             db: Database session
+            held: The permissions the caller holds; a new scope may name no other.
 
         Returns:
             Updated API key data
+
+        Raises:
+            PermissionDeniedError: A new scope names a permission the caller doesn't hold.
         """
+        if update_data.permissions is not None:
+            _refuse_a_wider_scope(update_data.permissions, held)
+
         existing = await self.get_api_key(key_id=key_id, user_id=user_id, db=db)
 
         update_dict = update_data.model_dump(exclude_unset=True)

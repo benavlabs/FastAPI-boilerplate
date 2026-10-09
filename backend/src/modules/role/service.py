@@ -4,6 +4,7 @@ Every escalation check lives in ``delegation``: this service raises when one of 
 refuses, and the routes answer 403 through the error mapping.
 """
 
+from collections.abc import Collection
 from typing import Any, NoReturn
 
 from crudauth import Principal
@@ -57,6 +58,7 @@ class RoleService:
         permissions: list[str],
         principal: Principal,
         db: AsyncSession,
+        held: Collection[str],
     ) -> dict[str, Any]:
         """Create a role carrying ``permissions``.
 
@@ -67,7 +69,7 @@ class RoleService:
         if await self._name_taken(name, db):
             raise RoleExistsError(f"Role '{name}' already exists")
 
-        if not await can_delegate_permissions(db, principal, permissions):
+        if not can_delegate_permissions(principal, permissions, held):
             raise PermissionDelegationError("The caller does not hold every permission this role would carry")
 
         role = Role(name=name, description=description)
@@ -81,7 +83,9 @@ class RoleService:
 
         return await self.get(role.id, db)
 
-    async def update(self, role_id: int, values: dict[str, Any], principal: Principal, db: AsyncSession) -> dict[str, Any]:
+    async def update(
+        self, role_id: int, values: dict[str, Any], principal: Principal, db: AsyncSession, held: Collection[str]
+    ) -> dict[str, Any]:
         """Change a role's name or description.
 
         Raises:
@@ -92,7 +96,7 @@ class RoleService:
         role = await self._role(role_id, db)
         carried = (await self._permissions_of(db, [role_id])).get(role_id, [])
 
-        if not await can_delegate_permissions(db, principal, carried):
+        if not can_delegate_permissions(principal, carried, held):
             raise PermissionDelegationError("The caller does not hold every permission this role carries")
 
         name = values.get("name")
@@ -109,7 +113,7 @@ class RoleService:
         return await self.get(role_id, db)
 
     async def set_permissions(
-        self, role_id: int, permissions: list[str], principal: Principal, db: AsyncSession
+        self, role_id: int, permissions: list[str], principal: Principal, db: AsyncSession, held: Collection[str]
     ) -> dict[str, Any]:
         """Replace what a role carries.
 
@@ -121,7 +125,7 @@ class RoleService:
         await self._role(role_id, db)
         carried = (await self._permissions_of(db, [role_id])).get(role_id, [])
 
-        if not await can_delegate_permissions(db, principal, set(permissions) | set(carried)):
+        if not can_delegate_permissions(principal, set(permissions) | set(carried), held):
             raise PermissionDelegationError("The caller does not hold every permission this change touches")
 
         await db.execute(delete(RolePermission).where(RolePermission.role_id == role_id))
@@ -130,7 +134,7 @@ class RoleService:
 
         return await self.get(role_id, db)
 
-    async def delete(self, role_id: int, principal: Principal, db: AsyncSession) -> None:
+    async def delete(self, role_id: int, principal: Principal, db: AsyncSession, held: Collection[str]) -> None:
         """Delete a role, and with it every assignment of it.
 
         Raises:
@@ -140,13 +144,13 @@ class RoleService:
         await self._role(role_id, db)
         carried = (await self._permissions_of(db, [role_id])).get(role_id, [])
 
-        if not await can_delegate_permissions(db, principal, carried):
+        if not can_delegate_permissions(principal, carried, held):
             raise PermissionDelegationError("The caller does not hold every permission this role carries")
 
         await db.execute(delete(Role).where(Role.id == role_id))
         await db.commit()
 
-    async def assign(self, role_id: int, user_id: int, principal: Principal, db: AsyncSession) -> None:
+    async def assign(self, role_id: int, user_id: int, principal: Principal, db: AsyncSession, held: Collection[str]) -> None:
         """Give a user a role.
 
         Raises:
@@ -155,13 +159,13 @@ class RoleService:
             RoleAssignmentError: The caller doesn't hold what the role carries.
             StrongerAccountError: The account holds something the caller doesn't.
         """
-        await self._assignable(role_id, user_id, principal, db)
+        await self._assignable(role_id, user_id, principal, db, held)
 
         if not await db.scalar(select(UserRole.user_id).where(UserRole.user_id == user_id, UserRole.role_id == role_id)):
             db.add(UserRole(user_id=user_id, role_id=role_id))
             await db.commit()
 
-    async def unassign(self, role_id: int, user_id: int, principal: Principal, db: AsyncSession) -> None:
+    async def unassign(self, role_id: int, user_id: int, principal: Principal, db: AsyncSession, held: Collection[str]) -> None:
         """Take a role away from a user.
 
         Raises:
@@ -170,7 +174,7 @@ class RoleService:
             RoleAssignmentError: The caller doesn't hold what the role carries.
             StrongerAccountError: The account holds something the caller doesn't.
         """
-        await self._assignable(role_id, user_id, principal, db)
+        await self._assignable(role_id, user_id, principal, db, held)
 
         await db.execute(delete(UserRole).where(UserRole.user_id == user_id, UserRole.role_id == role_id))
         await db.commit()
@@ -190,17 +194,19 @@ class RoleService:
 
         return [RoleRead.of(role, carried.get(role.id, [])).model_dump() for role in held]
 
-    async def _assignable(self, role_id: int, user_id: int, principal: Principal, db: AsyncSession) -> None:
+    async def _assignable(
+        self, role_id: int, user_id: int, principal: Principal, db: AsyncSession, held: Collection[str]
+    ) -> None:
         """Raise unless the role and the account exist, and the caller may reach both."""
         await self._role(role_id, db)
 
         if not await crud_users.exists(db=db, id=user_id, is_deleted=False):
             raise UserNotFoundError(f"User with ID {user_id} not found")
 
-        if not await can_assign_role(db, principal, role_id):
+        if not await can_assign_role(db, principal, role_id, held):
             raise RoleAssignmentError("The caller does not hold every permission this role carries")
 
-        if not await can_change_roles_of(db, principal, user_id):
+        if not await can_change_roles_of(db, principal, user_id, held):
             raise StrongerAccountError("The account holds something the caller does not")
 
     @staticmethod

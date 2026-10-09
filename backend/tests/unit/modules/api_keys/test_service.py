@@ -39,6 +39,10 @@ def _no_scrypt(*args: Any, **kwargs: Any) -> NoReturn:
     raise AssertionError("scrypt was called")
 
 
+HELD = frozenset({"user.read", "user.update"})
+"""What the account creating a scoped key holds; a key's scope may name no more."""
+
+
 @pytest.fixture
 def api_key_service():
     """Create API key service instance."""
@@ -52,7 +56,7 @@ async def test_api_key(api_key_service, db_session: AsyncSession, test_user: dic
         name="Test API Key", permissions=["user.read", "user.update"], usage_limits={"requests_per_day": 1000}
     )
 
-    response = await api_key_service.create_api_key(user_id=test_user["id"], key_data=key_data, db=db_session)
+    response = await api_key_service.create_api_key(user_id=test_user["id"], key_data=key_data, db=db_session, held=HELD)
 
     return response
 
@@ -62,7 +66,7 @@ async def test_create_api_key(api_key_service, db_session: AsyncSession, test_us
     """Test creating a new API key."""
     key_data = APIKeyCreate(name="Test Key", permissions=["user.read", "user.update"], usage_limits={"requests_per_day": 1000})
 
-    response = await api_key_service.create_api_key(user_id=test_user["id"], key_data=key_data, db=db_session)
+    response = await api_key_service.create_api_key(user_id=test_user["id"], key_data=key_data, db=db_session, held=HELD)
 
     assert response["name"] == "Test Key"
     assert response["user_id"] == test_user["id"]
@@ -167,6 +171,47 @@ async def test_delete_api_key(api_key_service, db_session: AsyncSession, test_us
     key = await api_key_service.get_api_key(key_id=test_api_key["id"], user_id=test_user["id"], db=db_session)
 
     assert key["is_active"] is False
+
+
+@pytest.mark.asyncio
+async def test_a_scope_beyond_what_the_caller_holds_is_refused(api_key_service, db_session: AsyncSession, test_user: dict):
+    """A key is a delegate, so it can carry no permission its creator lacks."""
+    key_data = APIKeyCreate(name="Too Wide", permissions=["user.read", "user.update"])
+
+    with pytest.raises(PermissionDeniedError, match="user.update"):
+        await api_key_service.create_api_key(
+            user_id=test_user["id"], key_data=key_data, db=db_session, held=frozenset({"user.read"})
+        )
+
+    stored = await api_key_service.get_user_api_keys(user_id=test_user["id"], db=db_session)
+    assert [key["name"] for key in stored["data"]] == []
+
+
+@pytest.mark.asyncio
+async def test_an_unscoped_key_needs_nothing(api_key_service, db_session: AsyncSession, test_user: dict):
+    """An account that holds no permission can still mint a key for identity alone."""
+    created = await api_key_service.create_api_key(
+        user_id=test_user["id"], key_data=APIKeyCreate(name="Identity"), db=db_session, held=frozenset()
+    )
+
+    assert created["permissions"] == []
+
+
+@pytest.mark.asyncio
+async def test_widening_a_scope_on_an_update_is_refused(
+    api_key_service, db_session: AsyncSession, test_user: dict, test_api_key
+):
+    with pytest.raises(PermissionDeniedError, match="role.read"):
+        await api_key_service.update_api_key(
+            key_id=test_api_key["id"],
+            user_id=test_user["id"],
+            update_data=APIKeyUpdate(permissions=["role.read"]),
+            db=db_session,
+            held=HELD,
+        )
+
+    unchanged = await api_key_service.get_api_key(key_id=test_api_key["id"], user_id=test_user["id"], db=db_session)
+    assert unchanged["permissions"] == ["user.read", "user.update"]
 
 
 @pytest.mark.asyncio

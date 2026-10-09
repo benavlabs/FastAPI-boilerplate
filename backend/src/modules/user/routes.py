@@ -6,6 +6,7 @@ from fastcrud import PaginatedListResponse, compute_offset, paginated_response
 from ...infrastructure.auth.authorization import load_permissions, require_permissions
 from ...infrastructure.auth.deps import (
     CurrentPermissionsDep,
+    CurrentPrincipalDep,
     CurrentSuperUserDep,
     CurrentUserDep,
     SessionPrincipalDep,
@@ -208,15 +209,17 @@ async def update_user_profile(
     username: str,
     values: UserUpdate,
     current_user: CurrentUserDep,
+    principal: CurrentPrincipalDep,
     permissions: CurrentPermissionsDep,
     db: AsyncSessionDep,
     user_service: UserServiceDep,
 ) -> dict[str, str]:
     """Update user profile information."""
-    await user_service.verify_update_permission(current_user, username, permissions)
+    acting_as_superuser = principal.is_superuser
+    await user_service.verify_update_permission(current_user, username, permissions, is_superuser=acting_as_superuser)
     user = await user_service.get_by_username(username, db)
 
-    if not user_service.is_self_or_superuser(current_user, user["username"]):
+    if not user_service.is_self_or_superuser(current_user, user["username"], is_superuser=acting_as_superuser):
         target_permissions = await load_permissions(db, user["id"])
         user_service.verify_no_privilege_escalation(user, values, permissions, target_permissions)
 
@@ -255,10 +258,12 @@ async def delete_user_account(
     current_user: CurrentUserDep,
     db: AsyncSessionDep,
     user_service: UserServiceDep,
-    _: SessionPrincipalDep,
+    principal: SessionPrincipalDep,
 ) -> dict[str, str]:
     """Soft delete a user account, for a caller signed in to a session."""
-    await user_service.verify_user_permission(current_user, username, "delete this account")
+    await user_service.verify_user_permission(
+        current_user, username, "delete this account", is_superuser=principal.is_superuser
+    )
     user = await user_service.get_by_username(username, db)
 
     await user_service.delete(user["id"], db)
