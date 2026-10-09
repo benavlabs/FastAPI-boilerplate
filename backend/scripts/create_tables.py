@@ -4,7 +4,8 @@ import asyncio
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
+backend_dir = Path(__file__).parent.parent
+sys.path.append(str(backend_dir))
 
 from src.infrastructure.database.initialize import close_database  # noqa: E402
 from src.infrastructure.database.session import create_tables  # noqa: E402

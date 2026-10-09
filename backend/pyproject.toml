@@ -15,7 +15,7 @@ dependencies = [
     "aiosqlite>=0.21.0",
     "alembic>=1.16.4",
     "asyncpg>=0.30.0",
-    "crudauth[all]>=0.7.1,<0.8.0",
+    "crudauth[all]>=0.8.2,<0.9.0",
     "faker>=37.1.0",
     "fastapi[standard]>=0.115.8",
     "fastcrud>=0.21.0",
@@ -44,6 +44,7 @@ dev = [
     "testcontainers[postgres]>=4.10.0",
     "pytest-xdist[psutil]>=3.8.0",
     "taskiq[reload]>=0.11.20",
+    "pre-commit>=4.0.0",
 ]
 
 [tool.setuptools.packages.find]
@@ -51,14 +52,12 @@ where = ["src"]
 include = ["*"]
 
 [tool.pytest.ini_options]
-pythonpath = ["src"]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_functions = ["test_*"]
 python_classes = ["Test*"]
 asyncio_mode = "auto"
-addopts = ["-v", "--strict-markers", "--tb=short", "--disable-warnings"]
-env = ["ENVIRONMENT=pytest", "PYTEST_CURRENT_TEST=true"]
+addopts = ["-v", "--strict-markers", "--tb=short"]
 markers = [
     "unit: Unit tests that don't require external dependencies",
     "integration: Integration tests that may require external services",
@@ -67,6 +66,7 @@ markers = [
 ]
 
 [tool.mypy]
+plugins = ["pydantic.mypy"]
 python_version = "3.11"
 warn_return_any = true
 warn_unused_configs = true
@@ -84,6 +84,10 @@ namespace_packages = true
 explicit_package_bases = true
 
 [[tool.mypy.overrides]]
+module = "src.wiring.settings"
+disable_error_code = ["misc"]
+
+[[tool.mypy.overrides]]
 module = "aiomcache"
 ignore_missing_imports = true
 
@@ -93,6 +97,10 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = "sqladmin"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "testcontainers.*"
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]

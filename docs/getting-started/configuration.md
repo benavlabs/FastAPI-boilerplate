@@ -23,9 +23,9 @@ Open `backend/.env` and set these required values.
 APP_NAME=Your app name here
 APP_DESCRIPTION=Your app description here
 VERSION=0.1.0
-CONTACT_NAME=Your name
-CONTACT_EMAIL=your@email.com
-LICENSE_NAME=The license you picked
+API_CONTACT_NAME=Your name
+API_CONTACT_EMAIL=your@email.com
+API_LICENSE_NAME=The license you picked
 ```
 
 ### Environment Type
@@ -46,9 +46,9 @@ ENVIRONMENT=development
 POSTGRES_USER=postgres
 POSTGRES_PASSWORD=changeme
 POSTGRES_DB=postgres
-POSTGRES_SERVER=db          # use "localhost" without Docker
+POSTGRES_SERVER=postgres    # use "localhost" without Docker
 POSTGRES_PORT=5432
-CREATE_TABLES_ON_STARTUP=true
+CREATE_TABLES_ON_STARTUP=true   # the default in local and development
 ```
 
 ### Security
@@ -64,13 +64,13 @@ SECRET_KEY=your-generated-secret-key-here
 
 # Production security validation (enabled by default in production)
 PRODUCTION_SECURITY_VALIDATION_ENABLED=true
-PRODUCTION_SECURITY_STRICT_MODE=false
 ```
 
 ### Sessions
 
 ```env
 SESSION_TIMEOUT_MINUTES=30
+# SESSION_ABSOLUTE_TIMEOUT_HOURS=12  # unset: the idle timeout is the only one
 SESSION_CLEANUP_INTERVAL_MINUTES=15
 MAX_SESSIONS_PER_USER=5
 SESSION_SECURE_COOKIES=true
@@ -109,7 +109,7 @@ ADMIN_PASSWORD=your-secure-password
 Then run:
 
 ```bash
-uv run python -m scripts.setup_initial_data
+uv run --no-sync python -m scripts.setup_initial_data
 ```
 
 ### Cache (Redis or Memcached)
@@ -117,7 +117,6 @@ uv run python -m scripts.setup_initial_data
 ```env
 CACHE_ENABLED=true
 CACHE_BACKEND=redis             # or "memcached"
-DEFAULT_CACHE_EXPIRATION=3600
 
 # Client-side cache (Cache-Control headers)
 CLIENT_CACHE_ENABLED=true
@@ -152,7 +151,6 @@ requests are keyed by user ID; anonymous requests are keyed by the client IP, ho
 ### Background Tasks (Taskiq)
 
 ```env
-TASKIQ_ENABLED=true
 TASKIQ_BROKER_TYPE=redis        # or "rabbitmq"
 
 # Redis broker (uses DB 3 by default)
@@ -160,9 +158,6 @@ TASKIQ_REDIS_HOST=redis         # use "localhost" without Docker
 TASKIQ_REDIS_PORT=6379
 TASKIQ_REDIS_DB=3
 TASKIQ_REDIS_PASSWORD=
-
-TASKIQ_WORKER_CONCURRENCY=2
-TASKIQ_MAX_TASKS_PER_WORKER=1000
 ```
 
 ### CORS
@@ -200,7 +195,7 @@ OAUTH_GITHUB_CLIENT_ID=
 OAUTH_GITHUB_CLIENT_SECRET=
 ```
 
-Leave the credentials empty to disable a provider. See [Authentication](../user-guide/authentication/index.md) for the OAuth setup walkthrough.
+A provider is wired when both of its settings are set, so you can run Google, GitHub, both or neither; leave a pair empty to disable that provider. See [Authentication](../user-guide/authentication/index.md) for the OAuth setup walkthrough.
 
 The built-in crudauth OAuth router keeps the existing paths (`/api/v1/auth/oauth/{provider}` and
 `/api/v1/auth/oauth/callback/{provider}`), returns JSON, sets session cookies, binds state to the
@@ -217,7 +212,7 @@ ADMIN_ENABLED=true              # enables SQLAdmin at /admin
 When running with Docker Compose, services reach each other by service name. Use these hosts in `.env`:
 
 ```env
-POSTGRES_SERVER=db
+POSTGRES_SERVER=postgres
 CACHE_REDIS_HOST=redis
 RATE_LIMITER_REDIS_HOST=redis
 TASKIQ_REDIS_HOST=redis
@@ -230,7 +225,7 @@ With these settings, start the app:
 === "Local with uv"
 
     ```bash
-    uv run fastapi dev src/interfaces/main.py
+    uv run --no-sync fastapi dev src/interfaces/main.py
     ```
 
 === "Docker Compose"

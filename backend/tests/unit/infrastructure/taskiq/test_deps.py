@@ -1,6 +1,6 @@
 """Tests for the worker's lazily created engine."""
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from sqlalchemy.pool import NullPool
@@ -60,7 +60,7 @@ class TestDisposeTaskiqEngine:
     async def test_disposes_the_engine(self, no_engine):
         """Shutdown releases the worker's connections."""
         engine = AsyncMock()
-        factory = object()
+        factory = MagicMock()
         deps_module._engine = engine
         deps_module._session_factory = factory
 

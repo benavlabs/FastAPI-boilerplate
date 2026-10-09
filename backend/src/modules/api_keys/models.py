@@ -1,7 +1,7 @@
 """API Key Management Models.
 
-This module defines the database models for managing API keys,
-permissions, and usage tracking for developer-facing products.
+This module defines the database models for managing API keys and tracking
+their usage. A key's scope is the list of registry permission names it carries.
 """
 
 from datetime import datetime
@@ -13,7 +13,6 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from ...infrastructure.database.models import TimestampMixin
 from ...infrastructure.database.session import Base
-from .enums import KeyPermissionAction, KeyPermissionResource
 
 
 class APIKey(Base, TimestampMixin):
@@ -26,7 +25,7 @@ class APIKey(Base, TimestampMixin):
     name: Mapped[str] = mapped_column(String(100))
     key_hash: Mapped[str] = mapped_column(String(255), unique=True, index=True)
     key_prefix: Mapped[str] = mapped_column(String(20))
-    permissions: Mapped[dict[str, Any]] = mapped_column(JSON, insert_default=dict)
+    permissions: Mapped[list[str]] = mapped_column(JSON, insert_default=list)
     usage_limits: Mapped[dict[str, Any]] = mapped_column(JSON, insert_default=dict)
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
     last_used_ip: Mapped[str | None] = mapped_column(String(45), default=None)
@@ -65,22 +64,4 @@ class KeyUsage(Base, TimestampMixin):
         Index("idx_key_usage_user_created", "user_id", "created_at"),
         Index("idx_key_usage_endpoint", "endpoint"),
         Index("idx_key_usage_status", "status_code"),
-    )
-
-
-class KeyPermission(Base, TimestampMixin):
-    """Granular permissions for API keys."""
-
-    __tablename__ = "key_permissions"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True, init=False)
-    api_key_id: Mapped[int] = mapped_column(Integer, ForeignKey("api_keys.id", ondelete="CASCADE"), index=True)
-    resource: Mapped[KeyPermissionResource] = mapped_column(index=True)  # KeyPermissionResource enum values
-    action: Mapped[KeyPermissionAction] = mapped_column(index=True)  # KeyPermissionAction enum values
-    conditions: Mapped[dict[str, Any] | None] = mapped_column(JSON, default=None)
-    is_allowed: Mapped[bool] = mapped_column(Boolean, default=True)
-
-    __table_args__ = (
-        Index("idx_key_permissions_key_resource", "api_key_id", "resource", "action", unique=True),
-        Index("idx_key_permissions_resource_action", "resource", "action"),
     )

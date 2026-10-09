@@ -20,7 +20,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...infrastructure.cache import cache
+from ...infrastructure.cache.decorator import cache
 from ...infrastructure.database.session import async_session
 from .schemas import WidgetRead
 from .service import WidgetService
@@ -72,7 +72,6 @@ When the cache hits, the handler doesn't run at all — the cached value is retu
 ```env
 CACHE_ENABLED=true
 CACHE_BACKEND=redis           # or "memcached"
-DEFAULT_CACHE_EXPIRATION=3600
 
 # Redis backend
 CACHE_REDIS_HOST=redis        # use "localhost" without Docker

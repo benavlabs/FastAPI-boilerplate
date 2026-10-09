@@ -3,19 +3,21 @@ from typing import Any
 from fastapi import APIRouter
 from fastcrud import PaginatedListResponse, compute_offset, paginated_response
 
-from ...infrastructure.auth.dependencies import load_permissions, require_permissions
-from ...infrastructure.dependencies import (
-    AsyncSessionDep,
+from ...infrastructure.auth.authorization import load_permissions, require_permissions
+from ...infrastructure.auth.deps import (
     CurrentPermissionsDep,
+    CurrentPrincipalDep,
     CurrentSuperUserDep,
     CurrentUserDep,
+    SessionPrincipalDep,
 )
+from ...infrastructure.dependencies import AsyncSessionDep
+from ..common.pagination import ItemsPerPageDep, PageDep
 from .dependencies import UserServiceDep
 from .schemas import (
     UserCreate,
     UserProfileRead,
     UserRead,
-    UserTierUpdate,
     UserUpdate,
 )
 
@@ -78,8 +80,8 @@ async def create_user(
 async def get_users(
     db: AsyncSessionDep,
     user_service: UserServiceDep,
-    page: int = 1,
-    items_per_page: int = 10,
+    page: PageDep = 1,
+    items_per_page: ItemsPerPageDep = 10,
 ) -> dict[str, Any]:
     """Get paginated list of users."""
     users_data = await user_service.get_paginated(skip=compute_offset(page, items_per_page), limit=items_per_page, db=db)
@@ -185,18 +187,21 @@ async def get_active_and_inactive_user_by_username(
             - Regular users can only update their own profiles
             - Superusers can update any user's profile
             - A `user.update` holder can update another user only when that user is
-              not a superuser and holds no permission the requester lacks, and cannot
-              change another user's email address
+              not a superuser and holds no permission the requester lacks
             - Note: Tier updates are handled by a separate endpoint (/users/{username}/tier)
 
-            Username and email changes are validated to ensure uniqueness.
+            The email address is not updatable here: an account moves its own address
+            through `POST /api/v1/auth/email/change-request`, which emails the new
+            address a confirmation link and tells the old one once it is used.
+
+            Username changes are validated to ensure uniqueness.
             """,
     responses={
         200: {"description": "Profile updated successfully"},
         400: {"description": "Invalid profile data"},
         403: {"description": "Not authorized to update this profile"},
         404: {"description": "User not found"},
-        409: {"description": "Username or email already exists"},
+        409: {"description": "Username already exists"},
     },
     response_description="Success confirmation message",
 )
@@ -204,15 +209,17 @@ async def update_user_profile(
     username: str,
     values: UserUpdate,
     current_user: CurrentUserDep,
+    principal: CurrentPrincipalDep,
     permissions: CurrentPermissionsDep,
     db: AsyncSessionDep,
     user_service: UserServiceDep,
 ) -> dict[str, str]:
     """Update user profile information."""
-    await user_service.verify_update_permission(current_user, username, permissions)
+    acting_as_superuser = principal.is_superuser
+    await user_service.verify_update_permission(current_user, username, permissions, is_superuser=acting_as_superuser)
     user = await user_service.get_by_username(username, db)
 
-    if not user_service.is_self_or_superuser(current_user, user["username"]):
+    if not user_service.is_self_or_superuser(current_user, user["username"], is_superuser=acting_as_superuser):
         target_permissions = await load_permissions(db, user["id"])
         user_service.verify_no_privilege_escalation(user, values, permissions, target_permissions)
 
@@ -233,12 +240,14 @@ async def update_user_profile(
             Permission rules:
             - Regular users can only deactivate their own accounts
             - Administrators can deactivate any user's account
+            - The caller must be signed in to a session; an API key cannot close an account
 
             Deactivated accounts cannot be used for login and are typically hidden
             from regular user listings.
             """,
     responses={
         200: {"description": "Account deactivated successfully"},
+        401: {"description": "Not signed in to a session"},
         403: {"description": "Not authorized to deactivate this account"},
         404: {"description": "User not found"},
     },
@@ -249,9 +258,12 @@ async def delete_user_account(
     current_user: CurrentUserDep,
     db: AsyncSessionDep,
     user_service: UserServiceDep,
+    principal: SessionPrincipalDep,
 ) -> dict[str, str]:
-    """Soft delete a user account."""
-    await user_service.verify_user_permission(current_user, username, "delete this account")
+    """Soft delete a user account, for a caller signed in to a session."""
+    await user_service.verify_user_permission(
+        current_user, username, "delete this account", is_superuser=principal.is_superuser
+    )
     user = await user_service.get_by_username(username, db)
 
     await user_service.delete(user["id"], db)
@@ -303,112 +315,3 @@ async def gdpr_delete_user(
     user = await user_service.get_active_and_inactive_by_username(username, db)
     await user_service.anonymize_user(user["id"], db)
     return {"message": "User data anonymized in compliance with GDPR"}
-
-
-@router.get(
-    "/{username}/rate-limits",
-    summary="Get User Rate Limits",
-    description="""
-            Retrieves the rate limit configuration for a specific user.
-
-            This endpoint returns detailed information about API rate limits
-            applicable to the user based on their subscription tier. This includes
-            limits for different API endpoints and operations.
-
-            Permission rules:
-            - Users can view their own rate limits
-            - Administrators can view any user's rate limits
-
-            This is useful for applications to understand their usage allowances
-            and implement appropriate client-side throttling.
-            """,
-    responses={
-        200: {"description": "Rate limit information retrieved"},
-        403: {"description": "Not authorized to view these rate limits"},
-        404: {"description": "User not found"},
-    },
-    response_description="Detailed rate limit configuration for the user",
-)
-async def get_user_rate_limits(
-    username: str,
-    db: AsyncSessionDep,
-    current_user: CurrentUserDep,
-    user_service: UserServiceDep,
-) -> dict[str, Any]:
-    """Get rate limits for a user."""
-    await user_service.verify_user_permission(current_user, username, "view rate limits")
-    user = await user_service.get_by_username(username, db)
-    return await user_service.get_rate_limits(user["id"], db)
-
-
-@router.get(
-    "/{username}/tier",
-    summary="Get User Subscription Tier",
-    description="""
-            Retrieves detailed information about a user's subscription tier.
-
-            This endpoint returns comprehensive data about the user's current
-            subscription tier, including name, features, limitations, and any
-            custom configurations.
-
-            Permission rules:
-            - Users can view their own tier information
-            - Administrators can view any user's tier information
-
-            This is useful for displaying subscription information to users
-            or for determining available features in client applications.
-            """,
-    responses={
-        200: {"description": "Tier information retrieved"},
-        403: {"description": "Not authorized to view this tier information"},
-        404: {"description": "User not found"},
-    },
-    response_description="User profile with detailed tier information",
-)
-async def get_user_tier(
-    username: str,
-    db: AsyncSessionDep,
-    current_user: CurrentUserDep,
-    user_service: UserServiceDep,
-) -> dict[str, Any]:
-    """Get detailed tier information for a user."""
-    await user_service.verify_user_permission(current_user, username, "view tier information")
-
-    user = await user_service.get_by_username(username, db)
-    return await user_service.get_user_with_tier(user["id"], db)
-
-
-@router.patch(
-    "/{username}/tier",
-    summary="Update User Subscription Tier (Admin)",
-    description="""
-            Changes a user's subscription tier.
-
-            This admin-only endpoint allows changing which subscription tier
-            a user is assigned to. This affects the user's:
-            - API rate limits
-            - Available features
-            - Access privileges
-
-            When a user's tier is changed, all related configurations (such as
-            rate limits) are automatically updated based on the new tier's settings.
-            """,
-    responses={
-        200: {"description": "User tier updated successfully"},
-        400: {"description": "Invalid tier ID"},
-        403: {"description": "Not authorized - requires admin privileges"},
-        404: {"description": "User not found or tier not found"},
-    },
-    response_description="Success confirmation message",
-)
-async def update_user_tier(
-    username: str,
-    values: UserTierUpdate,
-    db: AsyncSessionDep,
-    user_service: UserServiceDep,
-    _: CurrentSuperUserDep,
-) -> dict[str, str]:
-    """Update a user's subscription tier (admin only)."""
-    user = await user_service.get_by_username(username, db)
-    await user_service.update_tier(user["id"], values, db)
-    return {"message": "User tier updated successfully"}

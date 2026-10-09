@@ -1,10 +1,17 @@
-"""Domain exception classes for business logic errors."""
+"""Domain exception classes for business logic errors.
+
+The status code comes from the closest base class in ``EXCEPTION_MAPPING``; a
+feature chooses the client-facing message by setting ``public_detail`` on its own
+subclass, so the mapping never has to name a feature's errors.
+"""
+
+from typing import ClassVar
 
 
 class DomainError(Exception):
     """Base class for all domain-specific errors."""
 
-    pass
+    public_detail: ClassVar[str | None] = None
 
 
 class ResourceNotFoundError(DomainError):
@@ -27,42 +34,6 @@ class ValidationError(DomainError):
 
 class PermissionDeniedError(DomainError):
     """Raised when a user attempts an action they don't have permission for."""
-
-    pass
-
-
-class UserNotFoundError(ResourceNotFoundError):
-    """Raised when a user cannot be found."""
-
-    pass
-
-
-class UserExistsError(ResourceExistsError):
-    """Raised when attempting to create a user with an existing email or username."""
-
-    pass
-
-
-class TierNotFoundError(ResourceNotFoundError):
-    """Raised when a tier cannot be found."""
-
-    pass
-
-
-class RateLimitNotFoundError(ResourceNotFoundError):
-    """Raised when a rate limit cannot be found."""
-
-    pass
-
-
-class InsufficientCreditsError(DomainError):
-    """Raised when a user doesn't have enough credits for an operation."""
-
-    pass
-
-
-class UsageLimitExceededError(DomainError):
-    """Raised when a user exceeds their usage limits."""
 
     pass
 

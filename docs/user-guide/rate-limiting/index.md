@@ -25,16 +25,16 @@ The configured crudauth backend is initialized with the auth singleton in the ap
 ## How a Request Flows Through It
 
 1. **The router-level crudauth dependency runs** for each API request.
-2. **`resolve_api_rate_limit`** looks up the user's tier and matching path row from the database.
-3. **`api_rate_limit_key`** names the budget: the caller (user ID when signed in, client IP otherwise) plus the request path, so every path has its own counter.
+2. **`resolve_api_rate_limit`** looks up the user's tier and the row for the matched route template.
+3. **`api_rate_limit_key`** names the budget: the caller (user ID when signed in, client IP otherwise) plus the route template, so every route has its own counter.
 4. **crudauth's limiter** atomically increments the counter for the current window and returns `(count, is_limited)`. Windows are `period` seconds long and aligned to the clock, and each window's key expires on its own.
 5. **If `is_limited`**, raises a 429 with `Retry-After`. Otherwise the limiter attaches `X-RateLimit-Limit` and `X-RateLimit-Remaining` to the response. A request refused afterwards (a 401, a 404, a 422) still counts, and its response carries the headers too.
 
 The key shape in Redis, ending in the start of the current window:
 
 ```text
-crudauth:rl:ratelimit:api:user:{user_id}:{path}:{window_start}
-crudauth:rl:ratelimit:api:ip:{client_ip}:{path}:{window_start}
+crudauth:rl:ratelimit:api:user:{user_id}:{route_template}:{window_start}
+crudauth:rl:ratelimit:api:ip:{client_ip}:{route_template}:{window_start}
 ```
 
 ## Custom Enforcement
@@ -50,7 +50,7 @@ from crudauth.ratelimit import KeyBy, RateLimit
 router = APIRouter()
 
 
-@router.post("/widgets", dependencies=[Depends(auth.rate_limit("widgets", RateLimit(10, 60), key=KeyBy.USER_OR_IP))])
+@router.post("/widgets/", dependencies=[Depends(auth.rate_limit("widgets", RateLimit(10, 60), key=KeyBy.USER_OR_IP))])
 async def create_widget(...): ...
 ```
 
@@ -68,8 +68,9 @@ That's all that's required. The limiter is enabled with `RATE_LIMITER_ENABLED=tr
 # Master toggle for the API limits (the login lockout runs either way)
 RATE_LIMITER_ENABLED=true
 
-# Where counters live: redis (default) or memory. Memory is per process, so it only
-# holds for a single worker. The memcached limiter was removed; that value fails at startup.
+# Where counters live: redis (default), database or memory. Memory is per process, so it
+# only holds for a single worker. Database keeps them in this project's own tables, shared
+# by every worker. The memcached limiter was removed; that value fails at startup.
 RATE_LIMITER_BACKEND=redis
 
 # Defaults applied when the user has no tier or no matching rate-limit row
@@ -89,25 +90,54 @@ When `RATE_LIMITER_ENABLED=false`, the router-level dependency is a no-op. This 
 and for isolating performance issues. The login lockout still counts on `RATE_LIMITER_BACKEND`, and
 fails closed: with that backend unreachable, logins are refused rather than left unthrottled.
 
+`RATE_LIMITER_BACKEND=database` counts in `crudauth_counters`, a table of this project's own
+database, so several workers share one count with no Redis to run. It matters most for the login
+lockout: with `memory`, each of N workers counts failures separately and an attacker gets N times
+the attempts. Expired counters are deleted as the store writes (about as many rows as the writes
+that created them), so nothing accumulates. Selecting it adds that table and `crudauth_store` to the
+schema — one migration, or `CREATE_TABLES_ON_STARTUP` in development.
+
+Every rate-limited request is a database write, not only a login: the API limits count there too.
+Under heavy API traffic prefer Redis, and keep `database` for the deployments whose reason to exist
+is running without one.
+
 ## User-Tier vs IP-Based Limits
 
 `api_rate_limit_key` uses the request principal when authentication is present and falls back to
-the client IP using `TRUSTED_PROXY_HOPS`, adding the path either way. The resolver checks the current path against the user's
-tier and falls back to the configured default.
+the client IP using `TRUSTED_PROXY_HOPS`, adding the route template either way. The resolver checks that
+template against the user's tier and falls back to the configured default.
 
 ## Path Matching
 
-Rate-limit rows are matched against the request path. Store the exact API path in the database,
-including its `/api/v1` prefix:
+Rate-limit rows are matched against the **route template** the request matched, as the router
+declares it, including the API prefix. The samples below use the default `/api`; a project that
+set `API_PREFIX=/service` stores its rows as `/service/v1/...`:
 
 ```text
-/api/v1/users      # matches only that route
-/api/v1/users/42   # a per-resource path gets its own counter
+/api/v1/users/               # the listing route, trailing slash included
+/api/v1/users/{username}     # every user lookup, sharing one counter per caller
+/api/v1/items/{id:int}       # a converter, as the route declares it
+/api/v1/files/{path:path}    # a wildcard segment
 ```
 
-Note: paths with path parameters (`/users/42`) mean **each individual resource ID gets its own
-counter**, and a limit row must name the concrete path to apply to it. That's almost always what
-you want: a single hot resource can't rate-limit unrelated reads.
+The trailing slash is part of the template: the listing route is declared as `/api/v1/users/`, so a
+row for `/api/v1/users` never matches it. Read the templates off the app rather than guessing:
+
+```python
+from fastapi.routing import APIRoute
+from src.interfaces.main import app
+
+print(sorted(route.path for route in app.routes if isinstance(route, APIRoute)))
+```
+
+A row that names a concrete path such as `/api/v1/users/42` never matches, because the request
+resolves to `/api/v1/users/{username}`. One counter per caller per route also means a caller can't
+spend another route's budget by hitting one hot resource.
+
+The `path` column accepts a leading slash and segments of literal text, one `{name}` placeholder
+with an optional Starlette converter (`str`, `path`, `int`, `float`, `uuid`), or literal text around
+one placeholder (`/items/{id}.json`, `/v{version}/items`). Unbalanced braces, an unknown converter,
+two placeholders in one segment, and anything with trailing whitespace or a newline are refused.
 
 ## Managing Rate-Limit Rules
 
@@ -120,7 +150,7 @@ class RateLimit(Base, TimestampMixin, SoftDeleteMixin):
     id: int
     tier_id: int        # FK to tiers.id
     name: str           # unique — used as the URL path on /rate-limits/{name}
-    path: str           # exact request path the rule applies to
+    path: str           # route template the rule applies to
     limit: int          # max requests per period
     period: int         # seconds
 ```
@@ -134,7 +164,10 @@ class RateLimit(Base, TimestampMixin, SoftDeleteMixin):
 | PATCH  | `/api/v1/rate-limits/{name}` | Superuser   | Update an existing rule                  |
 | DELETE | `/api/v1/rate-limits/{name}` | Superuser   | Delete a rule                            |
 
-There's **no POST endpoint** for creating rate-limit rules. To seed initial rules, you have three options:
+There's **no POST endpoint** for creating rate-limit rules. To seed initial rules, you have three
+options. Whichever you use, a seeded `path` is the route template with the API prefix in it,
+exactly as [Path Matching](#path-matching) describes: the rows below are for the default
+`API_PREFIX=/api`, and a project that moved the API seeds `/service/v1/widgets/` instead.
 
 ### Option 1: SQL / Migration
 
@@ -146,8 +179,8 @@ def upgrade():
     op.execute("""
         INSERT INTO rate_limits (tier_id, name, path, "limit", period, created_at)
         VALUES
-            (1, 'free_widgets_create', '/api/v1/widgets', 10, 60, NOW()),
-            (2, 'pro_widgets_create',  '/api/v1/widgets', 100, 60, NOW())
+            (1, 'free_widgets_create', '/api/v1/widgets/', 10, 60, NOW()),
+            (2, 'pro_widgets_create',  '/api/v1/widgets/', 100, 60, NOW())
     """)
 ```
 
@@ -167,7 +200,7 @@ async def main():
     async with local_session() as db:
         await crud_rate_limits.create(db=db, object={
             "tier_id": 1, "name": "free_widgets_create",
-            "path": "/api/v1/widgets", "limit": 10, "period": 60,
+            "path": "/api/v1/widgets/", "limit": 10, "period": 60,
         })
         await db.commit()
 
@@ -176,7 +209,11 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
-Run with `uv run python -m scripts.setup_rate_limits` (from `backend/`).
+Run with `uv run --no-sync python -m scripts.setup_rate_limits` (from `backend/`).
+
+A row whose `path` leaves the prefix out, or spells a concrete path such as `/api/v1/widgets/42`,
+is stored and then never matches anything. Read the templates off the app, as above, rather than
+typing them by hand.
 
 ### Option 3: Add a SQLAdmin View
 
@@ -194,6 +231,13 @@ Every response to a counted request carries these, errors included:
 A 429 also carries `Retry-After`, the seconds until the window resets. A request refused after
 the limiter counted it - a 401 from authentication, a 404, a 422 - still reports the budget it
 spent, through crudauth's `RateLimitHeadersMiddleware`, which the app factory installs.
+
+A per-action budget - the five password checks an hour an account gets for changing its password or
+its address - reports itself per route. On `POST /api/v1/auth/change-password`, crudauth's own guard
+counts the request, and every response carries that budget: a wrong password answers `401` with
+`X-RateLimit-Limit: 5` and the checks left in the window. On the email change, `PATCH
+/api/v1/users/{username}`, the budget is counted beside the path's allowance: the `200` and the `403`
+for a wrong password report the path's limit, and only the `429` reports `5`, `0` and `Retry-After`.
 
 These are standard-ish (formatted like the GitHub / Stripe convention, not RFC 6585). Frontends can read them to surface graceful "you're approaching your limit" UI.
 
@@ -223,7 +267,7 @@ IP-based rate limits are easy to bypass with NAT / proxies / IPv6 rotation. They
 
 - Confirm `RATE_LIMITER_ENABLED=true`
 - Confirm the auth singleton initialized cleanly at startup
-- Confirm the `path` column on the rule matches the exact request path, including `/api/v1`
+- Confirm the `path` column on the rule is the route template, not a concrete path, including `/api/v1`
 
 ### "All requests look anonymous even though users are logged in"
 

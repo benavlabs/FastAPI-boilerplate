@@ -21,11 +21,10 @@ ENVIRONMENT=development
 POSTGRES_USER=postgres
 POSTGRES_PASSWORD=postgres
 POSTGRES_DB=postgres
-POSTGRES_SERVER=db          # use "localhost" without Docker
+POSTGRES_SERVER=postgres    # use "localhost" without Docker
 POSTGRES_PORT=5432
-POSTGRES_SYNC_PREFIX=postgresql://
 POSTGRES_ASYNC_PREFIX=postgresql+asyncpg://
-CREATE_TABLES_ON_STARTUP=true
+CREATE_TABLES_ON_STARTUP=true   # on by default in local and development only
 ```
 
 | Variable | Default | Purpose |
@@ -33,11 +32,10 @@ CREATE_TABLES_ON_STARTUP=true
 | `POSTGRES_USER` | `postgres` | Database user |
 | `POSTGRES_PASSWORD` | `postgres` | Database password |
 | `POSTGRES_DB` | `postgres` | Database name |
-| `POSTGRES_SERVER` | `localhost` | Hostname (use `db` for Compose) |
+| `POSTGRES_SERVER` | `localhost` | Hostname (use `postgres`, the Compose service name) |
 | `POSTGRES_PORT` | `5432` | TCP port |
-| `POSTGRES_SYNC_PREFIX` | `postgresql://` | Driver prefix for sync code (Alembic) |
 | `POSTGRES_ASYNC_PREFIX` | `postgresql+asyncpg://` | Driver prefix for async code (the app) |
-| `CREATE_TABLES_ON_STARTUP` | `true` | Auto-create tables from models on startup |
+| `CREATE_TABLES_ON_STARTUP` | `true` in local and development, `false` otherwise | Auto-create tables from models on startup; production refuses `true` |
 | `POSTGRES_POOL_SIZE` | `20` | SQLAlchemy connection pool size |
 | `POSTGRES_MAX_OVERFLOW` | `0` | Pool overflow connections |
 | `POSTGRES_POOL_PRE_PING` | `true` | Test a pooled connection before use, replacing ones the server has dropped |
@@ -56,7 +54,6 @@ The URL must use the `postgresql+asyncpg://` prefix, and query parameters are pa
 ```env
 CACHE_ENABLED=true
 CACHE_BACKEND=redis           # or "memcached"
-DEFAULT_CACHE_EXPIRATION=3600
 
 # Client-side cache (Cache-Control headers)
 CLIENT_CACHE_ENABLED=true
@@ -90,7 +87,7 @@ the user's tier and path, falling back to the defaults below, and each path keep
 
 ```env
 RATE_LIMITER_ENABLED=true
-RATE_LIMITER_BACKEND=redis        # or memory (per process, single worker only)
+RATE_LIMITER_BACKEND=redis        # or database (shared), or memory (per process, single worker only)
 DEFAULT_RATE_LIMIT_LIMIT=100
 DEFAULT_RATE_LIMIT_PERIOD=60
 ```
@@ -106,11 +103,44 @@ RATE_LIMITER_REDIS_CONNECT_TIMEOUT=5
 RATE_LIMITER_REDIS_POOL_SIZE=10
 ```
 
+## Email
+
+```env
+EMAIL_BACKEND=console           # or "smtp"
+EMAIL_FROM=no-reply@localhost
+EMAIL_FROM_NAME=
+FRONTEND_URL=http://localhost:3000
+```
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `EMAIL_BACKEND` | `console` | `console` logs each message and sends nothing; `smtp` delivers. Production refuses `console` |
+| `EMAIL_FROM` | `no-reply@localhost` | The address the account emails come from |
+| `EMAIL_FROM_NAME` | empty | The display name beside it |
+| `FRONTEND_URL` | `http://localhost:3000` | Your frontend, which the recovery links point at. Production refuses an empty or `localhost` value |
+
+### SMTP
+
+```env
+EMAIL_SMTP_HOST=
+EMAIL_SMTP_PORT=587
+EMAIL_SMTP_USER=
+EMAIL_SMTP_PASSWORD=
+EMAIL_SMTP_STARTTLS=true
+EMAIL_SMTP_TIMEOUT_SECONDS=10
+```
+
+`EMAIL_BACKEND=smtp` with no `EMAIL_SMTP_HOST` is refused by name when the sender is built.
+`EMAIL_SMTP_STARTTLS` verifies the server's certificate and hostname, so a server presenting a
+self-signed certificate is refused rather than trusted; turn it off only for a relay on a network
+you own. With the taskiq feature present, delivery is enqueued as the `email:send` task and a worker
+does the sending, so no request waits on the mail server.
+
 ## Background Tasks (Taskiq)
 
 ```env
-TASKIQ_ENABLED=true
 TASKIQ_BROKER_TYPE=redis        # or "rabbitmq"
+TASKIQ_DEFAULT_RETRY_COUNT=3    # runs in all for a task labelled retry_on_error=True; 0 turns retries off
 ```
 
 ### Redis broker
@@ -132,13 +162,6 @@ TASKIQ_RABBITMQ_PASSWORD=guest
 TASKIQ_RABBITMQ_VHOST=/
 ```
 
-### Worker tuning
-
-```env
-TASKIQ_WORKER_CONCURRENCY=2
-TASKIQ_MAX_TASKS_PER_WORKER=1000
-```
-
 ## Web Server
 
 ### CORS
@@ -152,7 +175,7 @@ CORS_ALLOW_HEADERS=*
 ```
 
 !!! danger "CORS in Production"
-    Never use `*` for `CORS_ORIGINS` in production: any website could call the API from your users' browsers, and with `CORS_ALLOW_CREDENTIALS=true` those requests carry their session cookie. The production security validator refuses to start with it. Specify exact domains:
+    Never use `*` for `CORS_ORIGINS` in production: any website could call the API from your users' browsers. The app drops `CORS_ALLOW_CREDENTIALS` while `*` is listed, so a page on another origin can't read a response to a call it made with the user's cookies — which is also why a wildcard origin can't serve a logged-in frontend. A simple cross-site request is still delivered, cookie included wherever `SameSite` allows it; the browser only withholds the response. The production security validator refuses to start with it. Specify exact domains:
     ```env
     CORS_ORIGINS=https://yourapp.com,https://www.yourapp.com
     CORS_ALLOW_METHODS=GET,POST,PUT,DELETE,PATCH
@@ -182,7 +205,6 @@ SECRET_KEY=insecure-secret-key-change-this-in-production
 
 # Production security validation (enabled by default in production)
 PRODUCTION_SECURITY_VALIDATION_ENABLED=true
-PRODUCTION_SECURITY_STRICT_MODE=false
 ```
 
 Generate a strong key:
@@ -198,7 +220,12 @@ SESSION_TIMEOUT_MINUTES=30
 SESSION_CLEANUP_INTERVAL_MINUTES=15
 MAX_SESSIONS_PER_USER=5
 SESSION_SECURE_COOKIES=true
-SESSION_BACKEND=redis            # redis | memory
+
+LOGIN_MAX_ATTEMPTS=5             # failures allowed inside the window, per address and per account
+LOGIN_ATTEMPT_WINDOW_SECONDS=900 # how long failures keep counting
+LOGIN_LOCKOUT_BASE_SECONDS=300   # first lockout, doubling each round
+LOGIN_LOCKOUT_MAX_SECONDS=3600   # ceiling for the doubling
+SESSION_BACKEND=redis            # redis | database | memory
 SESSION_REDIS_DB=2               # on the cache Redis, apart from the cache DB so a flush won't log users out
 # SESSION_REDIS_URL=             # optional dedicated session Redis, e.g. rediss://user:password@host:6380/0
 
@@ -207,6 +234,22 @@ SESSION_REDIS_DB=2               # on the cache Redis, apart from the cache DB s
 # 0 = no proxy; set 1 behind a single nginx/Caddy, 2 if Cloudflare is also in front.
 TRUSTED_PROXY_HOPS=0
 ```
+
+### Forwarded Headers
+
+```env
+# Which peers uvicorn accepts X-Forwarded-For and X-Forwarded-Proto from.
+FORWARDED_ALLOW_IPS=172.31.240.0/24
+```
+
+`FORWARDED_ALLOW_IPS` is read by **uvicorn**, not by the app, and it decides what `request.client`
+and the access logs report. Because uvicorn reads it from its own process environment, it reaches
+the server through compose's `env_file` (or whatever exports it where uvicorn starts) rather than
+through the app's settings — a value in `backend/.env` only applies if that file is the container's
+`env_file`. `bp deploy generate nginx` writes it for you, set to `--internal-subnet`.
+
+Leave it unset when nothing sits in front of the app. A wildcard (`*`) lets any client claim any
+address, and `TRUSTED_PROXY_HOPS` then counts hops in a header the client controls.
 
 ### CSRF
 
@@ -228,7 +271,7 @@ OAUTH_REDIRECT_BASE_URL=http://localhost:8000
 OAUTH_GOOGLE_CLIENT_ID=
 OAUTH_GOOGLE_CLIENT_SECRET=
 
-# GitHub OAuth (data model anticipates it; no provider/routes wired — see Authentication)
+# GitHub OAuth (leave empty to disable)
 OAUTH_GITHUB_CLIENT_ID=
 OAUTH_GITHUB_CLIENT_SECRET=
 ```
@@ -236,7 +279,8 @@ OAUTH_GITHUB_CLIENT_SECRET=
 ## Admin Interface (SQLAdmin)
 
 ```env
-ADMIN_ENABLED=true              # enables /admin
+ADMIN_ENABLED=true              # enables the panel
+ADMIN_BASE_URL=/admin           # where it is mounted, and the admin cookie's path
 ```
 
 ## Application Metadata
@@ -245,11 +289,15 @@ ADMIN_ENABLED=true              # enables /admin
 DEBUG=false
 APP_NAME=FastAPI Boilerplate
 APP_DESCRIPTION=Modular FastAPI starter
-VERSION=0.19.0
-CONTACT_NAME=Support
-CONTACT_EMAIL=support@example.com
-LICENSE_NAME=MIT
+VERSION=0.1.0
+API_CONTACT_NAME=Support
+API_CONTACT_EMAIL=support@example.com
+API_LICENSE_NAME=MIT
 ```
+
+`API_TITLE`, `API_DESCRIPTION` and `API_VERSION` override `APP_NAME`, `APP_DESCRIPTION` and
+`VERSION` in the OpenAPI document. A field left empty is left out of it, so a new project names no
+contact and no licence until it sets its own.
 
 ### API Settings (optional overrides)
 
@@ -258,6 +306,9 @@ LICENSE_NAME=MIT
 # DOCS_URL=/docs
 # REDOC_URL=/redoc
 ```
+
+`API_PREFIX` must start with `/` and must not end with `/`; anything else is refused when the
+settings load. It moves every API route, the OAuth routes and the `no-store` cache header with it.
 
 ## Initial Setup
 
@@ -280,20 +331,19 @@ DEFAULT_TIER_NAME=free
 
 ```env
 LOG_LEVEL=INFO
-LOG_FORMAT=structured           # simple | detailed | structured | json
+LOG_FORMAT=                     # console only: simple | detailed | structured | json; empty = the environment's default
 LOG_CONSOLE_ENABLED=true
 LOG_FILE_ENABLED=false
 LOG_FILE_PATH=logs/app.log
 LOG_FILE_MAX_SIZE=10485760      # 10 MB
 LOG_FILE_BACKUP_COUNT=5
-LOG_CORRELATION_ID=true
-LOG_STRUCTURED_CONTEXT=true
-LOG_PERFORMANCE_METRICS=false
-LOG_SQL_QUERIES=false
-LOG_INCLUDE_STACKTRACE=true
 LOG_DEVELOPMENT_VERBOSE=true
 LOG_PRODUCTION_OPTIMIZE=true
 ```
+
+`LOG_FORMAT` names the console format only; a log file is written in its environment's own format,
+which is what a collector reading it expects. A value no formatter implements is refused when the
+settings load.
 
 ## Production Security Checklist
 
@@ -321,7 +371,7 @@ grep "=" backend/.env | head -5
 
 # Verify what Python sees
 cd backend
-uv run python -c "from src.infrastructure.config.settings import get_settings; s = get_settings(); print(s.APP_NAME, s.ENVIRONMENT)"
+uv run --no-sync python -c "from src.infrastructure.config.settings import get_settings; s = get_settings(); print(s.APP_NAME, s.ENVIRONMENT)"
 ```
 
 ### Database Connection Failed

@@ -1,12 +1,5 @@
-"""Taskiq infrastructure package."""
+"""Background tasks with Taskiq.
 
-from .brokers import default_broker
-from .deps import DBSession
-from .registry import register_task, task_registry
-
-__all__ = [
-    "default_broker",
-    "DBSession",
-    "task_registry",
-    "register_task",
-]
+Kept import-free, like the rest of the settings import path. Import from the
+submodules: ``.brokers``, ``.deps``, ``.lifecycle``, ``.settings``.
+"""

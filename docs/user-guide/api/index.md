@@ -72,13 +72,13 @@ async def get_profile(
 For superuser-only endpoints, swap in `get_current_superuser`. For endpoints gated on a permission a role grants, add `require_permissions(...)` to the route's `dependencies`:
 
 ```python
-from ...infrastructure.auth.dependencies import require_permissions
+from ...infrastructure.auth.authorization import require_permissions
 
 @router.get("/", dependencies=[require_permissions("user.read")])
 async def list_users(...): ...
 ```
 
-`infrastructure/dependencies.py` also exports `CurrentPrincipalDep` (the crudauth `Principal`) and `CurrentPermissionsDep` (the caller's effective permissions) for handlers that need them. See [Authentication](../authentication/index.md) for the full picture.
+`infrastructure/auth/deps.py` also exports `CurrentPrincipalDep` (the crudauth `Principal`) and `CurrentPermissionsDep` (the caller's effective permissions) for handlers that need them. See [Authentication](../authentication/index.md) for the full picture.
 
 ### Easy Pagination
 
@@ -114,11 +114,13 @@ async def create_user(user: UserCreate):  # ← validates input
 
 ### Error Handling
 
-Domain errors live in `modules/common/exceptions.py`. Routes catch them and translate them to HTTP responses via `handle_exception`:
+Domain errors live in `modules/common/exceptions.py`, and each feature subclasses them. The app
+installs one handler for them, so a route raises (or lets the service raise) and the client gets the
+mapped status with a `support_id`:
 
 ```python
-from ...infrastructure.auth.http_exceptions import HTTPException
-from ..common.utils.error_handler import handle_exception
+from ..common.exceptions import ResourceNotFoundError
+
 
 @router.get("/{username}", response_model=UserRead)
 async def get_user_by_username(
@@ -126,16 +128,11 @@ async def get_user_by_username(
     db: Annotated[AsyncSession, Depends(async_session)],
     user_service: Annotated[UserService, Depends(get_user_service)],
 ) -> dict[str, Any]:
-    try:
-        user = await user_service.get_by_username(username, db)
-        if user is None:
-            raise HTTPException(status_code=404, detail=f"User with username {username} not found")
-        return user
-    except Exception as e:
-        http_exception = handle_exception(e)
-        if http_exception:
-            raise http_exception
-        raise HTTPException(status_code=500, detail="An unexpected error occurred")
+    user = await user_service.get_by_username(username, db)
+    if user is None:
+        raise ResourceNotFoundError(f"user {username}")
+
+    return user
 ```
 
 See [Exception Handling](exceptions.md) for the full catalog.
@@ -187,19 +184,22 @@ Auth lives in `infrastructure/auth/routes.py` instead of in a feature module bec
 
 ## Mounted Endpoints
 
-What ships out of the box (40 total routes):
+What ships out of the box:
 
 | Prefix | Source | Notes |
 |--------|--------|-------|
 | `POST/GET/PATCH/DELETE /api/v1/users/*` | `modules/user/routes.py` | Open create; reads/updates need a session, and a lookup by username returns no email. Listing every user needs the `user.read` permission |
 | `GET /api/v1/tiers/*` | `modules/tier/routes.py` | Authenticated list + lookup by name |
 | `GET/PATCH/DELETE /api/v1/rate-limits/*` | `modules/rate_limit/routes.py` | Superuser only |
-| `POST /api/v1/auth/login`, `logout`, `logout-all`, `refresh-csrf`, `check-auth` | `infrastructure/auth/routes.py` | Session auth |
+| `POST /api/v1/auth/login`, `logout`, `check-auth` | `infrastructure/auth/routes.py` | Session auth |
+| `GET /api/v1/auth/sessions`, `DELETE /api/v1/auth/sessions/{handle}`, `POST /api/v1/auth/logout-all`, `POST /api/v1/auth/csrf/refresh` | crudauth, mounted in `infrastructure/auth/routes.py` | Device management |
+| `POST /api/v1/auth/change-password`, `GET /api/v1/auth/me` | crudauth's account router, mounted in `infrastructure/auth/routes.py` | Session auth; `set-password` is not mounted |
 | `GET /api/v1/auth/oauth/{provider}`, `oauth/callback/{provider}` | crudauth router mounted in `infrastructure/auth/routes.py` | Google OAuth (configured in `infrastructure/auth/setup.py`) |
 | `POST/GET/PATCH/DELETE /api/v1/api-keys/*` | `modules/api_keys/routes.py` | Authenticated key management |
 | `GET /admin/*` | `interfaces/admin/initialize.py` | SQLAdmin UI |
 | `GET /docs`, `/redoc`, `/openapi.json` | App factory (protected when gated) | Disabled in production unless `ENABLE_DOCS_IN_PRODUCTION=true`; when enabled in production or running in staging, requires superuser authentication |
-| `GET /health` | App factory | Liveness check |
+| `GET /health` | `interfaces/main.py` | Liveness: the process is serving |
+| `GET /health/ready` | `interfaces/main.py` | Readiness: the overall status, `503` while a critical dependency is unreachable |
 
 ## What's Next
 

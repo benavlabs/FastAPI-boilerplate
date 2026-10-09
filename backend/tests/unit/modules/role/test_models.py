@@ -5,8 +5,8 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.infrastructure.permissions import all_permissions, is_known_permission
 from src.modules.role.models import Role, RolePermission, UserRole
-from src.modules.role.permission_registry import all_permissions, is_known_permission
 from src.modules.user.models import User
 
 
@@ -14,13 +14,10 @@ def test_registered_permissions_are_known():
     """Registered flat permission names are recognized."""
     permissions = all_permissions()
 
-    assert "user.read" in permissions
-    assert "role.assign" in permissions
-    assert "tier.delete" in permissions
+    assert {"role.read", "role.assign"} <= permissions
 
-    assert is_known_permission("user.read")
+    assert is_known_permission("role.read")
     assert is_known_permission("role.assign")
-    assert is_known_permission("tier.delete")
 
 
 def test_unknown_permissions_are_not_known():

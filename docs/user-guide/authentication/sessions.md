@@ -90,7 +90,7 @@ async def update_user_profile(
 **`require_permissions(*names)`** — Returns a dependency that raises 403 unless the caller holds every named permission. Superusers pass. It injects nothing, so it goes in the route's `dependencies`:
 
 ```python
-from ...infrastructure.auth.dependencies import require_permissions
+from ...infrastructure.auth.authorization import require_permissions
 
 
 @router.get("/", dependencies=[require_permissions("user.read")])
@@ -125,7 +125,8 @@ The login route delegates to the `crudauth` `auth` singleton (see [Auth Architec
 
 1. Applies its per-IP / per-identifier login lockout (returns `429` + `Retry-After` if tripped)
 2. Validates the credentials against the user row (soft-deleted users — `is_active == False` — are rejected)
-3. Writes a session record to the configured backend (Redis by default)
+3. Writes a session record to the configured backend (Redis by default), under an HMAC of the
+   session id rather than the id itself
 4. Generates a CSRF token bound to the session
 5. Sets two cookies on the response:
     - `session_id` — HTTP-only, the session identifier
@@ -134,11 +135,36 @@ The login route delegates to the `crudauth` `auth` singleton (see [Auth Architec
 On every subsequent request, the auth dependency (via crudauth):
 
 1. Reads `session_id` from cookies
-2. Looks it up in the configured backend; rejects expired or missing sessions
+2. Looks it up in the configured backend, by that same HMAC; rejects expired or missing sessions
 3. For mutating requests (POST/PUT/DELETE/PATCH), validates the CSRF token if `CSRF_ENABLED=true`
 4. Hands back a `Principal`; `get_current_user` then re-loads the full user row (joined with the `Tier` relationship via `lazy="selectin"`)
 
-Logout (`POST /api/v1/auth/logout`) terminates the session record and clears the cookies. To end every session the user holds on all devices (e.g. after a suspected compromise), use `POST /api/v1/auth/logout-all`. See [Logout All Sessions](#logout-all-sessions).
+Signing in again ends the session the browser presented, so a cookie somebody copied stops working
+at the account's next login.
+
+The store never holds a session id or a CSRF token: each is kept under an HMAC keyed with
+`SECRET_KEY`. Read access to the store yields nothing anybody can sign in with, and changing
+`SECRET_KEY` signs everyone out.
+
+crudauth's session-management routes are mounted beside the project's own: `GET /sessions`,
+`DELETE /sessions/{handle}`, `POST /logout-all` and `POST /csrf/refresh` — see
+[Manage Devices](#manage-devices).
+
+Logout (`POST /api/v1/auth/logout`) hands the request to the session transport's
+`complete_logout`, which terminates the session record, clears the cookies of every configured
+transport and runs the `on_after_logout` hook with the ended session's handle — so an audit log
+registered through `AuthHooks` sees a logout the same way it sees a login. To end every session the
+user holds on all devices (e.g. after a suspected compromise), use `POST /api/v1/auth/logout-all`.
+See [Logout All Sessions](#logout-all-sessions).
+
+### Two timeouts
+
+`SESSION_TIMEOUT_MINUTES` is an idle timeout: every authenticated request slides it forward, so a
+session in use never ends on its own. `SESSION_ABSOLUTE_TIMEOUT_HOURS` caps a session from sign-in
+however active it stays, for a project that wants a periodic re-login. It is unset by default, which
+leaves the idle timeout as the only one; a value below 1 is refused at startup rather than expiring
+every session the moment it is created. A session past the cap is removed, not just rejected, and
+the next request answers `401`.
 
 ## CSRF Protection
 
@@ -161,7 +187,44 @@ await fetch('/api/v1/users/', {
 });
 ```
 
-Need a fresh token mid-session? Hit `POST /api/v1/auth/refresh-csrf` — it returns a new token and sets the cookie.
+Need a fresh token mid-session? Hit `POST /api/v1/auth/csrf/refresh` — it returns the session's token, minting a new one only when the old is gone or expired, and sets the cookie.
+
+## Passwords
+
+crudauth's account routes are mounted under `/api/v1/auth`:
+
+| Route | What it does |
+|---|---|
+| `POST /api/v1/auth/change-password` | Verifies `current_password`, sets `new_password`, bumps `token_version` and revokes the account's **other** sessions, keeping the current one. At most 5 calls per hour per account, successes included |
+| `GET /api/v1/auth/me` | The identity crudauth resolved: id, username, email, superuser, scopes, transport |
+
+```bash
+curl -X POST http://localhost:8000/api/v1/auth/change-password \
+  -b cookies.txt \
+  -H "Content-Type: application/json" \
+  -H "X-CSRF-Token: <token>" \
+  -d '{"current_password": "<current>", "new_password": "<new>"}'
+```
+
+A wrong `current_password` answers `401`, a missing `X-CSRF-Token` answers `403`, and a
+`new_password` that breaks the policy answers `422`. This route and the email change on
+is capped at 5 per hour per account. Every call that checks a password counts, whether the password
+was right or wrong; past that the route answers `429`.
+
+crudauth also ships `POST /set-password`, for an account that has no password. This app does **not**
+mount it: it would let anyone holding a session put a password on a provider-only account, which is
+a takeover whenever a session is borrowed. An account that signs in with a provider sets its first
+password the same way anyone recovers a forgotten one — through the reset link, which proves the
+address before it accepts a new password:
+
+```bash
+curl -X POST http://localhost:8000/api/v1/auth/password/reset-request \
+  -H "Content-Type: application/json" -d '{"email": "you@example.com"}'
+# then POST the token from the link to /api/v1/auth/password/reset-confirm
+```
+
+After that the account can sign in with either the provider or its password. See
+[Recovery Flows](index.md#recovery-flows-email).
 
 For dev/test environments where CSRF gets in the way, set `CSRF_ENABLED=false`.
 
@@ -171,7 +234,18 @@ For dev/test environments where CSRF gets in the way, set `CSRF_ENABLED=false`.
 
 ## Login Lockout
 
-Failed login attempts are throttled by `crudauth` itself. It applies an **escalating per-IP / per-identifier lockout** and, once tripped, returns `429 Too Many Requests` with a `Retry-After` header on `/api/v1/auth/login`. This happens automatically inside the login flow — there's nothing to wire up and no env vars to tune. Behind a reverse proxy, set `TRUSTED_PROXY_HOPS` so the lockout keys on the real client IP rather than the proxy's.
+Failed login attempts are throttled by `crudauth` itself. It applies an **escalating per-IP / per-identifier lockout** and, once tripped, returns `429 Too Many Requests` with a `Retry-After` header on `/api/v1/auth/login`. The thresholds are four settings, passed to crudauth as a `LockoutConfig` in `infrastructure/auth/setup.py`:
+
+```env
+LOGIN_MAX_ATTEMPTS=5             # failures allowed inside the window, per address and per account
+LOGIN_ATTEMPT_WINDOW_SECONDS=900 # how long failures keep counting
+LOGIN_LOCKOUT_BASE_SECONDS=300   # first lockout, doubling each round
+LOGIN_LOCKOUT_MAX_SECONDS=3600   # ceiling for the doubling
+```
+
+The window is the value that matters against a paced attack: crudauth's own default counts over 60 seconds, so five tries a minute never accumulate. A successful login clears the account's failures and the pressure its own failures put on that address. The admin panel counts on this same policy, so an address guessing passwords is slowed at both doors. Behind a reverse proxy, set `TRUSTED_PROXY_HOPS` so the lockout keys on the real client IP rather than the proxy's.
+
+With `RATE_LIMITER_BACKEND=redis`, the counters live in Redis, and crudauth builds the lockout policy with `fail_open=False`. If that Redis is unreachable, **every login is refused** with `429` for the base lockout window rather than let through unchecked: an attacker can't disable the lockout by taking Redis down. Treat the limiter's Redis as a dependency logins need, and watch it: `GET /health/ready` answers `503` while it is unreachable, and the log names it (`rate_limiter`), alongside the database and the session store. It is its own connection (`RATE_LIMITER_REDIS_*`, against `CACHE_REDIS_*` for the cache), and the readiness probe asks each server once even when several settings point at the same one. `RATE_LIMITER_BACKEND=memory` keeps the counters in the process instead, which is fine for a single worker and useless across several. `RATE_LIMITER_BACKEND=database` keeps them in `crudauth_counters`, shared by every worker; the database's own readiness check then covers them, and the `rate_limiter` check reports nothing to reach.
 
 ## Session Limits
 
@@ -186,18 +260,27 @@ Sessions are stored server-side. Configure via `SESSION_BACKEND`:
 | `redis` *(default)* | Production. Supports key expiration, pattern scans for cleanup, persists across restarts |
 | `memory` | Tests only. Cleared on restart, not safe for multi-process deploys |
 
-The backends ship inside the `crudauth` library, not the boilerplate — `setup.py` just selects `redis` or `memory` based on `SESSION_BACKEND`. (Memcached is no longer a session option; it remains available for the general cache and rate limiter.)
+The backends ship inside the `crudauth` library, not the boilerplate — `setup.py` just selects `redis`, `database` or `memory` based on `SESSION_BACKEND`, and a value it has no store for is refused when the app starts. (Memcached is no longer a session option; it remains available for the general cache and rate limiter.)
+
+`database` keeps sessions, CSRF tokens, the one-time tokens behind the email flows and the OAuth
+state in two tables of this project's own database — `crudauth_store` and `crudauth_counters` —
+so several workers share them with no Redis to run. The tables are declared on the project's
+`Base.metadata`, so `alembic revision --autogenerate` writes them beside your own and
+`CREATE_TABLES_ON_STARTUP` creates them in development: switching to or from `database` is a
+schema change, and wants one migration. Expired rows are deleted as the store writes, and
+`DatabaseStore.purge_expired()` clears them all if you would rather run that on a schedule.
 
 ## Configuration
 
 ```env
 # Backend
-SESSION_BACKEND=redis                # redis | memory
+SESSION_BACKEND=redis                # redis | database | memory
 SESSION_REDIS_DB=2                   # on the cache Redis; isolated from cache (0), rate limiter (1), and taskiq (3)
 # SESSION_REDIS_URL=                 # optional dedicated session Redis, e.g. rediss://user:password@host:6380/0
 
 # Lifetime
 SESSION_TIMEOUT_MINUTES=30           # inactive sessions expire
+# SESSION_ABSOLUTE_TIMEOUT_HOURS=12  # the most a session may live from sign-in; unset for no cap
 SESSION_CLEANUP_INTERVAL_MINUTES=15  # how often the storage backend sweeps expired entries
 
 # Per-user cap
@@ -258,8 +341,12 @@ curl -X POST http://localhost:8000/api/v1/users/ \
 ### Refresh CSRF Token
 
 ```bash
-curl -X POST http://localhost:8000/api/v1/auth/refresh-csrf -b cookies.txt
+curl -X POST http://localhost:8000/api/v1/auth/csrf/refresh -b cookies.txt
 ```
+
+It self-heals: a token that is still valid comes back unchanged, so a client that calls it on every
+page load doesn't rotate a healthy one. Rate limited per address (crudauth's `csrf_refresh` default:
+30 per hour).
 
 ### Logout
 
@@ -280,7 +367,7 @@ curl -X POST http://localhost:8000/api/v1/auth/logout-all \
 Terminates **every** session for the current user across all devices, including this one, and clears the cookies:
 
 ```json
-{ "message": "All sessions terminated. Please log in again.", "terminated_count": 3 }
+{ "detail": "Signed out of all sessions.", "revoked": 3 }
 ```
 
 To sign out only the *other* devices and stay logged in here, pass `keep_current=true`:
@@ -293,6 +380,34 @@ curl -X POST "http://localhost:8000/api/v1/auth/logout-all?keep_current=true" \
 
 No re-authentication step is required, because this is the action a user needs when they can't trust their current session. It's rate limited per user (crudauth's `logout_all` default: 10 per hour).
 
+### Manage Devices
+
+```bash
+curl http://localhost:8000/api/v1/auth/sessions -b cookies.txt
+```
+
+```json
+[
+  {"id": "7f3c…", "device": "Chrome on macOS", "ip": "203.0.113.7",
+   "created_at": "2026-10-08T09:12:44Z", "last_activity": "2026-10-08T11:03:02Z", "current": true}
+]
+```
+
+Every session the account holds, with the caller's flagged `current`. `id` is the session's
+*handle*, never its id, so the listing is safe to render in a page: nothing in it authenticates.
+Sign one device out with it:
+
+```bash
+curl -X DELETE http://localhost:8000/api/v1/auth/sessions/7f3c… \
+  -b cookies.txt \
+  -H "X-CSRF-Token: <token-from-login-response>"
+```
+
+Ownership is checked, and a handle that belongs to somebody else answers `404` — the same as one
+that doesn't exist, so the route reveals nothing. Revoking the caller's own handle clears its
+cookies. Every session backend this project offers can list a user's sessions: memory scans its
+entries, Redis keeps a per-user index, and the database store has a `user_id` column.
+
 ## Key Files
 
 | Component | Location |
@@ -300,8 +415,9 @@ No re-authentication step is required, because this is the action a user needs w
 | `auth = CRUDAuth(...)` singleton | `backend/src/infrastructure/auth/setup.py` |
 | Dependencies | `backend/src/infrastructure/auth/dependencies.py` |
 | OAuth configuration | `backend/src/infrastructure/auth/setup.py` |
-| Login/logout/logout-all/OAuth routes | `backend/src/infrastructure/auth/routes.py` |
-| HTTP exceptions (fastcrud re-export) | `backend/src/infrastructure/auth/http_exceptions.py` |
+| Login, logout and OAuth routes | `backend/src/infrastructure/auth/routes.py` |
+| Session management routes | crudauth's `build_session_management_router`, mounted in `routes.py` |
+| HTTP exceptions (fastcrud re-export) | `backend/src/infrastructure/http_exceptions.py` |
 | Auth settings | `backend/src/infrastructure/config/settings.py` (`AuthSettings`) |
 
 Session storage, CSRF, and lockout themselves live in the `crudauth` library, not the boilerplate.

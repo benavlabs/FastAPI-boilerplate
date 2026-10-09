@@ -13,33 +13,6 @@ class KeyStatus(StrEnum):
     REVOKED = "revoked"
 
 
-class KeyPermissionResource(StrEnum):
-    """API key permission resources."""
-
-    CONVERSATIONS = "conversations"
-    CREDITS = "credits"
-    AI_USAGE = "ai_usage"
-    USER_PROFILE = "user_profile"
-    ANALYTICS = "analytics"
-    ADMIN = "admin"
-    BILLING = "billing"
-    API_KEYS = "api_keys"
-    WILDCARD = "*"
-
-
-class KeyPermissionAction(StrEnum):
-    """API key permission actions."""
-
-    READ = "read"
-    WRITE = "write"
-    DELETE = "delete"
-    CREATE = "create"
-    UPDATE = "update"
-    LIST = "list"
-    ADMIN = "admin"
-    WILDCARD = "*"
-
-
 class KeyType(StrEnum):
     """API key type enumeration.
 

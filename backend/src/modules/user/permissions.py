@@ -2,7 +2,7 @@
 
 from enum import StrEnum
 
-from ..role.permission_registry import register_permissions
+from ...infrastructure.permissions import register_permissions
 
 
 @register_permissions("user")

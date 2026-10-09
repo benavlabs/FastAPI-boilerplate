@@ -8,14 +8,14 @@ import secrets
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+import anyio
 from fastcrud.types import GetMultiResponseDict
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...infrastructure.logging import get_logger
-from ..common.exceptions import PermissionDeniedError, ResourceNotFoundError
-from .crud import crud_api_keys, crud_key_permissions, crud_key_usage
-from .enums import KeyPermissionAction, KeyPermissionResource
+from ..common.exceptions import PermissionDeniedError, ResourceNotFoundError, ValidationError
+from .crud import crud_api_keys, crud_key_usage
 from .models import APIKey, KeyUsage
 from .schemas import (
     APIKeyCreate,
@@ -29,17 +29,39 @@ from .schemas import (
 
 logger = get_logger()
 
+SHA256_SCHEME = "sha256"
+SCRYPT_SCHEME = "scrypt"
+
 _SCRYPT_N = 2**14
 _SCRYPT_R = 8
 _SCRYPT_P = 1
 _SCRYPT_DKLEN = 32
 
 
+def _refuse_a_wider_scope(scope: list[str], held: frozenset[str]) -> None:
+    """Raise unless every permission in ``scope`` is one the caller holds.
+
+    Raises:
+        PermissionDeniedError: The scope names a permission the caller doesn't hold.
+    """
+    beyond = sorted(set(scope) - held)
+    if beyond:
+        raise PermissionDeniedError(f"You don't hold: {', '.join(beyond)}")
+
+
+def _extends_expiry(current: datetime | None, proposed: datetime | None) -> bool:
+    """Whether a proposed expiry gives the key more life than it has now."""
+    if current is None:
+        return False
+
+    return proposed is None or proposed > current
+
+
 class APIKeyService:
-    """Service for managing API keys, permissions, and usage tracking.
+    """Service for managing API keys, their scope, and usage tracking.
 
     Provides high-level operations for API key lifecycle management,
-    permission validation, usage tracking, and analytics.
+    validation, usage tracking, and analytics.
     """
 
     def __init__(self):
@@ -56,36 +78,32 @@ class APIKeyService:
         raw_key = secrets.token_urlsafe(self.key_length)
         prefix = raw_key[: self.key_prefix_length]
         api_key = f"fai_{prefix}_{raw_key[self.key_prefix_length :]}"
-        key_hash = self._hash_api_key(api_key)
 
-        return api_key, prefix, key_hash
+        return api_key, prefix, self._hash_api_key(api_key)
 
     def _hash_api_key(self, api_key: str) -> str:
-        """Hash an API key for storage using scrypt with a per-row salt.
+        """Hash an API key for storage.
 
-        Stored format: ``scrypt$N$r$p$salt_b64$derived_b64``. Non-deterministic;
-        DB lookup uses ``key_prefix`` (already indexed) instead of ``key_hash``.
+        Stored format: ``sha256$hexdigest``. A key is 256 bits of randomness from
+        ``secrets.token_urlsafe``, not a password, so it needs no salt and no work
+        factor: the digest is deterministic, which lets a request find its row by a
+        single indexed lookup on ``key_hash``.
         """
-        salt = secrets.token_bytes(16)
-        derived = hashlib.scrypt(
-            api_key.encode("utf-8"),
-            salt=salt,
-            n=_SCRYPT_N,
-            r=_SCRYPT_R,
-            p=_SCRYPT_P,
-            dklen=_SCRYPT_DKLEN,
-        )
-        salt_b64 = base64.b64encode(salt).decode("ascii")
-        derived_b64 = base64.b64encode(derived).decode("ascii")
-        return f"scrypt${_SCRYPT_N}${_SCRYPT_R}${_SCRYPT_P}${salt_b64}${derived_b64}"
+        digest = hashlib.sha256(api_key.encode("utf-8")).hexdigest()
+
+        return f"{SHA256_SCHEME}${digest}"
 
     def _verify_api_key(self, api_key: str, stored_hash: str) -> bool:
-        """Verify a candidate ``api_key`` against a stored scrypt hash."""
+        """Verify a candidate ``api_key`` against a hash an older version stored.
+
+        Only the ``scrypt$N$r$p$salt_b64$derived_b64`` form gets here: a key stored as a
+        digest is found by the lookup instead. Callers run it in a worker thread.
+        """
         try:
             scheme, n_str, r_str, p_str, salt_b64, derived_b64 = stored_hash.split("$", 5)
         except ValueError:
             return False
-        if scheme != "scrypt":
+        if scheme != SCRYPT_SCHEME:
             return False
         try:
             n = int(n_str)
@@ -110,6 +128,7 @@ class APIKeyService:
         user_id: int,
         key_data: APIKeyCreate,
         db: AsyncSession,
+        held: frozenset[str] = frozenset(),
     ) -> dict[str, Any]:
         """Create a new API key for a user.
 
@@ -117,10 +136,16 @@ class APIKeyService:
             user_id: User ID
             key_data: API key creation data
             db: Database session
+            held: The permissions the caller holds; the key's scope may name no other.
 
         Returns:
             Created API key with full key (only shown once)
+
+        Raises:
+            PermissionDeniedError: The scope names a permission the caller doesn't hold.
         """
+        _refuse_a_wider_scope(key_data.permissions, held)
+
         api_key, prefix, key_hash = self._generate_api_key()
 
         key_dict = key_data.model_dump()
@@ -168,8 +193,8 @@ class APIKeyService:
                 db=db,
                 limit=limit,
                 offset=offset,
-                sort_columns="created_at",
-                sort_orders="desc",
+                sort_columns=["created_at", "id"],
+                sort_orders=["desc", "desc"],
                 user_id=user_id,
                 is_active=True,
                 schema_to_select=APIKeyRead,
@@ -179,8 +204,8 @@ class APIKeyService:
                 db=db,
                 limit=limit,
                 offset=offset,
-                sort_columns="created_at",
-                sort_orders="desc",
+                sort_columns=["created_at", "id"],
+                sort_orders=["desc", "desc"],
                 user_id=user_id,
                 schema_to_select=APIKeyRead,
             )
@@ -221,6 +246,7 @@ class APIKeyService:
         user_id: int,
         update_data: APIKeyUpdate,
         db: AsyncSession,
+        held: frozenset[str] = frozenset(),
     ) -> dict[str, Any]:
         """Update an API key.
 
@@ -229,13 +255,26 @@ class APIKeyService:
             user_id: User ID (for ownership verification)
             update_data: Update data
             db: Database session
+            held: The permissions the caller holds; a new scope may name no other.
 
         Returns:
             Updated API key data
+
+        Raises:
+            PermissionDeniedError: A new scope names a permission the caller doesn't hold.
         """
-        await self.get_api_key(key_id=key_id, user_id=user_id, db=db)
+        if update_data.permissions is not None:
+            _refuse_a_wider_scope(update_data.permissions, held)
+
+        existing = await self.get_api_key(key_id=key_id, user_id=user_id, db=db)
 
         update_dict = update_data.model_dump(exclude_unset=True)
+
+        if update_dict.get("is_active") and not existing["is_active"]:
+            raise ValidationError("A revoked key cannot be reactivated. Create a new key instead.")
+
+        if "expires_at" in update_dict and _extends_expiry(existing["expires_at"], update_dict["expires_at"]):
+            raise ValidationError("An API key's expiry can be brought forward, never pushed back.")
         updated_key = await crud_api_keys.update(
             db=db,
             object=update_dict,
@@ -279,20 +318,16 @@ class APIKeyService:
     async def validate_api_key(
         self,
         api_key: str,
-        resource: str,
-        action: str,
         db: AsyncSession,
     ) -> APIKeyValidationResponse:
-        """Validate an API key and check permissions.
+        """Match an API key to a live key row, and report its owner and its scope.
 
         Args:
             api_key: API key to validate
-            resource: Resource being accessed
-            action: Action being performed
             db: Database session
 
         Returns:
-            Validation response with key details and permissions
+            Validation response with key details and the permission names it carries
         """
         prefix_start = len("fai_")
         prefix_end = prefix_start + self.key_prefix_length
@@ -303,15 +338,7 @@ class APIKeyService:
             )
         prefix = api_key[prefix_start:prefix_end]
 
-        result = await db.execute(select(APIKey).where(APIKey.key_prefix == prefix).execution_options(populate_existing=True))
-        candidates = result.scalars().all()
-
-        matched: APIKey | None = None
-        for candidate in candidates:
-            if self._verify_api_key(api_key, candidate.key_hash):
-                matched = candidate
-                break
-
+        matched = await self._row_for(api_key, prefix, db)
         if matched is None:
             return APIKeyValidationResponse(
                 is_valid=False,
@@ -332,19 +359,6 @@ class APIKeyService:
                 error_message="API key has expired",
             )
 
-        has_permission = await self._check_permission(
-            api_key_id=key["id"],
-            resource=resource,
-            action=action,
-            db=db,
-        )
-
-        if not has_permission:
-            return APIKeyValidationResponse(
-                is_valid=False,
-                error_message=f"No permission for {action} on {resource}",
-            )
-
         await crud_api_keys.update(
             db=db,
             object={
@@ -360,6 +374,40 @@ class APIKeyService:
             permissions=key["permissions"],
             usage_limits=key["usage_limits"],
         )
+
+    async def _row_for(self, api_key: str, prefix: str, db: AsyncSession) -> APIKey | None:
+        """The key row ``api_key`` belongs to, or ``None``.
+
+        A digest finds its row through the unique index on ``key_hash``. A row an older
+        version stored as scrypt is found by prefix and verified, then rewritten as a
+        digest, so each of those keys pays for scrypt once.
+        """
+        stored = await db.execute(
+            select(APIKey).where(APIKey.key_hash == self._hash_api_key(api_key)).execution_options(populate_existing=True)
+        )
+        matched = stored.scalar_one_or_none()
+        if matched is not None:
+            return matched
+
+        return await self._rehashed(api_key, prefix, db)
+
+    async def _rehashed(self, api_key: str, prefix: str, db: AsyncSession) -> APIKey | None:
+        """The key row holding a scrypt hash of ``api_key``, rewritten as a digest."""
+        legacy = await db.execute(
+            select(APIKey)
+            .where(APIKey.key_prefix == prefix, APIKey.key_hash.startswith(f"{SCRYPT_SCHEME}$"))
+            .execution_options(populate_existing=True)
+        )
+        for candidate in legacy.scalars().all():
+            if await anyio.to_thread.run_sync(self._verify_api_key, api_key, candidate.key_hash):
+                candidate.key_hash = self._hash_api_key(api_key)
+                await db.commit()
+                await db.refresh(candidate)
+                logger.info(f"Rehashed API key {candidate.id} from scrypt to sha256")
+
+                return candidate
+
+        return None
 
     async def record_usage(
         self,
@@ -422,8 +470,8 @@ class APIKeyService:
             db=db,
             limit=limit,
             offset=offset,
-            sort_columns="created_at",
-            sort_orders="desc",
+            sort_columns=["created_at", "id"],
+            sort_orders=["desc", "desc"],
             api_key_id=key_id,
             schema_to_select=KeyUsageRead,
         )
@@ -564,69 +612,3 @@ class APIKeyService:
         stmt = select(func.count(), func.count().filter(APIKey.is_active)).where(APIKey.user_id == user_id)
         total, active = (await db.execute(stmt)).one()
         return int(total), int(active)
-
-    async def _check_permission(
-        self,
-        api_key_id: int,
-        resource: str,
-        action: str,
-        db: AsyncSession,
-    ) -> bool:
-        """Check if an API key has permission for a resource/action.
-
-        Args:
-            api_key_id: API key ID
-            resource: Resource type
-            action: Action type
-            db: Database session
-
-        Returns:
-            True if permission granted, False otherwise
-        """
-        resource_enum = None
-        action_enum = None
-
-        try:
-            resource_enum = KeyPermissionResource(resource)
-        except ValueError:
-            pass
-
-        try:
-            action_enum = KeyPermissionAction(action)
-        except ValueError:
-            pass
-
-        permission = None
-        if resource_enum and action_enum:
-            permission = await crud_key_permissions.get(
-                db=db,
-                api_key_id=api_key_id,
-                resource=resource_enum,
-                action=action_enum,
-            )
-
-        if not permission and action_enum:
-            permission = await crud_key_permissions.get(
-                db=db,
-                api_key_id=api_key_id,
-                resource=KeyPermissionResource.WILDCARD,
-                action=action_enum,
-            )
-
-        if not permission and resource_enum:
-            permission = await crud_key_permissions.get(
-                db=db,
-                api_key_id=api_key_id,
-                resource=resource_enum,
-                action=KeyPermissionAction.WILDCARD,
-            )
-
-        if not permission:
-            permission = await crud_key_permissions.get(
-                db=db,
-                api_key_id=api_key_id,
-                resource=KeyPermissionResource.WILDCARD,
-                action=KeyPermissionAction.WILDCARD,
-            )
-
-        return permission["is_allowed"] if permission else False

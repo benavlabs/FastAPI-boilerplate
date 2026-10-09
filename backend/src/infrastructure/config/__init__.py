@@ -1,12 +1,16 @@
-from .enums import CacheBackend, LogFormat, LogLevel, SessionBackend, TaskiqBrokerType
-from .settings import get_settings, settings
+"""Configuration.
+
+Import settings from ``.settings``. This package init stays import-light because
+every feature's settings module imports ``.base`` while the wiring composes them.
+"""
+
+from .enums import CacheBackend, LogFormat, LogLevel, RateLimiterBackend, SessionBackend, TaskiqBrokerType
 
 __all__ = [
-    "settings",
-    "get_settings",
     "CacheBackend",
+    "LogFormat",
+    "LogLevel",
+    "RateLimiterBackend",
     "SessionBackend",
     "TaskiqBrokerType",
-    "LogLevel",
-    "LogFormat",
 ]

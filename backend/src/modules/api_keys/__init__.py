@@ -5,16 +5,15 @@ for developer-facing products and API-first business models.
 
 Key Features:
 - Secure API key generation and storage
-- Permission-based access control
+- A scope of registry permission names per key
 - Usage tracking per API key
 - Key rotation and revocation
 - Analytics and usage reporting
-- Granular permissions system
 """
 
-from .crud import crud_api_keys, crud_key_permissions, crud_key_usage
-from .enums import HTTPMethod, KeyPermissionAction, KeyPermissionResource, KeyStatus, KeyType
-from .models import APIKey, KeyPermission, KeyUsage
+from .crud import crud_api_keys, crud_key_usage
+from .enums import HTTPMethod, KeyStatus, KeyType
+from .models import APIKey, KeyUsage
 from .schemas import (
     APIKeyBase,
     APIKeyCreate,
@@ -23,11 +22,6 @@ from .schemas import (
     APIKeyUpdate,
     APIKeyValidationRequest,
     APIKeyValidationResponse,
-    APIKeyWithPermissions,
-    KeyPermissionBase,
-    KeyPermissionCreate,
-    KeyPermissionRead,
-    KeyPermissionUpdate,
     KeyUsageAnalytics,
     KeyUsageBase,
     KeyUsageCreate,
@@ -40,7 +34,6 @@ __all__ = [
     # Models
     "APIKey",
     "KeyUsage",
-    "KeyPermission",
     # Schemas
     "APIKeyBase",
     "APIKeyCreate",
@@ -50,11 +43,6 @@ __all__ = [
     "KeyUsageBase",
     "KeyUsageCreate",
     "KeyUsageRead",
-    "KeyPermissionBase",
-    "KeyPermissionCreate",
-    "KeyPermissionRead",
-    "KeyPermissionUpdate",
-    "APIKeyWithPermissions",
     "KeyUsageAnalytics",
     "UserAPIKeySummary",
     "APIKeyValidationRequest",
@@ -62,13 +50,10 @@ __all__ = [
     # CRUD
     "crud_api_keys",
     "crud_key_usage",
-    "crud_key_permissions",
     # Service
     "APIKeyService",
     # Enums
     "HTTPMethod",
-    "KeyPermissionAction",
-    "KeyPermissionResource",
     "KeyStatus",
     "KeyType",
 ]

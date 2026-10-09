@@ -12,6 +12,7 @@ from pathlib import Path
 
 import typer
 
+from ..features._builtins.deploy.feature import DEFAULT_INTERNAL_SUBNET
 from ..features.installer import FeatureInstaller
 from ..features.registry import get_feature
 from ..lib.project import discover_project
@@ -41,6 +42,11 @@ def generate(
     ),
     api_port: int = typer.Option(8000, "--api-port", help="Host port to publish the API on."),
     workers: int = typer.Option(4, "--workers", help="Number of API workers (prod / nginx only)."),
+    internal_subnet: str = typer.Option(
+        DEFAULT_INTERNAL_SUBNET,
+        "--internal-subnet",
+        help="Subnet for the compose network, and the only peers uvicorn takes forwarded headers from (nginx only).",
+    ),
     force: bool = typer.Option(False, "--force", "-f", help="Overwrite existing files without asking."),
     yes: bool = typer.Option(False, "--yes", "-y", help="Assume yes for all prompts."),
     dry_run: bool = typer.Option(False, "--dry-run", help="Show what would be written, don't touch disk."),
@@ -53,7 +59,8 @@ def generate(
         raise typer.Exit(code=1)
 
     target_root = (output_dir or project.repo_root).resolve()
-    target_root.mkdir(parents=True, exist_ok=True)
+    if not dry_run:
+        target_root.mkdir(parents=True, exist_ok=True)
 
     params: dict = {
         "mode": mode.value,
@@ -63,8 +70,13 @@ def generate(
     }
     if mode == DeployMode.nginx:
         params["nginx_conf_target"] = target_root / "nginx" / "default.conf"
+        params["internal_subnet"] = internal_subnet
 
-    plan = feature.plan(params, project)
+    try:
+        plan = feature.plan(params, project)
+    except ValueError as failure:
+        error(f"--internal-subnet: {failure}")
+        raise typer.Exit(code=1) from failure
 
     installer = FeatureInstaller(dry_run=dry_run, assume_yes=force or yes)
     info(f"deploy: generating '{mode.value}' compose for {project.repo_root}")
@@ -82,10 +94,13 @@ def generate(
     info("done. Next steps:")
     if mode == DeployMode.local:
         info("  docker compose up --build")
-    elif mode == DeployMode.prod:
-        info("  cp backend/.env.example backend/.env  # if you haven't already")
-        info("  docker compose up -d --build")
-    else:
-        info("  cp backend/.env.example backend/.env  # if you haven't already")
-        info("  docker compose up -d --build")
-        info("  curl -i http://localhost/api/v1/health")
+        return
+
+    info("  cp backend/.env.example backend/.env  # if you haven't already")
+    info("  # with migrations/versions empty, generate and commit the baseline first:")
+    info("  #   cd backend && alembic revision --autogenerate -m baseline")
+    info("  docker compose build")
+    info("  docker compose --profile migrate run --rm migrate")
+    info("  docker compose up -d")
+    if mode == DeployMode.nginx:
+        info("  curl -i http://localhost/health/ready")

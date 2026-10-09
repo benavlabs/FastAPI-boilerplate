@@ -1,10 +1,13 @@
 """Google sign-in through crudauth's OAuth router, as the app mounts it."""
 
+from typing import Any
 from urllib.parse import parse_qs, urlparse
 
+import httpx
 import pytest
+from fastapi.routing import APIRoute
 from httpx import AsyncClient
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.infrastructure.auth.setup import auth
@@ -17,6 +20,7 @@ pytestmark = pytest.mark.asyncio
 
 BASE = settings.OAUTH_REDIRECT_BASE_URL.rstrip("/")
 CALLBACK = f"{BASE}/api/v1/auth/oauth/callback/google"
+GITHUB_CALLBACK = f"{BASE}/api/v1/auth/oauth/callback/github"
 
 
 def _stub_google(monkeypatch, profile: dict) -> None:
@@ -43,7 +47,7 @@ async def _start(client: AsyncClient, **params) -> str:
 async def test_google_is_told_to_return_to_the_route_that_serves_the_callback():
     """The URI Google redirects to must be one the app actually routes."""
     assert auth.oauth_providers["google"].redirect_uri == CALLBACK
-    assert "/api/v1/auth/oauth/callback/{provider}" in {route.path for route in app.routes}
+    assert "/api/v1/auth/oauth/callback/{provider}" in {route.path for route in app.routes if isinstance(route, APIRoute)}
 
 
 async def test_authorize_sends_the_browser_to_google_with_pkce(client: AsyncClient):
@@ -190,21 +194,28 @@ async def test_a_provider_error_sends_the_browser_back_with_an_error(client: Asy
 
 
 async def test_the_auth_paths_keep_their_existing_contract():
-    """The migration to crudauth must not move the URLs clients already call."""
-    paths = {route.path for route in app.routes}
+    """The migration to crudauth must not move the URLs clients already call.
+
+    ``/refresh-csrf`` is the one that moved, to crudauth's ``/csrf/refresh`` when the
+    session-management routes were adopted.
+    """
+    paths = {route.path for route in app.routes if isinstance(route, APIRoute)}
 
     for path in (
         "/api/v1/auth/login",
         "/api/v1/auth/logout",
         "/api/v1/auth/logout-all",
-        "/api/v1/auth/refresh-csrf",
+        "/api/v1/auth/csrf/refresh",
         "/api/v1/auth/check-auth",
         "/api/v1/auth/oauth/{provider}",
         "/api/v1/auth/oauth/callback/{provider}",
     ):
         assert path in paths
 
+    assert "/api/v1/auth/refresh-csrf" not in paths
 
+
+@pytest.mark.usefixtures("fresh_login_lockout")
 async def test_a_provider_login_claims_an_account_that_was_signed_up_for(
     client: AsyncClient, db_session: AsyncSession, monkeypatch
 ):
@@ -252,3 +263,206 @@ async def test_a_provider_login_claims_an_account_that_was_signed_up_for(
     await db_session.refresh(claimed)
     assert claimed.google_id == "google-ada"
     assert claimed.email_verified is True
+
+
+@pytest.mark.usefixtures("fresh_login_lockout")
+async def test_a_provider_login_claims_an_account_whose_address_was_changed(
+    client: AsyncClient, db_session: AsyncSession, test_user: dict, monkeypatch
+):
+    """Moving a verified account onto someone else's address must not carry the trust over.
+
+    The owner cannot move it at all through their profile; an administrator can, and the
+    move clears the verification, so a provider login for the new address claims the
+    account rather than inheriting the old address's trust.
+    """
+    await db_session.execute(update(User).where(User.id == test_user["id"]).values(email_verified=True))
+    await db_session.commit()
+
+    login = await client.post(
+        "/api/v1/auth/login",
+        data={"username": test_user["username"], "password": test_user["password"]},
+    )
+    assert login.status_code == 200
+
+    with_a_session_alone = await client.patch(
+        f"/api/v1/users/{test_user['username']}",
+        json={"email": "victim@example.com"},
+        headers={"X-CSRF-Token": login.json()["csrf_token"]},
+    )
+    assert with_a_session_alone.status_code == 422
+
+    await db_session.execute(
+        update(User).where(User.id == test_user["id"]).values(email="victim@example.com", email_verified=False)
+    )
+    await db_session.commit()
+    assert (await client.get("/api/v1/users/me")).status_code == 200
+    old_session = dict(client.cookies)
+    client.cookies.clear()
+
+    _stub_google(
+        monkeypatch,
+        {"sub": "google-victim", "email": "victim@example.com", "email_verified": True, "name": "Victim"},
+    )
+    state = await _start(client)
+    callback = await client.get(
+        "/api/v1/auth/oauth/callback/google",
+        params={"code": "the-code", "state": state},
+        follow_redirects=False,
+    )
+    assert callback.status_code == 307
+    client.cookies.clear()
+
+    for name, value in old_session.items():
+        client.cookies.set(name, value)
+    with_the_old_session = await client.get("/api/v1/users/me")
+    client.cookies.clear()
+
+    refused = await client.post(
+        "/api/v1/auth/login",
+        data={"username": test_user["username"], "password": test_user["password"]},
+    )
+
+    assert with_the_old_session.status_code == 401
+    assert refused.status_code == 401
+    claimed = (await db_session.execute(select(User).where(User.id == test_user["id"]))).scalar_one()
+    await db_session.refresh(claimed)
+    assert claimed.google_id == "google-victim"
+
+
+class TestASoftDeletedAccount:
+    """``User.is_active`` is ``not is_deleted``, and crudauth refuses an inactive account."""
+
+    @staticmethod
+    async def _sign_in_as(client: AsyncClient, monkeypatch, email: str) -> str:
+        _stub_google(
+            monkeypatch,
+            {"sub": "google-deleted", "email": email, "email_verified": True, "name": "Deleted Person"},
+        )
+        state = await _start(client)
+        callback = await client.get(
+            "/api/v1/auth/oauth/callback/google",
+            params={"code": "the-code", "state": state},
+            follow_redirects=False,
+        )
+
+        assert callback.status_code == 307
+        assert "session_id" not in callback.cookies
+
+        return callback.headers["location"]
+
+    async def test_a_provider_sign_in_is_refused_and_claims_nothing(
+        self, client: AsyncClient, db_session: AsyncSession, test_user: dict, monkeypatch
+    ):
+        """Linking the provider id onto a deleted row would hand the account to whoever signs in."""
+        await db_session.execute(update(User).where(User.id == test_user["id"]).values(is_deleted=True))
+        await db_session.commit()
+
+        location = await self._sign_in_as(client, monkeypatch, test_user["email"])
+
+        assert location == f"{BASE}?error=account_inactive"
+        refused = await db_session.get_one(User, test_user["id"])
+        await db_session.refresh(refused)
+        assert refused.google_id is None
+        assert refused.oauth_provider is None
+
+    async def test_the_refused_sign_in_leaves_the_row_as_it_was(
+        self, client: AsyncClient, db_session: AsyncSession, test_user: dict, monkeypatch
+    ):
+        """An unverified address stays unverified, and the password still signs in once restored."""
+        await db_session.execute(update(User).where(User.id == test_user["id"]).values(is_deleted=True))
+        await db_session.commit()
+
+        await self._sign_in_as(client, monkeypatch, test_user["email"])
+
+        untouched = await db_session.get_one(User, test_user["id"])
+        await db_session.refresh(untouched)
+        assert untouched.email_verified is False
+        assert untouched.email == test_user["email"]
+
+        await db_session.execute(update(User).where(User.id == test_user["id"]).values(is_deleted=False))
+        await db_session.commit()
+        signed_in = await client.post(
+            "/api/v1/auth/login",
+            data={"username": test_user["username"], "password": test_user["password"]},
+        )
+
+        assert signed_in.status_code == 200
+
+
+def _stub_github_http(monkeypatch, profile: dict[str, Any], emails: list[dict[str, Any]]) -> None:
+    """Answer GitHub's token, profile and email endpoints without leaving the process.
+
+    crudauth's GitHub provider opens its own ``httpx.AsyncClient``, so the client class is
+    what gets replaced: every request it makes is served from here.
+    """
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/access_token"):
+            return httpx.Response(200, json={"access_token": "github-access-token", "token_type": "bearer"})
+        if request.url.path.endswith("/user/emails"):
+            return httpx.Response(200, json=emails)
+        if request.url.path.endswith("/user"):
+            return httpx.Response(200, json=profile)
+
+        raise AssertionError(f"the provider asked for {request.url}")
+
+    opened = httpx.AsyncClient
+
+    def answered(*arguments: Any, **keywords: Any) -> httpx.AsyncClient:
+        return opened(transport=httpx.MockTransport(respond))
+
+    monkeypatch.setattr(httpx, "AsyncClient", answered)
+
+
+async def _sign_in_with_github(client: AsyncClient) -> httpx.Response:
+    state = await client.get("/api/v1/auth/oauth/github", follow_redirects=False)
+    assert state.status_code == 307
+    echoed = parse_qs(urlparse(state.headers["location"]).query)["state"][0]
+
+    return await client.get(
+        "/api/v1/auth/oauth/callback/github",
+        params={"code": "the-code", "state": echoed},
+        follow_redirects=False,
+    )
+
+
+async def test_github_is_wired_alongside_google(client: AsyncClient):
+    assert set(auth.oauth_providers) == {"google", "github"}
+    assert auth.oauth_providers["github"].redirect_uri == GITHUB_CALLBACK
+
+
+async def test_a_github_sign_in_creates_the_account_from_its_verified_address(
+    client: AsyncClient, db_session: AsyncSession, monkeypatch
+):
+    _stub_github_http(
+        monkeypatch,
+        {"id": 4242, "login": "ada", "name": "Ada Lovelace", "avatar_url": "https://avatars/ada"},
+        [{"email": "ada@example.com", "primary": True, "verified": True}],
+    )
+
+    callback = await _sign_in_with_github(client)
+
+    assert callback.status_code == 307
+    assert "session_id" in callback.cookies
+    signed_in = (await db_session.execute(select(User).where(User.email == "ada@example.com"))).scalar_one()
+    await db_session.refresh(signed_in)
+    assert signed_in.github_id == "4242"
+    assert signed_in.oauth_provider == "github"
+    assert signed_in.email_verified is True
+
+
+async def test_an_address_github_never_verified_is_refused(client: AsyncClient, db_session: AsyncSession, monkeypatch):
+    """An unverified primary address cannot vouch for an account, so none is created."""
+    _stub_github_http(
+        monkeypatch,
+        {"id": 5151, "login": "grace", "name": "Grace Hopper", "avatar_url": "https://avatars/grace"},
+        [{"email": "grace@example.com", "primary": True, "verified": False}],
+    )
+
+    callback = await _sign_in_with_github(client)
+
+    assert callback.status_code == 307
+    assert callback.headers["location"] == f"{BASE}?error=email_unverified"
+    assert "session_id" not in callback.cookies
+    refused = (await db_session.execute(select(User).where(User.email == "grace@example.com"))).scalar_one_or_none()
+    assert refused is None

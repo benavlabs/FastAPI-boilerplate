@@ -14,7 +14,7 @@ Before diving deeper, verify everything is working.
     docker compose ps
     ```
 
-    You should see `web`, `db`, and `redis` services in `running` state.
+    You should see the `api`, `worker`, `postgres` and `redis` services in `running` state.
 
 === "Local with uv"
 
@@ -53,7 +53,7 @@ Check that tables were created:
 === "Docker Compose"
 
     ```bash
-    docker compose exec db psql -U postgres -d postgres -c "\dt"
+    docker compose exec postgres psql -U postgres -d postgres -c "\dt"
     ```
 
 === "Local with uv"
@@ -62,14 +62,14 @@ Check that tables were created:
     psql -h localhost -U postgres -d postgres -c "\dt"
     ```
 
-You should see tables like `user`, `tiers`, `rate_limits`, `api_keys`, `key_usage`, `key_permissions`.
+You should see tables like `user`, `tiers`, `rate_limits`, `api_keys`, `key_usage`.
 
 ## Initial Setup
 
 Create the first admin user and the default tier.
 
 !!! warning "Prerequisites"
-    Make sure the database tables are created before running this. With `CREATE_TABLES_ON_STARTUP=true` (default), this happens automatically the first time the app boots.
+    Make sure the database tables are created before running this. With `CREATE_TABLES_ON_STARTUP=true` (the default in local and development), this happens automatically the first time the app boots.
 
 ### Create Admin User and Default Tier
 
@@ -78,14 +78,14 @@ The admin credentials come from `ADMIN_NAME`, `ADMIN_EMAIL`, `ADMIN_USERNAME`, a
 === "Docker Compose"
 
     ```bash
-    docker compose exec web python -m scripts.setup_initial_data
+    docker compose exec api python -m scripts.setup_initial_data
     ```
 
 === "Local with uv"
 
     ```bash
     cd backend
-    uv run python -m scripts.setup_initial_data
+    uv run --no-sync python -m scripts.setup_initial_data
     ```
 
 This creates:
@@ -161,12 +161,18 @@ curl -X POST "http://localhost:8000/api/v1/api-keys/" \
   -b cookies.txt \
   -d '{
     "name": "My Integration Key",
-    "permissions": {},
+    "permissions": ["user.read"],
     "usage_limits": {}
   }'
 ```
 
 ⚠️ **The full API key is shown once in the response.** Store it securely.
+
+Call with it in the `X-API-Key` header, which authenticates the request as the key's owner:
+
+```bash
+curl http://localhost:8000/api/v1/auth/me -H "X-API-Key: fai_..."
+```
 
 List your keys:
 
@@ -204,7 +210,7 @@ To start a worker locally:
 
 ```bash
 cd backend
-uv run taskiq worker infrastructure.taskiq.worker:default_broker
+uv run --no-sync taskiq worker src.infrastructure.taskiq.worker:default_broker
 ```
 
 ## Adding Your First Feature Module
@@ -220,7 +226,7 @@ For a step-by-step walkthrough of adding a new module, see the [Development Guid
 === "Docker Compose"
 
     ```bash
-    docker compose logs -f web
+    docker compose logs -f api
     ```
 
 === "Local with uv"
@@ -230,7 +236,7 @@ For a step-by-step walkthrough of adding a new module, see the [Development Guid
 ### Database Logs
 
 ```bash
-docker compose logs -f db
+docker compose logs -f postgres
 ```
 
 ### Run Migrations Manually
@@ -239,7 +245,7 @@ If you need to re-run migrations:
 
 ```bash
 cd backend
-uv run alembic upgrade head
+uv run --no-sync alembic upgrade head
 ```
 
 ### Reset Everything (Docker)

@@ -364,25 +364,22 @@ async def user_lifecycle(db: AsyncSession) -> None:
 
 ## Error Handling
 
-Domain errors live in `modules/common/exceptions.py` (`UserExistsError`, `UserNotFoundError`, `ResourceNotFoundError`, `PermissionDeniedError`, etc.). Routes catch them and translate to HTTP errors via `modules/common/utils/error_handler.handle_exception`.
+The shared shapes live in `modules/common/exceptions.py` (`ResourceNotFoundError`,
+`ResourceExistsError`, `ValidationError`, `PermissionDeniedError`, `PersistenceError`), and each
+feature subclasses them (`UserExistsError`, `TierNotFoundError`, …). A service raises:
 
 ```python
 async def create(self, user: UserCreate, db: AsyncSession) -> dict[str, Any]:
-    if await crud_users.exists(db=db, email=user.email):
+    if await crud_users.exists(db=db, email=canonical_email(user.email)):
         raise UserExistsError("Email already registered")
     # ... create user ...
 ```
 
-The route then:
+The route needs no error code at all — the app's `DomainError` handler maps the exception to its
+status and answers with the message the exception chose:
 
 ```python
-try:
-    return await user_service.create(user, db)
-except Exception as e:
-    http_exc = handle_exception(e)
-    if http_exc:
-        raise http_exc
-    raise HTTPException(status_code=500, detail="An unexpected error occurred")
+return await user_service.create(user, db)
 ```
 
 ## Performance Tips

@@ -11,7 +11,7 @@ All under `/api/v1/users/` (defined in `modules/user/routes.py`):
 | `POST` | `/api/v1/users/` | Create a new user | Open |
 | `GET` | `/api/v1/users/` | Paginated list of users | Superuser |
 | `GET` | `/api/v1/users/me` | Current user's profile | Session |
-| `GET` | `/api/v1/users/{username}` | Public profile by username (no email) | Session |
+| `GET` | `/api/v1/users/{username}` | Public profile by username (display fields only) | Session |
 | `GET` | `/api/v1/users/active-and-inactive/{username}` | Same as above, includes soft-deleted | Superuser |
 | `PATCH` | `/api/v1/users/{username}` | Update profile (own or admin) | Session |
 | `DELETE` | `/api/v1/users/{username}` | Soft-delete a user (own or admin) | Session |
@@ -39,7 +39,9 @@ curl -X POST http://localhost:8000/api/v1/users/ \
 
 The route delegates to `UserService.create`, which:
 
-1. Checks `email` is unique → raises `UserExistsError` if not (→ 409)
+1. Checks `email` is unique → raises `UserExistsError` if not (→ 409). Addresses are stored
+   trimmed and lowercased, and `ix_user_email_lower` keeps the database from holding the same
+   address twice in different case even when a write goes around the service
 2. Checks `username` is unique → raises `UserExistsError` if not (→ 409)
 3. Hashes the password with bcrypt via `get_password_hash`
 4. Builds a `UserCreateInternal` (schema with `hashed_password` instead of `password`)
@@ -167,11 +169,31 @@ async def verify_update_permission(
     raise PermissionDeniedError("You don't have permission to update profile on this user")
 ```
 
-A `user.update` holder who isn't a superuser is then held to `verify_no_privilege_escalation`: the target must not be a superuser, must hold no permission the requester lacks, and its email address can't be changed — a verified provider email is how an OAuth login is matched to an account, so only a superuser may change someone else's. See [Permissions](permissions.md#resource-ownership).
+A `user.update` holder who isn't a superuser is then held to `verify_no_privilege_escalation`: the target must not be a superuser and must hold no permission the requester lacks. See [Permissions](permissions.md#resource-ownership).
 
-If the body changes `username` or `email`, the service also re-checks uniqueness.
+If the body changes `username`, the service re-checks uniqueness.
 
-The `UserUpdate` schema makes every field optional so clients can send partial updates. The OAuth identifiers and the verification flag are not part of it — they live on `UserAdminUpdate`, which the admin panel uses, so sending them here returns 422:
+#### Changing your email address
+
+Not here: the address is not a field of this route, and sending one answers `422`. An account moves
+its address through the confirmed flow, which emails the **new** address a link and tells the **old**
+one once it is used:
+
+```bash
+curl -X POST http://localhost:8000/api/v1/auth/email/change-request \
+  -b cookies.txt \
+  -H "Content-Type: application/json" \
+  -H "X-CSRF-Token: <token>" \
+  -d '{"new_email": "new@example.com", "password": "<current password>"}'
+```
+
+See [Recovery Flows](index.md#recovery-flows-email). The admin panel is the other way in: its form
+is built from `UserAdminUpdate`, which does carry `email` (along with the OAuth identifiers and the
+verification flag), so an administrator can correct an address without the owner confirming it.
+
+The `UserUpdate` schema makes every field optional so clients can send partial updates. The address,
+the OAuth identifiers and the verification flag are not part of it, so sending any of them returns
+422:
 
 ```python
 from .constants import NAME_MAX_LENGTH, USERNAME_MAX_LENGTH, USERNAME_PATTERN
@@ -185,7 +207,6 @@ class UserUpdate(BaseModel):
         str | None,
         Field(min_length=2, max_length=USERNAME_MAX_LENGTH, pattern=USERNAME_PATTERN, default=None),
     ]
-    email: Annotated[EmailStr | None, Field(default=None)]
     profile_image_url: Annotated[
         str | None,
         Field(pattern=r"^(https?|ftp)://[^\s/$.?#].[^\s]*$", default=None),
@@ -248,7 +269,21 @@ async def anonymize_user(self, user_id: int, db: AsyncSession) -> None:
     await crud_users.delete(db=db, id=user_id)
 ```
 
-Email is intentionally retained for legal compliance purposes (audit trail, "right to be forgotten" doesn't always apply if the platform is required to keep records).
+Email is intentionally retained for legal compliance purposes (audit trail, "right to be
+forgotten" doesn't always apply if the platform is required to keep records).
+
+Keeping it also **retires the address**: the row holds it, soft-deleted, so
+
+- signing up with it again answers `409` — the row still owns the address, and
+  `ix_user_email_lower` owns it case-insensitively;
+- a verification or password-reset request for it sends nothing and answers exactly as it does for
+  an address with no account, because the row is inactive (`is_active` is `not is_deleted`);
+- an OAuth sign-in with it is refused with `account_inactive` and links nothing, so a provider
+  account can't claim the retired row.
+
+Nobody inherits the address, and nothing can be delivered to it. If a person has to be able to
+sign up again with the same address, clear the row's `email` yourself as part of the request — at
+which point the anonymized row no longer records who it was.
 
 ## Administrative Operations
 
@@ -314,6 +349,9 @@ The actual model lives in `modules/user/models.py`. Trimmed:
 ```python
 class User(Base, TimestampMixin, SoftDeleteMixin):
     __tablename__ = "user"
+    __table_args__ = (
+        Index("ix_user_email_lower", text("lower(email)"), unique=True),
+    )
 
     id: Mapped[int] = mapped_column(
         "id", autoincrement=True, nullable=False,

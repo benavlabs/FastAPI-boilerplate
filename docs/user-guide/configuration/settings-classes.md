@@ -62,13 +62,13 @@ The actual classes that ship with the boilerplate, all in `src/infrastructure/co
 | `RateLimiterSettings` | `RATE_LIMITER_*` (Redis + Memcached + defaults) |
 | `CORSSettings` | `CORS_*` |
 | `CompressionSettings` | `GZIP_*` |
-| `APIDocSettings` | `ENABLE_DOCS_IN_PRODUCTION`, `OPENAPI_PREFIX` |
+| `APIDocSettings` | `ENABLE_DOCS_IN_PRODUCTION`, `OPENAPI_PREFIX`, `DOCS_URL`, `REDOC_URL`, `OPENAPI_URL`, and the `API_*` document metadata (title, summary, description, version, terms, contact, licence, tags) |
 | `AuthSettings` | `SECRET_KEY`, `SESSION_*`, `CSRF_ENABLED`, `TRUSTED_PROXY_HOPS`, `OAUTH_*` |
-| `APISettings` | API path overrides (`API_PREFIX`, `DOCS_URL`, `REDOC_URL`) |
-| `AppSettings` | `APP_NAME`, `APP_DESCRIPTION`, `VERSION`, `DEBUG`, contact info |
+| `APISettings` | `API_PREFIX` |
+| `AppSettings` | `APP_NAME`, `APP_DESCRIPTION`, `VERSION`, `DEBUG` |
 | `AdminSettings` | `ADMIN_NAME`, `ADMIN_EMAIL`, `ADMIN_USERNAME`, `ADMIN_PASSWORD`, `DEFAULT_TIER_NAME` |
 | `SQLAdminSettings` | `ADMIN_ENABLED` |
-| `SecuritySettings` | `PRODUCTION_SECURITY_VALIDATION_ENABLED`, `PRODUCTION_SECURITY_STRICT_MODE` |
+| `SecuritySettings` | `SECRET_KEY`, `PRODUCTION_SECURITY_VALIDATION_ENABLED`, `SECURITY_HEADERS_ENABLED` |
 | `LoggingSettings` | All `LOG_*` |
 | `TaskiqSettings` | `TASKIQ_*` (Redis + RabbitMQ + worker tuning) |
 
@@ -86,7 +86,9 @@ class DatabaseSettings(BaseSettings):
     POSTGRES_PORT: int = config("POSTGRES_PORT", default=5432)
     POSTGRES_DB: str = config("POSTGRES_DB", default="postgres")
     POSTGRES_ASYNC_PREFIX: str = config("POSTGRES_ASYNC_PREFIX", default="postgresql+asyncpg://")
-    CREATE_TABLES_ON_STARTUP: bool = config("CREATE_TABLES_ON_STARTUP", default=True, cast=bool)
+    CREATE_TABLES_ON_STARTUP: bool = config(
+        "CREATE_TABLES_ON_STARTUP", default=_creates_tables_by_default(), cast=bool
+    )
     POSTGRES_POOL_SIZE: int = config("POSTGRES_POOL_SIZE", default=20, cast=int)
 
     @property
