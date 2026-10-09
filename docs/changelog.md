@@ -12,7 +12,7 @@ ___
 
 Every feature in the boilerplate can now be removed: its routes, models, settings, admin views,
 seeders and tests come out together, and the project still imports, lints, type-checks and passes
-the remaining tests. `tools/removal_drill.py` proves it for seven presets, and CI runs them as a
+the remaining tests. `tools/removal_drill.py` proves it for eight presets, and CI runs them as a
 matrix. The round that followed fixed what a re-review of the refactor found.
 
 ---
@@ -199,8 +199,8 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   session principal and nothing else, but every configured transport's cookies are now cleared and
   the `on_after_logout` hook runs, naming the ended session by its handle. The hand-written version
   ran no hook, so an `AuthHooks(on_after_logout=…)` an app registered saw every logout but this one.
-- **API keys are hashed with SHA-256**, as `sha256$<digest>` of the key. A key is 256 bits from
-  `secrets.token_urlsafe`, not a password, so a salted work factor bought nothing and cost a scrypt
+- **API keys are hashed with SHA-256**, as `sha256$<digest>` of the key. A key is 384 bits from
+  `secrets.token_urlsafe(48)`, not a password, so a salted work factor bought nothing and cost a scrypt
   derivation per request — which anyone holding a key prefix, and listings show them, could make the
   server pay on junk. A request now finds its row through one indexed lookup on `key_hash`. A key
   stored with the old `scrypt$…` hash still authenticates, through the prefix lookup and the same

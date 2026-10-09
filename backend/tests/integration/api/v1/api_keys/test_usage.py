@@ -16,7 +16,6 @@ from src.modules.api_keys.schemas import APIKeyCreate
 from src.modules.api_keys.service import APIKeyService
 from src.modules.api_keys.transport import API_KEY_HEADER
 from src.modules.user.service import UserService
-from tests.integration.rbac.test_user_permissions import _grant
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.usefixtures("usage_through_the_test_database")]
 
@@ -101,13 +100,33 @@ class TestTheUsageRow:
     async def test_it_records_the_real_status_of_a_refusal(
         self, client: AsyncClient, db_session: AsyncSession, test_user: dict
     ):
-        """A row that always said 200 would make a key's failures invisible."""
+        """A row that always said 200 would make a key's failures invisible.
+
+        An unscoped key reaches the route and is refused by its own scope, so the key is
+        authenticated and the refusal is its own.
+        """
+        key = await _key(db_session, test_user["id"])
+
+        refused = await client.get("/api/v1/users/", headers=_with(key))
+
+        assert refused.status_code == 403
+        assert [row.status_code for row in await _rows(db_session, key["id"])] == [403]
+
+    async def test_a_session_only_route_refuses_a_key_whatever_it_records(
+        self, client: AsyncClient, db_session: AsyncSession, test_user: dict
+    ):
+        """The answer is what holds everywhere; the row is not asserted, because it varies.
+
+        A session-only route tries the session transport alone, so nothing there resolves
+        the key — unless something else on the route resolves every transport first, which
+        the API throttle does when that feature is present. So a row may or may not be
+        written, and this asserts only the refusal.
+        """
         key = await _key(db_session, test_user["id"])
 
         refused = await client.get("/api/v1/api-keys/", headers=_with(key))
 
         assert refused.status_code == 401
-        assert [row.status_code for row in await _rows(db_session, key["id"])] == [401]
 
     async def test_a_session_request_records_nothing(
         self, client: AsyncClient, db_session: AsyncSession, test_user: dict, fresh_login_lockout
@@ -152,7 +171,7 @@ class TestARowForEveryAnswer:
     """Including the ones the route didn't choose."""
 
     async def test_a_server_error_is_recorded_as_one(
-        self, client: AsyncClient, db_session: AsyncSession, test_user: dict, monkeypatch
+        self, client: AsyncClient, db_session: AsyncSession, test_superuser: dict, monkeypatch
     ):
         """The catch-all handler turns the exception into a 500 before this middleware sees it.
 
@@ -164,8 +183,7 @@ class TestARowForEveryAnswer:
             raise RuntimeError("boom")
 
         monkeypatch.setattr(UserService, "get_paginated", explode)
-        await _grant(db_session, test_user["id"], "reader", "user.read")
-        key = await _key(db_session, test_user["id"], permissions=["user.read"], held=frozenset({"user.read"}))
+        key = await _key(db_session, test_superuser["id"], permissions=["user.read"], held=frozenset({"user.read"}))
 
         answered = await client.get("/api/v1/users/", headers=_with(key))
 

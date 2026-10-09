@@ -94,6 +94,10 @@ FEATURES: dict[str, Feature] = {
             "backend/tests/unit/modules/api_keys",
             "backend/tests/integration/api/v1/api_keys",
         ),
+        combination_paths={
+            "rbac": ("backend/tests/integration/api_keys_rbac",),
+            "tier_limits": ("backend/tests/integration/api_keys_tiers",),
+        },
     ),
     "admin": Feature(
         paths=(
@@ -144,6 +148,7 @@ PRESETS: dict[str, tuple[str, ...]] = {
     "accounts-only": ("accounts",),
     "accounts-rbac": ("accounts", "rbac"),
     "accounts-admin": ("accounts", "admin"),
+    "accounts-api-keys": ("accounts", "api_keys"),
     "accounts-rbac-tiers": ("accounts", "rbac", "tiers", "ratelimit"),
     "accounts-cache-taskiq": ("accounts", "cache", "taskiq"),
     "everything": tuple(FEATURES),

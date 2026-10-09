@@ -105,6 +105,7 @@ The presets run in CI as a matrix:
 | `accounts-only` | permission checks fall back to superuser-only without rbac |
 | `accounts-rbac` | permissions work without tiers, throttling, cache or taskiq |
 | `accounts-admin` | the panel registers only the views the project's features own |
+| `accounts-api-keys` | keys authenticate, narrow and count without rbac, tiers or the cache |
 | `accounts-rbac-tiers` | tiers and the API throttle work without per-tier limits |
 | `accounts-cache-taskiq` | the infrastructure features stand alone |
 | `everything` | a regenerated wiring reproduces this repository |

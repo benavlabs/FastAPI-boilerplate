@@ -201,11 +201,11 @@ async def test_an_unscoped_key_needs_nothing(api_key_service, db_session: AsyncS
 async def test_widening_a_scope_on_an_update_is_refused(
     api_key_service, db_session: AsyncSession, test_user: dict, test_api_key
 ):
-    with pytest.raises(PermissionDeniedError, match="role.read"):
+    with pytest.raises(PermissionDeniedError, match="user.delete"):
         await api_key_service.update_api_key(
             key_id=test_api_key["id"],
             user_id=test_user["id"],
-            update_data=APIKeyUpdate(permissions=["role.read"]),
+            update_data=APIKeyUpdate(permissions=["user.delete"]),
             db=db_session,
             held=HELD,
         )

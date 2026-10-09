@@ -44,6 +44,7 @@ jobs:
           - accounts-only
           - accounts-rbac
           - accounts-admin
+          - accounts-api-keys
           - accounts-rbac-tiers
           - accounts-cache-taskiq
           - everything
