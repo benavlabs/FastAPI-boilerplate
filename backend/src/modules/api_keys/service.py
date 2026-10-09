@@ -84,7 +84,7 @@ class APIKeyService:
     def _hash_api_key(self, api_key: str) -> str:
         """Hash an API key for storage.
 
-        Stored format: ``sha256$hexdigest``. A key is 256 bits of randomness from
+        Stored format: ``sha256$hexdigest``. A key is 384 bits of randomness from
         ``secrets.token_urlsafe``, not a password, so it needs no salt and no work
         factor: the digest is deterministic, which lets a request find its row by a
         single indexed lookup on ``key_hash``.
