@@ -5,6 +5,7 @@ import pytest
 
 from src.infrastructure.auth import health
 from src.infrastructure.config.settings import settings
+from tests.silent_server import silent_server
 
 pytestmark = pytest.mark.asyncio
 
@@ -97,10 +98,12 @@ async def test_an_unreachable_session_redis_raises_and_still_closes(monkeypatch)
     assert closed == [True]
 
 
-async def test_a_blackholed_session_redis_times_out(monkeypatch):
-    """A real client against an address nothing answers on, bounded as the probe bounds it."""
+async def test_a_session_redis_that_never_answers_times_out(monkeypatch):
+    """A real client against a server that takes the connection and says nothing."""
     monkeypatch.setattr(settings, "SESSION_BACKEND", "redis")
-    monkeypatch.setattr(settings, "SESSION_REDIS_URL_OVERRIDE", "redis://10.255.255.1:6379/0")
 
-    with pytest.raises(TimeoutError), anyio.fail_after(0.5):
-        await health.sessions_are_reachable()
+    async with silent_server() as port:
+        monkeypatch.setattr(settings, "SESSION_REDIS_URL_OVERRIDE", f"redis://127.0.0.1:{port}/0")
+
+        with pytest.raises(TimeoutError), anyio.fail_after(0.5):
+            await health.sessions_are_reachable()

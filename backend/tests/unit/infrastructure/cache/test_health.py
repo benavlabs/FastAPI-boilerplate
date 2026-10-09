@@ -9,6 +9,7 @@ import pytest
 from src.infrastructure.cache import health
 from src.infrastructure.config.enums import CacheBackend
 from src.infrastructure.config.settings import settings
+from tests.silent_server import silent_server
 
 pytestmark = pytest.mark.asyncio
 
@@ -74,9 +75,6 @@ async def _memcached_server(reply: bytes | None) -> tuple[asyncio.Server, int, a
     return server, server.sockets[0].getsockname()[1], saw_eof
 
 
-UNREACHABLE_HOST = "10.255.255.1"
-
-
 async def test_a_memory_cache_names_no_server(monkeypatch):
     """Nothing is reachable or unreachable when the cache lives in the process."""
     monkeypatch.setattr(settings, "CACHE_ENABLED", True)
@@ -87,14 +85,17 @@ async def test_a_memory_cache_names_no_server(monkeypatch):
     assert health.cache_target() is None
 
 
-async def test_a_blackholed_memcached_times_out(monkeypatch):
-    """A real socket to an address nothing answers on, bounded as the probe bounds it."""
+async def test_a_memcached_that_never_answers_times_out(monkeypatch):
+    """A real socket to a server that takes the connection and says nothing."""
     monkeypatch.setattr(settings, "CACHE_ENABLED", True)
     monkeypatch.setattr(settings, "CACHE_BACKEND", CacheBackend.MEMCACHED.value)
-    monkeypatch.setattr(settings, "CACHE_MEMCACHED_HOST", UNREACHABLE_HOST)
+    monkeypatch.setattr(settings, "CACHE_MEMCACHED_HOST", "127.0.0.1")
 
-    with pytest.raises(TimeoutError), anyio.fail_after(0.3):
-        await health.cache_is_reachable()
+    async with silent_server() as port:
+        monkeypatch.setattr(settings, "CACHE_MEMCACHED_PORT", port)
+
+        with pytest.raises(TimeoutError), anyio.fail_after(0.3):
+            await health.cache_is_reachable()
 
 
 @pytest.fixture

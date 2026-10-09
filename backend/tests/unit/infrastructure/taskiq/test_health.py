@@ -5,6 +5,7 @@ import pytest
 
 from src.infrastructure.config.settings import settings
 from src.infrastructure.taskiq import health
+from tests.silent_server import silent_server
 
 pytestmark = pytest.mark.asyncio
 
@@ -41,12 +42,14 @@ async def test_the_redis_broker_is_pinged(monkeypatch):
     assert target is not None and target.startswith("redis://")
 
 
-async def test_a_blackholed_redis_broker_times_out(monkeypatch):
-    """A real client against an address nothing answers on, bounded as the probe bounds it."""
+async def test_a_redis_broker_that_never_answers_times_out(monkeypatch):
+    """A real client against a server that takes the connection and says nothing."""
     monkeypatch.setattr(settings, "TASKIQ_BROKER_TYPE", "redis")
-    monkeypatch.setattr(settings, "TASKIQ_REDIS_HOST", "10.255.255.1")
-    monkeypatch.setattr(settings, "TASKIQ_REDIS_PORT", 6379)
+    monkeypatch.setattr(settings, "TASKIQ_REDIS_HOST", "127.0.0.1")
     monkeypatch.setattr(settings, "TASKIQ_REDIS_PASSWORD", None)
 
-    with pytest.raises(TimeoutError), anyio.fail_after(0.5):
-        await health.broker_is_reachable()
+    async with silent_server() as port:
+        monkeypatch.setattr(settings, "TASKIQ_REDIS_PORT", port)
+
+        with pytest.raises(TimeoutError), anyio.fail_after(0.5):
+            await health.broker_is_reachable()

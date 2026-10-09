@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from src.infrastructure.config.settings import Settings
 from src.infrastructure.database import session as session_module
 from src.infrastructure.database.health import database_is_reachable, readiness
+from tests.silent_server import silent_server
 
 pytestmark = pytest.mark.asyncio
 
@@ -34,15 +35,17 @@ async def test_a_refused_connection_raises(monkeypatch):
         await database_is_reachable()
 
 
-async def test_a_blackholed_database_times_out(monkeypatch):
-    """A real engine against an address nothing answers on, bounded as the probe bounds it."""
+async def test_a_database_that_never_answers_times_out(monkeypatch):
+    """A real engine against a server that takes the connection and says nothing."""
     monkeypatch.setattr(session_module, "_engine", None)
     monkeypatch.setattr(session_module, "_session_factory", None)
-    blackhole = Settings(POSTGRES_SERVER="10.255.255.1", POSTGRES_PORT=5432, POSTGRES_DB="nothing")
-    monkeypatch.setattr(session_module, "get_settings", lambda: blackhole)
 
-    with pytest.raises(TimeoutError), anyio.fail_after(0.5):
-        await database_is_reachable()
+    async with silent_server() as port:
+        silent = Settings(POSTGRES_SERVER="127.0.0.1", POSTGRES_PORT=port, POSTGRES_DB="nothing")
+        monkeypatch.setattr(session_module, "get_settings", lambda: silent)
+
+        with pytest.raises(TimeoutError), anyio.fail_after(0.5):
+            await database_is_reachable()
 
 
 async def test_the_check_names_the_database_it_probes():
