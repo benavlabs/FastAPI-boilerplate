@@ -4,8 +4,12 @@ import anyio
 import pytest
 
 from src.infrastructure import readiness as readiness_module
+from src.infrastructure.cache.health import readiness as cache_readiness
 from src.infrastructure.composition import ReadinessCheck
+from src.infrastructure.config.enums import CacheBackend
+from src.infrastructure.config.settings import settings
 from src.infrastructure.readiness import READY, UNAVAILABLE, forget_cached_report, probe, readiness_report
+from tests.silent_server import silent_server
 
 pytestmark = pytest.mark.asyncio
 
@@ -50,6 +54,26 @@ async def test_a_check_that_hangs_is_reported_unavailable(monkeypatch):
     report = await probe((ReadinessCheck("database", hangs),))
 
     assert report == {"database": UNAVAILABLE}
+
+
+async def test_a_real_probe_against_a_wedged_server_is_reported_unavailable(monkeypatch):
+    """The two halves meeting: a probe with no deadline of its own, bounded by the runner.
+
+    The probes block on a server that accepts and never answers — each has a test of its
+    own for that — and nothing in them gives up. This is what makes such a dependency
+    report ``unavailable`` rather than holding the report open.
+    """
+    monkeypatch.setattr(readiness_module, "CHECK_TIMEOUT_SECONDS", 0.05)
+    monkeypatch.setattr(settings, "CACHE_ENABLED", True)
+    monkeypatch.setattr(settings, "CACHE_BACKEND", CacheBackend.MEMCACHED.value)
+    monkeypatch.setattr(settings, "CACHE_MEMCACHED_HOST", "127.0.0.1")
+
+    async with silent_server() as port:
+        monkeypatch.setattr(settings, "CACHE_MEMCACHED_PORT", port)
+
+        report = await probe((cache_readiness,))
+
+    assert report == {"cache": UNAVAILABLE}
 
 
 async def test_the_checks_run_together():
