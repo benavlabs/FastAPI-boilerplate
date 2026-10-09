@@ -3,14 +3,17 @@
 from datetime import datetime
 from typing import Annotated, Any, ClassVar
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, StrictInt, field_validator
 
 from ...infrastructure.permissions import registered_permissions
 from ..common.schemas import EncodableText, PartialUpdate, TimestampSchema, not_nullable_columns, within_utc_range
 from .enums import HTTPMethod
+from .limits import WINDOWS, validated_limits
 from .models import APIKey
 
 VALID_HTTP_METHODS = {m.value for m in HTTPMethod}
+
+USAGE_LIMITS_DESCRIPTION = f"Requests the key may make per window, over any of: {', '.join(sorted(WINDOWS))}"
 
 
 class APIKeyBase(EncodableText):
@@ -24,7 +27,11 @@ class APIKeyBase(EncodableText):
         description="Registry permission names the key is scoped to",
         examples=[["user.read", "user.update"]],
     )
-    usage_limits: dict[str, Any] = Field(default_factory=dict, description="Usage limits per key")
+    usage_limits: dict[str, StrictInt] = Field(
+        default_factory=dict,
+        description=USAGE_LIMITS_DESCRIPTION,
+        examples=[{"requests_per_minute": 60, "requests_per_day": 10000}],
+    )
     expires_at: AwareDatetime | None = Field(default=None, description="Key expiration timestamp")
     key_metadata: dict[str, Any] | None = Field(default=None, description="Additional key metadata")
 
@@ -32,6 +39,11 @@ class APIKeyBase(EncodableText):
     @classmethod
     def _registered(cls, names: list[str]) -> list[str]:
         return registered_permissions(names)
+
+    @field_validator("usage_limits")
+    @classmethod
+    def _countable(cls, limits: dict[str, StrictInt]) -> dict[str, StrictInt]:
+        return validated_limits(limits)
 
 
 class APIKeyCreate(APIKeyBase):
@@ -57,7 +69,7 @@ class APIKeyUpdate(EncodableText, PartialUpdate):
 
     name: Annotated[str, Field(min_length=1, max_length=100)] | None = None
     permissions: list[str] | None = None
-    usage_limits: dict[str, Any] | None = None
+    usage_limits: dict[str, StrictInt] | None = None
     is_active: bool | None = None
     expires_at: AwareDatetime | None = None
     key_metadata: dict[str, Any] | None = None
@@ -66,6 +78,11 @@ class APIKeyUpdate(EncodableText, PartialUpdate):
     @classmethod
     def _registered(cls, names: list[str] | None) -> list[str] | None:
         return None if names is None else registered_permissions(names)
+
+    @field_validator("usage_limits")
+    @classmethod
+    def _countable(cls, limits: dict[str, StrictInt] | None) -> dict[str, StrictInt] | None:
+        return None if limits is None else validated_limits(limits)
 
 
 class APIKeyRead(TimestampSchema):
@@ -78,7 +95,7 @@ class APIKeyRead(TimestampSchema):
     name: str = Field(description="Human-readable name for the API key")
     key_prefix: str
     permissions: list[str] = Field(description="Registry permission names the key is scoped to")
-    usage_limits: dict[str, Any] = Field(description="Usage limits per key")
+    usage_limits: dict[str, Any] = Field(description=USAGE_LIMITS_DESCRIPTION)
     expires_at: datetime | None = Field(description="Key expiration timestamp")
     key_metadata: dict[str, Any] | None = Field(description="Additional key metadata")
     last_used_at: datetime | None

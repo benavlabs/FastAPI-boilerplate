@@ -415,7 +415,7 @@ curl -X POST http://localhost:8000/api/v1/api-keys/ \
   -b cookies.txt \
   -H "Content-Type: application/json" \
   -H "X-CSRF-Token: <token>" \
-  -d '{"name": "Read-only integration", "permissions": ["user.read"], "usage_limits": {}}'
+  -d '{"name": "Read-only integration", "permissions": ["user.read"], "usage_limits": {"requests_per_day": 10000}}'
 ```
 
 A stored name the registry no longer knows is read back as it is and counts for nothing, the same

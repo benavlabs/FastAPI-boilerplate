@@ -19,6 +19,7 @@ from ..infrastructure.composition import Lifecycle, RouterMount
 from ..infrastructure.ratelimit.dependency import api_rate_limit_dependency
 from ..infrastructure.taskiq.lifecycle import lifecycle as taskiq_lifecycle
 from ..interfaces.admin.initialize import install as admin_install
+from ..modules.api_keys.install import install as api_keys_install
 from ..modules.api_keys.routes import router as api_keys_router
 from ..modules.rate_limit.routes import router as rate_limits_router
 from ..modules.rate_limit.routes import user_rate_limits_router
@@ -49,6 +50,7 @@ LIFECYCLES: tuple[Lifecycle, ...] = (
 )
 INSTALLERS: tuple[Callable[[FastAPI], None], ...] = (
     accounts_install,
+    api_keys_install,
     admin_install,
 )
 DOCS_GUARD: Callable[..., Any] | None = get_current_superuser

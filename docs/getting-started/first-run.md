@@ -162,7 +162,7 @@ curl -X POST "http://localhost:8000/api/v1/api-keys/" \
   -d '{
     "name": "My Integration Key",
     "permissions": ["user.read"],
-    "usage_limits": {}
+    "usage_limits": {"requests_per_minute": 60}
   }'
 ```
 

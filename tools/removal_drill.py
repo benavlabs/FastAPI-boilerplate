@@ -278,8 +278,10 @@ def _wiring_app(chosen: set[str]) -> str:
     if "accounts" in chosen:
         collection_mounts.append('RouterMount(auth_router, "/auth", throttled=False)')
     if "api_keys" in chosen:
+        imports.append("from ..modules.api_keys.install import install as api_keys_install")
         imports.append("from ..modules.api_keys.routes import router as api_keys_router")
         collection_mounts.append('RouterMount(api_keys_router, "/api-keys", throttled=True)')
+        installers.append("api_keys_install")
     if "rbac" in chosen:
         imports.append("from ..modules.role.routes import permissions_router, user_roles_router")
         imports.append("from ..modules.role.routes import router as roles_router")

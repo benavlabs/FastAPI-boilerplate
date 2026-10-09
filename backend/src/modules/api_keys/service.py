@@ -322,6 +322,9 @@ class APIKeyService:
     ) -> APIKeyValidationResponse:
         """Match an API key to a live key row, and report its owner and its scope.
 
+        Reads only: when the key was last used is stamped by the usage recorder, after the
+        response, so authenticating a request commits nothing.
+
         Args:
             api_key: API key to validate
             db: Database session
@@ -358,14 +361,6 @@ class APIKeyService:
                 is_valid=False,
                 error_message="API key has expired",
             )
-
-        await crud_api_keys.update(
-            db=db,
-            object={
-                "last_used_at": datetime.now(UTC),
-            },
-            id=key["id"],
-        )
 
         return APIKeyValidationResponse(
             is_valid=True,
@@ -408,6 +403,14 @@ class APIKeyService:
                 return candidate
 
         return None
+
+    async def note_use(self, api_key_id: int, used_from: str | None, db: AsyncSession) -> None:
+        """Stamp a key with the time and address of the request that just used it."""
+        await crud_api_keys.update(
+            db=db,
+            object={"last_used_at": datetime.now(UTC), "last_used_ip": used_from},
+            id=api_key_id,
+        )
 
     async def record_usage(
         self,

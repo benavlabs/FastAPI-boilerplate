@@ -83,6 +83,22 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   or holds something they don't, which is the rule a `user.update` holder is already held to. A refused delegation answers `403` and writes nothing; an unregistered
   permission name answers `422` without echoing it. `GET /api/v1/users/{user_id}/roles` reads an
   account's roles.
+- **Usage limits on an API key, enforced per key.** `usage_limits` takes a request count per
+  window — `requests_per_minute`, `requests_per_hour`, `requests_per_day` — counted per key id
+  through the limiter behind the login lockout, so several workers share one count on a shared
+  `RATE_LIMITER_BACKEND`. A filled window answers `429` with `Retry-After` from the transport, which
+  covers every route a key can reach rather than only the throttled ones, and counting fails open so
+  an unreachable limiter can't take the API down. A key with no limits is not counted.
+- **A usage row per key-authenticated request.** One `KeyUsage` row carrying the path, the method,
+  the status the client actually got, the elapsed milliseconds, the address and the user agent,
+  written as a background task after the response so no request waits for it. Refusals are recorded
+  too — the `429`s from a key's own limit, and the `500`s from a route that raised; a session
+  request records nothing. The api_keys feature contributes the middleware through the wiring's
+  installers, so a project without the feature records nothing and has no middleware.
+- **`last_used_ip` beside `last_used_at`**, both stamped by that same background task rather than
+  while the request is being authenticated, which now writes nothing at all. They carry the address
+  the trusted-proxy boundary resolved, as the login lockout does, so the key and its usage rows name
+  the client and not the proxy in front of it.
 - **A key holds its owner's permissions, narrowed to its scope.** A key-authenticated request holds
   what its owner holds — every `PermissionSource`, and for a superuser every registered permission —
   intersected with the key's own scope, so the scope only ever narrows: a permission the owner loses
@@ -406,6 +422,12 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   session-management router, with the device list, rather than being written here: the CSRF refresh
   gained a self-heal (a token that is still valid comes back unchanged) and a per-address rate
   limit, and `logout-all` keeps its `keep_current` query. A client calling the old path gets `404`.
+- **An API key's `usage_limits` may name only a window the limiter counts.** The column took any
+  JSON object, so `{"requests_per_fortnight": 10}` stored cleanly and enforced nothing. It now takes
+  `requests_per_minute`, `requests_per_hour` and `requests_per_day`, each a positive whole number of
+  requests, and anything else answers `422`. A limit already stored under another name keeps reading
+  back as it is and counts for nothing — the way a stored permission the registry no longer knows
+  grants nothing — so rewrite those keys' limits to have them enforced.
 - **An unknown `SESSION_BACKEND` is refused when the app starts.** A value crudauth has no store
   for — `memcached`, say, left over from before sessions moved to crudauth — used to fall through to
   memory sessions, which start fine and then lose every session on each deploy and share none

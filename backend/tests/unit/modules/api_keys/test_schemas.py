@@ -22,7 +22,7 @@ STORED_KEY = {
     "name": "Stored Key",
     "key_prefix": "fai_test",
     "permissions": ["user.read"],
-    "usage_limits": {},
+    "usage_limits": {"requests_per_day": 1000},
     "expires_at": None,
     "key_metadata": None,
     "last_used_at": None,
@@ -121,6 +121,37 @@ class TestAKeysScopeIsRegistryPermissionNames:
         """The shape an older version stored names nothing the registry knows."""
         with pytest.raises(ValidationError):
             APIKeyCreate(name="Key", permissions={"conversations": ["read"]})
+
+
+class TestAKeysUsageLimits:
+    """A limit is counted over a window, so only the windows the limiter knows are allowed."""
+
+    def test_a_known_window_is_accepted(self):
+        limits = APIKeyCreate(name="Key", usage_limits={"requests_per_minute": 60}).usage_limits
+
+        assert limits == {"requests_per_minute": 60}
+
+    def test_every_window_may_be_set_at_once(self):
+        limits = {"requests_per_minute": 60, "requests_per_hour": 1000, "requests_per_day": 10000}
+
+        assert APIKeyCreate(name="Key", usage_limits=limits).usage_limits == limits
+
+    def test_a_window_nothing_counts_is_refused(self):
+        """A limit the limiter has no window for would read as a limit and enforce nothing."""
+        with pytest.raises(ValidationError, match="requests_per_fortnight"):
+            APIKeyCreate(name="Key", usage_limits={"requests_per_fortnight": 10})
+
+    @pytest.mark.parametrize("value", [0, -1, "many", 1.5, True, None])
+    def test_a_count_that_is_not_a_positive_number_is_refused(self, value):
+        with pytest.raises(ValidationError):
+            APIKeyCreate(name="Key", usage_limits={"requests_per_minute": value})
+
+    def test_a_window_nothing_counts_is_refused_on_an_update(self):
+        with pytest.raises(ValidationError, match="requests_per_fortnight"):
+            APIKeyUpdate(usage_limits={"requests_per_fortnight": 10})
+
+    def test_no_limits_is_how_a_key_is_uncounted(self):
+        assert APIKeyCreate(name="Key").usage_limits == {}
 
 
 class TestTheInputSchemasKeepTheirRules:

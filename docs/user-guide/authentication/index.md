@@ -133,7 +133,7 @@ For server-to-server clients, programs, scripts, integrations:
 curl -X POST "http://localhost:8000/api/v1/api-keys/" \
   -H "Content-Type: application/json" -H "X-CSRF-Token: <token>" \
   -b cookies.txt \
-  -d '{"name": "Integration Key", "permissions": ["user.read"], "usage_limits": {}}'
+  -d '{"name": "Integration Key", "permissions": ["user.read"], "usage_limits": {"requests_per_minute": 60}}'
 # → { "api_key": "shown ONCE — store securely", "id": 1, "key_prefix": "...", ... }
 
 # Call with it, in the X-API-Key header
@@ -145,6 +145,32 @@ The full key is returned only on creation, in `api_key`. The rest of the respons
 `GET /api/v1/api-keys/{id}` reports, minus `key_metadata` and `last_used_ip`, which that route still
 carries. Each key has its own scope ([registry permission names](permissions.md#api-key-scope)),
 usage limits, and audit trail (`KeyUsage` rows).
+
+#### Usage limits
+
+A key may carry a limit per window — `requests_per_minute`, `requests_per_hour`,
+`requests_per_day`, any or all of them — and nothing else: a name no window counts is refused with
+`422`, so a limit that would enforce nothing can't be stored. Each window is counted per key id
+through the same limiter as the login lockout (`RATE_LIMITER_BACKEND`), so several workers share one
+count unless that backend is `memory`. A key that fills a window answers `429` with `Retry-After`,
+from the transport rather than a route, so every route the key could reach is covered — including
+the ones the API throttle leaves alone. A key with no limits is not counted at all. Counting fails
+open: a limiter that can't be reached lets the request through rather than taking the API down.
+
+#### What a key's usage records
+
+Every request a key authenticates writes one `KeyUsage` row — the path, the method, the status the
+client actually got, how long it took, the address and the user agent — and the write runs as a
+background task after the response, so no client waits for it. A refusal is recorded too, `429`s
+and server errors included, so an owner can see a key being throttled or failing. A session request
+records nothing. `GET /api/v1/api-keys/{id}/usage` reads the rows back and
+`GET /api/v1/api-keys/{id}/analytics` summarises them.
+
+The same background task stamps `last_used_at` and `last_used_ip` on the key, so authenticating a
+request writes nothing itself. Both the row and the key record the address the trusted-proxy
+boundary resolved (`TRUSTED_PROXY_HOPS`), not the socket's, so a deployment behind a proxy records
+its clients rather than the proxy. "Last used" therefore trails by however long the task takes, and
+a process that dies before the task runs doesn't record that request at all.
 
 A request carrying a valid key is authenticated as the key's owner, holding that owner's permissions
 narrowed to the key's scope ([what a key holds](permissions.md#what-a-key-holds)), with
