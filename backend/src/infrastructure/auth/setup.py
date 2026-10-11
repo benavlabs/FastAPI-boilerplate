@@ -17,7 +17,7 @@ route gates on it.
 
 from typing import Any
 
-from crudauth import CookieConfig, CRUDAuth, EmailConfig, NewUserContext, OAuthCredentials, SessionTransport
+from crudauth import AuthHooks, CookieConfig, CRUDAuth, EmailConfig, NewUserContext, OAuthCredentials, SessionTransport
 from crudauth.constants import DEFAULT_FRESH_SIGN_IN_SECONDS
 from crudauth.ratelimit import LockoutConfig
 
@@ -29,6 +29,7 @@ from ..composition import Lifecycle
 from ..config.enums import SessionBackend
 from ..config.settings import settings
 from ..database.session import async_session
+from .audit import record_a_lockout, record_a_refused_login
 from .limiter import build_rate_limiter, rate_limiter_redis_client
 from .password_policy import password_policy
 from .store import database_store
@@ -134,6 +135,7 @@ auth = CRUDAuth(
     ),
     trusted_proxy_hops=settings.TRUSTED_PROXY_HOPS,
     fresh_sign_in_seconds=_fresh_sign_in_seconds(),
+    hooks=AuthHooks(on_login_failed=record_a_refused_login, on_lockout=record_a_lockout),
     password_policy=password_policy,
     new_user_fields=_new_user_fields,
     email=email_config,

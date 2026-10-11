@@ -270,6 +270,31 @@ The window is the value that matters against a paced attack: crudauth's own defa
 
 With `RATE_LIMITER_BACKEND=redis`, the counters live in Redis, and crudauth builds the lockout policy with `fail_open=False`. If that Redis is unreachable, **every login is refused** with `429` for the base lockout window rather than let through unchecked: an attacker can't disable the lockout by taking Redis down. Treat the limiter's Redis as a dependency logins need, and watch it: `GET /health/ready` answers `503` while it is unreachable, and the log names it (`rate_limiter`), alongside the database and the session store. It is its own connection (`RATE_LIMITER_REDIS_*`, against `CACHE_REDIS_*` for the cache), and the readiness probe asks each server once even when several settings point at the same one. `RATE_LIMITER_BACKEND=memory` keeps the counters in the process instead, which is fine for a single worker and useless across several. `RATE_LIMITER_BACKEND=database` keeps them in `crudauth_counters`, shared by every worker; the database's own readiness check then covers them, and the `rate_limiter` check reports nothing to reach.
 
+### What a refusal records
+
+Every refused password login writes one `WARNING` on the `src.infrastructure.auth.audit` logger,
+through crudauth's `on_login_failed` and `on_lockout` hooks:
+
+```
+login refused: 'ada' from 203.0.113.7 (curl/8.4.0); invalid_credentials
+login refused: an identifier no account has from 203.0.113.7 (curl/8.4.0); invalid_credentials
+login locked out for 300s, from 203.0.113.7 (curl/8.4.0)
+```
+
+The reason is `invalid_credentials` or `inactive`, which the response does not distinguish — a
+disabled account and a wrong password are both `401`, and the log is where they are told apart. The
+address is the one `TRUSTED_PROXY_HOPS` resolves, so it is the client's rather than a proxy's.
+
+**An identifier is written out only where an account has it.** What arrives in the username field
+may be a typo, a probe, someone else's address or a password typed one box too high, so a refusal
+that resolved no account records only that, with the address and user agent an attack is recognised
+by. The lockout line names no identifier at all: it refuses the request before anything resolves
+one, and every attempt that filled the budget was already recorded.
+
+Both hooks run after the refusal is decided and cannot change it; an exception either one raises is
+logged by crudauth and the request answers normally. `infrastructure/auth/audit.py` is where a
+project sends these to an audit table or an external sink instead.
+
 ## Session Limits
 
 Per-user concurrent session count is capped by `MAX_SESSIONS_PER_USER` (default 5). When a user logs in beyond this cap, the oldest session is terminated.
@@ -440,6 +465,7 @@ entries, Redis keeps a per-user index, and the database store has a `user_id` co
 | Dependencies | `backend/src/infrastructure/auth/dependencies.py` |
 | OAuth configuration | `backend/src/infrastructure/auth/setup.py` |
 | Login, logout and OAuth routes | `backend/src/infrastructure/auth/routes.py` |
+| Refused-login and lockout hooks | `backend/src/infrastructure/auth/audit.py` |
 | Session management routes | crudauth's `build_session_management_router`, mounted in `routes.py` |
 | HTTP exceptions (fastcrud re-export) | `backend/src/infrastructure/http_exceptions.py` |
 | Auth settings | `backend/src/infrastructure/config/settings.py` (`AuthSettings`) |

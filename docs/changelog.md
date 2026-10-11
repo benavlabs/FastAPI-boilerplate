@@ -409,6 +409,15 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   it applies one window to all of them, and a value below one second is refused at startup.
   `FreshSessionPrincipalDep` puts the same gate on a route of your own. Only a session knows when it
   signed in, so no other credential is ever fresh.
+- **A refused sign-in is recorded.** crudauth's `on_login_failed` and `on_lockout` hooks are
+  registered with `record_a_refused_login` and `record_a_lockout`
+  (`infrastructure/auth/audit.py`), so every refused password login writes one `WARNING` with the
+  reason (`invalid_credentials` or `inactive`, which the `401` does not distinguish), the client
+  address `TRUSTED_PROXY_HOPS` resolves and the user agent — and a lockout writes how long it
+  refuses for. An identifier is written out only where an account has it: what arrives in the
+  username field may be a typo, a probe, someone else's address or a password typed one box too
+  high. The lockout line names no identifier, since nothing resolves one before it refuses. A
+  project that would rather write an audit table replaces those two functions.
 
 #### Removed
 

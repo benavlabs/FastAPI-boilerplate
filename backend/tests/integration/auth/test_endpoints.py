@@ -4,6 +4,7 @@ The check-auth route depends on ``get_optional_principal``, so we override that
 FastAPI dependency to simulate authenticated / anonymous callers.
 """
 
+import logging
 import threading
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -629,6 +630,54 @@ async def test_a_sixth_failure_inside_the_window_locks_the_login(client: AsyncCl
     assert locked.status_code == 429
     assert settings.LOGIN_LOCKOUT_BASE_SECONDS - 5 <= int(locked.headers["retry-after"]) <= settings.LOGIN_LOCKOUT_BASE_SECONDS
     assert "set-cookie" not in locked.headers
+
+
+@pytest.mark.asyncio
+async def test_a_wrong_password_is_recorded_with_the_identifier_it_was_tried_on(client: AsyncClient, test_user: dict, caplog):
+    """The audit hook runs on the real login path, not only when called directly."""
+    with caplog.at_level(logging.WARNING, logger="src.infrastructure.auth.audit"):
+        refused = await client.post(
+            "/api/v1/auth/login",
+            data={"username": test_user["username"], "password": "wrong-password"},
+        )
+
+    assert refused.status_code == 401
+    assert f"login refused: {test_user['username']!r}" in caplog.text
+    assert "invalid_credentials" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_a_login_on_an_identifier_no_account_has_keeps_it_out_of_the_log(client: AsyncClient, caplog):
+    """Whatever was typed into the username field never reaches the log."""
+    with caplog.at_level(logging.WARNING, logger="src.infrastructure.auth.audit"):
+        refused = await client.post(
+            "/api/v1/auth/login",
+            data={"username": "hunter2!", "password": "hunter2!"},
+        )
+
+    assert refused.status_code == 401
+    assert "hunter2" not in caplog.text
+    assert "an identifier no account has" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_the_lockout_engaging_is_recorded(client: AsyncClient, test_user: dict, caplog):
+    for _ in range(settings.LOGIN_MAX_ATTEMPTS):
+        await client.post(
+            "/api/v1/auth/login",
+            data={"username": test_user["username"], "password": "wrong-password"},
+        )
+
+    with caplog.at_level(logging.WARNING, logger="src.infrastructure.auth.audit"):
+        locked = await client.post(
+            "/api/v1/auth/login",
+            data={"username": test_user["username"], "password": test_user["password"]},
+        )
+
+    assert locked.status_code == 429
+    [recorded] = [message for message in caplog.messages if "locked out" in message]
+    assert f"for {settings.LOGIN_LOCKOUT_BASE_SECONDS}s" in recorded
+    assert test_user["username"] not in recorded
 
 
 @pytest.mark.asyncio
