@@ -102,6 +102,7 @@ The presets run in CI as a matrix:
 | Preset | What it proves |
 |--------|----------------|
 | `core-only` | every feature can go at once |
+| `core-taskiq` | the worker runs with no accounts feature, so it registers no account mail |
 | `accounts-only` | permission checks fall back to superuser-only without rbac |
 | `accounts-rbac` | permissions work without tiers, throttling, cache or taskiq |
 | `accounts-admin` | the panel registers only the views the project's features own |

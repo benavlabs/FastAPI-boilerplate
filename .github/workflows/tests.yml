@@ -41,6 +41,7 @@ jobs:
       matrix:
         preset:
           - core-only
+          - core-taskiq
           - accounts-only
           - accounts-rbac
           - accounts-admin

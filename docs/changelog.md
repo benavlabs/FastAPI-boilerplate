@@ -12,7 +12,7 @@ ___
 
 Every feature in the boilerplate can now be removed: its routes, models, settings, admin views,
 seeders and tests come out together, and the project still imports, lints, type-checks and passes
-the remaining tests. `tools/removal_drill.py` proves it for eight presets, and CI runs them as a
+the remaining tests. `tools/removal_drill.py` proves it for nine presets, and CI runs them as a
 matrix. The round that followed fixed what a re-review of the refactor found.
 
 ---

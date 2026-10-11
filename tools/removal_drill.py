@@ -131,6 +131,12 @@ FEATURES: dict[str, Feature] = {
             "backend/src/infrastructure/taskiq",
             "backend/tests/unit/infrastructure/taskiq",
         ),
+        combination_paths={
+            "accounts": (
+                "backend/src/infrastructure/taskiq/email.py",
+                "backend/tests/unit/infrastructure/taskiq/test_email.py",
+            ),
+        },
     ),
 }
 
@@ -145,6 +151,7 @@ REQUIRES = {
 
 PRESETS: dict[str, tuple[str, ...]] = {
     "core-only": (),
+    "core-taskiq": ("taskiq",),
     "accounts-only": ("accounts",),
     "accounts-rbac": ("accounts", "rbac"),
     "accounts-admin": ("accounts", "admin"),
@@ -373,9 +380,19 @@ def _wiring_hooks(chosen: set[str]) -> str:
     )
 
 
+def _wiring_tasks(chosen: set[str]) -> str:
+    """The modules whose background tasks the worker registers."""
+    modules = ('("src.infrastructure.taskiq.email",)' if {"accounts", "taskiq"} <= chosen else "()")
+
+    return (
+        '"""The modules whose background tasks the worker registers."""\n\n'
+        f"TASK_MODULES: tuple[str, ...] = {modules}\n"
+    )
+
+
 def _wiring_email(chosen: set[str]) -> str:
     """The sender the account emails go out through: queued where there is a worker."""
-    if "taskiq" in chosen:
+    if {"accounts", "taskiq"} <= chosen:
         source = "from ..infrastructure.taskiq.email import queued_sender"
         sender = "queued_sender"
     else:
@@ -528,6 +545,7 @@ def build(preset: str, into: Path) -> Path:
     (project / "backend/src/wiring/app.py").write_text(_wiring_app(chosen))
     (project / "backend/src/wiring/hooks.py").write_text(_wiring_hooks(chosen))
     (project / "backend/src/wiring/email.py").write_text(_wiring_email(chosen))
+    (project / "backend/src/wiring/tasks.py").write_text(_wiring_tasks(chosen))
     (project / "backend/src/wiring/tables.py").write_text(_wiring_tables(chosen))
     (project / "backend/src/wiring/transports.py").write_text(_wiring_transports(chosen))
     (project / "backend/src/wiring/cache.py").write_text(_wiring_cache(chosen))

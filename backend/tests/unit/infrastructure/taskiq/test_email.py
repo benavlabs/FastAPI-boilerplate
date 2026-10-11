@@ -82,3 +82,40 @@ def test_a_misconfigured_backend_is_refused_when_the_worker_module_loads():
 
     assert result.returncode != 0
     assert "EMAIL_SMTP_HOST" in result.stderr
+
+
+_FIND_THE_TASK = """
+import src.infrastructure.taskiq.{entry} as entry
+
+broker = getattr(entry, "default_broker", None) or entry.scheduler.broker
+print("FOUND" if broker.find_task("{task}") is not None else "MISSING")
+"""
+
+
+def _entry_point_tasks(entry: str) -> str:
+    """What a cold ``taskiq worker``/``taskiq scheduler`` process finds on the broker it is handed.
+
+    The task name is passed in rather than imported, since importing the module that
+    declares it is what the entry point has to do for itself.
+    """
+    environment = {**os.environ, "PYTHONPATH": str(BACKEND)}
+
+    result = subprocess.run(
+        [sys.executable, "-c", _FIND_THE_TASK.format(entry=entry, task=EMAIL_TASK_NAME)],
+        cwd=BACKEND,
+        env=environment,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    return result.stdout.strip().splitlines()[-1]
+
+
+def test_the_worker_entry_point_registers_the_email_task():
+    """``taskiq worker …:default_broker`` runs with no task discovery, so the entry point imports them."""
+    assert _entry_point_tasks("worker") == "FOUND"
+
+
+def test_the_scheduler_entry_point_registers_the_email_task():
+    assert _entry_point_tasks("scheduler") == "FOUND"
