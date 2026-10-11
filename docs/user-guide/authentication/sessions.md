@@ -249,6 +249,9 @@ curl -X POST http://localhost:8000/api/v1/auth/password/reset-request \
 After that the account can sign in with either the provider or its password. See
 [Recovery Flows](index.md#recovery-flows-email).
 
+Hashes another system wrote are accepted at login through `legacy_verifiers`, and replaced with
+crudauth's own as each owner signs in once — see [Migrating Passwords](migrating-passwords.md).
+
 For dev/test environments where CSRF gets in the way, set `CSRF_ENABLED=false`.
 
 ## Device Tracking

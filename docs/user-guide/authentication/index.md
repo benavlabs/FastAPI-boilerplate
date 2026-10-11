@@ -9,6 +9,7 @@ For machine-to-machine clients, the boilerplate ships **API keys** with per-key 
 - **[Sessions](sessions.md)** - Server-side sessions, cookies, and CSRF protection
 - **[User Management](user-management.md)** - Registration, login, profile operations
 - **[Permissions](permissions.md)** - Role-based access control and resource ownership
+- **[Migrating Passwords](migrating-passwords.md)** - Bringing another system's password hashes across
 
 ## Why Sessions, Not JWT
 

@@ -425,6 +425,13 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   account still carries the placeholder avatar it was created with. An avatar or display name the
   account set is never overwritten. `DEFAULT_PROFILE_IMAGE_URL` in `modules/user/constants.py` is
   now the one place that placeholder is written.
+- **A guide to migrating passwords**, `docs/user-guide/authentication/migrating-passwords.md`: why a
+  hash another library wrote with plain bcrypt never matches crudauth's own check (it bcrypts a
+  base64 SHA-256 digest of the password), how `legacy_verifiers` accepts those hashes at login and
+  rewrites each one as its owner signs in, what a verifier must refuse so a leaked unsalted digest
+  can't be typed as a password, that the password policy does not apply to an imported hash, and how
+  to finish and then drop the migration. `tests/integration/auth/test_legacy_passwords.py` holds the
+  sign-in, the rehash and the wrong-password refusal the page describes.
 
 #### Removed
 
