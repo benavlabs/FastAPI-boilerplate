@@ -44,8 +44,11 @@ async def test_a_database_that_never_answers_times_out(monkeypatch):
         silent = Settings(POSTGRES_SERVER="127.0.0.1", POSTGRES_PORT=port, POSTGRES_DB="nothing")
         monkeypatch.setattr(session_module, "get_settings", lambda: silent)
 
-        with pytest.raises(TimeoutError), anyio.fail_after(0.5):
-            await database_is_reachable()
+        try:
+            with pytest.raises(TimeoutError), anyio.fail_after(0.5):
+                await database_is_reachable()
+        finally:
+            await session_module.dispose_engine()
 
 
 async def test_the_check_names_the_database_it_probes():

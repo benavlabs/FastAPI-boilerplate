@@ -1,13 +1,15 @@
 """Running the readiness checks: bounded, concurrent, deduplicated and briefly remembered."""
 
+import logging
+
 import anyio
 import pytest
 
 from src.infrastructure import readiness as readiness_module
-from src.infrastructure.cache.health import readiness as cache_readiness
 from src.infrastructure.composition import ReadinessCheck
-from src.infrastructure.config.enums import CacheBackend
-from src.infrastructure.config.settings import settings
+from src.infrastructure.config.settings import Settings
+from src.infrastructure.database import session as session_module
+from src.infrastructure.database.health import readiness as database_readiness
 from src.infrastructure.readiness import READY, UNAVAILABLE, forget_cached_report, probe, readiness_report
 from tests.silent_server import silent_server
 
@@ -56,24 +58,33 @@ async def test_a_check_that_hangs_is_reported_unavailable(monkeypatch):
     assert report == {"database": UNAVAILABLE}
 
 
-async def test_a_real_probe_against_a_wedged_server_is_reported_unavailable(monkeypatch):
+async def test_a_real_probe_against_a_wedged_server_is_reported_unavailable(monkeypatch, caplog):
     """The two halves meeting: a probe with no deadline of its own, bounded by the runner.
 
     The probes block on a server that accepts and never answers — each has a test of its
     own for that — and nothing in them gives up. This is what makes such a dependency
-    report ``unavailable`` rather than holding the report open.
+    report ``unavailable`` rather than holding the report open. The database check is the
+    one every project has, whichever features it selected.
+
+    The log line is what says the deadline fired: every failure answers ``unavailable``,
+    so the report alone would not tell a timeout from a refusal.
     """
     monkeypatch.setattr(readiness_module, "CHECK_TIMEOUT_SECONDS", 0.05)
-    monkeypatch.setattr(settings, "CACHE_ENABLED", True)
-    monkeypatch.setattr(settings, "CACHE_BACKEND", CacheBackend.MEMCACHED.value)
-    monkeypatch.setattr(settings, "CACHE_MEMCACHED_HOST", "127.0.0.1")
+    monkeypatch.setattr(session_module, "_engine", None)
+    monkeypatch.setattr(session_module, "_session_factory", None)
 
     async with silent_server() as port:
-        monkeypatch.setattr(settings, "CACHE_MEMCACHED_PORT", port)
+        silent = Settings(POSTGRES_SERVER="127.0.0.1", POSTGRES_PORT=port, POSTGRES_DB="nothing")
+        monkeypatch.setattr(session_module, "get_settings", lambda: silent)
 
-        report = await probe((cache_readiness,))
+        try:
+            with caplog.at_level(logging.WARNING):
+                report = await probe((database_readiness,))
+        finally:
+            await session_module.dispose_engine()
 
-    assert report == {"cache": UNAVAILABLE}
+    assert report == {"database": UNAVAILABLE}
+    assert "database timed out" in caplog.text
 
 
 async def test_the_checks_run_together():
