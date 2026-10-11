@@ -401,9 +401,22 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   derived from it instead of writing `/api` out, and a prefix the router cannot mount (`v2`, `/`,
   `/api/`, empty) is refused by name when the settings load rather than raising an `AssertionError`
   at import.
+- **`FRESH_SIGN_IN_SECONDS`, and closing an account asks for one.**
+  `DELETE /api/v1/users/{username}` refuses a session that signed in longer ago than the window
+  with `403 Sign in again to continue.`, so a cookie someone else is holding cannot close the
+  account on its own. Unset, closing an account asks nothing, and crudauth's `/set-password` and
+  MFA-enrolment routes, where a project mounts them, keep crudauth's own 10-minute default; setting
+  it applies one window to all of them, and a value below one second is refused at startup.
+  `FreshSessionPrincipalDep` puts the same gate on a route of your own. Only a session knows when it
+  signed in, so no other credential is ever fresh.
 
 #### Removed
 
+- **`KeyType` and `KeyStatus`**, two API-key enums nothing read. `KeyType` named access levels
+  (`public`, `private`, `admin`, `service`, `webhook`) that no column stored and no route gated on;
+  `KeyStatus` named a lifecycle (`active`, `suspended`, `revoked`, …) that the routes express with
+  `is_active` and `expires_at`. A key's scope is what decides what it may do. `HTTPMethod` stays:
+  the usage schema validates against it. See Breaking Changes.
 - **The `key_permissions` table and its vocabulary**: the `KeyPermission` model, the
   `KeyPermissionResource` / `KeyPermissionAction` enums, the four `KeyPermission*` schemas,
   `APIKeyWithPermissions`, `crud_key_permissions` and `APIKeyService._check_permission`. An API
@@ -428,6 +441,9 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   session-management router, with the device list, rather than being written here: the CSRF refresh
   gained a self-heal (a token that is still valid comes back unchanged) and a per-address rate
   limit, and `logout-all` keeps its `keep_current` query. A client calling the old path gets `404`.
+- **`KeyType` and `KeyStatus` are no longer importable** from `src.modules.api_keys`. Neither was
+  read anywhere: a project using them for its own bookkeeping should copy the enum it wants into its
+  own module.
 - **An API key's `usage_limits` may name only a window the limiter counts.** The column took any
   JSON object, so `{"requests_per_fortnight": 10}` stored cleanly and enforced nothing. It now takes
   `requests_per_minute`, `requests_per_hour` and `requests_per_day`, each a positive whole number of

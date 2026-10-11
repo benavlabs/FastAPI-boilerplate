@@ -446,8 +446,9 @@ credential minting it.
     address, closing the account, managing keys — take a session and refuse a key outright
     ([API keys](api-keys.md#what-a-key-cannot-do)).
 
-`KeyStatus` defines the lifecycle a project can put a key through (`ACTIVE`, `INACTIVE`,
-`SUSPENDED`, `EXPIRED`, `REVOKED`); the routes ship `is_active` and `expires_at`.
+A key's lifecycle is `is_active` and `expires_at`: revoking is one way, and an expiry can be
+brought forward but never pushed back. [API Keys](api-keys.md#revoking-expiring-and-rotating) has
+the routes.
 
 ## Combining Patterns
 

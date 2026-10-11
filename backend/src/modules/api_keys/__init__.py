@@ -12,7 +12,7 @@ Key Features:
 """
 
 from .crud import crud_api_keys, crud_key_usage
-from .enums import HTTPMethod, KeyStatus, KeyType
+from .enums import HTTPMethod
 from .models import APIKey, KeyUsage
 from .schemas import (
     APIKeyBase,
@@ -54,6 +54,4 @@ __all__ = [
     "APIKeyService",
     # Enums
     "HTTPMethod",
-    "KeyStatus",
-    "KeyType",
 ]
