@@ -444,6 +444,15 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   passes, so a prefix belongs in `build_rate_limiter`, and that the shipped sqladmin panel is not
   such an app: its `admin_session` cookie and `admin-panel:<address>` lockout identifier already
   stand apart.
+- **An observability guide**, `docs/user-guide/observability.md`: the signals the project already
+  emits (JSON logs, the support id on a failed request, the refused-login audit lines, readiness per
+  dependency, the `key_usage` rows) and the two gaps tracing fills — no request id on a log line and
+  no latency per route. Then a recipe for Logfire that stays off until `LOGFIRE_TOKEN` is set
+  (`send_to_logfire="if-token-present"`), wired through `INSTALLERS` in `src/wiring/app.py`, with the
+  worker configured separately because it never imports that module; what not to export (captured
+  headers carry the session cookie and `X-API-Key`; statement and parameter capture carry addresses,
+  hashes and session ids; pattern scrubbing cannot know an identifier is a username; the probes are
+  noise); sampling; and what the same recipe looks like against a plain OpenTelemetry collector.
 
 #### Removed
 

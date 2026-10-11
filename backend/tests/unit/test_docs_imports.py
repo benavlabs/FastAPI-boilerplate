@@ -33,6 +33,7 @@ ILLUSTRATIVE_MODULES = (
     "src.modules.reports",
     "src.modules.user.routes_v2",
     "src.interfaces.api.v2",
+    "src.infrastructure.observability",
 )
 
 

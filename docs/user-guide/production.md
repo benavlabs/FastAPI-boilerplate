@@ -303,7 +303,9 @@ For lower-noise production logs:
 - `LOG_LEVEL=INFO` is the right default. `WARNING` skips request logs, which makes incident debugging harder.
 - Sample low-information lines (health-check polls, etc.) at the proxy or aggregator, not in the app.
 
-For OpenTelemetry / APM integration, hook into the FastAPI app at startup — there's no built-in hook in the boilerplate.
+For tracing and metrics, there is no built-in hook: [Observability](observability.md) says what the
+project emits today and how to wire Logfire or another OpenTelemetry exporter into
+`src/wiring/app.py`.
 
 ## Health and Readiness
 
