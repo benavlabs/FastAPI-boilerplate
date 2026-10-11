@@ -9,7 +9,7 @@ from ...infrastructure.auth.deps import (
     CurrentPrincipalDep,
     CurrentSuperUserDep,
     CurrentUserDep,
-    SessionPrincipalDep,
+    FreshSessionPrincipalDep,
 )
 from ...infrastructure.dependencies import AsyncSessionDep
 from ..common.pagination import ItemsPerPageDep, PageDep
@@ -241,6 +241,7 @@ async def update_user_profile(
             - Regular users can only deactivate their own accounts
             - Administrators can deactivate any user's account
             - The caller must be signed in to a session; an API key cannot close an account
+            - With `FRESH_SIGN_IN_SECONDS` set, the sign-in must be no older than that
 
             Deactivated accounts cannot be used for login and are typically hidden
             from regular user listings.
@@ -248,7 +249,7 @@ async def update_user_profile(
     responses={
         200: {"description": "Account deactivated successfully"},
         401: {"description": "Not signed in to a session"},
-        403: {"description": "Not authorized to deactivate this account"},
+        403: {"description": "Not authorized to deactivate this account, or signed in too long ago"},
         404: {"description": "User not found"},
     },
     response_description="Success confirmation message",
@@ -258,9 +259,9 @@ async def delete_user_account(
     current_user: CurrentUserDep,
     db: AsyncSessionDep,
     user_service: UserServiceDep,
-    principal: SessionPrincipalDep,
+    principal: FreshSessionPrincipalDep,
 ) -> dict[str, str]:
-    """Soft delete a user account, for a caller signed in to a session."""
+    """Soft delete a user account, for a caller signed in to a session recently enough."""
     await user_service.verify_user_permission(
         current_user, username, "delete this account", is_superuser=principal.is_superuser
     )

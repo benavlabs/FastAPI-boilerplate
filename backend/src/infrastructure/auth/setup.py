@@ -18,6 +18,7 @@ route gates on it.
 from typing import Any
 
 from crudauth import CookieConfig, CRUDAuth, EmailConfig, NewUserContext, OAuthCredentials, SessionTransport
+from crudauth.constants import DEFAULT_FRESH_SIGN_IN_SECONDS
 from crudauth.ratelimit import LockoutConfig
 
 from ...modules.user.constants import NAME_MAX_LENGTH
@@ -49,6 +50,25 @@ def _absolute_timeout_hours() -> int | None:
         raise ValueError(f"SESSION_ABSOLUTE_TIMEOUT_HOURS={hours!r} isn't supported; leave it unset for no cap.")
 
     return hours
+
+
+def _fresh_sign_in_seconds() -> int:
+    """``FRESH_SIGN_IN_SECONDS``, or crudauth's own default where the setting is unset.
+
+    crudauth reads ``0`` as "never fresh", which would close its ``/set-password`` and
+    passwordless MFA enrolment to every caller.
+
+    Raises:
+        ValueError: The setting is below one second, which no sign-in could satisfy.
+    """
+    seconds = settings.FRESH_SIGN_IN_SECONDS
+    if seconds is None:
+        return DEFAULT_FRESH_SIGN_IN_SECONDS
+
+    if seconds < 1:
+        raise ValueError(f"FRESH_SIGN_IN_SECONDS={seconds!r} isn't supported; leave it unset to ask for nothing.")
+
+    return seconds
 
 
 def _session_backend() -> SessionBackend:
@@ -113,6 +133,7 @@ auth = CRUDAuth(
         lockout_max_seconds=settings.LOGIN_LOCKOUT_MAX_SECONDS,
     ),
     trusted_proxy_hops=settings.TRUSTED_PROXY_HOPS,
+    fresh_sign_in_seconds=_fresh_sign_in_seconds(),
     password_policy=password_policy,
     new_user_fields=_new_user_fields,
     email=email_config,

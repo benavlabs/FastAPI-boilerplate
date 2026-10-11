@@ -71,6 +71,7 @@ PRODUCTION_SECURITY_VALIDATION_ENABLED=true
 ```env
 SESSION_TIMEOUT_MINUTES=30
 # SESSION_ABSOLUTE_TIMEOUT_HOURS=12  # unset: the idle timeout is the only one
+# FRESH_SIGN_IN_SECONDS=600          # unset: closing an account asks nothing; crudauth's own routes keep their 10-minute default
 SESSION_CLEANUP_INTERVAL_MINUTES=15
 MAX_SESSIONS_PER_USER=5
 SESSION_SECURE_COOKIES=true

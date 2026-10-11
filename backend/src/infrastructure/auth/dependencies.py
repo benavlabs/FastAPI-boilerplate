@@ -15,6 +15,7 @@ from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...modules.user.crud import crud_users
+from ..config.settings import settings
 from ..database.session import async_session
 from .scope import carries_a_scope
 from .setup import auth
@@ -40,6 +41,23 @@ async def get_session_principal(
     Only the session transport is tried, so a request authenticated by another
     credential — an API key — answers 401 here however valid that credential is.
     """
+    return principal
+
+
+async def get_freshly_signed_in_principal(
+    principal: Annotated[Principal, Depends(get_session_principal)],
+) -> Principal:
+    """The principal of a route that asks an account to prove it is still at the keyboard.
+
+    Answers 403 unless the session signed in within ``FRESH_SIGN_IN_SECONDS``, and asks
+    nothing while that setting is unset.
+    """
+    if settings.FRESH_SIGN_IN_SECONDS is None:
+        return principal
+
+    if not await auth.signed_in_recently(principal):
+        raise ForbiddenException("Sign in again to continue.")
+
     return principal
 
 

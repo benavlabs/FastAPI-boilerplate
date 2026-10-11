@@ -231,6 +231,9 @@ Permission rules:
 
 - A user can soft-delete their own account
 - A superuser can soft-delete anyone
+- The caller must be signed in to a session; an API key is refused
+- With `FRESH_SIGN_IN_SECONDS` set, the sign-in must be no older than that window; unset, nothing is
+  asked ([asking for a fresh sign-in](sessions.md#asking-for-a-fresh-sign-in))
 
 ### Hard Delete (database)
 

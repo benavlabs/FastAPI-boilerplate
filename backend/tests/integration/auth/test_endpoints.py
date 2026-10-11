@@ -228,20 +228,11 @@ class TestTheAbsoluteSessionCap:
     def capped_at_twelve_hours(self, monkeypatch):
         monkeypatch.setattr(crud_auth.sessions, "absolute_timeout", timedelta(hours=12))
 
-    async def _age(self, session_id: str, hours: int) -> None:
-        """Move the session's sign-in time ``hours`` into the past."""
-        signed_in_at = datetime.now(UTC) - timedelta(hours=hours)
-
-        def backdate(session: SessionData) -> None:
-            session.created_at = signed_in_at
-
-        assert await crud_auth.sessions.modify_session(session_id, backdate) is not None
-
     async def test_a_session_past_the_cap_is_refused_and_gone(
         self, client: AsyncClient, test_user: dict, capped_at_twelve_hours
     ):
         session_id, _ = await _login(client, test_user)
-        await self._age(session_id, hours=13)
+        await _age(session_id, timedelta(hours=13))
 
         authenticated = await _is_authenticated(client, session_id)
 
@@ -250,9 +241,52 @@ class TestTheAbsoluteSessionCap:
 
     async def test_a_session_inside_the_cap_is_untouched(self, client: AsyncClient, test_user: dict, capped_at_twelve_hours):
         session_id, _ = await _login(client, test_user)
-        await self._age(session_id, hours=11)
+        await _age(session_id, timedelta(hours=11))
 
         assert await _is_authenticated(client, session_id) is True
+
+
+class TestAFreshSignInBeforeClosingAnAccount:
+    """``FRESH_SIGN_IN_SECONDS`` makes closing an account ask for a recent sign-in."""
+
+    @pytest.fixture
+    def fresh_for_ten_minutes(self, monkeypatch):
+        monkeypatch.setattr(settings, "FRESH_SIGN_IN_SECONDS", 600)
+        monkeypatch.setattr(crud_auth, "fresh_sign_in_seconds", 600)
+
+    async def _close(self, client: AsyncClient, user: dict, csrf_token: str) -> Response:
+        return await client.delete(f"/api/v1/users/{user['username']}", headers={"X-CSRF-Token": csrf_token})
+
+    async def test_a_session_that_just_signed_in_closes_the_account(
+        self, client: AsyncClient, test_user: dict, fresh_for_ten_minutes
+    ):
+        _, csrf_token = await _login(client, test_user)
+
+        response = await self._close(client, test_user, csrf_token)
+
+        assert response.status_code == 200
+
+    async def test_a_session_older_than_the_window_is_refused(
+        self, client: AsyncClient, test_user: dict, fresh_for_ten_minutes
+    ):
+        session_id, csrf_token = await _login(client, test_user)
+        await _age(session_id, timedelta(minutes=11))
+
+        response = await self._close(client, test_user, csrf_token)
+
+        assert response.status_code == 403
+        assert response.json()["detail"] == "Sign in again to continue."
+        assert await _is_authenticated(client) is True
+
+    async def test_an_old_session_closes_the_account_while_the_setting_is_unset(self, client: AsyncClient, test_user: dict):
+        """Nothing is asked of a project that hasn't set the window."""
+        assert settings.FRESH_SIGN_IN_SECONDS is None
+        session_id, csrf_token = await _login(client, test_user)
+        await _age(session_id, timedelta(minutes=11))
+
+        response = await self._close(client, test_user, csrf_token)
+
+        assert response.status_code == 200
 
 
 @pytest.mark.asyncio
@@ -312,6 +346,16 @@ async def _login(client: AsyncClient, user: dict) -> tuple[str, str]:
     )
     assert response.status_code == 200
     return response.cookies["session_id"], response.json()["csrf_token"]
+
+
+async def _age(session_id: str, by: timedelta) -> None:
+    """Move the session's sign-in time ``by`` into the past."""
+    signed_in_at = datetime.now(UTC) - by
+
+    def backdate(session: SessionData) -> None:
+        session.created_at = signed_in_at
+
+    assert await crud_auth.sessions.modify_session(session_id, backdate) is not None
 
 
 @asynccontextmanager

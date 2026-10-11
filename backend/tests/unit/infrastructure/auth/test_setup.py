@@ -9,6 +9,7 @@ from typing import Any
 
 import pytest
 from crudauth import NewUserContext
+from crudauth.constants import DEFAULT_FRESH_SIGN_IN_SECONDS
 from starlette.requests import Request
 
 from src.infrastructure.auth import setup
@@ -287,6 +288,29 @@ class TestSessionTransportWiring:
 
         with pytest.raises(ValueError, match="SESSION_ABSOLUTE_TIMEOUT_HOURS"):
             setup._session_transport()
+
+
+class TestTheFreshSignInWindow:
+    """``FRESH_SIGN_IN_SECONDS`` is what ``signed_in_recently`` measures against."""
+
+    def test_crudauths_own_default_stands_while_the_setting_is_unset(self):
+        """``0`` would close crudauth's ``/set-password`` and MFA enrolment to every caller."""
+        assert settings.FRESH_SIGN_IN_SECONDS is None
+        assert setup._fresh_sign_in_seconds() == DEFAULT_FRESH_SIGN_IN_SECONDS
+        assert setup.auth.fresh_sign_in_seconds == 600
+
+    def test_the_window_reaches_the_facade(self, monkeypatch):
+        monkeypatch.setattr(settings, "FRESH_SIGN_IN_SECONDS", 300)
+
+        assert setup._fresh_sign_in_seconds() == 300
+
+    @pytest.mark.parametrize("seconds", [0, -1])
+    def test_a_window_below_a_second_is_refused(self, monkeypatch, seconds: int):
+        """The library would take ``0`` and answer "never fresh" to every route that asked."""
+        monkeypatch.setattr(settings, "FRESH_SIGN_IN_SECONDS", seconds)
+
+        with pytest.raises(ValueError, match="FRESH_SIGN_IN_SECONDS"):
+            setup._fresh_sign_in_seconds()
 
 
 class TestAccountsLifecycle:

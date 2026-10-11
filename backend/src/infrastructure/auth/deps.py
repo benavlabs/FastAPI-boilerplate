@@ -15,6 +15,7 @@ from .dependencies import (
     get_current_principal,
     get_current_superuser,
     get_current_user,
+    get_freshly_signed_in_principal,
     get_optional_user,
     get_session_principal,
 )
@@ -23,6 +24,9 @@ CurrentPrincipalDep = Annotated[Principal, Depends(get_current_principal)]
 
 SessionPrincipalDep = Annotated[Principal, Depends(get_session_principal)]
 """The caller of a route reserved for a signed-in session; another credential answers 401."""
+
+FreshSessionPrincipalDep = Annotated[Principal, Depends(get_freshly_signed_in_principal)]
+"""The caller of a route that asks for a sign-in no older than ``FRESH_SIGN_IN_SECONDS``."""
 
 CurrentPermissionsDep = Annotated[frozenset[str], Depends(get_current_permissions)]
 """The caller's effective permissions, resolved once per request."""

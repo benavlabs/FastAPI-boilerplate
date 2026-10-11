@@ -166,6 +166,29 @@ leaves the idle timeout as the only one; a value below 1 is refused at startup r
 every session the moment it is created. A session past the cap is removed, not just rejected, and
 the next request answers `401`.
 
+### Asking for a fresh sign-in
+
+Some actions want proof that whoever holds the cookie is still at the keyboard. Set
+`FRESH_SIGN_IN_SECONDS` and the routes that ask for one refuse a session that signed in longer ago
+than that, with `403 Sign in again to continue.`; the client sends the user back through
+`/api/v1/auth/login` and retries. Only a session can be fresh, so an API key or any other
+credential never is.
+
+Unset, closing an account asks nothing, while crudauth's own `/set-password` and MFA-enrolment
+routes — where a project mounts them; this one mounts neither — keep crudauth's 10-minute default.
+Setting it applies one window to all of them.
+
+`DELETE /api/v1/users/{username}`, closing an account, is the route this project gates on it. To ask
+it of one of your own, take `FreshSessionPrincipalDep` instead of `SessionPrincipalDep`:
+
+```python
+from src.infrastructure.auth.deps import FreshSessionPrincipalDep
+
+
+@router.post("/billing/close")
+async def close_billing(principal: FreshSessionPrincipalDep) -> dict[str, str]: ...
+```
+
 ## CSRF Protection
 
 Session auth ships with CSRF protection. For non-GET requests, send the CSRF token via either:
@@ -281,6 +304,7 @@ SESSION_REDIS_DB=2                   # on the cache Redis; isolated from cache (
 # Lifetime
 SESSION_TIMEOUT_MINUTES=30           # inactive sessions expire
 # SESSION_ABSOLUTE_TIMEOUT_HOURS=12  # the most a session may live from sign-in; unset for no cap
+# FRESH_SIGN_IN_SECONDS=600            # how recent a sign-in must be for the routes that ask; unset, closing an account asks nothing
 SESSION_CLEANUP_INTERVAL_MINUTES=15  # how often the storage backend sweeps expired entries
 
 # Per-user cap
