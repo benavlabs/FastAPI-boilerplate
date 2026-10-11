@@ -92,6 +92,66 @@ async def test_a_successful_callback_signs_the_user_in_and_returns_them(
     assert check.json()["authenticated"] is True
 
 
+class TestWhatASignInWritesBack:
+    """crudauth's ``on_oauth_login`` hook, on the route that serves the callback."""
+
+    async def _sign_in(self, client: AsyncClient, monkeypatch, **profile) -> None:
+        _stub_google(monkeypatch, {"email_verified": True, **profile})
+        state = await _start(client)
+        callback = await client.get(
+            "/api/v1/auth/oauth/callback/google",
+            params={"code": "the-code", "state": state},
+            follow_redirects=False,
+        )
+        assert callback.status_code == 307
+        client.cookies.clear()
+
+    async def test_a_new_account_takes_the_providers_picture(self, client: AsyncClient, db_session: AsyncSession, monkeypatch):
+        await self._sign_in(
+            client,
+            monkeypatch,
+            sub="google-pic",
+            email="katherine@example.com",
+            name="Katherine Johnson",
+            picture="https://provider.example/katherine.png",
+        )
+
+        user = (await db_session.execute(select(User).where(User.google_id == "google-pic"))).scalar_one()
+        assert user.profile_image_url == "https://provider.example/katherine.png"
+
+    async def test_a_returning_sign_in_stamps_the_account_and_keeps_the_picture_it_chose(
+        self, client: AsyncClient, db_session: AsyncSession, monkeypatch
+    ):
+        await self._sign_in(
+            client,
+            monkeypatch,
+            sub="google-return",
+            email="dorothy@example.com",
+            name="Dorothy Vaughan",
+            picture="https://provider.example/dorothy.png",
+        )
+        await db_session.execute(
+            update(User)
+            .where(User.google_id == "google-return")
+            .values(profile_image_url="https://mine.example/dorothy.png", oauth_updated_at=None)
+        )
+        await db_session.commit()
+
+        await self._sign_in(
+            client,
+            monkeypatch,
+            sub="google-return",
+            email="dorothy@example.com",
+            name="Dorothy Vaughan",
+            picture="https://provider.example/dorothy-new.png",
+        )
+
+        user = (await db_session.execute(select(User).where(User.google_id == "google-return"))).scalar_one()
+        await db_session.refresh(user)
+        assert user.oauth_updated_at is not None
+        assert user.profile_image_url == "https://mine.example/dorothy.png"
+
+
 async def test_long_provider_names_fit_the_user_columns(client: AsyncClient, db_session: AsyncSession, monkeypatch):
     """Generated usernames and display names are bounded to the model's column widths."""
     long_name = "Wolfeschlegelsteinhausenbergerdorff Hubert Blaine Senior"

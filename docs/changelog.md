@@ -418,6 +418,13 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   username field may be a typo, a probe, someone else's address or a password typed one box too
   high. The lockout line names no identifier, since nothing resolves one before it refuses. A
   project that would rather write an audit table replaces those two functions.
+- **An OAuth sign-in keeps what the provider owns in step.** `refresh_the_provider_profile`
+  (`infrastructure/auth/oauth_profile.py`) is registered as crudauth's `on_oauth_login` hook, so
+  every sign-in that reaches an active account stamps `oauth_updated_at` — which nothing wrote on a
+  returning sign-in before — and takes the provider's picture into `profile_image_url` while the
+  account still carries the placeholder avatar it was created with. An avatar or display name the
+  account set is never overwritten. `DEFAULT_PROFILE_IMAGE_URL` in `modules/user/constants.py` is
+  now the one place that placeholder is written.
 
 #### Removed
 

@@ -31,6 +31,7 @@ from ..config.settings import settings
 from ..database.session import async_session
 from .audit import record_a_lockout, record_a_refused_login
 from .limiter import build_rate_limiter, rate_limiter_redis_client
+from .oauth_profile import refresh_the_provider_profile
 from .password_policy import password_policy
 from .store import database_store
 
@@ -135,7 +136,11 @@ auth = CRUDAuth(
     ),
     trusted_proxy_hops=settings.TRUSTED_PROXY_HOPS,
     fresh_sign_in_seconds=_fresh_sign_in_seconds(),
-    hooks=AuthHooks(on_login_failed=record_a_refused_login, on_lockout=record_a_lockout),
+    hooks=AuthHooks(
+        on_login_failed=record_a_refused_login,
+        on_lockout=record_a_lockout,
+        on_oauth_login=refresh_the_provider_profile,
+    ),
     password_policy=password_policy,
     new_user_fields=_new_user_fields,
     email=email_config,

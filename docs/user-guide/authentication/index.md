@@ -106,7 +106,24 @@ the browser to `OAUTH_REDIRECT_BASE_URL?error=<code>`. A callback whose `state` 
 cookie set when the flow started, or whose state was already used or has expired, lands there too
 with `error=invalid_state` and no session, since it may be a login-CSRF attempt; the usual cause is
 a sign-in that took too long or finished in another browser, so offer to start again.
-New accounts take their display name from the Google profile.
+
+**What a sign-in writes back.** Every OAuth sign-in that reaches an active account runs
+`refresh_the_provider_profile` (`infrastructure/auth/oauth_profile.py`), registered as crudauth's
+`on_oauth_login` hook:
+
+| Column | When it is written |
+|---|---|
+| `name` | once, as the account is created, from the provider's profile |
+| `profile_image_url` | from the provider's picture, while the account still carries the placeholder avatar it was created with |
+| `oauth_updated_at` | on every sign-in after the one that created the account, which crudauth stamps itself |
+| `google_id` / `github_id`, `oauth_provider`, `email_verified` | by crudauth, as the account is created or linked |
+
+So the provider seeds an avatar and a display name, and the account owns both afterwards: a user who
+sets either keeps it however often they sign in. A project that would rather let the provider own
+the avatar drops the placeholder check in that hook, and one that wants the provider's current login
+handle (`info.username`, which changes on a GitHub rename) writes it there — `info.raw_data` carries
+the provider's whole payload. The hook is handed crudauth's own fields only, so anything of your own
+it reads comes from the row.
 
 A provider is wired when **both** of its settings are set — `OAUTH_GOOGLE_CLIENT_ID` and
 `OAUTH_GOOGLE_CLIENT_SECRET`, `OAUTH_GITHUB_CLIENT_ID` and `OAUTH_GITHUB_CLIENT_SECRET` — so a
