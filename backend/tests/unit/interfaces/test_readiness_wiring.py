@@ -13,6 +13,11 @@ def test_the_database_holds_traffic_back():
     assert "database" in _names(CRITICAL_READINESS_CHECKS)
 
 
+def test_the_schema_holds_traffic_back():
+    """A reachable database with no schema serves nothing that reads a row."""
+    assert "schema" in _names(CRITICAL_READINESS_CHECKS)
+
+
 def test_the_cache_and_the_broker_do_not():
     """No request the app serves waits on either."""
     assert _names(CRITICAL_READINESS_CHECKS) & NEVER_CRITICAL == set()

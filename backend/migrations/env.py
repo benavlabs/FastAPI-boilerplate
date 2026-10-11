@@ -3,6 +3,7 @@ import os
 from logging.config import fileConfig
 
 from alembic import context
+from alembic.script import ScriptDirectory
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
@@ -45,9 +46,33 @@ def validate_production_migration():
         print("⚠️  This operation will modify production data!")
 
 
+def refuse_an_upgrade_with_no_revisions():
+    """Refuse to "apply" a history that doesn't exist yet.
+
+    ``alembic upgrade head`` with no revisions creates ``alembic_version`` and nothing
+    else, exits 0, and leaves a database with no schema behind an app that will fail
+    every request. Generating the first revision is the one command that runs with an
+    empty history, so it is let through, recognised by the flag alembic's CLI sets.
+    Generating one through alembic's Python API instead passes no ``cmd_opts``, so it is
+    refused as well: run the command.
+    """
+    if getattr(config.cmd_opts, "autogenerate", False):
+        return
+
+    if ScriptDirectory.from_config(config).get_heads():
+        return
+
+    raise SystemExit(
+        "No migration revisions exist, so this would create only alembic_version and leave the "
+        "database without a schema. Generate the first one against an empty database "
+        "(`alembic revision --autogenerate -m baseline`), review it, and commit it."
+    )
+
+
 config.set_main_option("sqlalchemy.url", ini_value(settings.DATABASE_URL))
 
 validate_production_migration()
+refuse_an_upgrade_with_no_revisions()
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)

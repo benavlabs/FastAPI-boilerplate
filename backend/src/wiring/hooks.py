@@ -13,6 +13,7 @@ from ..infrastructure.composition import (
     TierDeleteRelease,
 )
 from ..infrastructure.database.health import readiness as database_readiness
+from ..infrastructure.database.health import schema_readiness
 from ..infrastructure.taskiq.health import readiness as broker_readiness
 from ..modules.rate_limit.hooks import rate_limits_reference_tier, release_deleted_rate_limits, tier_rate_limit
 from ..modules.role.sources import role_permissions
@@ -23,6 +24,7 @@ TIER_DELETE_GUARDS: tuple[TierDeleteGuard, ...] = (rate_limits_reference_tier,)
 TIER_DELETE_RELEASES: tuple[TierDeleteRelease, ...] = (release_deleted_rate_limits,)
 CRITICAL_READINESS_CHECKS: tuple[ReadinessCheck, ...] = (
     database_readiness,
+    schema_readiness,
     limiter_readiness,
     sessions_readiness,
 )

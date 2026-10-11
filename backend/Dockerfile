@@ -35,8 +35,10 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install --system -r requirements-prod.txt && \
     rm requirements-prod.txt
 
-# Copy source code
+# Copy source code, with the migrations and their configuration the readiness check reads
 COPY backend/src ./src
+COPY backend/migrations ./migrations
+COPY backend/alembic.ini .
 
 # Set Python path
 ENV PYTHONPATH=/app:/app/src
@@ -68,10 +70,6 @@ CMD ["fastapi", "dev", "interfaces/main.py", "--host", "0.0.0.0", "--port", "800
 
 # ===================== Migration Stage =====================
 FROM base AS migrate
-
-# Copy migration files
-COPY backend/migrations ./migrations
-COPY backend/alembic.ini .
 
 # Create non-root user for security
 RUN groupadd -r appuser && useradd -r -m -g appuser appuser

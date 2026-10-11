@@ -323,7 +323,8 @@ livenessProbe:
 
 For a **readiness** probe (does the app actually have working DB / Redis connections?), use `GET /health/ready`. It runs the checks the project's wiring lists, in two groups:
 
-- `CRITICAL_READINESS_CHECKS` — the database, plus the login lockout's Redis and the session store when accounts is wired. A request can't be served without these, so one of them being unreachable answers `503` and a load balancer holds traffic back.
+- `CRITICAL_READINESS_CHECKS` — the database, the schema, plus the login lockout's Redis and the session store when accounts is wired. A request can't be served without these, so one of them being unreachable answers `503` and a load balancer holds traffic back.
+    - The `schema` check asks whether the database carries the schema this code was written against. Where the project has migrations, it compares the database's revision with their head, so a database one migration behind — every table present, a column missing — answers `503` rather than failing requests one by one. Where there are none, or where `CREATE_TABLES_ON_STARTUP` built the schema, it compares the tables the models declare against the tables that exist. It names no server, so it is always asked rather than mirrored from the `database` check, and it reads `alembic.ini` from beside the source tree rather than from the working directory.
 - `INFORMATIONAL_READINESS_CHECKS` — the cache and the task broker. No request waits on either, so an outage there is logged and the answer stays `200`. A Redis broker is pinged; a RabbitMQ one is reported on over the live state of the connection the app holds, which reads as unavailable while that connection is being opened or reconnected.
 
 ```yaml
@@ -349,7 +350,12 @@ line naming it:
 WARNING Readiness check cache failed: ConnectionError
 WARNING Readiness: cache unavailable, which does not hold traffic back
 ERROR   Readiness: database unavailable, holding traffic back
+ERROR   Readiness check schema failed: RuntimeError
 ```
+
+The `schema` line's own message names what it found: `the database is at 9e1c2f7a4b10, the code
+expects b3d84c2e5f91`, or `the database is missing 3 table(s) the models declare: api_keys,
+key_usage, user` where the project has no migrations.
 
 Each check runs with its own two-second timeout, and they all run together, so one blackholed
 server can't hold the probe open. Two checks pointed at the same server are asked once - the server

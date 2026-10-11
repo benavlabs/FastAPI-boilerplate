@@ -337,12 +337,13 @@ def _wiring_hooks(chosen: set[str]) -> str:
         "    TierDeleteRelease,\n"
         ")",
         "from ..infrastructure.database.health import readiness as database_readiness",
+        "from ..infrastructure.database.health import schema_readiness",
     ]
     sources = "()"
     resolvers = "()"
     guards = "()"
     releases = "()"
-    critical = ["database_readiness"]
+    critical = ["database_readiness", "schema_readiness"]
     informational: list[str] = []
 
     if "rbac" in chosen:

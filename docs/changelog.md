@@ -401,6 +401,20 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   derived from it instead of writing `/api` out, and a prefix the router cannot mount (`v2`, `/`,
   `/api/`, empty) is refused by name when the settings load rather than raising an `AssertionError`
   at import.
+- **`alembic upgrade` refuses to run with no revisions.** It used to create `alembic_version`,
+  exit `0`, and leave a database with no schema, which is what a fresh production deploy got:
+  `CREATE_TABLES_ON_STARTUP` is off there, so the API then failed every request. The message names
+  the one command that has to run on an empty history, `alembic revision --autogenerate -m
+  baseline`, which is let through.
+- **A `schema` readiness check, critical.** `GET /health/ready` answers `503` unless the database
+  carries the schema this code was written against, and the log line says what it found.
+  Reachability alone reported an unmigrated database as ready, so a deploy that never ran its
+  migrations took traffic and failed every request that read a row. Where the project has
+  migrations the check compares the database's revision with their head, which also catches a
+  database that has every table and is missing a column; where it has none, or where
+  `CREATE_TABLES_ON_STARTUP` built the schema, it compares the declared tables with the existing
+  ones. It names no server, so it is asked rather than mirrored from the `database` check, and the
+  production image now carries `migrations/` and `alembic.ini` so it can read them.
 - **A key is refused once its owner's account has been recovered.** `user.token_version` is a new
   column, and crudauth's bump of it now takes effect: it was a no-op while the model had no such
   column, so nothing marked an account as recovered. crudauth bumps it when a password is changed,
