@@ -31,9 +31,10 @@ matrix. The round that followed fixed what a re-review of the refactor found.
 - **`tools/removal_drill.py`** — builds the repository without each feature and runs six checks
   (the app imports, every module imports, ruff, mypy, tests, and a migration baseline that applies
   to an empty database) per preset.
-- **`scripts/cleanup_api_key_json.py`** — a one-off repair for API key rows whose `permissions` or
-  `usage_limits` hold a JSON null, which an older version could store and no validated read can
-  parse.
+- **`scripts/cleanup_api_key_json.py`** — a one-off repair for API key rows holding what no code can
+  read: a `permissions` value that isn't a list of names (a JSON null, or the object an older
+  version stored) becomes an empty scope, and a `usage_limits` value keeps the windows the limiter
+  counts and loses the rest.
 - **A test over the documentation's code samples** — `tests/unit/test_docs_imports.py` resolves
   every `from src…` and relative import in a `python` block under `docs/` against `backend/src`
   and fails on a name that isn't there, so a sample that can't be pasted into a project fails the
@@ -432,7 +433,8 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   `requests_per_minute`, `requests_per_hour` and `requests_per_day`, each a positive whole number of
   requests, and anything else answers `422`. A limit already stored under another name keeps reading
   back as it is and counts for nothing — the way a stored permission the registry no longer knows
-  grants nothing — so rewrite those keys' limits to have them enforced.
+  grants nothing. `python scripts/cleanup_api_key_json.py` now rewrites those rows too: it keeps the
+  windows the limiter counts and drops the rest, so a repaired row holds exactly what is enforced.
 - **An unknown `SESSION_BACKEND` is refused when the app starts.** A value crudauth has no store
   for — `memcached`, say, left over from before sessions moved to crudauth — used to fall through to
   memory sessions, which start fine and then lose every session on each deploy and share none
