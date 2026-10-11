@@ -36,6 +36,8 @@ class User(Base, TimestampMixin, SoftDeleteMixin, UserModelExtensions):
 
     is_superuser: Mapped[bool] = mapped_column(default=False)
 
+    token_version: Mapped[int] = mapped_column(default=0, server_default=text("0"))
+
     google_id: Mapped[str | None] = mapped_column(String(50), unique=True, index=True, default=None)
     github_id: Mapped[str | None] = mapped_column(String(50), unique=True, index=True, default=None)
     oauth_provider: Mapped[str | None] = mapped_column(String(20), default=None)

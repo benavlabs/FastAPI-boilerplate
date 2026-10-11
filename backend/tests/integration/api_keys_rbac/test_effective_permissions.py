@@ -7,10 +7,11 @@ account can hold at all. The cases a superuser's key states without rbac live in
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import delete
+from sqlalchemy import delete, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.modules.role.models import Role, UserRole
+from src.modules.user.models import User
 from tests.integration.api.v1.api_keys.test_effective_permissions import key_for, sign_in, with_key
 from tests.integration.rbac.test_user_permissions import _grant
 
@@ -135,6 +136,8 @@ async def test_a_key_cannot_be_scoped_beyond_what_its_creator_holds(
     client: AsyncClient, db_session: AsyncSession, test_user: dict
 ):
     """Through the route, as a session that holds one of the two names."""
+    await db_session.execute(update(User).where(User.id == test_user["id"]).values(email_verified=True))
+    await db_session.commit()
     await _grant(db_session, test_user["id"], "reader", "user.read")
     csrf = await sign_in(client, test_user)
 

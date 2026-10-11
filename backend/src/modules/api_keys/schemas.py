@@ -58,6 +58,7 @@ class APIKeyCreateInternal(APIKeyBase):
     user_id: int
     key_hash: str
     key_prefix: str
+    owner_token_version: int
 
 
 class APIKeyUpdate(EncodableText, PartialUpdate):
@@ -92,6 +93,7 @@ class APIKeyRead(TimestampSchema):
 
     id: int
     user_id: int
+    owner_token_version: int = Field(default=0, description="The owner's credential generation when the key was minted")
     name: str = Field(description="Human-readable name for the API key")
     key_prefix: str
     permissions: list[str] = Field(description="Registry permission names the key is scoped to")
@@ -205,6 +207,7 @@ class APIKeyValidationResponse(BaseModel):
     is_valid: bool
     api_key_id: int | None = None
     user_id: int | None = None
+    owner_token_version: int | None = None
     permissions: list[str] | None = None
     usage_limits: dict[str, Any] | None = None
     error_message: str | None = None

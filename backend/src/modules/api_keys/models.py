@@ -7,7 +7,7 @@ their usage. A key's scope is the list of registry permission names it carries.
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Index, Integer, String, Text, text
 from sqlalchemy.dialects.postgresql import JSON
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -27,6 +27,7 @@ class APIKey(Base, TimestampMixin):
     key_prefix: Mapped[str] = mapped_column(String(20))
     permissions: Mapped[list[str]] = mapped_column(JSON, insert_default=list)
     usage_limits: Mapped[dict[str, Any]] = mapped_column(JSON, insert_default=dict)
+    owner_token_version: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
     last_used_ip: Mapped[str | None] = mapped_column(String(45), default=None)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)

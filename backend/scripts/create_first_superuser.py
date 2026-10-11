@@ -102,7 +102,7 @@ async def _seed_superuser(name: str, email: str, username: str, password: str) -
         except DomainError as error:
             raise SeedError(f"Could not seed the superuser: {error}") from error
 
-        await session.execute(update(User).where(User.id == created["id"]).values(is_superuser=True))
+        await session.execute(update(User).where(User.id == created["id"]).values(is_superuser=True, email_verified=True))
         await session.commit()
 
         logger.info(f"Superuser {username} created successfully with ID {created['id']}")

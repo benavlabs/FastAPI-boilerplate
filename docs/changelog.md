@@ -401,6 +401,20 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   derived from it instead of writing `/api` out, and a prefix the router cannot mount (`v2`, `/`,
   `/api/`, empty) is refused by name when the settings load rather than raising an `AssertionError`
   at import.
+- **A key is refused once its owner's account has been recovered.** `user.token_version` is a new
+  column, and crudauth's bump of it now takes effect: it was a no-op while the model had no such
+  column, so nothing marked an account as recovered. crudauth bumps it when a password is changed,
+  a reset is completed, or an OAuth provider claims the account. `api_keys.owner_token_version`
+  records the generation a key was minted under, and the `X-API-Key` transport answers `401` for a
+  key from an older one, so a key minted from a stolen session dies when the owner resets their
+  password, and a key minted under someone else's address dies when they claim it. Ending sessions
+  still leaves keys working, since a key holds none.
+
+    The same column reaches sessions, which crudauth records with the generation they were created
+    under: a session from before a reset, a password change or a provider claim is now refused by
+    that check as well, on top of the explicit revocation crudauth already did at each of those
+    points. Both columns default to `0`, so accounts and keys that exist today match until the
+    first recovery.
 - **`FRESH_SIGN_IN_SECONDS`, and closing an account asks for one.**
   `DELETE /api/v1/users/{username}` refuses a session that signed in longer ago than the window
   with `403 Sign in again to continue.`, so a cookie someone else is holding cannot close the
@@ -485,6 +499,18 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   session-management router, with the device list, rather than being written here: the CSRF refresh
   gained a self-heal (a token that is still valid comes back unchanged) and a per-address rate
   limit, and `logout-all` keeps its `keep_current` query. A client calling the old path gets `404`.
+- **Two new columns need a migration: `user.token_version` and `api_keys.owner_token_version`.**
+  Both carry a server default of `0`, so the next `alembic revision --autogenerate` adds them
+  without touching existing rows, and every account and key starts in the same generation. Apply
+  the migration before deploying this version: the models select both columns, so without them
+  every request that loads an account or a key fails.
+- **Minting an API key needs a verified address.** `POST /api/v1/api-keys/` answers `403` until the
+  account has confirmed its email, because an unverified address may belong to somebody else: it is
+  what lets an attacker register under a victim's address, mint a key, and keep API access after the
+  victim claims the account through a provider. Accounts that signed in with a provider are verified
+  already; a password signup confirms through
+  `POST /api/v1/auth/email/verify-request`. A deployment with unverified accounts that hold no keys
+  yet should expect those users to verify before they can mint one.
 - **`KeyType` and `KeyStatus` are no longer importable** from `src.modules.api_keys`. Neither was
   read anywhere: a project using them for its own bookkeeping should copy the enum it wants into its
   own module.

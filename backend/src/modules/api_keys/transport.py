@@ -16,6 +16,7 @@ API_KEY_HEADER = "X-API-Key"
 TRANSPORT_NAME = "apikey"
 
 INVALID_KEY = "Invalid API key"
+RECOVERED_ACCOUNT = "This API key was issued before the account was recovered."
 OVER_THE_LIMIT = "This API key has made too many requests."
 
 
@@ -53,6 +54,11 @@ class APIKeyTransport(Transport):
     the owner's superuser flag: that flag reaches ownership checks no scope can express,
     so it is recorded in the metadata for the narrowing to read and nothing else.
 
+    A key is refused once its owner's credential generation has moved past the one it was
+    minted under. Claiming an account through a provider, resetting its password and
+    changing it each bump that generation, so recovering an account takes its keys back
+    with it. Ending sessions does not: a key holds none.
+
     A key over one of its ``usage_limits`` answers 429 here rather than at a route, so
     every route a key can reach is covered, throttled or not. The request is stamped with
     the key before that refusal, so the usage recorder sees the refusal as well.
@@ -73,6 +79,9 @@ class APIKeyTransport(Transport):
         owner = await ctx.resolve_user(validated.user_id) if validated.is_valid else None
         if owner is None or not ctx.repo.is_active(owner):
             raise UnauthorizedException(INVALID_KEY)
+
+        if validated.owner_token_version != ctx.repo.token_version(owner):
+            raise UnauthorizedException(RECOVERED_ACCOUNT)
 
         request.state.api_key_id = validated.api_key_id
         request.state.api_key_user_id = validated.user_id

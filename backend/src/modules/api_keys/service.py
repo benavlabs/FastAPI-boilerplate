@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...infrastructure.logging import get_logger
 from ..common.exceptions import PermissionDeniedError, ResourceNotFoundError, ValidationError
+from ..user.models import User
 from .crud import crud_api_keys, crud_key_usage
 from .models import APIKey, KeyUsage
 from .schemas import (
@@ -55,6 +56,13 @@ def _extends_expiry(current: datetime | None, proposed: datetime | None) -> bool
         return False
 
     return proposed is None or proposed > current
+
+
+async def _owner_token_version(user_id: int, db: AsyncSession) -> int:
+    """The account's current credential generation, which a claim, a reset or a change bumps."""
+    stored = await db.execute(select(User.token_version).where(User.id == user_id))
+
+    return stored.scalar_one()
 
 
 class APIKeyService:
@@ -154,6 +162,7 @@ class APIKeyService:
                 "user_id": user_id,
                 "key_hash": key_hash,
                 "key_prefix": prefix,
+                "owner_token_version": await _owner_token_version(user_id, db),
             }
         )
 
@@ -366,6 +375,7 @@ class APIKeyService:
             is_valid=True,
             api_key_id=key["id"],
             user_id=key["user_id"],
+            owner_token_version=key["owner_token_version"],
             permissions=key["permissions"],
             usage_limits=key["usage_limits"],
         )

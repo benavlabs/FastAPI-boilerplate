@@ -68,6 +68,7 @@ async def test_a_complete_configuration_seeds_a_superuser(admin_environment, db_
     seeded = await crud_users.get(db=db_session, email=COMPLETE["ADMIN_EMAIL"])
     assert seeded is not None
     assert seeded["is_superuser"] is True
+    assert seeded["email_verified"] is True
     assert seeded["username"] == COMPLETE["ADMIN_USERNAME"]
 
 

@@ -8,7 +8,9 @@ own. Keys come with the api_keys feature; a project without that feature has no 
 ## Creating a key
 
 Minting a key is something an account does while signed in: every `/api/v1/api-keys/` route takes a
-session and refuses a key, so no key can mint another.
+session and refuses a key, so no key can mint another. The account's address must be verified as
+well, since an unverified one may belong to somebody else; an account that hasn't confirmed its
+address answers `403` ([recovery flows](index.md#recovery-flows-email) sends the link).
 
 ```bash
 curl -X POST http://localhost:8000/api/v1/api-keys/ \
@@ -175,8 +177,15 @@ never pushed back, so neither route can be used to widen a key quietly. Rotate b
 key, moving the client onto it, then revoking the old one — both work at once, and the usage rows
 show when the old one stops being called.
 
-A password change revokes the account's other **sessions**; it does not revoke its keys, which carry
-no password. A key you believe has leaked has to be revoked.
+**Recovering an account revokes its keys.** Each key records the owner's credential generation
+(`owner_token_version`) as it is minted, and a key from an older generation answers `401`. Three
+things move that generation on, all of them someone taking the account back: changing the password,
+completing a password reset, and claiming the account through an OAuth provider. So a key minted
+from a stolen session dies when the owner resets their password, and a key minted under an address
+somebody else later proves they own dies when they claim it.
+
+Ending sessions is not one of those: `POST /auth/logout-all` signs every device out and leaves the
+keys working, because a key holds no session. Revoke a key you believe has leaked.
 
 ## How a key is stored
 

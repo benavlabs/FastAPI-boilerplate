@@ -1,16 +1,18 @@
 """API endpoints for API key management.
 
 Every route here is reserved for a signed-in session: a key must not mint, read, rescope
-or revoke a key, its own included.
+or revoke a key, its own included. Minting one also asks for a verified address, since an
+unverified one may belong to somebody else.
 """
 
 from typing import Any
 
+from crudauth.exceptions import ForbiddenException
 from fastapi import APIRouter, Depends, Path, Query
 from fastcrud import PaginatedListResponse, compute_offset, paginated_response
 
 from ...infrastructure.auth.dependencies import get_session_principal
-from ...infrastructure.auth.deps import CurrentPermissionsDep, CurrentUserDep
+from ...infrastructure.auth.deps import CurrentPermissionsDep, CurrentUserDep, SessionPrincipalDep
 from ...infrastructure.dependencies import AsyncSessionDep
 from ..common.pagination import MAX_INTEGER_ID, ItemsPerPageDep, PageDep
 from .dependencies import APIKeyServiceDep
@@ -25,6 +27,8 @@ from .schemas import (
 )
 
 router = APIRouter(tags=["API Keys"], dependencies=[Depends(get_session_principal)])
+
+UNVERIFIED_ADDRESS = "Verify your email address before creating an API key."
 
 
 @router.post(
@@ -59,8 +63,12 @@ async def create_api_key(
     held: CurrentPermissionsDep,
     api_key_service: APIKeyServiceDep,
     db: AsyncSessionDep,
+    principal: SessionPrincipalDep,
 ) -> dict[str, Any]:
-    """Create a new API key for the authenticated user."""
+    """Create a new API key for the authenticated user, whose address must be verified."""
+    if not principal.recovery_verified:
+        raise ForbiddenException(UNVERIFIED_ADDRESS)
+
     return await api_key_service.create_api_key(
         user_id=current_user["id"] if isinstance(current_user, dict) else current_user.id,
         key_data=key_data,

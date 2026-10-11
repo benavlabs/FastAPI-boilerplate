@@ -574,6 +574,7 @@ async def test_validate_api_key_with_underscore_in_prefix(api_key_service, db_se
         "key_prefix": forced_prefix,
         "permissions": [],
         "usage_limits": {},
+        "owner_token_version": 0,
     }
     await crud_api_keys.create(db=db_session, object=APIKeyCreateInternal(**key_dict))
 

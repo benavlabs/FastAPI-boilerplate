@@ -112,6 +112,7 @@ def _principal_for(user: dict) -> Principal:
         transport="session",
         is_superuser=user.get("is_superuser", False),
         email_verified=True,
+        recovery_verified=True,
     )
 
 
