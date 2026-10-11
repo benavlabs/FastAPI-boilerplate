@@ -298,6 +298,60 @@ Both hooks run after the refusal is decided and cannot change it; an exception e
 logged by crudauth and the request answers normally. `infrastructure/auth/audit.py` is where a
 project sends these to an audit table or an external sink instead.
 
+## Running a second crudauth app beside this one
+
+Two apps that each run crudauth — this API and another service, or a separate admin application —
+share whatever storage they point at. Nothing in crudauth namespaces itself per app, so the two
+collide wherever they meet:
+
+| What they share | What happens | How to separate them |
+|---|---|---|
+| The session and CSRF key space on one Redis database | The per-user index is keyed by user id, not by an HMAC, so each app's device list, `logout-all` and session cap reach the other's sessions for the same id, even if the ids name different people. With the same `SECRET_KEY`, a session cookie from one app also signs in to the other | A different `SESSION_REDIS_DB` (or `SESSION_REDIS_URL`), or `SessionTransport(storage_prefix="other:session:", csrf_storage_prefix="other:csrf:")` |
+| Cookie names in one browser | crudauth's cookies are `session_id` and `csrf_token` on path `/`, so the second login overwrites the first and the two apps sign each other out | `SessionTransport(cookie_name="other_session", csrf_cookie_name="other_csrf")` — the two names must differ from each other, which crudauth enforces |
+| Login lockout and throttle counters | A username or address locked out in one app is locked out of the other, and the two apps' failures add up | A different `RATE_LIMITER_REDIS_DB`, or a key prefix (below) |
+| `crudauth_store` / `crudauth_counters` in one database | The same collisions in rows rather than keys: the store indexes sessions by a `user_id` column, and the counters share their names | Separate databases or schemas, or the same prefixes: `storage_prefix` and the limiter's |
+
+The tidiest separation in this project is the one it already uses between its own concerns: give the
+other app its own Redis database. The cache sits on `0`, the rate limiter on `1`, sessions on `2`
+and taskiq on `3`, so a second app starts at `4` and shares nothing.
+
+Where they must share one database, prefix everything:
+
+```python
+# the other app's setup.py — not this one's
+auth = CRUDAuth(
+    ...,
+    transports=[
+        SessionTransport(
+            cookie_name="other_session",
+            csrf_cookie_name="other_csrf",
+            storage_prefix="other:session:",
+            csrf_storage_prefix="other:csrf:",
+        )
+    ],
+    rate_limit_prefix="other:rl:",
+)
+```
+
+`rate_limit_prefix` applies to the limiter crudauth builds for itself, and crudauth refuses it
+together with `rate_limiter=`. This project passes its own limiter (`build_rate_limiter()` in
+`infrastructure/auth/limiter.py`), so the prefix belongs there instead —
+`redis_rate_limiter(client=..., prefix="other:rl:")`, or `database_store.rate_limiter(prefix=...)`
+on the database backend.
+
+The one-time-token, OAuth-state and MFA stores are keyed by values the server generates at random,
+so sharing their key space is harmless; a signed token from one app is refused by the other anyway
+unless both hold the same `SECRET_KEY`.
+
+!!! note "The admin panel is not one of these"
+    The panel this boilerplate ships is [sqladmin](../admin-panel/index.md), not a second crudauth
+    app. It authenticates against `ADMIN_USERNAME` / `ADMIN_PASSWORD` with a Starlette cookie of its
+    own — `admin_session`, signed with `SECRET_KEY` and scoped to the panel's mount — and it reuses
+    this app's single `auth` facade for its login lockout, counting against the identifier
+    `admin-panel:<address>`. That shares the per-address budget with the user login on purpose, so
+    an address guessing passwords is slowed at both doors, while the per-identifier budget stays
+    separate. None of the prefixes above apply to it.
+
 ## Session Limits
 
 Per-user concurrent session count is capped by `MAX_SESSIONS_PER_USER` (default 5). When a user logs in beyond this cap, the oldest session is terminated.

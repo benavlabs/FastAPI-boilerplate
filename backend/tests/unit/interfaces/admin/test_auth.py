@@ -2,6 +2,7 @@
 
 import pytest
 
+from src.infrastructure.auth.setup import session_transport
 from src.infrastructure.config.settings import EnvironmentOption, settings
 from src.interfaces.admin.auth import SESSION_MAX_AGE_SECONDS, AdminAuth, admin_base_url
 from tests.unit.interfaces.admin.helpers import CLIENT, admin_login, clear_admin_lockout, configure_panel
@@ -80,6 +81,7 @@ def test_the_admin_session_cookie_is_scoped_and_short_lived(monkeypatch):
     assert options["https_only"] is True
     assert options["max_age"] == SESSION_MAX_AGE_SECONDS
     assert options["session_cookie"] == "admin_session"
+    assert options["session_cookie"] != session_transport.cookie_name
     assert options["base_url"] == admin_base_url()
 
 

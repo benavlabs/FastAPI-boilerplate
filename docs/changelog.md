@@ -432,6 +432,18 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   can't be typed as a password, that the password policy does not apply to an imported hash, and how
   to finish and then drop the migration. `tests/integration/auth/test_legacy_passwords.py` holds the
   sign-in, the rehash and the wrong-password refusal the page describes.
+- **A section on running a second crudauth app beside this API**, under
+  [Sessions](user-guide/authentication/sessions.md): what two apps collide over when they share one
+  Redis database or one `crudauth_store` — the per-user session index, which is keyed by user id
+  rather than by the HMAC the session records are under, so each app's device list, `logout-all` and
+  session cap reach the other's sessions for the same id, and with a shared `SECRET_KEY` a cookie
+  from one app signs in to the other; the cookie names overwriting each other in a browser; and the
+  lockout counters merging — with `storage_prefix`,
+  `csrf_storage_prefix`, `cookie_name`, `csrf_cookie_name` and the limiter's prefix against each.
+  It also records that `rate_limit_prefix` cannot be combined with the `rate_limiter=` this project
+  passes, so a prefix belongs in `build_rate_limiter`, and that the shipped sqladmin panel is not
+  such an app: its `admin_session` cookie and `admin-panel:<address>` lockout identifier already
+  stand apart.
 
 #### Removed
 
