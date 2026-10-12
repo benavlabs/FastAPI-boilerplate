@@ -125,7 +125,9 @@ the request through rather than taking the API down with it.
 A limit stored before this vocabulary existed — anything outside those three names, or a value that
 isn't a positive whole number — reads back as it is and counts for nothing, the way a stored
 permission the registry no longer knows grants nothing.
-`python scripts/cleanup_api_key_json.py` rewrites those rows: it keeps the windows the limiter
+`uv run --no-sync python scripts/cleanup_api_key_json.py` from `backend/`, or
+`docker compose exec api python -m scripts.cleanup_api_key_json` in the container, rewrites those
+rows: it keeps the windows the limiter
 counts and drops the rest, so what remains is exactly what gets enforced. It logs what each key
 lost, so a limit that was meant — `{"requests_per_day": "1000"}`, say, which was never enforced
 because the count is a string — can be set again as a number.

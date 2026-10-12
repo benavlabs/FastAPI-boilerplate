@@ -221,7 +221,11 @@ version that stored a JSON null in `permissions` or `usage_limits`, which every 
 such a row answers `500` on. Run it once after upgrading, from `backend/`:
 
 ```bash
+# from backend/ on the host
 uv run --no-sync python scripts/cleanup_api_key_json.py
+
+# or in the container, whose working directory is /app/src
+docker compose exec api python -m scripts.cleanup_api_key_json
 ```
 
 It reports how many rows each column was repaired in, changes nothing else, and is safe to run
@@ -232,7 +236,11 @@ stored canonically. It rewrites every address into the trimmed, lowercased form 
 and adds the `ix_user_email_lower` unique index over it:
 
 ```bash
+# from backend/ on the host
 uv run --no-sync python scripts/canonicalize_emails.py
+
+# or in the container, whose working directory is /app/src
+docker compose exec api python -m scripts.canonicalize_emails
 ```
 
 While two accounts hold one address once case and whitespace are ignored it changes nothing, names

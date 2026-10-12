@@ -191,6 +191,14 @@ matrix. The round that followed fixed what a re-review of the refactor found.
 
 #### Changed
 
+- **The image carries `backend/scripts`.** It copied `src`, `migrations`, `alembic.ini` and the
+  tests, so every documented command that runs a script inside a container answered
+  `No module named 'scripts'`: `docker compose exec api python -m scripts.setup_initial_data` from
+  the first-run guide, and the `cleanup_api_key_json` and `canonicalize_emails` repairs an upgrade
+  needs. The base stage copies the directory now, so the dev, migrate and prod stages all have it.
+  The documentation gives both forms for the two repairs, since the container's working directory
+  is `/app/src` while the scripts sit at `/app/scripts`: `python -m scripts.<name>` in there, and
+  `uv run --no-sync python scripts/<name>.py` from `backend/` on the host.
 - **`crudauth_store` and `crudauth_counters` are part of the schema, whatever the backends say.**
   They were declared on `Base.metadata` only where `SESSION_BACKEND` or `RATE_LIMITER_BACKEND`
   named `database`, so the schema depended on a runtime choice two ways: a baseline generated with

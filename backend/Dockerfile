@@ -35,10 +35,12 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install --system -r requirements-prod.txt && \
     rm requirements-prod.txt
 
-# Copy source code, with the migrations and their configuration the readiness check reads
+# Copy source code, with the migrations and their configuration the readiness check reads,
+# and the scripts an upgrade runs inside the container
 COPY backend/src ./src
 COPY backend/migrations ./migrations
 COPY backend/alembic.ini .
+COPY backend/scripts ./scripts
 
 # Set Python path
 ENV PYTHONPATH=/app:/app/src
