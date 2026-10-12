@@ -61,7 +61,9 @@ Tracked, reviewable, reversible schema changes — what you want for anything be
     `env.py` imports the models the project still carries, so the baseline holds exactly those
     tables — a project without tiers gets no `tiers` table. Review the file, check that `upgrade()`
     really creates them, and commit it: from then on it's the first revision every environment runs.
-    Then apply it with `alembic upgrade head` against the database you serve.
+    Then apply it with `alembic upgrade head` against the database you serve, or
+    [stamp it](#applying-a-baseline-to-a-database-that-already-has-tables) where that database
+    already has the tables.
 
     Once you rely on migrations, keep `CREATE_TABLES_ON_STARTUP` off (its default outside local and
     development) so the app doesn't create tables behind Alembic's back. The models use a naming
@@ -83,6 +85,68 @@ Tracked, reviewable, reversible schema changes — what you want for anything be
     ALTER TABLE "user" RENAME CONSTRAINT user_pkey TO pk_user;
     ALTER TABLE "user" RENAME CONSTRAINT user_tier_id_fkey TO fk_user_tier_id_tiers;
     ```
+
+### Applying a baseline to a database that already has tables
+
+A database an older release built with `CREATE_TABLES_ON_STARTUP`, or a dev database you want to
+keep, already holds the tables the baseline creates. Applying the baseline to it fails on the first
+one:
+
+```text
+asyncpg.exceptions.DuplicateTableError: relation "roles" already exists
+```
+
+The baseline describes a schema that database already has, so tell alembic that one revision is
+already there rather than running it. **Stamp the baseline's own revision id, not `head`:** `head`
+marks every revision applied, including the ones after the baseline, so the changes they carry are
+skipped and never run.
+
+```bash
+cd backend
+uv run --no-sync alembic history | tail -1      # <base> -> 866640ae8b30, baseline
+uv run --no-sync alembic stamp 866640ae8b30     # records the baseline as applied, runs none of it
+uv run --no-sync alembic upgrade head           # runs every revision after the baseline
+uv run --no-sync alembic check                  # does the database match the models?
+```
+
+`alembic history` lists revisions newest first, so the last line is the baseline; the id is also the
+first part of the file name in `migrations/versions/`. `stamp` writes that id into `alembic_version`
+and executes nothing, so the rows are untouched.
+
+`alembic check` is what tells you whether stamping was honest, and it runs **after** the upgrade:
+it works by autogenerating, so a database with a revision still pending makes it refuse with
+`Target database is not up to date.` rather than report anything. On the day a project first adopts
+migrations the baseline is the only revision, so there is nothing to upgrade and stamp then check is
+the same sequence.
+
+It diffs the models against the live database and exits non-zero listing what differs — it compares
+the *models*, not the revision history, so it answers "does this database hold today's schema"
+rather than "was the stamp right". A database an older release built with `create_all` usually does
+differ from a baseline generated from today's models, and `check` names each difference as an
+operation:
+
+```text
+ERROR [alembic.util.messaging] New upgrade operations detected:
+    [('add_column', None, 'user', Column('token_version', Integer(), nullable=False))]
+```
+
+Fix those on that database by hand, with the `ALTER TABLE`s they describe. A revision that added
+them would be wrong: every database built from the baseline already has them, so that revision
+would fail there. The alternative, if there are many, is to generate the baseline from the release
+that built the database and carry later revisions for what changed since — then the history
+describes the path those databases actually took.
+
+**The order, for a deployment moving off auto-created tables:**
+
+1. `python scripts/canonicalize_emails.py` and `python scripts/cleanup_api_key_json.py`, which
+   repair rows the newer code reads differently.
+2. Generate the baseline against an empty database, review it, commit it (above).
+3. `alembic stamp <baseline revision>` on each database that already has the tables.
+4. Apply every later revision the normal way, `alembic upgrade head`, then `alembic check` to see
+   what that database is still missing against today's models, and fix those by hand.
+5. Turn `CREATE_TABLES_ON_STARTUP` off, which is its default outside local and development, so
+   nothing creates tables beside alembic again. `python -m scripts.setup_initial_data` honours it:
+   with the setting off it seeds rows and creates no tables, so run it after step 4.
 
 ## Configuration
 

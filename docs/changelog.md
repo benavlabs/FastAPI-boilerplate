@@ -401,6 +401,21 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   derived from it instead of writing `/api` out, and a prefix the router cannot mount (`v2`, `/`,
   `/api/`, empty) is refused by name when the settings load rather than raising an `AssertionError`
   at import.
+- **`scripts/setup_initial_data.py` creates tables only where the project creates its own.** It
+  called `create_tables()` in every environment, so the documented first-deploy step wrote the
+  schema behind alembic's back, and a baseline applied afterwards failed with
+  `DuplicateTableError: relation "roles" already exists`. With `CREATE_TABLES_ON_STARTUP` off it
+  now seeds rows and says it created none, so it can be run after the migrations rather than
+  instead of them. It also refuses to seed into a database that has no schema, naming what is
+  missing and saying to run `alembic upgrade head` first, rather than failing inside a seeder.
+- **A documented upgrade path for databases that already have tables.**
+  [Migrations](user-guide/database/migrations.md#applying-a-baseline-to-a-database-that-already-has-tables)
+  spells out stamping the baseline's own revision id — `head` would mark the revisions after it
+  applied without running them — then `alembic upgrade head` for everything after the baseline, then
+  `alembic check`, which autogenerates and so refuses with `Target database is not up to date.`
+  while anything is pending. It also gives the order a deployment moving off auto-created tables
+  runs: the repair scripts, the baseline, the stamp, later revisions, the check, then the seeding
+  script.
 - **The documented way to generate a baseline now produces one.** The recipe ran
   `alembic revision --autogenerate` against whatever `.env` pointed at, which in a dev setup is the
   database `CREATE_TABLES_ON_STARTUP` already built with `create_all`: autogenerate compares the
