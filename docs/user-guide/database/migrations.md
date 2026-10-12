@@ -29,17 +29,39 @@ Tracked, reviewable, reversible schema changes — what you want for anything be
     `backend/migrations/versions/` ships empty on purpose: the schema a project needs depends on the
     features it keeps, so there is no revision that fits every project. Remove the features you don't
     want ([Composable Features](../composable-features.md)), then generate the baseline for what's
-    left, against an empty database:
+    left.
+
+    **Generate it against a database with nothing in it.** Autogenerate writes the difference
+    between the models and the database it connects to, so pointing it at a database that already
+    has the schema — a dev stack, which `CREATE_TABLES_ON_STARTUP` built with `create_all` — writes
+    a revision whose `upgrade()` is `pass`. Make a throwaway database and name it on the command
+    line:
 
     ```bash
+    # from the repository root, with the local stack up
+    docker compose exec postgres createdb -U postgres baseline_tmp
+
     cd backend
-    uv run --no-sync alembic revision --autogenerate -m baseline
-    uv run --no-sync alembic upgrade head
+    POSTGRES_SERVER=localhost POSTGRES_PORT=5432 POSTGRES_DB=baseline_tmp \
+        CREATE_TABLES_ON_STARTUP=false uv run --no-sync alembic revision --autogenerate -m baseline
+
+    cd .. && docker compose exec postgres dropdb -U postgres baseline_tmp
     ```
 
+    `POSTGRES_USER` and `POSTGRES_PASSWORD` come from your `.env`; only the server, the port and the
+    database name are overridden here. Use the port the stack publishes if it isn't 5432
+    (`docker compose port postgres 5432`).
+
+    `POSTGRES_SERVER` matters as much as the database name: `.env.example` ships it as `postgres`,
+    the compose service, which doesn't resolve from your shell — the command dies with
+    `socket.gaierror`. Either pass `localhost`, as above, or run the command in a container on the
+    compose network with your `backend/migrations` mounted into it, so the revision lands in your
+    working tree rather than inside a container that is about to be removed.
+
     `env.py` imports the models the project still carries, so the baseline holds exactly those
-    tables — a project without tiers gets no `tiers` table. Review the file before applying it, and
-    commit it: from then on it's the first revision every environment runs.
+    tables — a project without tiers gets no `tiers` table. Review the file, check that `upgrade()`
+    really creates them, and commit it: from then on it's the first revision every environment runs.
+    Then apply it with `alembic upgrade head` against the database you serve.
 
     Once you rely on migrations, keep `CREATE_TABLES_ON_STARTUP` off (its default outside local and
     development) so the app doesn't create tables behind Alembic's back. The models use a naming

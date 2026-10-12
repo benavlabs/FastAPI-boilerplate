@@ -97,8 +97,9 @@ def generate(
         return
 
     info("  cp backend/.env.example backend/.env  # if you haven't already")
-    info("  # with migrations/versions empty, generate and commit the baseline first:")
-    info("  #   cd backend && alembic revision --autogenerate -m baseline")
+    info("  # with migrations/versions empty, generate and commit the baseline first,")
+    info("  # against a database with nothing in it, or upgrade writes an empty revision:")
+    info("  #   docs/user-guide/database/migrations.md#alembic-migrations")
     info("  docker compose build")
     info("  docker compose --profile migrate run --rm migrate")
     info("  docker compose up -d")

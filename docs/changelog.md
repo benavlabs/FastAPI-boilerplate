@@ -401,6 +401,14 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   derived from it instead of writing `/api` out, and a prefix the router cannot mount (`v2`, `/`,
   `/api/`, empty) is refused by name when the settings load rather than raising an `AssertionError`
   at import.
+- **The documented way to generate a baseline now produces one.** The recipe ran
+  `alembic revision --autogenerate` against whatever `.env` pointed at, which in a dev setup is the
+  database `CREATE_TABLES_ON_STARTUP` already built with `create_all`: autogenerate compares the
+  models with that database, finds no difference, and writes a revision whose `upgrade()` is
+  `pass`. Applying it leaves a production database empty. The recipe now makes a throwaway database
+  and names it on the command line, and says why `POSTGRES_SERVER=postgres` out of `.env.example`
+  cannot work from your shell. `bp deploy generate`'s printed steps point at the page instead of
+  repeating the bare command.
 - **`alembic upgrade` refuses to run with no revisions.** It used to create `alembic_version`,
   exit `0`, and leave a database with no schema, which is what a fresh production deploy got:
   `CREATE_TABLES_ON_STARTUP` is off there, so the API then failed every request. The message names
@@ -573,9 +581,9 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   `ProviderAccountEmailChangeError` and the budget it counted against.
 - **`CREATE_TABLES_ON_STARTUP` is off outside local and development**, and production refuses `true`
   with a startup error. A production deploy that relied on `Base.metadata.create_all` running on
-  boot has to generate its baseline revision once
-  (`alembic revision --autogenerate -m baseline`, reviewed and committed) and apply it before the
-  API starts — the generated compose stack has a `migrate` service for exactly that. Nothing waits
+  boot has to generate the baseline against an empty database as
+  [Migrations](user-guide/database/migrations.md#alembic-migrations) describes, review it, commit
+  it, and apply it before the API starts — the generated compose stack has a `migrate` service for exactly that. Nothing waits
   on that service any more either: run `docker compose --profile migrate run --rm migrate` and only
   then `docker compose up -d`.
 - **Changing your own email address now requires the account's current password** in the `PATCH

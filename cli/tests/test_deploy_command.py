@@ -108,7 +108,8 @@ def test_the_next_steps_migrate_before_starting_the_stack(project, mode: str):
     steps = [line.strip() for line in result.output.splitlines()]
     migrate = steps.index("docker compose --profile migrate run --rm migrate")
 
-    assert "alembic revision --autogenerate -m baseline" in result.output
+    assert "generate and commit the baseline first" in result.output
+    assert "database/migrations.md" in result.output
     assert steps.index("docker compose build") < migrate < steps.index("docker compose up -d")
 
 
