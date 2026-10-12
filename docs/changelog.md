@@ -191,6 +191,17 @@ matrix. The round that followed fixed what a re-review of the refactor found.
 
 #### Changed
 
+- **`crudauth_store` and `crudauth_counters` are part of the schema, whatever the backends say.**
+  They were declared on `Base.metadata` only where `SESSION_BACKEND` or `RATE_LIMITER_BACKEND`
+  named `database`, so the schema depended on a runtime choice two ways: a baseline generated with
+  the default backends held neither table, leaving a later move to `SESSION_BACKEND=database` with
+  nowhere to write; and autogenerating with the default against a database-backed deployment wrote
+  a revision that **dropped** both. Both tables are now declared whenever the accounts feature is
+  present, which adds two empty tables to a project that keeps its sessions in Redis, and
+  `database_store` still stays `None` until a setting selects it. A deployment already on
+  migrations picks the two tables up in its next `alembic revision --autogenerate`, which creates
+  them: that revision is additive and harmless, and only has to be applied before switching either
+  setting to `database`.
 - **The production validator stops describing a Redis connection for a limiter that isn't on
   Redis.** It listed `RATE_LIMITER_REDIS_*` whenever `RATE_LIMITER_ENABLED` was true, so a project
   counting in memory (and now in the database) was warned about a Redis it never opened. It now
