@@ -42,6 +42,7 @@ FEATURES: dict[str, Feature] = {
             "backend/scripts/create_first_superuser.py",
             "backend/scripts/canonicalize_emails.py",
             "backend/tests/unit/scripts/test_create_first_superuser.py",
+            "backend/tests/unit/scripts/test_setup_initial_data.py",
             "backend/tests/unit/scripts/test_canonicalize_emails.py",
             "backend/tests/fixtures/accounts.py",
             "backend/tests/integration/auth",
