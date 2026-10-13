@@ -330,6 +330,10 @@ Notes:
 - Selected IDs come from `request.query_params["pks"]` as a comma-separated string
 - `local_session()` opens a session on the shared engine — import it from `infrastructure/database/session.py`
 - Always commit before redirecting, otherwise the change reverts when the request ends
+- sqladmin serves actions on a `GET`, which anything able to navigate the operator's browser can
+  send. The panel's [origin guard](configuration.md#requests-from-another-site) answers `403` to an
+  action a request from another origin asks for, so an action that writes is reached only from the
+  panel's own pages. A link to one in an email or on another site reaches the refusal instead.
 
 ## Icons
 
