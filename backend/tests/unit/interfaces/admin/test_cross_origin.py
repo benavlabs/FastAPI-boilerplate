@@ -27,7 +27,8 @@ from tests.unit.interfaces.admin.helpers import (
 class ActionProbe(ModelView, model=User):
     """A view carrying the kind of bulk action the guides show, which sqladmin serves on a GET.
 
-    sqladmin names the route from the model, so the action sits at ``/user/action/run``.
+    sqladmin's metaclass takes ``identity`` from the model, overwriting one set in the class
+    body, so the probe claims its own below and keeps its routes off the project's user view.
     """
 
     name = "Probe"
@@ -37,7 +38,9 @@ class ActionProbe(ModelView, model=User):
         return PlainTextResponse("the action ran")
 
 
-ACTION_URL = "/admin/user/action/run?pks=1"
+ActionProbe.identity = "action-probe"
+
+ACTION_URL = f"/admin/{ActionProbe.identity}/action/run?pks=1"
 
 
 ANOTHER_SITE = {"Origin": "https://evil.example.com", "Sec-Fetch-Site": "same-site"}
