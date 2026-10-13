@@ -214,6 +214,25 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   internet; [the panel's guide](user-guide/admin-panel/configuration.md#login-authentication) says
   how to clear the counters and open it again. A login that succeeds gives back the one attempt it made and
   leaves the failures that came from elsewhere counted.
+- **The admin panel refuses an unsafe method from another site.** sqladmin carries no CSRF token,
+  so `SameSite=Lax` was the whole defence: a sibling subdomain, or script on a same-site frontend,
+  could post to the panel with the operator's cookie and get a `302` and the row it asked for.
+  `SameOriginOnly` now stands in front of the panel's session and answers `403` to `POST`, `PUT`,
+  `PATCH` and `DELETE`, and to a `GET` of an action route (`/{identity}/action/{slug}`, where
+  sqladmin serves every `@action`), unless `Sec-Fetch-Site` says `same-origin` or `none`, or
+  `Origin` names the host the request arrived at. The admin cookie is `SameSite=Strict` as well, so
+  it travels on nothing another site starts; a link into the panel from elsewhere lands on the login
+  page, and opening it from the address bar signs you back in. `Strict` does not cover a sibling
+  subdomain, which is the same site to a browser, so the guard is what stands between
+  `other.example.com` and an action link. A request carrying neither header is allowed, so curl and
+  scripts keep working: no site can make a browser send a request with no origin.
+- **Signing out of the panel takes a `POST`.** sqladmin serves logout on `GET` and links to it from
+  every page, so anything that made the operator's browser fetch `/admin/logout` signed them out,
+  with `SameSite=Lax` sending the cookie along. The route answers a `GET` with a one-button form now
+  and clears the session only on that form's `POST`, which the guard above holds to the panel's own
+  origin. The sidebar link still leads there; a bookmark reaches the form rather than signing
+  anybody out. A panel built on an sqladmin that serves no route by that name refuses to start,
+  rather than leaving a `GET` that signs out.
 - **A refused panel login is recorded.** The panel logged `Admin login failed`, which named neither
   the caller nor what was tried, and `Admin login locked out for 300s`, which named no caller
   either; neither reached the audit lines a refused API login writes through crudauth's

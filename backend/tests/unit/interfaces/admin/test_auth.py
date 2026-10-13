@@ -1,11 +1,22 @@
 """Tests for the SQLAdmin authentication backend."""
 
 import pytest
+from starlette.middleware import Middleware
 
 from src.infrastructure.auth.setup import session_transport
 from src.infrastructure.config.settings import EnvironmentOption, settings
-from src.interfaces.admin.auth import SESSION_MAX_AGE_SECONDS, AdminAuth, admin_base_url
+from src.interfaces.admin.auth import (
+    SESSION_MAX_AGE_SECONDS,
+    AdminAuth,
+    RootPathSessionMiddleware,
+    admin_base_url,
+)
 from tests.unit.interfaces.admin.helpers import CLIENT, admin_login, clear_admin_lockout, configure_panel
+
+
+def session_middleware(backend: AdminAuth) -> Middleware:
+    """The panel's session middleware, whatever else the panel mounts in front of it."""
+    return next(mounted for mounted in backend.middlewares if mounted.cls is RootPathSessionMiddleware)
 
 
 @pytest.fixture
@@ -74,12 +85,11 @@ def test_the_admin_session_cookie_is_scoped_and_short_lived(monkeypatch):
     """The cookie expires in hours, and outside local and development never travels over HTTP."""
     monkeypatch.setattr(settings, "ENVIRONMENT", EnvironmentOption.PRODUCTION)
 
-    middleware = AdminAuth(secret_key="a-secret").middlewares
+    options = session_middleware(AdminAuth(secret_key="a-secret")).kwargs
 
-    assert len(middleware) == 1
-    options = middleware[0].kwargs
     assert options["https_only"] is True
     assert options["max_age"] == SESSION_MAX_AGE_SECONDS
+    assert options["same_site"] == "strict"
     assert options["session_cookie"] == "admin_session"
     assert options["session_cookie"] != session_transport.cookie_name
     assert options["base_url"] == admin_base_url()
@@ -88,4 +98,4 @@ def test_the_admin_session_cookie_is_scoped_and_short_lived(monkeypatch):
 def test_the_cookie_may_travel_over_http_in_development(monkeypatch):
     monkeypatch.setattr(settings, "ENVIRONMENT", EnvironmentOption.LOCAL)
 
-    assert AdminAuth(secret_key="a-secret").middlewares[0].kwargs["https_only"] is False
+    assert session_middleware(AdminAuth(secret_key="a-secret")).kwargs["https_only"] is False

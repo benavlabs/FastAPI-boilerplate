@@ -1,6 +1,8 @@
 """Driving the admin panel the way a browser does, and reading back what it streams."""
 
 import csv
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI
@@ -15,10 +17,21 @@ CREDENTIALS = {"username": "admin", "password": "s3cret"}
 PROXY = "172.31.240.1"
 CLIENT = "203.0.113.7"
 OTHER_CLIENT = "198.51.100.9"
+PANEL_HOST = "panel.example.com"
+PANEL_URL = f"http://{PANEL_HOST}"
 
 
-def configure_panel(monkeypatch, username: str = "admin", password: str = "s3cret") -> FastAPI:
-    """An app with the panel mounted, outside production, behind one trusted proxy."""
+def configure_panel(
+    monkeypatch,
+    username: str = "admin",
+    password: str = "s3cret",
+    extra_views: tuple[type, ...] = (),
+) -> FastAPI:
+    """An app with the panel mounted, outside production, behind one trusted proxy.
+
+    ``extra_views`` are added to the panel beside the project's own, for a test that needs a
+    view this project doesn't ship, such as one carrying a ``@action``.
+    """
     monkeypatch.setattr(settings, "ADMIN_ENABLED", True)
     monkeypatch.setattr(settings, "ADMIN_USERNAME", username)
     monkeypatch.setattr(settings, "ADMIN_PASSWORD", password)
@@ -26,7 +39,10 @@ def configure_panel(monkeypatch, username: str = "admin", password: str = "s3cre
     monkeypatch.setattr(settings, "TRUSTED_PROXY_HOPS", 1)
 
     app = FastAPI()
-    create_admin_interface(app)
+    admin = create_admin_interface(app)
+    assert admin is not None
+    for view in extra_views:
+        admin.add_view(view)
 
     return app
 
@@ -74,6 +90,22 @@ async def admin_login(app: FastAPI, address: str = CLIENT, **form: str) -> tuple
         )
 
     return response.status_code, response.headers.get("set-cookie", "")
+
+
+@asynccontextmanager
+async def signed_in_panel(app: FastAPI, address: str = CLIENT) -> AsyncIterator[AsyncClient]:
+    """A client holding the panel's session cookie, for driving a route the way a page does."""
+    transport = ASGITransport(app=app, client=(PROXY, 54321))
+    async with AsyncClient(transport=transport, base_url=PANEL_URL) as caller:
+        answer = await caller.post(
+            "/admin/login",
+            data=CREDENTIALS,
+            headers={"X-Forwarded-For": address},
+            follow_redirects=False,
+        )
+        assert answer.status_code == 302, answer.status_code
+
+        yield caller
 
 
 async def exported_rows(view: Any, rows: list[Any]) -> list[list[str]]:

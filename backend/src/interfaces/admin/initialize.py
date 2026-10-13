@@ -7,6 +7,7 @@ from ...infrastructure.config.settings import get_settings
 from ...infrastructure.database.session import get_engine
 from ...wiring.admin import ADMIN_VIEWS
 from .auth import AdminAuth, admin_base_url
+from .logout import sign_out_on_a_post_only
 
 
 def create_admin_interface(app: FastAPI) -> Admin | None:
@@ -36,6 +37,8 @@ def create_admin_interface(app: FastAPI) -> Admin | None:
 
     for view in ADMIN_VIEWS:
         admin.add_view(view)
+
+    sign_out_on_a_post_only(admin)
 
     return admin
 

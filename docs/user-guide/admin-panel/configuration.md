@@ -103,9 +103,37 @@ Notes:
 - Both credentials are compared with `hmac.compare_digest`, so a wrong guess costs the same time
   whatever its first bytes were.
 - The session is signed with `SECRET_KEY` via the `SessionMiddleware` the panel mounts for itself.
-- Logout clears the session: `request.session.clear()`.
+- Signing out clears the session (`request.session.clear()`), and takes a `POST`.
 
 If you need multiple admin operators, see [User Management](user-management.md) for ways to extend this.
+
+### Requests from another site
+
+sqladmin carries no CSRF token, so two things stand between a signed-in operator and another site
+driving the panel from their browser:
+
+- **The cookie is `SameSite=Strict`**, so the browser sends it on nothing another site starts, a
+  top-level link included. A link into the panel from elsewhere lands on the login page for that
+  reason; opening the panel from the browser's own address bar signs you back in without asking for
+  the password again. What `Strict` does not cover is a sibling subdomain: `other.example.com` is
+  the same *site* as `admin.example.com`, so the cookie travels on its requests, which is why the
+  guard below exists.
+- **`SameOriginOnly` answers `403` to a request from elsewhere that could change something**
+  (`interfaces/admin/origin.py`, mounted in front of the panel's session). That is `POST`, `PUT`,
+  `PATCH` and `DELETE`, and also a `GET` of an action route (`/{identity}/action/{slug}`), since
+  sqladmin serves every [`@action`](adding-models.md#bulk-actions) on a `GET` and the panel's own
+  pages reach them through plain links. Each is refused unless the browser's `Sec-Fetch-Site` says
+  `same-origin` or `none`, or the request's `Origin` names the host it arrived at. Every other
+  `GET` is untouched, so links into the panel and its pages still work. A request carrying neither
+  header is allowed, which is what keeps curl and scripts working: no site can make a browser send
+  a request with no origin at all.
+
+**Signing out takes a `POST`** for the same reason. sqladmin serves logout on `GET` and links to it
+from every page, so anything that made the operator's browser fetch that URL signed them out, and
+`SameSite=Lax` sent the cookie along. `/admin/logout` now answers a `GET` with a one-button form and
+clears the session only on the `POST` that form sends, which the guard above holds to the panel's own
+origin. The sidebar link still leads there; a bookmark or a link from elsewhere reaches the form
+rather than signing anybody out.
 
 ## Mount Path
 
@@ -146,15 +174,16 @@ an admin cookie:
 
 ```python
 self.middlewares = [
+    Middleware(SameOriginOnly),
     Middleware(
-        SessionMiddleware,
+        RootPathSessionMiddleware,
+        base_url=base_url or admin_base_url(),
         secret_key=secret_key,
         session_cookie="admin_session",
-        path=ADMIN_COOKIE_PATH,
         max_age=SESSION_MAX_AGE_SECONDS,
-        same_site="lax",
+        same_site="strict",
         https_only=not local,
-    )
+    ),
 ]
 ```
 
@@ -162,7 +191,7 @@ Cookie behavior:
 
 - HTTP-only, signed with `SECRET_KEY`, named `admin_session`
 - Scoped to the panel's mount path (`ADMIN_BASE_URL`, plus the app's `root_path`), so it isn't sent with API requests
-- Same-site `lax`
+- Same-site `strict`, so it travels on nothing another site starts
 - `Secure` outside `local` and `development`, since nothing can revoke it server-side
 - Expires after 8 hours (`SESSION_MAX_AGE_SECONDS`)
 

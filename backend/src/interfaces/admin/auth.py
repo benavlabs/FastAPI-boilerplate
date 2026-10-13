@@ -14,6 +14,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 from ...infrastructure.auth.audit import log_a_lockout, log_a_refusal
 from ...infrastructure.config.settings import EnvironmentOption, get_settings
 from .lockout import every_address_lockout, panel_lockout
+from .origin import SameOriginOnly
 
 SESSION_MAX_AGE_SECONDS = 60 * 60 * 8
 
@@ -109,9 +110,10 @@ class AdminAuth(AuthenticationBackend):
     """Session-based authentication for the admin interface.
 
     The panel mounts its own session middleware, which is the only one that cookie
-    needs. The cookie is scoped to where the panel is mounted, prefix included, is
-    HTTPS-only outside local and development, and expires after
-    ``SESSION_MAX_AGE_SECONDS`` rather than Starlette's fortnight.
+    needs, behind a guard that refuses an unsafe method from another origin. The cookie is
+    scoped to where the panel is mounted, prefix included, is HTTPS-only outside local and
+    development, travels on nothing a sibling site starts (``SameSite=Strict``), and
+    expires after ``SESSION_MAX_AGE_SECONDS`` rather than Starlette's fortnight.
     """
 
     def __init__(self, secret_key: str, base_url: str | None = None) -> None:
@@ -120,15 +122,16 @@ class AdminAuth(AuthenticationBackend):
         local = settings.ENVIRONMENT in (EnvironmentOption.LOCAL, EnvironmentOption.DEVELOPMENT)
 
         self.middlewares = [
+            Middleware(SameOriginOnly),
             Middleware(
                 RootPathSessionMiddleware,
                 base_url=base_url or admin_base_url(),
                 secret_key=secret_key,
                 session_cookie="admin_session",
                 max_age=SESSION_MAX_AGE_SECONDS,
-                same_site="lax",
+                same_site="strict",
                 https_only=not local,
-            )
+            ),
         ]
 
     async def login(self, request: Request) -> bool:
