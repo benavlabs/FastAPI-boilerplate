@@ -642,7 +642,7 @@ async def test_a_wrong_password_is_recorded_with_the_identifier_it_was_tried_on(
         )
 
     assert refused.status_code == 401
-    assert f"login refused: {test_user['username']!r}" in caplog.text
+    assert f"login refused at the login api: {test_user['username']!r}" in caplog.text
     assert "invalid_credentials" in caplog.text
 
 

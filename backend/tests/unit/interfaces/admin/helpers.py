@@ -7,9 +7,9 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
 from src.infrastructure.config.settings import EnvironmentOption, settings
-from src.interfaces.admin.auth import LOCKOUT_PREFIX
+from src.interfaces.admin.auth import EVERY_ADDRESS, LOCKOUT_PREFIX
 from src.interfaces.admin.initialize import create_admin_interface
-from src.interfaces.admin.lockout import panel_lockout
+from src.interfaces.admin.lockout import every_address_lockout, panel_lockout
 
 CREDENTIALS = {"username": "admin", "password": "s3cret"}
 PROXY = "172.31.240.1"
@@ -31,24 +31,31 @@ def configure_panel(monkeypatch, username: str = "admin", password: str = "s3cre
     return app
 
 
-async def clear_admin_lockout(*addresses: str) -> None:
-    """Clear what the panel counted against each address, in the panel's own key space."""
-    limiter = panel_lockout.backend if panel_lockout is not None else None
-    if limiter is None:
-        return
+def _counter_keys(address: str, identifier: str) -> tuple[str, ...]:
+    """Every key a lockout writes for one address and one identifier."""
+    return (
+        f"login:ip:{address}",
+        f"login:lock:ip:{address}",
+        f"login:rounds:ip:{address}",
+        f"login:user:{identifier}",
+        f"login:lock:user:{identifier}",
+        f"login:rounds:user:{identifier}",
+        f"login:pair:{address}:{identifier}",
+    )
 
-    for address in addresses:
-        identifier = f"{LOCKOUT_PREFIX}:{address}"
-        for key in (
-            f"login:ip:{address}",
-            f"login:lock:ip:{address}",
-            f"login:rounds:ip:{address}",
-            f"login:user:{identifier}",
-            f"login:lock:user:{identifier}",
-            f"login:rounds:user:{identifier}",
-            f"login:pair:{address}:{identifier}",
-        ):
-            await limiter.reset(key)
+
+async def clear_admin_lockout(*addresses: str) -> None:
+    """Clear what the panel counted against each address, and against every address together."""
+    limiter = panel_lockout.backend if panel_lockout is not None else None
+    if limiter is not None:
+        for address in addresses:
+            for key in _counter_keys(address, f"{LOCKOUT_PREFIX}:{address}"):
+                await limiter.reset(key)
+
+    panel_wide = every_address_lockout.backend if every_address_lockout is not None else None
+    if panel_wide is not None:
+        for key in _counter_keys(EVERY_ADDRESS, EVERY_ADDRESS):
+            await panel_wide.reset(key)
 
 
 async def admin_login(app: FastAPI, address: str = CLIENT, **form: str) -> tuple[int, str]:

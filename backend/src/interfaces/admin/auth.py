@@ -3,6 +3,7 @@
 import hmac
 from typing import Literal
 
+from crudauth import HookContext
 from crudauth.utils import get_client_ip
 from sqladmin.authentication import AuthenticationBackend
 from starlette.middleware import Middleware
@@ -10,16 +11,23 @@ from starlette.middleware.sessions import SessionMiddleware
 from starlette.requests import Request
 from starlette.types import ASGIApp, Receive, Scope, Send
 
+from ...infrastructure.auth.audit import log_a_lockout, log_a_refusal
 from ...infrastructure.config.settings import EnvironmentOption, get_settings
-from ...infrastructure.logging import get_logger
-from .lockout import panel_lockout
-
-logger = get_logger()
+from .lockout import every_address_lockout, panel_lockout
 
 SESSION_MAX_AGE_SECONDS = 60 * 60 * 8
 
 LOCKOUT_PREFIX = "admin-panel"
-"""Prefix of the identifier the login lockout counts the panel's failures against."""
+"""Prefix of the identifier the per-address lockout counts the panel's failures against."""
+
+EVERY_ADDRESS = "every-address"
+"""The identifier the panel-wide lockout counts every failure against, whatever address sent it."""
+
+DOOR = "the admin panel"
+"""The panel, as the audit log names it."""
+
+EVERY_ADDRESS_DOOR = f"{DOOR} (every address)"
+"""The panel-wide lockout, as the audit log names it, apart from one address's."""
 
 
 def admin_base_url() -> str:
@@ -126,38 +134,58 @@ class AdminAuth(AuthenticationBackend):
     async def login(self, request: Request) -> bool:
         """Validate login credentials and create session.
 
-        Failures are counted on the panel's own lockout policy, against the client address
-        and the identifier ``admin-panel:<address>``, and a locked caller is refused before
-        the submitted password is compared. The policy has a key space of its own, so the
-        public login API cannot write the panel's budgets by submitting that identifier as
-        a username.
+        Failures are counted on two lockouts of the panel's own, both in a key space the
+        public login API cannot write by submitting their identifiers as a username. One
+        counts the client address, against the identifier ``admin-panel:<address>``. The
+        other counts every failure the panel refuses, whatever address it came from, so a
+        caller changing address runs out of guesses too. A locked caller is refused before
+        the submitted password is compared.
+
+        A login that succeeds clears what its address was counted and gives back the one
+        attempt it made against every address, leaving the failures that came from
+        elsewhere counted.
         """
         settings = get_settings()
 
         if not settings.ADMIN_USERNAME or not settings.ADMIN_PASSWORD:
             return False
 
-        lockout = panel_lockout
         address = get_client_ip(request, settings.TRUSTED_PROXY_HOPS)
+        caller = HookContext(ip_address=address, user_agent=request.headers.get("user-agent"))
         counted_against = f"{LOCKOUT_PREFIX}:{address}"
 
-        if lockout is not None:
-            allowed, _remaining, retry_after = await lockout.check_and_record(address, counted_against)
+        if panel_lockout is not None:
+            allowed, _remaining, retry_after = await panel_lockout.check_and_record(address, counted_against)
             if not allowed:
-                logger.warning(f"Admin login locked out for {retry_after}s")
+                await log_a_lockout(DOOR, retry_after=retry_after, context=caller)
+                return False
+
+        if every_address_lockout is not None:
+            allowed, _remaining, retry_after = await every_address_lockout.check_and_record(EVERY_ADDRESS, EVERY_ADDRESS)
+            if not allowed:
+                await log_a_lockout(EVERY_ADDRESS_DOOR, retry_after=retry_after, context=caller)
                 return False
 
         form = await request.form()
-        username_matches = _credential_matches(form.get("username"), settings.ADMIN_USERNAME)
+        submitted = form.get("username")
+        username_matches = _credential_matches(submitted, settings.ADMIN_USERNAME)
         password_matches = _credential_matches(form.get("password"), settings.ADMIN_PASSWORD)
 
         if username_matches and password_matches:
-            if lockout is not None:
-                await lockout.check_and_record(address, counted_against, success=True)
+            if panel_lockout is not None:
+                await panel_lockout.check_and_record(address, counted_against, success=True)
+            if every_address_lockout is not None:
+                await every_address_lockout.forget_attempt(EVERY_ADDRESS, EVERY_ADDRESS)
             request.session.update({"admin_authenticated": True})
             return True
 
-        logger.warning("Admin login failed")
+        await log_a_refusal(
+            DOOR,
+            submitted if isinstance(submitted, str) else "",
+            known=username_matches,
+            reason="invalid_credentials",
+            context=caller,
+        )
         return False
 
     async def logout(self, request: Request) -> bool:

@@ -269,7 +269,7 @@ LOGIN_LOCKOUT_BASE_SECONDS=300   # first lockout, doubling each round
 LOGIN_LOCKOUT_MAX_SECONDS=3600   # ceiling for the doubling
 ```
 
-The window is the value that matters against a paced attack: crudauth's own default counts over 60 seconds, so five tries a minute never accumulate. A successful login clears the account's failures and the pressure its own failures put on that address. The admin panel counts on this same policy, so an address guessing passwords is slowed at both doors. Behind a reverse proxy, set `TRUSTED_PROXY_HOPS` so the lockout keys on the real client IP rather than the proxy's.
+The window is the value that matters against a paced attack: crudauth's own default counts over 60 seconds, so five tries a minute never accumulate. A successful login clears the account's failures and the pressure its own failures put on that address. The admin panel counts on [two policies of its own](../admin-panel/configuration.md#login-authentication), with these same thresholds, so a failure at one door never counts against the other. Behind a reverse proxy, set `TRUSTED_PROXY_HOPS` so the lockout keys on the real client IP rather than the proxy's.
 
 With `RATE_LIMITER_BACKEND=redis`, the counters live in Redis, and crudauth builds the lockout policy with `fail_open=False`. If that Redis is unreachable, **every login is refused** with `429` for the base lockout window rather than let through unchecked: an attacker can't disable the lockout by taking Redis down. Treat the limiter's Redis as a dependency logins need, and watch it: `GET /health/ready` answers `503` while it is unreachable, and the log names it (`rate_limiter`), alongside the database and the session store. It is its own connection (`RATE_LIMITER_REDIS_*`, against `CACHE_REDIS_*` for the cache), and the readiness probe asks each server once even when several settings point at the same one. `RATE_LIMITER_BACKEND=memory` keeps the counters in the process instead, which is fine for a single worker and useless across several. `RATE_LIMITER_BACKEND=database` keeps them in `crudauth_counters`, shared by every worker; the database's own readiness check then covers them, and the `rate_limiter` check reports nothing to reach.
 
@@ -279,14 +279,27 @@ Every refused password login writes one `WARNING` on the `src.infrastructure.aut
 through crudauth's `on_login_failed` and `on_lockout` hooks:
 
 ```
-login refused: 'ada' from 203.0.113.7 (curl/8.4.0); invalid_credentials
-login refused: an identifier no account has from 203.0.113.7 (curl/8.4.0); invalid_credentials
-login locked out for 300s, from 203.0.113.7 (curl/8.4.0)
+login refused at the login api: 'ada' from 203.0.113.7 (curl/8.4.0); invalid_credentials
+login refused at the login api: an identifier no account has from 203.0.113.7 (curl/8.4.0); invalid_credentials
+login locked out at the login api for 300s, from 203.0.113.7 (curl/8.4.0)
 ```
 
 The reason is `invalid_credentials` or `inactive`, which the response does not distinguish — a
 disabled account and a wrong password are both `401`, and the log is where they are told apart. The
 address is the one `TRUSTED_PROXY_HOPS` resolves, so it is the client's rather than a proxy's.
+
+The door is named because crudauth's routes are not the only door a login is refused at. The admin
+panel writes the same two lines where it refuses, since its login is its own and no hook of
+crudauth's runs for it:
+
+```
+login refused at the admin panel: 'admin' from 203.0.113.7 (curl/8.4.0); invalid_credentials
+login locked out at the admin panel for 300s, from 203.0.113.7 (curl/8.4.0)
+login locked out at the admin panel (every address) for 300s, from 198.51.100.9 (curl/8.4.0)
+```
+
+The third is the budget every address shares running out, which the panel refuses exactly as it
+refuses one address's own lockout. Only the log says which of the two ran out.
 
 **An identifier is written out only where an account has it.** What arrives in the username field
 may be a typo, a probe, someone else's address or a password typed one box too high, so a refusal
@@ -347,10 +360,11 @@ unless both hold the same `SECRET_KEY`.
     The panel this boilerplate ships is [sqladmin](../admin-panel/index.md), not a second crudauth
     app. It authenticates against `ADMIN_USERNAME` / `ADMIN_PASSWORD` with a Starlette cookie of its
     own — `admin_session`, signed with `SECRET_KEY` and scoped to the panel's mount — and it counts
-    its login failures in a lockout of its own, against the identifier `admin-panel:<address>`,
-    under a key prefix of its own. So one address has separate budgets at the two doors, and nothing
-    submitted to `/api/v1/auth/login` can lock the panel out; the cost is that an address already
-    failing at the API's door arrives at the panel unslowed. None of the prefixes above apply to it.
+    its login failures in two lockouts of its own, under key prefixes of its own: one against the
+    identifier `admin-panel:<address>`, one against every address together. So one address has
+    separate budgets at the two doors, and nothing submitted to `/api/v1/auth/login` can lock the
+    panel out; the cost is that an address already failing at the API's door arrives at the panel
+    unslowed. None of the prefixes above apply to it.
 
 ## Session Limits
 

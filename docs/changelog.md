@@ -200,6 +200,29 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   over a limiter backend built under the `admin-panel:rl:` prefix, so nothing the API writes can
   reach it. The thresholds are still the `LOGIN_*` settings, and panel failures still lock the
   panel.
+- **The admin panel's login has a budget every address shares.** Failures were counted per address
+  only, against the single `ADMIN_PASSWORD`, so a caller changing address guessed at it without
+  limit: each new address arrived with a full budget of its own. A second lockout now counts every
+  failure the panel refuses, whatever address sent it, against five times `LOGIN_MAX_ATTEMPTS` in
+  the same window (25 with the defaults), under the `admin-panel:rl:all:` prefix. Past it the panel
+  refuses every address for `LOGIN_LOCKOUT_BASE_SECONDS`, and since the failures keep counting for
+  the rest of the window, the first attempt after that lock ends locks it again for twice as long,
+  up to `LOGIN_LOCKOUT_MAX_SECONDS`; the rounds are kept for an hour and that hour starts again with
+  every lockout. So about 26 attempts can keep the panel shut for close to an hour, and every retry
+  while it is shut, the operator's own included, makes it longer. That is the trade for a password
+  that can be guessed at 25 times a window, and one more reason to keep the panel off the public
+  internet; [the panel's guide](user-guide/admin-panel/configuration.md#login-authentication) says
+  how to clear the counters and open it again. A login that succeeds gives back the one attempt it made and
+  leaves the failures that came from elsewhere counted.
+- **A refused panel login is recorded.** The panel logged `Admin login failed`, which named neither
+  the caller nor what was tried, and `Admin login locked out for 300s`, which named no caller
+  either; neither reached the audit lines a refused API login writes through crudauth's
+  `on_login_failed` and `on_lockout` hooks. The panel writes those same lines now, naming the door
+  it refused at: `login refused at the admin panel: 'admin' from 203.0.113.7 (curl/8.4.0);
+  invalid_credentials`, and `login locked out at the admin panel (every address) for 300s, from …`
+  where the shared budget is what ran out. A username the panel has no account for is kept out of
+  the line, as one the API has no account for already was. The lines crudauth's hooks write now name
+  `the login api`, so a log holding both says which door each refusal arrived at.
 - **The image carries `backend/scripts`.** It copied `src`, `migrations`, `alembic.ini` and the
   tests, so every documented command that runs a script inside a container answered
   `No module named 'scripts'`: `docker compose exec api python -m scripts.setup_initial_data` from

@@ -45,10 +45,10 @@ class AdminAuth(AuthenticationBackend):
         if not settings.ADMIN_USERNAME or not settings.ADMIN_PASSWORD:
             return False
 
-        lockout = crud_auth.runtime.lockout
         address = get_client_ip(request, settings.TRUSTED_PROXY_HOPS)
         counted_against = f"{LOCKOUT_PREFIX}:{address}"
-        # refused before the password is read when this address is locked out
+        # panel_lockout counts this address, every_address_lockout counts them all;
+        # either one locked refuses before the password is read
         ...
 ```
 
@@ -65,6 +65,41 @@ Notes:
   `/api/v1/auth/login` can lock the panel out; the cost is that the panel is no longer slowed by an
   address already failing at the API's door. Behind a proxy, set `TRUSTED_PROXY_HOPS`, or every
   caller is counted as the proxy.
+- **A second budget is shared by every address**, at five times `LOGIN_MAX_ATTEMPTS` in the same
+  window (25 with the defaults). One password stands behind the panel, so without it a caller
+  changing address guesses at that password without limit, each new address arriving with a full
+  budget of its own. A login that succeeds gives back the attempt it made and leaves the failures
+  that came from elsewhere counted.
+- **Past the shared budget the panel refuses every address**, including one it has counted nothing
+  against, for `LOGIN_LOCKOUT_BASE_SECONDS` (300s). Those failures keep counting for the rest of the
+  900s window, so the first attempt after that lock ends, whoever sends it, locks the panel again
+  for twice as long, and so on up to `LOGIN_LOCKOUT_MAX_SECONDS` (3600s); the rounds it has climbed
+  are kept for an hour, and that hour starts again with every lockout. So a spray of about 26
+  attempts can keep the panel shut for close to an hour, and every retry while it is shut, the
+  operator's included, makes it longer. Each of those retries is also counted against the address it
+  came from, so five of the operator's own tries lock their address too, with its own escalation.
+  That is a door an attacker can close on purpose, which is the trade for a password that can be
+  guessed at 25 times a window, and one more reason to keep the panel off the public internet
+  ([Production Hardening](#production-hardening)).
+- **To open the panel before the lockout ends**, clear the shared counters. They sit under the
+  `admin-panel:rl:all:` key prefix, and the per-address ones under `admin-panel:rl:`, which the
+  pattern below covers as well:
+
+    ```bash
+    # RATE_LIMITER_BACKEND=redis, on RATE_LIMITER_REDIS_DB (1 by default)
+    redis-cli -n 1 --scan --pattern 'admin-panel:rl:*' | xargs redis-cli -n 1 del
+
+    # RATE_LIMITER_BACKEND=database
+    psql -c "delete from crudauth_counters where key like 'admin-panel:rl:%'"
+    ```
+
+    With `RATE_LIMITER_BACKEND=memory` the counters are in the process, so restarting it clears
+    them. Clearing them gives the attacker their 25 guesses back, so change `ADMIN_PASSWORD` if the
+    lockout is what a spray caused.
+- **Each refusal is logged** on the `src.infrastructure.auth.audit` logger, in the lines a refused
+  API login writes, naming the door, the caller and the username where the panel has that one:
+  `login refused at the admin panel: 'admin' from 203.0.113.7 (curl/8.4.0); invalid_credentials`.
+  See [what a refusal records](../authentication/sessions.md#what-a-refusal-records).
 - Both credentials are compared with `hmac.compare_digest`, so a wrong guess costs the same time
   whatever its first bytes were.
 - The session is signed with `SECRET_KEY` via the `SessionMiddleware` the panel mounts for itself.

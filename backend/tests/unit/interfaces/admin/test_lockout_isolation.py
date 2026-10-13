@@ -15,7 +15,12 @@ from src.infrastructure.auth.limiter import build_rate_limiter
 from src.infrastructure.auth.store import build_store
 from src.infrastructure.config.settings import settings
 from src.interfaces.admin.auth import LOCKOUT_PREFIX
-from src.interfaces.admin.lockout import KEY_PREFIX, build_panel_lockout
+from src.interfaces.admin.lockout import (
+    EVERY_ADDRESS_KEY_PREFIX,
+    KEY_PREFIX,
+    build_every_address_lockout,
+    build_panel_lockout,
+)
 from src.interfaces.main import app as api
 from tests.unit.interfaces.admin.helpers import (
     CLIENT,
@@ -83,19 +88,23 @@ async def test_the_panel_still_locks_itself_out(monkeypatch):
 
 
 @pytest.mark.parametrize("backend", ["redis", "database"])
-async def test_the_panel_counts_under_a_prefix_of_its_own(monkeypatch, backend: str):
+async def test_the_panel_counts_under_prefixes_of_its_own(monkeypatch, backend: str):
     """On a shared server the prefix is the whole of the isolation.
 
     The suite runs on the memory backend, where a backend object of its own keeps the two
     apart whatever the keys are called. Redis and the counter table are shared, so there
-    the keys have to differ by name.
+    the keys have to differ by name: the panel's two budgets from each other, and both from
+    anything the login API counts.
     """
     monkeypatch.setattr(settings, "RATE_LIMITER_BACKEND", backend)
     monkeypatch.setattr(limiter, "database_store", build_store(metadata=MetaData()))
 
     panel = build_panel_lockout()
+    every_address = build_every_address_lockout()
     api_limiter = build_rate_limiter()
 
-    assert panel is not None and api_limiter is not None
-    assert getattr(panel.backend, "prefix", None) == KEY_PREFIX
-    assert getattr(panel.backend, "prefix", None) != getattr(api_limiter, "prefix", None)
+    assert panel is not None and every_address is not None and api_limiter is not None
+    prefixes = [getattr(policy.backend, "prefix", None) for policy in (panel, every_address)]
+    assert prefixes == [KEY_PREFIX, EVERY_ADDRESS_KEY_PREFIX]
+    assert len(set(prefixes)) == 2
+    assert getattr(api_limiter, "prefix", None) not in prefixes

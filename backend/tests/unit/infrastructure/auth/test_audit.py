@@ -1,4 +1,4 @@
-"""The log lines a refused sign-in leaves, and what they keep out of the log."""
+"""The log lines a refused sign-in leaves, which door it was refused at, and what they keep out."""
 
 import logging
 
@@ -14,6 +14,7 @@ async def test_a_refusal_on_an_account_that_exists_names_it_with_the_reason_and_
     with caplog.at_level(logging.WARNING):
         await record_a_refused_login("ada", user={"id": 1}, reason="invalid_credentials", context=CALLER)
 
+    assert "refused at the login api" in caplog.text
     assert "'ada'" in caplog.text
     assert "invalid_credentials" in caplog.text
     assert "203.0.113.7" in caplog.text
@@ -45,7 +46,7 @@ async def test_a_lockout_names_how_long_it_refuses_for_and_no_identifier(caplog)
     with caplog.at_level(logging.WARNING):
         await record_a_lockout("hunter2!", retry_after=300, context=CALLER)
 
-    assert "300s" in caplog.text
+    assert "locked out at the login api for 300s" in caplog.text
     assert "203.0.113.7" in caplog.text
     assert "hunter2" not in caplog.text
 
