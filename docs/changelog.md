@@ -191,6 +191,15 @@ matrix. The round that followed fixed what a re-review of the refactor found.
 
 #### Changed
 
+- **The admin panel's login lockout has a key space of its own.** It counted failures on the API
+  login's policy, against the identifier `admin-panel:<address>`, and crudauth keys that half of
+  the lockout on whatever string arrives as a username: seven `POST /api/v1/auth/login` calls with
+  `username=admin-panel:<address>` locked the real operator at that address out of the panel, with
+  the correct password. Behind a wrong `TRUSTED_PROXY_HOPS`, where every admin shares the proxy's
+  address, one caller locked all of them out. The panel now counts on a `LockoutPolicy` of its own,
+  over a limiter backend built under the `admin-panel:rl:` prefix, so nothing the API writes can
+  reach it. The thresholds are still the `LOGIN_*` settings, and panel failures still lock the
+  panel.
 - **The image carries `backend/scripts`.** It copied `src`, `migrations`, `alembic.ini` and the
   tests, so every documented command that runs a script inside a container answered
   `No module named 'scripts'`: `docker compose exec api python -m scripts.setup_initial_data` from
@@ -359,11 +368,13 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   `DuplicateValueException`, which is a `422`, while the routes that raise it declare `409`: the
   signup route, the profile update and the rate-limit rename. The mapping now uses a
   `ConflictException` of this project's own, and the messages are unchanged.
-- **The admin panel's login is throttled.** Failures are counted on the login's own lockout
-  policy, against the client address and the identifier `admin-panel:<address>`, and a locked
-  address is refused before its password is compared. The panel shares the per-address budget with
-  the user login, and the address comes from `get_client_ip(request, TRUSTED_PROXY_HOPS)`, so behind
-  a proxy the caller is counted rather than the proxy.
+- **The admin panel's login is throttled.** Failures are counted in a lockout of the panel's own,
+  against the client address and the identifier `admin-panel:<address>`, and a locked address is
+  refused before its password is compared. One address therefore has separate budgets at the two
+  doors, and nothing sent to `/api/v1/auth/login` can lock the panel; the cost is that the panel is
+  no longer slowed by an address already failing at the API's door. The address comes from
+  `get_client_ip(request, TRUSTED_PROXY_HOPS)`, so behind a proxy the caller is counted rather than
+  the proxy.
 - **The login lockout's thresholds are stated, not inherited.** `LOGIN_MAX_ATTEMPTS=5`,
   `LOGIN_ATTEMPT_WINDOW_SECONDS=900`, `LOGIN_LOCKOUT_BASE_SECONDS=300` and
   `LOGIN_LOCKOUT_MAX_SECONDS=3600` reach crudauth as a `LockoutConfig`. The window was crudauth's

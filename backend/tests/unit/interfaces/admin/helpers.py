@@ -6,10 +6,10 @@ from typing import Any
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
-from src.infrastructure.auth.setup import auth as crud_auth
 from src.infrastructure.config.settings import EnvironmentOption, settings
 from src.interfaces.admin.auth import LOCKOUT_PREFIX
 from src.interfaces.admin.initialize import create_admin_interface
+from src.interfaces.admin.lockout import panel_lockout
 
 CREDENTIALS = {"username": "admin", "password": "s3cret"}
 PROXY = "172.31.240.1"
@@ -32,8 +32,8 @@ def configure_panel(monkeypatch, username: str = "admin", password: str = "s3cre
 
 
 async def clear_admin_lockout(*addresses: str) -> None:
-    """Clear the lockout counted against each address, and against its admin identifier."""
-    limiter = crud_auth.rate_limiter
+    """Clear what the panel counted against each address, in the panel's own key space."""
+    limiter = panel_lockout.backend if panel_lockout is not None else None
     if limiter is None:
         return
 

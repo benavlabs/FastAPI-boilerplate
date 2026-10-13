@@ -346,11 +346,11 @@ unless both hold the same `SECRET_KEY`.
 !!! note "The admin panel is not one of these"
     The panel this boilerplate ships is [sqladmin](../admin-panel/index.md), not a second crudauth
     app. It authenticates against `ADMIN_USERNAME` / `ADMIN_PASSWORD` with a Starlette cookie of its
-    own — `admin_session`, signed with `SECRET_KEY` and scoped to the panel's mount — and it reuses
-    this app's single `auth` facade for its login lockout, counting against the identifier
-    `admin-panel:<address>`. That shares the per-address budget with the user login on purpose, so
-    an address guessing passwords is slowed at both doors, while the per-identifier budget stays
-    separate. None of the prefixes above apply to it.
+    own — `admin_session`, signed with `SECRET_KEY` and scoped to the panel's mount — and it counts
+    its login failures in a lockout of its own, against the identifier `admin-panel:<address>`,
+    under a key prefix of its own. So one address has separate budgets at the two doors, and nothing
+    submitted to `/api/v1/auth/login` can lock the panel out; the cost is that an address already
+    failing at the API's door arrives at the panel unslowed. None of the prefixes above apply to it.
 
 ## Session Limits
 

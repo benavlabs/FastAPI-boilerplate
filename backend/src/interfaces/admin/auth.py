@@ -10,9 +10,9 @@ from starlette.middleware.sessions import SessionMiddleware
 from starlette.requests import Request
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-from ...infrastructure.auth.setup import auth as crud_auth
 from ...infrastructure.config.settings import EnvironmentOption, get_settings
 from ...infrastructure.logging import get_logger
+from .lockout import panel_lockout
 
 logger = get_logger()
 
@@ -126,16 +126,18 @@ class AdminAuth(AuthenticationBackend):
     async def login(self, request: Request) -> bool:
         """Validate login credentials and create session.
 
-        Failures are counted on the login's own lockout policy, against the client address
+        Failures are counted on the panel's own lockout policy, against the client address
         and the identifier ``admin-panel:<address>``, and a locked caller is refused before
-        the submitted password is compared.
+        the submitted password is compared. The policy has a key space of its own, so the
+        public login API cannot write the panel's budgets by submitting that identifier as
+        a username.
         """
         settings = get_settings()
 
         if not settings.ADMIN_USERNAME or not settings.ADMIN_PASSWORD:
             return False
 
-        lockout = crud_auth.runtime.lockout
+        lockout = panel_lockout
         address = get_client_ip(request, settings.TRUSTED_PROXY_HOPS)
         counted_against = f"{LOCKOUT_PREFIX}:{address}"
 

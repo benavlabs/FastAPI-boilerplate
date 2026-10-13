@@ -57,12 +57,14 @@ Notes:
 - Credentials come from environment variables, **not the database**. Restart the app to change them.
 - **Admin login is disabled until both `ADMIN_USERNAME` and `ADMIN_PASSWORD` are set.** With the empty defaults, every login attempt fails — an empty form submission does not authenticate.
 - Only one admin login is supported. There's no multi-admin user table.
-- **Failures are counted on the login's own lockout**, against the client address and the identifier
-  `admin-panel:<address>`, with the thresholds in `LOGIN_MAX_ATTEMPTS`,
+- **Failures are counted in a lockout of the panel's own**, against the client address and the
+  identifier `admin-panel:<address>`, with the thresholds in `LOGIN_MAX_ATTEMPTS`,
   `LOGIN_ATTEMPT_WINDOW_SECONDS`, `LOGIN_LOCKOUT_BASE_SECONDS` and `LOGIN_LOCKOUT_MAX_SECONDS`. A
-  locked address is refused before its password is compared, and the panel shares the per-address
-  budget with the user login: crudauth keys every lockout under one namespace. Behind a proxy, set
-  `TRUSTED_PROXY_HOPS`, or every caller is counted as the proxy.
+  locked address is refused before its password is compared. The counters live under the panel's own
+  key prefix, so one address has separate budgets at the two doors and nothing sent to
+  `/api/v1/auth/login` can lock the panel out; the cost is that the panel is no longer slowed by an
+  address already failing at the API's door. Behind a proxy, set `TRUSTED_PROXY_HOPS`, or every
+  caller is counted as the proxy.
 - Both credentials are compared with `hmac.compare_digest`, so a wrong guess costs the same time
   whatever its first bytes were.
 - The session is signed with `SECRET_KEY` via the `SessionMiddleware` the panel mounts for itself.
