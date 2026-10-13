@@ -1,7 +1,9 @@
 """Authentication backend for SQLAdmin."""
 
+import hashlib
 import hmac
-from typing import Literal
+from time import time
+from typing import Any, Literal
 
 from crudauth import HookContext
 from crudauth.utils import get_client_ip
@@ -13,10 +15,22 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 
 from ...infrastructure.auth.audit import log_a_lockout, log_a_refusal
 from ...infrastructure.config.settings import EnvironmentOption, get_settings
+from ...infrastructure.logging import get_logger
 from .lockout import every_address_lockout, panel_lockout
 from .origin import SameOriginOnly
 
+logger = get_logger()
+
 SESSION_MAX_AGE_SECONDS = 60 * 60 * 8
+
+AUTHENTICATED = "admin_authenticated"
+"""The session key a signed-in operator carries."""
+
+ISSUED_AT = "issued_at"
+"""When the login that created the session happened, in seconds since the epoch."""
+
+FINGERPRINT = "fingerprint"
+"""An HMAC of the credentials the session was created against."""
 
 LOCKOUT_PREFIX = "admin-panel"
 """Prefix of the identifier the per-address lockout counts the panel's failures against."""
@@ -114,10 +128,15 @@ class AdminAuth(AuthenticationBackend):
     scoped to where the panel is mounted, prefix included, is HTTPS-only outside local and
     development, travels on nothing a sibling site starts (``SameSite=Strict``), and
     expires after ``SESSION_MAX_AGE_SECONDS`` rather than Starlette's fortnight.
+
+    The session itself carries when it was issued and a fingerprint of the credentials it
+    was issued against, which is what bounds it: see
+    [authenticate][src.interfaces.admin.auth.AdminAuth.authenticate].
     """
 
     def __init__(self, secret_key: str, base_url: str | None = None) -> None:
         super().__init__(secret_key)
+        self.secret_key = secret_key
         settings = get_settings()
         local = settings.ENVIRONMENT in (EnvironmentOption.LOCAL, EnvironmentOption.DEVELOPMENT)
 
@@ -179,7 +198,13 @@ class AdminAuth(AuthenticationBackend):
                 await panel_lockout.check_and_record(address, counted_against, success=True)
             if every_address_lockout is not None:
                 await every_address_lockout.forget_attempt(EVERY_ADDRESS, EVERY_ADDRESS)
-            request.session.update({"admin_authenticated": True})
+            request.session.update(
+                {
+                    AUTHENTICATED: True,
+                    ISSUED_AT: int(time()),
+                    FINGERPRINT: self.credentials_fingerprint(),
+                }
+            )
             return True
 
         await log_a_refusal(
@@ -196,6 +221,48 @@ class AdminAuth(AuthenticationBackend):
         request.session.clear()
         return True
 
+    def credentials_fingerprint(self) -> str:
+        """An HMAC of the configured credentials, which changing either one of them changes.
+
+        Keyed with ``SECRET_KEY``, because the session travels in a cookie the browser can
+        read: a plain digest of the password would be one an attacker holding the cookie
+        could work backwards from.
+        """
+        settings = get_settings()
+        credentials = f"{settings.ADMIN_USERNAME}:{settings.ADMIN_PASSWORD}".encode()
+
+        return hmac.new(self.secret_key.encode(), credentials, hashlib.sha256).hexdigest()
+
+    def _refuse(self, session: dict[str, Any], why: str) -> bool:
+        """Clear the session the request carried, so the browser stops sending it."""
+        session.clear()
+        logger.warning(f"admin session refused: {why}")
+
+        return False
+
     async def authenticate(self, request: Request) -> bool:
-        """Check if the current request is authenticated."""
-        return bool(request.session.get("admin_authenticated", False))
+        """Whether the request carries a session the panel still honours.
+
+        A session is honoured for ``SESSION_MAX_AGE_SECONDS`` from the login that created
+        it, however busy the operator has been in between. Starlette re-signs the cookie
+        whenever something writes to the session, a flashed message included, which starts
+        its ``Max-Age`` and its signature's clock again; the cap is ``issued_at``, which
+        nothing moves.
+
+        A session is also refused once ``ADMIN_USERNAME`` or ``ADMIN_PASSWORD`` changes,
+        which the fingerprint it carries no longer matches, so changing either signs out
+        every session including a stolen one. A session from before either was recorded is
+        refused too.
+        """
+        session = request.session
+        if not session.get(AUTHENTICATED, False):
+            return False
+
+        issued_at = session.get(ISSUED_AT)
+        if not isinstance(issued_at, int | float) or time() - issued_at >= SESSION_MAX_AGE_SECONDS:
+            return self._refuse(session, "issued longer ago than the panel honours a session")
+
+        if not hmac.compare_digest(str(session.get(FINGERPRINT, "")), self.credentials_fingerprint()):
+            return self._refuse(session, "issued against credentials that have since changed")
+
+        return True

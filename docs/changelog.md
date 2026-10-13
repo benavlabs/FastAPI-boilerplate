@@ -226,6 +226,16 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   subdomain, which is the same site to a browser, so the guard is what stands between
   `other.example.com` and an action link. A request carrying neither header is allowed, so curl and
   scripts keep working: no site can make a browser send a request with no origin.
+- **An admin session is bounded by the login that created it.** The cookie's `Max-Age` was the only
+  bound, and Starlette starts that clock again whenever something writes to the session, which a
+  flashed message does, so an operator who kept working kept a session alive indefinitely. Nothing
+  tied a session to the credentials either: changing `ADMIN_PASSWORD` left a stolen cookie working
+  until it expired. A session now carries the time it was issued and an HMAC of
+  `ADMIN_USERNAME:ADMIN_PASSWORD` keyed with `SECRET_KEY`, and the panel refuses it eight hours
+  after that login however active it has been, or as soon as either credential changes, which is
+  the panel's only way of revoking a session. A refused session is cleared, so the browser stops
+  sending it. Sessions from before this version carry neither field and are refused, so every
+  operator signs in once after it is deployed.
 - **Signing out of the panel takes a `POST`.** sqladmin serves logout on `GET` and links to it from
   every page, so anything that made the operator's browser fetch `/admin/logout` signed them out,
   with `SameSite=Lax` sending the cookie along. The route answers a `GET` with a one-button form now

@@ -54,7 +54,8 @@ class AdminAuth(AuthenticationBackend):
 
 Notes:
 
-- Credentials come from environment variables, **not the database**. Restart the app to change them.
+- Credentials come from environment variables, **not the database**. Restart the app to change them,
+  which signs out every session that was created against the old pair.
 - **Admin login is disabled until both `ADMIN_USERNAME` and `ADMIN_PASSWORD` are set.** With the empty defaults, every login attempt fails — an empty form submission does not authenticate.
 - Only one admin login is supported. There's no multi-admin user table.
 - **Failures are counted in a lockout of the panel's own**, against the client address and the
@@ -103,6 +104,12 @@ Notes:
 - Both credentials are compared with `hmac.compare_digest`, so a wrong guess costs the same time
   whatever its first bytes were.
 - The session is signed with `SECRET_KEY` via the `SessionMiddleware` the panel mounts for itself.
+- **A session lasts eight hours from the login that created it**, however busy the operator has
+  been. It carries the time it was issued and an HMAC of `ADMIN_USERNAME:ADMIN_PASSWORD` keyed with
+  `SECRET_KEY`, and `authenticate` refuses it once either the eight hours are up or the fingerprint
+  stops matching the configured credentials. A refused session is cleared, so the browser stops
+  sending the cookie. A session carrying neither field, which is what a cookie from a build before
+  this one holds, is refused as well.
 - Signing out clears the session (`request.session.clear()`), and takes a `POST`.
 
 If you need multiple admin operators, see [User Management](user-management.md) for ways to extend this.
@@ -192,8 +199,15 @@ Cookie behavior:
 - HTTP-only, signed with `SECRET_KEY`, named `admin_session`
 - Scoped to the panel's mount path (`ADMIN_BASE_URL`, plus the app's `root_path`), so it isn't sent with API requests
 - Same-site `strict`, so it travels on nothing another site starts
-- `Secure` outside `local` and `development`, since nothing can revoke it server-side
+- `Secure` outside `local` and `development`
 - Expires after 8 hours (`SESSION_MAX_AGE_SECONDS`)
+
+Starlette re-signs the cookie whenever something writes to the session, which a
+[flashed message](adding-models.md#bulk-actions) does, and that starts its `Max-Age` and its
+signature's clock again. So the cookie's own expiry is not what bounds a session: the time the
+session records at login is, and the panel refuses a session eight hours past it whatever the
+cookie says. Changing either credential refuses every session created against the old pair,
+which is the panel's only way of revoking one.
 
 For production behind HTTPS, you'll typically want to:
 
