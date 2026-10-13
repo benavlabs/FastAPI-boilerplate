@@ -7,12 +7,14 @@ import pytest
 from fastapi import Request
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.orm import selectinload
 
 from src.infrastructure.permissions import all_permissions
 from src.modules.role.admin import RoleAdmin, RolePermissionAdmin, UserRoleAdmin
 from src.modules.role.models import Role, RolePermission, UserRole
 from src.modules.user.models import User
 from src.wiring.admin import ADMIN_VIEWS
+from tests.unit.interfaces.admin.helpers import exported_rows
 
 pytestmark = pytest.mark.asyncio
 
@@ -138,3 +140,56 @@ async def test_the_holder_form_does_not_offer_a_deleted_account(
 
     assert str(test_user_2["id"]) in offered
     assert str(test_user["id"]) not in offered
+
+
+class TestExportingTheRbacListings:
+    """A role's name and an account's label reach a CSV cell through these two views."""
+
+    @pytest.fixture
+    def exporting(self, db_session: AsyncSession, monkeypatch) -> None:
+        maker = async_sessionmaker(bind=db_session.bind, class_=AsyncSession, expire_on_commit=False)
+        for view in (UserRoleAdmin, RolePermissionAdmin):
+            monkeypatch.setattr(view, "session_maker", maker, raising=False)
+
+    async def _holder_of_a_role_named_like_a_formula(self, db_session: AsyncSession) -> Role:
+        user = User(
+            name='=HYPERLINK("http://x","y")',
+            username="formula-holder",
+            email="formula-holder@example.com",
+            hashed_password="not-a-hash",
+            is_superuser=False,
+        )
+        role = Role(name="=1+1", description="Edits things")
+        db_session.add_all([user, role])
+        await db_session.commit()
+        db_session.add_all(
+            [UserRole(user_id=user.id, role_id=role.id), RolePermission(role_id=role.id, permission_name="role.read")]
+        )
+        await db_session.commit()
+
+        return role
+
+    async def test_the_holder_export_writes_both_names_as_text(self, exporting, db_session: AsyncSession):
+        """Both cells come from the related rows, and both are what somebody signing up chose."""
+        role = await self._holder_of_a_role_named_like_a_formula(db_session)
+        holdings = await db_session.execute(
+            select(UserRole)
+            .options(selectinload(UserRole.user), selectinload(UserRole.role))
+            .where(UserRole.role_id == role.id)
+        )
+
+        header, row = await exported_rows(UserRoleAdmin(), list(holdings.scalars().all()))
+
+        assert row[header.index("user")].startswith('\'=HYPERLINK("http://x","y")')
+        assert row[header.index("role")] == "'=1+1"
+
+    async def test_the_grant_export_writes_the_role_name_as_text(self, exporting, db_session: AsyncSession):
+        role = await self._holder_of_a_role_named_like_a_formula(db_session)
+        grants = await db_session.execute(
+            select(RolePermission).options(selectinload(RolePermission.role)).where(RolePermission.role_id == role.id)
+        )
+
+        header, row = await exported_rows(RolePermissionAdmin(), list(grants.scalars().all()))
+
+        assert row[header.index("role")] == "'=1+1"
+        assert row[header.index("permission_name")] == "role.read"

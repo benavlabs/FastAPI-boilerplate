@@ -40,6 +40,12 @@ text gets the apostrophe. JSON exports go to SQLAdmin unchanged.
 If your view implements `custom_export_cell` itself, pass what it returns through
 `as_spreadsheet_text` from the same module — a method defined on the view replaces the mixin's.
 
+SQLAdmin's `can_export` defaults to `True`, so a view that says nothing about exporting still
+answers `/admin/{identity}/export/csv`. The mixin has to sit **before** `ModelView` in the bases:
+after it, the view inherits SQLAdmin's export instead of this one.
+`tests/unit/interfaces/admin/test_csv_export.py` sweeps `ADMIN_VIEWS` and fails for any view that
+exports without the mixin winning, so a new view is caught rather than discovered in a file.
+
 ## Adding a New Model View
 
 ### 1. Create the View File

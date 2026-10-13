@@ -5,6 +5,9 @@ those credentials already let it set ``is_superuser`` on any user. There is no w
 operator to hold back here, so the API's delegation checks have nothing to compare
 against: what the panel enforces instead is that a grant names a permission the
 registry knows.
+
+All three views carry ``TextCsvExportMixin``: a role's name and an account's label reach
+the CSV through these listings, and sqladmin exports every view unless told not to.
 """
 
 from typing import Any, ClassVar
@@ -66,7 +69,7 @@ class RoleAdmin(DataclassModelMixin, TextCsvExportMixin, ModelView, model=Role):
     form_columns = [Role.name, Role.description]
 
 
-class RolePermissionAdmin(DataclassModelMixin, ModelView, model=RolePermission):
+class RolePermissionAdmin(DataclassModelMixin, TextCsvExportMixin, ModelView, model=RolePermission):
     """The grants that make up a role: one permission name per row."""
 
     name = "Role permission"
@@ -82,6 +85,7 @@ class RolePermissionAdmin(DataclassModelMixin, ModelView, model=RolePermission):
     can_edit = False
     can_delete = True
     can_view_details = True
+    can_export = True
 
     form_columns = [RolePermission.role, RolePermission.permission_name]
     form_include_pk = True
@@ -95,7 +99,7 @@ class RolePermissionAdmin(DataclassModelMixin, ModelView, model=RolePermission):
         return form_class
 
 
-class UserRoleAdmin(DataclassModelMixin, ModelView, model=UserRole):
+class UserRoleAdmin(DataclassModelMixin, TextCsvExportMixin, ModelView, model=UserRole):
     """Who holds which role."""
 
     name = "User role"
@@ -110,6 +114,7 @@ class UserRoleAdmin(DataclassModelMixin, ModelView, model=UserRole):
     can_edit = False
     can_delete = True
     can_view_details = True
+    can_export = True
 
     form_columns = [UserRole.user, UserRole.role]
 

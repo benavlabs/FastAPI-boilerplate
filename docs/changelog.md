@@ -226,6 +226,13 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   subdomain, which is the same site to a browser, so the guard is what stands between
   `other.example.com` and an action link. A request carrying neither header is allowed, so curl and
   scripts keep working: no site can make a browser send a request with no origin.
+- **The two RBAC listings export their cells as text.** `UserRoleAdmin` and `RolePermissionAdmin`
+  carried no `TextCsvExportMixin`, and sqladmin exports every view unless the view says otherwise,
+  so `GET /admin/user-role/export/csv` wrote a role named `=1+1` and an account labelled
+  `=HYPERLINK("http://x","y")` into the file as they stood, for a spreadsheet to run on opening.
+  Both views carry the mixin now and state `can_export = True` rather than inheriting it, and a
+  test sweeps `ADMIN_VIEWS` so a view that exports without the mixin ahead of `ModelView` fails the
+  suite instead of shipping.
 - **An admin session is bounded by the login that created it.** The cookie's `Max-Age` was the only
   bound, and Starlette starts that clock again whenever something writes to the session, which a
   flashed message does, so an operator who kept working kept a session alive indefinitely. Nothing
