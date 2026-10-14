@@ -102,6 +102,14 @@ async def test_an_explicit_null_is_refused_not_a_server_error(auth_client: Async
     assert response.status_code == 422
 
 
+@pytest.mark.parametrize("field", ["name", "username", "profile_image_url"])
+async def test_a_nul_in_a_profile_field_is_refused(auth_client: AsyncClient, test_user: dict, field: str):
+    """A NUL encodes, and Postgres then refuses the whole statement carrying it."""
+    response = await auth_client.patch(f"/api/v1/users/{test_user['username']}", json={field: "a\u0000b"})
+
+    assert response.status_code == 422
+
+
 async def test_the_route_refuses_an_address_in_the_body(auth_client: AsyncClient, test_user: dict):
     """An account moves its address through the confirmed flow, not through its profile."""
     response = await auth_client.patch(f"/api/v1/users/{test_user['username']}", json={"email": "moved@example.com"})

@@ -12,13 +12,13 @@ from ....infrastructure.http_exceptions import (
     HTTPException,
 )
 from ....infrastructure.logging import get_logger
-from ..constants import EXCEPTION_MAPPING, GENERIC_ERROR_MESSAGE, SUPPORT_ID_LENGTH
+from ..constants import EXCEPTION_MAPPING, GENERIC_ERROR_MESSAGE, INVALID_REQUEST_MESSAGE, SUPPORT_ID_LENGTH
 from ..exceptions import DomainError
 
 logger = get_logger()
 
 
-def _generate_support_id() -> str:
+def generate_support_id() -> str:
     """Generate a short support ID for error tracking."""
     return str(uuid_mod.uuid4())[:SUPPORT_ID_LENGTH]
 
@@ -51,7 +51,7 @@ class CatchAllErrorMiddleware(BaseHTTPMiddleware):
         try:
             return await call_next(request)
         except Exception:
-            support_id = _generate_support_id()
+            support_id = generate_support_id()
             logger.exception(f"Unhandled error [{support_id}] on {request.method} {request.url.path}")
             return JSONResponse(
                 status_code=500,
@@ -77,17 +77,17 @@ def register_exception_handlers(app: FastAPI) -> None:
         that value is the whole body, so logging the errors verbatim would write
         submitted passwords to the log.
         """
-        support_id = _generate_support_id()
+        support_id = generate_support_id()
         failures = [{"loc": error["loc"], "type": error["type"], "msg": error["msg"]} for error in exc.errors()]
         logger.warning(f"Validation error [{support_id}] on {request.method} {request.url.path}: {failures}")
         return JSONResponse(
             status_code=422,
-            content={"detail": "Invalid request. Please check your input and try again.", "support_id": support_id},
+            content={"detail": INVALID_REQUEST_MESSAGE, "support_id": support_id},
         )
 
     @app.exception_handler(DomainError)
     async def domain_exception_handler(request: Request, exc: DomainError) -> JSONResponse:
-        support_id = _generate_support_id()
+        support_id = generate_support_id()
         http_exception = map_exception(exc)
 
         logger.warning(f"Domain error [{support_id}] on {request.method} {request.url.path}: {type(exc).__name__}: {exc}")

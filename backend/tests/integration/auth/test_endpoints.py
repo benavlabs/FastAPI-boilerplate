@@ -29,6 +29,27 @@ pytestmark = pytest.mark.usefixtures("fresh_login_lockout")
 
 
 @pytest.mark.asyncio
+async def test_a_username_carrying_a_nul_is_refused(client: AsyncClient, caplog):
+    """The identifier reaches a query Postgres refuses outright, so this answered 500."""
+    with caplog.at_level(logging.WARNING):
+        response = await client.post("/api/v1/auth/login", data={"username": "a\x00b", "password": "x"})
+
+    assert response.status_code == 422
+    assert not [record for record in caplog.records if record.levelno >= logging.ERROR]
+
+
+@pytest.mark.asyncio
+async def test_a_password_carrying_a_nul_is_refused(client: AsyncClient, test_user: dict):
+    """No stored password can hold one, since the schemas refuse it at signup."""
+    response = await client.post(
+        "/api/v1/auth/login",
+        data={"username": test_user["username"], "password": f"{test_user['password']}\x00"},
+    )
+
+    assert response.status_code == 422
+
+
+@pytest.mark.asyncio
 async def test_login_success(client: AsyncClient, test_user: dict):
     """A valid username/password logs in: 200, a CSRF token, and a session cookie.
 

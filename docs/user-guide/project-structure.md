@@ -318,7 +318,10 @@ The recommended flow:
 
 1. **Create the module folder**: `mkdir backend/src/modules/widgets`
 2. **Define the model**: `backend/src/modules/widgets/models.py`
-3. **Add schemas**: `backend/src/modules/widgets/schemas.py`
+3. **Add schemas**: `backend/src/modules/widgets/schemas.py` - a write schema inherits
+   `EncodableText` from `modules/common/schemas.py`, which refuses text no column can hold (a lone
+   surrogate, a NUL character) at any depth; `tests/unit/interfaces/test_request_text.py` sweeps
+   every route body for it
 4. **Wrap with FastCRUD**: `backend/src/modules/widgets/crud.py`
 5. **Write the service**: `backend/src/modules/widgets/service.py`
 6. **Expose routes**: `backend/src/modules/widgets/routes.py`

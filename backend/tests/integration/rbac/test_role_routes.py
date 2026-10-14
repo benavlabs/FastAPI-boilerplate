@@ -105,6 +105,16 @@ class TestCreating:
         assert created is not None
         assert await _carried(db_session, created.id) == ["user.read"]
 
+    async def test_a_name_carrying_a_nul_is_refused(self, client: AsyncClient, manager: dict[str, Any]):
+        """A NUL encodes, and Postgres then refuses the whole statement carrying it."""
+        response = await client.post(
+            "/api/v1/roles/",
+            json={"name": "a\u0000b", "permissions": []},
+            headers={"X-CSRF-Token": manager["csrf"]},
+        )
+
+        assert response.status_code == 422
+
     async def test_a_name_already_taken_is_a_conflict(self, client: AsyncClient, manager: dict[str, Any]):
         response = await client.post(
             "/api/v1/roles/",

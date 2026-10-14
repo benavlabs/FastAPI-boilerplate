@@ -4,7 +4,7 @@ from typing import Annotated, ClassVar
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from ..common.schemas import PartialUpdate, TimestampSchema, not_nullable_columns
+from ..common.schemas import EncodableText, PartialUpdate, TimestampSchema, not_nullable_columns
 from .models import RateLimit as RateLimitModel
 
 PATH_CONVERTERS = ("str", "path", "int", "float", "uuid")
@@ -38,7 +38,7 @@ def validated_path(value: str) -> str:
     return value
 
 
-class RateLimitBase(BaseModel):
+class RateLimitBase(EncodableText):
     """Base rate limit schema with common attributes."""
 
     path: Annotated[str, Field(examples=["/api/v1/users/"])]
@@ -92,7 +92,7 @@ class RateLimitCreateInternal(RateLimitCreate):
     tier_id: int
 
 
-class RateLimitUpdate(PartialUpdate):
+class RateLimitUpdate(EncodableText, PartialUpdate):
     """Schema for updating rate limit information."""
 
     NOT_NULLABLE: ClassVar[tuple[str, ...]] = not_nullable_columns(RateLimitModel)

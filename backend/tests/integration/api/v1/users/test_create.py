@@ -272,6 +272,19 @@ async def test_a_failed_insert_logs_neither_the_hash_nor_the_address(
     assert same_username["email"] not in logged
 
 
+async def test_a_name_carrying_a_nul_is_refused(client: AsyncClient, caplog):
+    """A NUL encodes, and Postgres then refuses the whole statement that carries it."""
+    with caplog.at_level(logging.WARNING):
+        response = await client.post(
+            "/api/v1/users/",
+            json={"name": "a\u0000b", "username": "nulname", "email": "nul@example.com", "password": "Password123!"},
+        )
+
+    assert response.status_code == 422
+    assert "holds a NUL character" in caplog.text
+    assert not [record for record in caplog.records if record.levelno >= logging.ERROR]
+
+
 async def test_a_password_that_is_not_valid_unicode_is_refused(client: AsyncClient, caplog):
     """A lone surrogate reaches the hash as text nothing can encode."""
     with caplog.at_level(logging.WARNING):

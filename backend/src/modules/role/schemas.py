@@ -6,7 +6,7 @@ from typing import Annotated, Any, ClassVar
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from ...infrastructure.permissions import registered_permissions
-from ..common.schemas import PartialUpdate, not_nullable_columns
+from ..common.schemas import EncodableText, PartialUpdate, not_nullable_columns
 from .constants import ROLE_NAME_MAX_LENGTH
 from .models import Role as RoleModel
 
@@ -14,7 +14,7 @@ RoleName = Annotated[str, Field(min_length=1, max_length=ROLE_NAME_MAX_LENGTH, e
 RoleDescription = Annotated[str | None, Field(max_length=500, examples=["Edits other people's profiles"])]
 
 
-class RolePermissions(BaseModel):
+class RolePermissions(EncodableText):
     """The permissions a role carries."""
 
     model_config = ConfigDict(extra="forbid")
@@ -34,7 +34,7 @@ class RoleCreate(RolePermissions):
     description: RoleDescription = None
 
 
-class RoleUpdate(PartialUpdate):
+class RoleUpdate(EncodableText, PartialUpdate):
     """A change to a role's name or description; its permissions have their own route."""
 
     model_config = ConfigDict(extra="forbid")

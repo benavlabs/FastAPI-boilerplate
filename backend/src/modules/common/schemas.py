@@ -40,14 +40,20 @@ def not_nullable_columns(model: Any) -> tuple[str, ...]:
     return tuple(column.key for column in model.__table__.columns if not column.nullable)
 
 
+NUL = "\x00"
+"""The character no text column can hold: Postgres refuses the statement carrying one."""
+
+
 def refuse_unencodable_text(name: str, value: Any) -> None:
-    """Raise when ``value`` holds text with no UTF-8 encoding, at any depth.
+    """Raise when ``value`` holds text no column can store, at any depth.
 
     Walks dicts and sequences, keys as well as values, and names the field it was
-    given rather than the text it found.
+    given rather than the text it found. Text with no UTF-8 encoding is one case. A NUL
+    character is the other: it encodes, and Postgres then refuses the whole statement
+    with ``invalid byte sequence for encoding "UTF8": 0x00``.
 
     Raises:
-        ValueError: Something inside ``value`` is not valid Unicode.
+        ValueError: Something inside ``value`` is not valid Unicode, or holds a NUL.
     """
     pending = [value]
 
@@ -58,6 +64,9 @@ def refuse_unencodable_text(name: str, value: Any) -> None:
                 current.encode()
             except UnicodeEncodeError as error:
                 raise ValueError(f"{name} holds text that is not valid Unicode") from error
+
+            if NUL in current:
+                raise ValueError(f"{name} holds a NUL character")
         elif isinstance(current, dict):
             pending.extend(current.keys())
             pending.extend(current.values())
@@ -66,10 +75,10 @@ def refuse_unencodable_text(name: str, value: Any) -> None:
 
 
 class EncodableText(BaseModel):
-    """Refuses a field holding text that has no UTF-8 encoding, at any depth.
+    """Refuses a field holding text no column can store, at any depth.
 
     Checks every string field, and the keys and values inside the dicts and sequences
-    they hold.
+    they hold, for text with no UTF-8 encoding and for a NUL character.
     """
 
     @model_validator(mode="after")

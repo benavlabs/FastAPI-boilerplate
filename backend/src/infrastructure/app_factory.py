@@ -21,7 +21,7 @@ from .config.settings import (
 )
 from .database.initialize import close_database
 from .database.session import create_tables
-from .middleware import ClientCacheMiddleware, SecurityHeadersMiddleware
+from .middleware import ClientCacheMiddleware, NulCharacterMiddleware, SecurityHeadersMiddleware
 
 logger = logging.getLogger(__name__)
 
@@ -204,6 +204,7 @@ def create_application(
     application = FastAPI(lifespan=lifespan, **kwargs)
 
     register_exception_handlers(application)
+    application.add_middleware(NulCharacterMiddleware)
 
     application.include_router(router)
 

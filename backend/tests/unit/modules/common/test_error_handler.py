@@ -15,19 +15,19 @@ from src.modules.common.exceptions import (
     ValidationError,
 )
 from src.modules.common.utils.error_handler import (
-    _generate_support_id,
+    generate_support_id,
     map_exception,
     register_exception_handlers,
 )
 
 
 def test_generate_support_id_length():
-    support_id = _generate_support_id()
+    support_id = generate_support_id()
     assert len(support_id) == 8
 
 
 def test_generate_support_id_unique():
-    ids = {_generate_support_id() for _ in range(100)}
+    ids = {generate_support_id() for _ in range(100)}
     assert len(ids) == 100
 
 

@@ -8,6 +8,7 @@ from httpx import AsyncClient
 pytestmark = pytest.mark.asyncio
 
 SURROGATE = "\\ud800"
+NUL = "\\u0000"
 
 
 async def _create(auth_client: AsyncClient, body: str) -> Any:
@@ -58,6 +59,23 @@ class TestTextTheDatabaseCannotStore:
         response = await auth_client.patch(
             f"/api/v1/api-keys/{created.json()['id']}",
             content='{"key_metadata": {"' + SURROGATE + '": "team"}}',
+            headers={"Content-Type": "application/json"},
+        )
+
+        assert response.status_code == 422
+
+    async def test_a_nul_in_the_name_on_create(self, auth_client: AsyncClient):
+        """It encodes, and Postgres then refuses the whole statement carrying it."""
+        response = await _create(auth_client, '{"name": "a' + NUL + 'b"}')
+
+        assert response.status_code == 422
+
+    async def test_a_nul_nested_in_an_update(self, auth_client: AsyncClient):
+        created = await auth_client.post("/api/v1/api-keys/", json={"name": "Updatable NUL"})
+
+        response = await auth_client.patch(
+            f"/api/v1/api-keys/{created.json()['id']}",
+            content='{"key_metadata": {"team": "a' + NUL + 'b"}}',
             headers={"Content-Type": "application/json"},
         )
 

@@ -362,7 +362,18 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   offset stays a number the database can read; an API key's id is bounded to the range its `Integer`
   column covers; an `expires_at` whose offset moves it past the dates a datetime can hold is refused;
   and text that is not valid Unicode - a lone surrogate in a password or `current_password` - is
-  refused before it reaches a hash or a write.
+  refused before it reaches a hash or a write. A NUL character is refused the same way now. Postgres
+  refuses the whole statement carrying one (`invalid byte sequence for encoding "UTF8": 0x00`), so
+  `POST /auth/login` with `username=a%00b`, a signup whose name holds one, and `GET /users/%00` all
+  answered 500 with a traceback, the first two to anybody. The guard covers this project's own
+  request bodies, its URLs and its login form: the write schemas refuse a NUL at any depth,
+  including inside a dict key; `NulCharacterMiddleware` answers before the router for a path or a
+  query carrying one; and the login form is refused before the identifier reaches a query.
+  `tests/unit/interfaces/test_request_text.py` sweeps the routes so a new body cannot forget the
+  guard. crudauth's own request bodies stay the library's to validate, and none of them hands a NUL
+  to a query: an address field refuses one at validation, a token fails its signature check before
+  any lookup and the one-time-use record is keyed on the token's digest, a `redirect_to` holding a
+  control character is dropped, and a new password reaches the column as a hash.
 - **A soft-deleted tier keeps its soft-deleted users.** `TierService.delete` no longer clears
   `user.tier_id` on rows a soft delete had already removed - only `permanent_delete` does, where the
   foreign key requires it - and a soft-deleted user no longer blocks either delete. A soft-deleted

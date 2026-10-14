@@ -86,6 +86,11 @@ async def search(q: str | None = None):
 - A catch-all `DomainError` handler → maps to the right HTTP status **and message** via `EXCEPTION_MAPPING`, and returns that message + a `support_id`. The raw exception message is logged server-side, never sent.
 - A `CatchAllErrorMiddleware` that converts truly unhandled exceptions into 500s with a `support_id`
 
+`NulCharacterMiddleware` (`infrastructure/middleware.py`) answers that same validation body before
+the router runs, for a path or query carrying a NUL character: `%00` arrives decoded, reaches a
+query, and Postgres refuses the whole statement, so the request used to answer 500. The log names
+the reason and the path; the response says only what every other 422 says.
+
 This means: **any uncaught `DomainError` raised in a service automatically becomes a properly-shaped HTTP response.** Routes do *not* wrap service calls in try/except — they just let exceptions propagate:
 
 ```python

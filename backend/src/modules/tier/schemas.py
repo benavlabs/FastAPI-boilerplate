@@ -3,11 +3,11 @@ from typing import Annotated, ClassVar
 
 from pydantic import BaseModel, Field
 
-from ..common.schemas import PartialUpdate, TimestampSchema, not_nullable_columns
+from ..common.schemas import EncodableText, PartialUpdate, TimestampSchema, not_nullable_columns
 from .models import Tier as TierModel
 
 
-class TierBase(BaseModel):
+class TierBase(EncodableText):
     """Base tier schema with common attributes."""
 
     name: Annotated[
@@ -66,7 +66,7 @@ class TierCreateInternal(TierCreate):
     pass
 
 
-class TierUpdate(PartialUpdate):
+class TierUpdate(EncodableText, PartialUpdate):
     """Schema for updating tier information."""
 
     NOT_NULLABLE: ClassVar[tuple[str, ...]] = not_nullable_columns(TierModel)
@@ -100,7 +100,7 @@ class TierDelete(BaseModel):
     pass
 
 
-class UserTierUpdate(BaseModel):
+class UserTierUpdate(EncodableText):
     """The payload for putting a user on a tier."""
 
     tier_id: int

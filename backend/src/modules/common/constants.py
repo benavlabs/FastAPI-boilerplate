@@ -20,6 +20,7 @@ from .exceptions import (
 
 # Generic error message for client-facing responses (never leak internal details)
 GENERIC_ERROR_MESSAGE = "Something went wrong. Please try again."
+INVALID_REQUEST_MESSAGE = "Invalid request. Please check your input and try again."
 SUPPORT_ID_LENGTH = 8
 
 DEFAULT_BATCH_SIZE = 100
