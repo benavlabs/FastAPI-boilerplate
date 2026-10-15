@@ -370,10 +370,15 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   including inside a dict key; `NulCharacterMiddleware` answers before the router for a path or a
   query carrying one; and the login form is refused before the identifier reaches a query.
   `tests/unit/interfaces/test_request_text.py` sweeps the routes so a new body cannot forget the
-  guard. crudauth's own request bodies stay the library's to validate, and none of them hands a NUL
-  to a query: an address field refuses one at validation, a token fails its signature check before
-  any lookup and the one-time-use record is keyed on the token's digest, a `redirect_to` holding a
-  control character is dropped, and a new password reaches the column as a hash.
+  guard. crudauth's own bodies take their fields as plain `str`, and a lone surrogate in one
+  answered 500 to anybody: `{"token": "\ud800"}` on `email/verify-confirm`, `email/change-confirm`
+  or `password/reset-confirm` reached `jwt.decode`, which encodes the token as UTF-8 and raises, and
+  a `new_password` carrying one reached the hash. Every crudauth route this project mounts now
+  carries `body_a_database_can_hold`, which refuses a lone surrogate or a NUL anywhere in a JSON
+  body, keys included, and answers 422 naming the field. It reads the content type the way
+  `fastapi.routing` does, so an `application/merge-patch+json` body is read as JSON as well, and a
+  body with no content type reaches no field while routes keep `strict_content_type`. Only a JSON escape can carry a lone
+  surrogate, since percent-decoding replaces one, so a path, a query and a form cannot.
 - **A soft-deleted tier keeps its soft-deleted users.** `TierService.delete` no longer clears
   `user.tier_id` on rows a soft delete had already removed - only `permanent_delete` does, where the
   foreign key requires it - and a soft-deleted user no longer blocks either delete. A soft-deleted

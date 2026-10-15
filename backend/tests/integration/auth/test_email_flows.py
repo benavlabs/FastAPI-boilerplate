@@ -4,6 +4,7 @@ crudauth owns the tokens and the rules; these drive the mounted routes with a se
 that keeps what it was asked to deliver, and hold the behaviour this project relies on.
 """
 
+import logging
 from typing import Any
 
 import pytest
@@ -16,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.infrastructure.auth.setup import email_config
 from src.infrastructure.config.settings import settings
 from src.interfaces.main import app
+from src.modules.common.constants import INVALID_REQUEST_MESSAGE
 from src.modules.user.models import User
 from tests.fixtures.accounts import reset_recovery_budgets
 
@@ -268,3 +270,73 @@ class TestASoftDeletedAccount:
         assert stored is not None
         await db_session.refresh(stored)
         assert stored.hashed_password == hashed_password
+
+
+class TestTextTheDatabaseCannotStore:
+    """A lone surrogate in a token reaches ``jwt.decode``, which encodes it and raises."""
+
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "/api/v1/auth/email/verify-confirm",
+            "/api/v1/auth/email/change-confirm",
+            "/api/v1/auth/password/reset-confirm",
+        ],
+    )
+    async def test_a_token_carrying_a_lone_surrogate_is_refused(self, client: AsyncClient, path: str, caplog):
+        """Anybody can post these, and the answer used to be 500 with a traceback."""
+        with caplog.at_level(logging.WARNING):
+            answer = await client.post(
+                path,
+                content='{"token": "\\ud800", "new_password": "An0therPassword!"}',
+                headers={"Content-Type": "application/json"},
+            )
+
+        assert answer.status_code == 422
+        assert not [record for record in caplog.records if record.levelno >= logging.ERROR]
+
+    async def test_a_token_sent_as_a_patch_document_is_refused_too(self, client: AsyncClient, caplog):
+        """FastAPI parses any ``application/*+json`` body, so the guard reads those as well."""
+        with caplog.at_level(logging.WARNING):
+            answer = await client.post(
+                "/api/v1/auth/email/verify-confirm",
+                content='{"token": "\\ud800"}',
+                headers={"Content-Type": "application/merge-patch+json"},
+            )
+
+        assert answer.status_code == 422
+        assert not [record for record in caplog.records if record.levelno >= logging.ERROR]
+
+    async def test_a_token_sent_without_a_content_type_reaches_no_field(self, client: AsyncClient, caplog):
+        """The route binds no body without one, so validation answers rather than the guard."""
+        with caplog.at_level(logging.WARNING):
+            answer = await client.post("/api/v1/auth/email/verify-confirm", content='{"token": "\\ud800"}')
+
+        assert answer.status_code == 422
+        assert answer.json()["detail"] == INVALID_REQUEST_MESSAGE
+        assert not [record for record in caplog.records if record.levelno >= logging.ERROR]
+
+    async def test_a_token_carrying_a_nul_is_refused_as_well(self, client: AsyncClient):
+        answer = await client.post("/api/v1/auth/email/verify-confirm", json={"token": "a\x00b"})
+
+        assert answer.status_code == 422
+
+    async def test_a_redirect_carrying_a_lone_surrogate_is_refused(self, client: AsyncClient, test_user: dict):
+        answer = await client.post(
+            "/api/v1/auth/email/verify-request",
+            content='{"email": "' + test_user["email"] + '", "redirect_to": "/a\\ud800b"}',
+            headers={"Content-Type": "application/json"},
+        )
+
+        assert answer.status_code == 422
+
+    async def test_an_emoji_still_goes_through(self, client: AsyncClient, test_user: dict, delivered: list[dict[str, Any]]):
+        """An emoji is a surrogate pair in JSON, which is text a column can hold."""
+        answer = await client.post(
+            "/api/v1/auth/email/verify-request",
+            content='{"email": "' + test_user["email"] + '", "redirect_to": "/\\ud83d\\ude00"}',
+            headers={"Content-Type": "application/json"},
+        )
+
+        assert answer.status_code == 200
+        assert [message["kind"] for message in delivered] == ["verify_email"]

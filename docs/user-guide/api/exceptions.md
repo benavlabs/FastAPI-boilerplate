@@ -91,6 +91,10 @@ the router runs, for a path or query carrying a NUL character: `%00` arrives dec
 query, and Postgres refuses the whole statement, so the request used to answer 500. The log names
 the reason and the path; the response says only what every other 422 says.
 
+Request bodies are refused by their schemas, which inherit `EncodableText`. The routes crudauth
+mounts carry models the library owns, so they are refused by `body_a_database_can_hold` instead,
+which answers 422 for a JSON body holding a lone surrogate or a NUL character.
+
 This means: **any uncaught `DomainError` raised in a service automatically becomes a properly-shaped HTTP response.** Routes do *not* wrap service calls in try/except — they just let exceptions propagate:
 
 ```python

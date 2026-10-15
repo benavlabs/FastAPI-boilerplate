@@ -1,5 +1,7 @@
 """The account routes crudauth ships, and the budget password guesses share."""
 
+import logging
+
 import pytest
 from fastapi.routing import APIRoute
 from httpx import ASGITransport, AsyncClient
@@ -182,3 +184,34 @@ async def test_the_account_routes_appear_once_in_the_api_docs():
         "/api/v1/auth/me": ["Authentication"],
         "/api/v1/auth/change-password": ["Authentication"],
     }
+
+
+class TestTextTheDatabaseCannotStore:
+    """A lone surrogate in a new password reaches the hash, which encodes it and raises."""
+
+    async def test_a_new_password_carrying_a_lone_surrogate_is_refused(self, client: AsyncClient, test_user: dict, caplog):
+        csrf = await _login(client, test_user)
+
+        with caplog.at_level(logging.WARNING):
+            answer = await client.post(
+                "/api/v1/auth/change-password",
+                content='{"current_password": "' + test_user["password"] + '", "new_password": "An0ther\\ud800Pass!"}',
+                headers={"X-CSRF-Token": csrf, "Content-Type": "application/json"},
+            )
+
+        assert answer.status_code == 422
+        assert not [record for record in caplog.records if record.levelno >= logging.ERROR]
+        await _login(client, test_user)
+
+    async def test_a_new_password_carrying_a_nul_is_refused(self, client: AsyncClient, test_user: dict):
+        """The login form refuses a NUL, so a password holding one could never sign in again."""
+        csrf = await _login(client, test_user)
+
+        answer = await client.post(
+            "/api/v1/auth/change-password",
+            json={"current_password": test_user["password"], "new_password": "An0ther\x00Pass!"},
+            headers={"X-CSRF-Token": csrf},
+        )
+
+        assert answer.status_code == 422
+        await _login(client, test_user)

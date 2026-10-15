@@ -27,7 +27,7 @@ from ...modules.user.crud import crud_users
 from ..dependencies import AsyncSessionDep
 from ..logging import get_logger
 from .dependencies import get_optional_principal, get_session_principal
-from .deps import OAuth2FormDep
+from .deps import OAuth2FormDep, body_a_database_can_hold
 from .setup import auth as crud_auth
 from .setup import session_transport
 
@@ -48,8 +48,9 @@ def _mount(source: APIRouter) -> None:
         target = session_only if api_route.path in SESSION_ONLY_PATHS else open_router
         target.routes.append(api_route)
 
-    router.include_router(open_router)
-    router.include_router(session_only, dependencies=[Depends(get_session_principal)])
+    body_text = Depends(body_a_database_can_hold)
+    router.include_router(open_router, dependencies=[body_text])
+    router.include_router(session_only, dependencies=[body_text, Depends(get_session_principal)])
 
 
 _account_router = build_account_router(crud_auth, crud_auth.sessions)

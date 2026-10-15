@@ -196,6 +196,13 @@ What crudauth guarantees, and this project's tests hold it to:
 - An inactive account is sent nothing, and the links it already has stop working. `User.is_active`
   is `not is_deleted`, so a soft-deleted account is covered.
 
+The bodies belong to the library, which takes their fields as plain `str`, so every crudauth route
+mounted here carries `body_a_database_can_hold` (`infrastructure/auth/deps.py`): a JSON body holding
+text no column can store, a lone surrogate or a NUL character, anywhere in it and in a key as well
+as a value, answers `422` naming the field. It reads the content type the way FastAPI does, so an
+`application/merge-patch+json` body is read as JSON too. Without it a `{"token": "\ud800"}` reached `jwt.decode`,
+which encodes the token as UTF-8 and raises, and answered `500` to anybody.
+
 ### Where the links point
 
 The boilerplate serves no pages, so the links are built for **your** frontend:
