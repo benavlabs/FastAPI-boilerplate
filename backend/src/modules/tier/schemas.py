@@ -3,6 +3,7 @@ from typing import Annotated, ClassVar
 
 from pydantic import BaseModel, Field
 
+from ..common.pagination import MAX_INTEGER_ID
 from ..common.schemas import EncodableText, PartialUpdate, TimestampSchema, not_nullable_columns
 from .models import Tier as TierModel
 
@@ -103,4 +104,4 @@ class TierDelete(BaseModel):
 class UserTierUpdate(EncodableText):
     """The payload for putting a user on a tier."""
 
-    tier_id: int
+    tier_id: Annotated[int, Field(ge=1, le=MAX_INTEGER_ID)]

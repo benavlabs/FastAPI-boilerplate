@@ -8,17 +8,20 @@ Superusers pass both.
 
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Path
 from fastcrud import PaginatedListResponse, compute_offset, paginated_response
 
 from ...infrastructure.auth.authorization import get_current_permissions, require_permissions
 from ...infrastructure.auth.deps import CurrentPermissionsDep, CurrentPrincipalDep, CurrentUserDep
 from ...infrastructure.dependencies import AsyncSessionDep
 from ...infrastructure.permissions import permission_groups
-from ..common.pagination import ItemsPerPageDep, PageDep
+from ..common.pagination import MAX_INTEGER_ID, ItemsPerPageDep, PageDep
 from .dependencies import RoleServiceDep
 from .permissions import RolePermissionName
 from .schemas import RoleCreate, RolePermissions, RoleRead, RoleUpdate
+
+RoleIdDep = Annotated[int, Path(ge=1, le=MAX_INTEGER_ID, description="Role ID")]
+UserIdDep = Annotated[int, Path(ge=1, le=MAX_INTEGER_ID, description="User ID")]
 
 permissions_router = APIRouter(tags=["Permissions"])
 router = APIRouter(tags=["Roles"])
@@ -103,7 +106,7 @@ async def list_roles(
     dependencies=[require_permissions(RolePermissionName.READ.value)],
     response_description="The role and the permissions it carries",
 )
-async def get_role(role_id: int, db: AsyncSessionDep, _: CurrentUserDep, role_service: RoleServiceDep) -> dict[str, Any]:
+async def get_role(role_id: RoleIdDep, db: AsyncSessionDep, _: CurrentUserDep, role_service: RoleServiceDep) -> dict[str, Any]:
     """One role, with the permissions it carries."""
     return await role_service.get(role_id, db)
 
@@ -161,7 +164,7 @@ async def create_role(
     response_description="The role as it now stands",
 )
 async def update_role(
-    role_id: int,
+    role_id: RoleIdDep,
     values: RoleUpdate,
     db: AsyncSessionDep,
     principal: CurrentPrincipalDep,
@@ -193,7 +196,7 @@ async def update_role(
     response_description="The role and what it now carries",
 )
 async def set_role_permissions(
-    role_id: int,
+    role_id: RoleIdDep,
     values: RolePermissions,
     db: AsyncSessionDep,
     principal: CurrentPrincipalDep,
@@ -221,7 +224,7 @@ async def set_role_permissions(
     response_description="Success confirmation message",
 )
 async def delete_role(
-    role_id: int,
+    role_id: RoleIdDep,
     db: AsyncSessionDep,
     principal: CurrentPrincipalDep,
     held: CurrentPermissionsDep,
@@ -255,8 +258,8 @@ async def delete_role(
     response_description="Success confirmation message",
 )
 async def assign_role(
-    role_id: int,
-    user_id: int,
+    role_id: RoleIdDep,
+    user_id: UserIdDep,
     db: AsyncSessionDep,
     principal: CurrentPrincipalDep,
     held: CurrentPermissionsDep,
@@ -283,8 +286,8 @@ async def assign_role(
     response_description="Success confirmation message",
 )
 async def unassign_role(
-    role_id: int,
-    user_id: int,
+    role_id: RoleIdDep,
+    user_id: UserIdDep,
     db: AsyncSessionDep,
     principal: CurrentPrincipalDep,
     held: CurrentPermissionsDep,
@@ -309,7 +312,7 @@ async def unassign_role(
     response_description="The roles the account holds",
 )
 async def list_user_roles(
-    user_id: int, db: AsyncSessionDep, _: CurrentUserDep, role_service: RoleServiceDep
+    user_id: UserIdDep, db: AsyncSessionDep, _: CurrentUserDep, role_service: RoleServiceDep
 ) -> list[dict[str, Any]]:
     """The roles an account holds."""
     return await role_service.roles_of(user_id, db)

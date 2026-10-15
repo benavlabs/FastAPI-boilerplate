@@ -81,3 +81,22 @@ async def test_the_owners_own_record_still_names_their_tier(client: AsyncClient,
 
     assert response.status_code == 200
     assert response.json()["tier_id"] == tiered_user["tier_id"]
+
+
+class TestATierIdOutsideTheColumn:
+    """``tier_id`` reaches an ``Integer`` column, and a value past it answered 500."""
+
+    @pytest.mark.parametrize("tier_id", [3000000000, 0])
+    async def test_a_tier_id_the_column_cannot_hold_is_refused(
+        self, superuser_auth_client: AsyncClient, test_user: dict, tier_id: int
+    ):
+        response = await superuser_auth_client.patch(f"/api/v1/users/{test_user['username']}/tier", json={"tier_id": tier_id})
+
+        assert response.status_code == 422
+
+    async def test_the_largest_id_the_column_holds_is_still_a_lookup(self, superuser_auth_client: AsyncClient, test_user: dict):
+        response = await superuser_auth_client.patch(
+            f"/api/v1/users/{test_user['username']}/tier", json={"tier_id": 2147483647}
+        )
+
+        assert response.status_code == 404

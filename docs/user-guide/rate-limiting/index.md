@@ -155,6 +155,10 @@ class RateLimit(Base, TimestampMixin, SoftDeleteMixin):
     period: int         # seconds
 ```
 
+`limit` and `period` are `Integer` columns, so both must be within `1..2147483647`: a create or a
+`PATCH` outside that answers `422`. A row seeded through SQL or `crud_rate_limits` stays inside the
+same range, since Postgres refuses the statement otherwise.
+
 ### What the API exposes
 
 | Method | Path                         | Auth        | Notes                                    |

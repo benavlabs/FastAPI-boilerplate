@@ -335,7 +335,8 @@ curl -X PATCH http://localhost:8000/api/v1/users/johndoe/tier \
   -d '{"tier_id": 2}'
 ```
 
-The service verifies the tier exists before assigning it.
+The service verifies the tier exists before assigning it. A `tier_id` outside `1..2147483647`
+answers `422`, since the column cannot hold it.
 
 ### View a User's Rate Limits
 

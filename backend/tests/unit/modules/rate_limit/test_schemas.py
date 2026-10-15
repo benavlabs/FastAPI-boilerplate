@@ -1,4 +1,4 @@
-"""The path a rate limit is stored for: the route template, as the router declares it."""
+"""What a rate-limit row may carry: the route template its path names, and counts a column holds."""
 
 import pytest
 from pydantic import ValidationError
@@ -84,3 +84,21 @@ def test_reading_a_row_the_app_already_holds_is_not_validated_as_input():
 
     assert row.path == "/api/v1/users/42"
     assert RateLimitRead(id=1, tier_id=2, name="odd", path="/a{", limit=0, period=0).limit == 0
+
+
+@pytest.mark.parametrize("count", [3000000000, 0])
+@pytest.mark.parametrize("field", ["limit", "period"])
+def test_a_count_the_column_cannot_hold_is_refused(field: str, count: int):
+    """``limit`` and ``period`` reach ``Integer`` columns, and a value past one answered 500."""
+    with pytest.raises(ValidationError):
+        RateLimitCreate.model_validate({"path": "/api/v1/users/", "limit": 5, "period": 60, field: count})
+
+    with pytest.raises(ValidationError):
+        RateLimitUpdate.model_validate({field: count})
+
+
+def test_the_largest_count_the_column_holds_is_accepted():
+    accepted = RateLimitCreate(path="/api/v1/users/", limit=2147483647, period=2147483647)
+
+    assert (accepted.limit, accepted.period) == (2147483647, 2147483647)
+    assert RateLimitUpdate(limit=2147483647).limit == 2147483647

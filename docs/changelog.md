@@ -725,6 +725,9 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   which allowed 1000, and `page` above `2147483647` answers `422` as well.
 - **An API key's id outside `1..2147483647` answers `422`**, where the request used to reach the
   database and fail there.
+- **A role id, an account id in a role path and a `tier_id` outside `1..2147483647` answer `422`**,
+  where the request used to reach the database and fail there with a `500`. A rate limit's `limit`
+  and `period` are bounded the same way, on a create and on a `PATCH`.
 - **An `expires_at` that cannot be expressed in UTC answers `422`**, and so does string input that is
   not valid Unicode.
 - **API key rows that hold a JSON null need one repair run.** A version before this one stored

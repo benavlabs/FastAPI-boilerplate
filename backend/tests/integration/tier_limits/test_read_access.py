@@ -66,3 +66,16 @@ async def test_renaming_a_rate_limit_onto_a_taken_name_is_a_conflict(
 
     assert response.status_code == 409
     assert response.json()["detail"] == "This resource already exists."
+
+
+@pytest.mark.parametrize("field", ["limit", "period"])
+async def test_a_count_the_column_cannot_hold_is_refused(
+    superuser_auth_client: AsyncClient, db_session: AsyncSession, test_tier: dict, field: str
+):
+    """The write reached Postgres, which refuses the statement, so this answered 500."""
+    db_session.add(RateLimit(tier_id=test_tier["id"], name="counted", path="/api/v1/users/", limit=10, period=60))
+    await db_session.flush()
+
+    response = await superuser_auth_client.patch("/api/v1/rate-limits/counted", json={field: 3000000000})
+
+    assert response.status_code == 422

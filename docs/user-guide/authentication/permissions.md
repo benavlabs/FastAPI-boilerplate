@@ -171,6 +171,9 @@ roles of an account stronger than the caller's own. That last rule is the one a 
 is already held to when editing an account, because changing which roles an account holds is
 another way to take it over.
 
+A `role_id` or a `user_id` outside `1..2147483647` answers `422`. No `Integer` column holds a value
+past that, so the lookup used to reach the database and fail there.
+
 A role name is unique, and the unique constraint has the last word: two requests racing for one name
 give the loser a `409`, not a `500`.
 

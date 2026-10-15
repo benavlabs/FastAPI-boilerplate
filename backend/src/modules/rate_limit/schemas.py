@@ -4,6 +4,7 @@ from typing import Annotated, ClassVar
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from ..common.pagination import MAX_INTEGER_ID
 from ..common.schemas import EncodableText, PartialUpdate, TimestampSchema, not_nullable_columns
 from .models import RateLimit as RateLimitModel
 
@@ -42,8 +43,8 @@ class RateLimitBase(EncodableText):
     """Base rate limit schema with common attributes."""
 
     path: Annotated[str, Field(examples=["/api/v1/users/"])]
-    limit: Annotated[int, Field(examples=[5], gt=0)]
-    period: Annotated[int, Field(examples=[60], gt=0)]
+    limit: Annotated[int, Field(examples=[5], gt=0, le=MAX_INTEGER_ID)]
+    period: Annotated[int, Field(examples=[60], gt=0, le=MAX_INTEGER_ID)]
 
     _path_is_a_template = field_validator("path")(validated_path)
 
@@ -98,8 +99,8 @@ class RateLimitUpdate(EncodableText, PartialUpdate):
     NOT_NULLABLE: ClassVar[tuple[str, ...]] = not_nullable_columns(RateLimitModel)
 
     path: str | None = Field(default=None)
-    limit: int | None = Field(default=None, gt=0)
-    period: int | None = Field(default=None, gt=0)
+    limit: int | None = Field(default=None, gt=0, le=MAX_INTEGER_ID)
+    period: int | None = Field(default=None, gt=0, le=MAX_INTEGER_ID)
     name: str | None = None
 
     @field_validator("path")
