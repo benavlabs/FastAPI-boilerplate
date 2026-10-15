@@ -725,6 +725,9 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   which allowed 1000, and `page` above `2147483647` answers `422` as well.
 - **An API key's id outside `1..2147483647` answers `422`**, where the request used to reach the
   database and fail there.
+- **A signup that loses a race for an address answers `409`**, where the second request used to
+  reach the unique index and answer `500`. An address stored before it was canonicalised is a
+  conflict too, rather than a `500` nobody could sign up past.
 - **A role id, an account id in a role path and a `tier_id` outside `1..2147483647` answer `422`**,
   where the request used to reach the database and fail there with a `500`. A rate limit's `limit`
   and `period` are bounded the same way, on a create and on a `PATCH`.

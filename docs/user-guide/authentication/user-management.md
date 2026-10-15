@@ -45,7 +45,9 @@ The route delegates to `UserService.create`, which:
 2. Checks `username` is unique → raises `UserExistsError` if not (→ 409)
 3. Hashes the password with bcrypt via `get_password_hash`
 4. Builds a `UserCreateInternal` (schema with `hashed_password` instead of `password`)
-5. Persists via `crud_users.create`
+5. Persists via `crud_users.create`, and answers `409` where a unique constraint refuses the row
+   rather than `500`: two signups racing for one address both pass the checks above, and an address
+   stored before it was canonicalised is found by neither
 
 ```python
 # modules/user/service.py
@@ -59,7 +61,11 @@ async def create(self, user: UserCreate, db: AsyncSession) -> dict[str, Any]:
     payload["hashed_password"] = get_password_hash(payload.pop("password"))
     user_internal = UserCreateInternal(**payload)
 
-    return await crud_users.create(db=db, object=user_internal, schema_to_select=UserRead)
+    try:
+        return await crud_users.create(db=db, object=user_internal, schema_to_select=UserRead)
+    except IntegrityError as collision:
+        await db.rollback()
+        raise UserExistsError("Email or username already taken") from collision
 ```
 
 The `UserCreate` schema enforces input validation:

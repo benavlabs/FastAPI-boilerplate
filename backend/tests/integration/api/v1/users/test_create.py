@@ -1,14 +1,19 @@
+import asyncio
 import logging
 import traceback
 import uuid
+from collections.abc import AsyncGenerator
 
 import pytest
 from faker import Faker
-from httpx import AsyncClient
+from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from src.infrastructure.database.session import async_session
+from src.interfaces.main import app
 from src.modules.user.crud import crud_users
+from src.modules.user.exceptions import UserExistsError
 from src.modules.user.models import User
 
 logging.basicConfig(level=logging.INFO)
@@ -241,10 +246,10 @@ class TestAnAddressTheColumnCannotHold:
         assert response.json()["email"] == at_the_column
 
 
-async def test_a_failed_insert_logs_neither_the_hash_nor_the_address(
+async def test_a_username_the_checks_missed_is_a_conflict_that_logs_neither_the_hash_nor_the_address(
     client: AsyncClient, db_session: AsyncSession, monkeypatch, caplog
 ):
-    """The statement's parameters stay out of the error the catch-all logs."""
+    """The unique constraint refuses it, and the statement's parameters stay out of the log."""
     first = generate_unique_user_data()
     assert (await client.post("/api/v1/users/", json=first)).status_code == 201
 
@@ -254,7 +259,7 @@ async def test_a_failed_insert_logs_neither_the_hash_nor_the_address(
     monkeypatch.setattr(crud_users, "exists", never_exists)
     same_username = {**generate_unique_user_data(), "username": first["username"]}
 
-    with caplog.at_level(logging.ERROR):
+    with caplog.at_level(logging.DEBUG):
         response = await client.post("/api/v1/users/", json=same_username)
 
     await db_session.rollback()
@@ -264,9 +269,9 @@ async def test_a_failed_insert_logs_neither_the_hash_nor_the_address(
         for record in caplog.records
     )
 
-    assert response.status_code == 500
-    assert "IntegrityError" in logged
-    assert "hide_parameters" in logged
+    assert response.status_code == 409
+    assert response.json()["detail"] == UserExistsError.public_detail
+    assert not [record for record in caplog.records if record.levelno >= logging.ERROR]
     assert stored.hashed_password not in logged
     assert "$2b$" not in logged
     assert same_username["email"] not in logged
@@ -297,3 +302,65 @@ async def test_a_password_that_is_not_valid_unicode_is_refused(client: AsyncClie
     assert response.status_code == 422
     assert "not valid Unicode" in caplog.text
     assert "Passw0rd" not in caplog.text
+
+
+@pytest.fixture
+async def a_session_per_request(test_db_engine):
+    """A client whose requests each get their own session, so they can run at once."""
+    sessions = async_sessionmaker(test_db_engine, class_=AsyncSession, expire_on_commit=False)
+
+    async def one_session() -> AsyncGenerator[AsyncSession, None]:
+        async with sessions() as session:
+            yield session
+
+    app.dependency_overrides[async_session] = one_session
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        yield client
+
+    app.dependency_overrides = {}
+
+
+async def test_signups_racing_for_one_address_give_one_account_and_the_rest_a_conflict(
+    a_session_per_request: AsyncClient, test_db_engine, caplog
+):
+    """Four at once used to answer 201 and three 500s, since each checked the table before inserting."""
+    signup = generate_unique_user_data()
+
+    with caplog.at_level(logging.DEBUG):
+        answers = await asyncio.gather(*(a_session_per_request.post("/api/v1/users/", json=signup) for _ in range(4)))
+
+    sessions = async_sessionmaker(test_db_engine, class_=AsyncSession, expire_on_commit=False)
+    async with sessions() as session:
+        stored = (await session.execute(select(User).where(User.email == signup["email"]))).scalars().all()
+
+    assert sorted(answer.status_code for answer in answers) == [201, 409, 409, 409]
+    assert len(stored) == 1
+    assert not [record for record in caplog.records if record.levelno >= logging.ERROR]
+
+
+async def test_signing_up_as_an_address_stored_before_it_was_canonicalised_is_a_conflict(
+    client: AsyncClient, db_session: AsyncSession, caplog
+):
+    """The lookup canonicalises and the row does not, so only ``ix_user_email_lower`` catches it."""
+    signup = generate_unique_user_data()
+    db_session.add(
+        User(
+            name="Legacy",
+            username=f"legacy{uuid.uuid4().hex[:6]}",
+            email=signup["email"].upper(),
+            hashed_password="not-a-hash",
+        )
+    )
+    await db_session.commit()
+
+    with caplog.at_level(logging.DEBUG):
+        response = await client.post("/api/v1/users/", json=signup)
+
+    after = await client.post("/api/v1/users/", json=generate_unique_user_data())
+    stored = (await db_session.execute(select(User).where(User.email.ilike(signup["email"])))).scalars().all()
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == UserExistsError.public_detail
+    assert after.status_code == 201, "the refused insert left the session unusable"
+    assert [row.email for row in stored] == [signup["email"].upper()]
+    assert not [record for record in caplog.records if record.levelno >= logging.ERROR]

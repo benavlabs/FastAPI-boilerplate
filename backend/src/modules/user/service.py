@@ -1,11 +1,11 @@
 from collections.abc import Collection
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, NoReturn
 
 from crudauth import get_password_hash_async
 from crudauth.utils import canonical_email
 from fastcrud.types import GetMultiResponseDict
-from sqlalchemy.exc import MultipleResultsFound, NoResultFound
+from sqlalchemy.exc import IntegrityError, MultipleResultsFound, NoResultFound
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...infrastructure.auth.setup import auth
@@ -98,10 +98,25 @@ class UserService:
             email=email,
             hashed_password=await get_password_hash_async(user.password),
         )
-        created_user = await crud_users.create(db=db, object=user_internal, schema_to_select=UserRead)
+        try:
+            created_user = await crud_users.create(db=db, object=user_internal, schema_to_select=UserRead)
+        except IntegrityError as collision:
+            await self._refuse_taken_credentials(db, collision)
+
         if not created_user:
             raise PersistenceError("User row was not returned after insert")
         return created_user
+
+    @staticmethod
+    async def _refuse_taken_credentials(db: AsyncSession, collision: IntegrityError) -> NoReturn:
+        """Undo the write and answer credentials another request took first as a conflict.
+
+        Raises:
+            UserExistsError: Always; a unique constraint refused the row.
+        """
+        await db.rollback()
+
+        raise UserExistsError("Email or username already taken") from collision
 
     async def get_paginated(self, db: AsyncSession, skip: int = 0, limit: int = 100) -> GetMultiResponseDict:
         """Retrieve a paginated list of users.
