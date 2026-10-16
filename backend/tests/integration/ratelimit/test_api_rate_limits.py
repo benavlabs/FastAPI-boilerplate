@@ -113,3 +113,39 @@ class TestTheHeadersOnAPasswordChange:
         assert refused.status_code == 401
         assert refused.headers["X-RateLimit-Limit"] == "5"
         assert refused.headers["X-RateLimit-Remaining"] == "4"
+
+
+class TestACredentialThatDoesNotResolve:
+    """A refused credential spends the budget its address would have spent carrying none."""
+
+    async def test_a_junk_bearer_token_is_throttled_like_an_anonymous_caller(self, client: AsyncClient, limits: dict):
+        """It used to answer 401 as often as it was sent, each one paying for the lookup."""
+        headers = {**limits, "Authorization": "Bearer junk"}
+
+        statuses = [(await client.get(THROTTLED_READS[0], headers=headers)).status_code for _ in range(4)]
+
+        assert statuses == [401, 401, 401, 429]
+
+    async def test_it_spends_the_same_budget_an_anonymous_request_does(self, client: AsyncClient, limits: dict):
+        """One address cannot have both allowances by presenting a credential for half of them."""
+        for _ in range(3):
+            await client.get(THROTTLED_READS[0], headers={**limits, "Authorization": "Bearer junk"})
+
+        anonymous = await client.get(THROTTLED_READS[0], headers=limits)
+
+        assert anonymous.status_code == 429
+
+    async def test_the_refusal_reports_the_budget_it_spent(self, client: AsyncClient, limits: dict):
+        headers = {**limits, "Authorization": "Bearer junk"}
+
+        responses = [await client.get(THROTTLED_READS[0], headers=headers) for _ in range(4)]
+
+        assert [response.headers.get("X-RateLimit-Remaining") for response in responses] == ["2", "1", "0", "0"]
+
+    async def test_a_disabled_limiter_still_answers_the_refusal(self, client: AsyncClient, limits: dict, monkeypatch):
+        monkeypatch.setattr(settings, "RATE_LIMITER_ENABLED", False)
+        headers = {**limits, "Authorization": "Bearer junk"}
+
+        statuses = [(await client.get(THROTTLED_READS[0], headers=headers)).status_code for _ in range(5)]
+
+        assert statuses == [401] * 5

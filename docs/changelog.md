@@ -725,6 +725,9 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   which allowed 1000, and `page` above `2147483647` answers `422` as well.
 - **An API key's id outside `1..2147483647` answers `422`**, where the request used to reach the
   database and fail there.
+- **A credential the API throttle cannot resolve now spends the budget its address would have
+  spent carrying none.** A junk `X-API-Key` or bearer token used to answer `401` as often as it was
+  sent, unmetered, while the same requests without a header were throttled after the limit.
 - **A signup that loses a race for an address answers `409`**, where the second request used to
   reach the unique index and answer `500`. An address stored before it was canonicalised is a
   conflict too, rather than a `500` nobody could sign up past.

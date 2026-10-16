@@ -97,6 +97,7 @@ FEATURES: dict[str, Feature] = {
         ),
         combination_paths={
             "rbac": ("backend/tests/integration/api_keys_rbac",),
+            "ratelimit": ("backend/tests/integration/api_keys_ratelimit",),
             "tier_limits": ("backend/tests/integration/api_keys_tiers",),
         },
     ),

@@ -30,6 +30,11 @@ The configured crudauth backend is initialized with the auth singleton in the ap
 4. **crudauth's limiter** atomically increments the counter for the current window and returns `(count, is_limited)`. Windows are `period` seconds long and aligned to the clock, and each window's key expires on its own.
 5. **If `is_limited`**, raises a 429 with `Retry-After`. Otherwise the limiter attaches `X-RateLimit-Limit` and `X-RateLimit-Remaining` to the response. A request refused afterwards (a 401, a 404, a 422) still counts, and its response carries the headers too.
 
+A credential the throttle cannot resolve, such as a junk `X-API-Key` or an expired bearer token,
+is counted against the address rather than the caller: it spends the budget the same request would
+have spent carrying no credential at all. A caller whose credential does resolve keeps a budget of
+their own, so junk sent from their address never spends it.
+
 The key shape in Redis, ending in the start of the current window:
 
 ```text

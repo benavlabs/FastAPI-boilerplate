@@ -6,14 +6,20 @@ answering, the default limit from settings applies.
 """
 
 from crudauth import Principal
+from crudauth.exceptions import UnauthorizedException
 from crudauth.ratelimit import RateLimit
+from crudauth.ratelimit.dependency import enforce_rate_limit
 from crudauth.utils import client_ip_key, get_client_ip
-from fastapi import Request
+from fastapi import Request, Response
 
 from ...wiring.hooks import RATE_LIMIT_RESOLVERS
 from ..auth.setup import auth
 from ..config.settings import settings
+from ..dependencies import AsyncSessionDep
 from .routing import throttled_path
+
+API_ACTION = "api"
+"""The action the API throttle counts under, shared by the dependency and the refusal below."""
 
 
 def api_rate_limit_key(request: Request, principal: Principal | None) -> str:
@@ -43,4 +49,29 @@ async def resolve_api_rate_limit(request: Request, principal: Principal | None) 
     return RateLimit(settings.DEFAULT_RATE_LIMIT_LIMIT, settings.DEFAULT_RATE_LIMIT_PERIOD)
 
 
-api_rate_limit_dependency = auth.rate_limit("api", resolve_api_rate_limit, key=api_rate_limit_key)
+_throttle = auth.rate_limit(API_ACTION, resolve_api_rate_limit, key=api_rate_limit_key)
+
+
+async def api_rate_limit_dependency(request: Request, response: Response, db: AsyncSessionDep) -> None:
+    """Throttle this request, counting a credential that doesn't resolve against its address.
+
+    A credential that does not resolve spends the budget an anonymous caller from the same
+    address spends on this path: the budget the request would have had carrying none. A
+    caller whose credential resolves keeps a budget of their own.
+
+    Raises:
+        RateLimitException: The caller has filled the window for this path.
+        UnauthorizedException: The credential the request carried does not resolve.
+    """
+    try:
+        await _throttle(request, response, db)
+    except UnauthorizedException:
+        await enforce_rate_limit(
+            auth.rate_limiter,
+            request,
+            response,
+            action=API_ACTION,
+            identity=api_rate_limit_key(request, None),
+            limit=resolve_api_rate_limit,
+        )
+        raise

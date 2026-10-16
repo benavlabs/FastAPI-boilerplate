@@ -122,6 +122,11 @@ so it covers every route the key could reach, including those the API throttle l
 with no limits is not counted at all, and counting fails open: a limiter that can't be reached lets
 the request through rather than taking the API down with it.
 
+A key the transport cannot use answers `401`, and with the ratelimit feature present that
+refusal spends the budget an anonymous caller from the same address spends on that path, so a
+flood of junk keys is bounded the way anonymous traffic is. A key that does resolve keeps its
+owner's own budget, which junk from the same address never spends.
+
 A limit stored before this vocabulary existed — anything outside those three names, or a value that
 isn't a positive whole number — reads back as it is and counts for nothing, the way a stored
 permission the registry no longer knows grants nothing.
