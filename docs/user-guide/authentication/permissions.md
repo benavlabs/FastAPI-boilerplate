@@ -419,7 +419,9 @@ curl -X POST http://localhost:8000/api/v1/api-keys/ \
 ```
 
 A stored name the registry no longer knows is read back as it is and counts for nothing, the same
-way a role's stale grant does.
+way a role's stale grant does. A scope stored in a shape that is not a list of names, the object an
+older version wrote, is not read back at all: the key answers `401` with a warning naming it, until
+`scripts/cleanup_api_key_json.py` rewrites the row.
 
 ### What a key holds
 

@@ -66,8 +66,8 @@ token is needed — CSRF guards a cookie the browser attaches by itself, and a k
 deliberately — and the answer carries no cookie, so a key request never becomes a session. When a
 request carries both a session cookie and a key, the session wins.
 
-A key that is unknown, malformed, revoked, expired, or whose owner a soft delete has taken out
-answers `401`. So does one of those on a route that otherwise answers anonymous callers: a
+A key that is unknown, malformed, revoked, expired, whose row holds a column no schema can read, or
+whose owner a soft delete has taken out answers `401`. So does one of those on a route that otherwise answers anonymous callers: a
 credential that is present and wrong is not an absent one.
 
 ## What a key holds
@@ -135,7 +135,10 @@ permission the registry no longer knows grants nothing.
 rows: it keeps the windows the limiter
 counts and drops the rest, so what remains is exactly what gets enforced. It logs what each key
 lost, so a limit that was meant — `{"requests_per_day": "1000"}`, say, which was never enforced
-because the count is a string — can be set again as a number.
+because the count is a string — can be set again as a number. A key whose row holds one of those
+shapes answers `401` at authentication, with a warning naming the key, rather than answering `500`
+on every request it makes; the owner's listing still answers `500` for that row until the repair
+runs.
 
 ## What a key's usage records
 

@@ -1,11 +1,12 @@
 """A request authenticated by ``X-API-Key``: what it may reach, and what it may not."""
 
+import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import update
+from sqlalchemy import JSON, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.infrastructure.auth.routes import SESSION_ONLY_PATHS
@@ -180,6 +181,22 @@ class TestAKeyThatMustNotAuthenticate:
         response = await client.get("/api/v1/auth/me", headers=_with(key))
 
         assert response.status_code == 401
+
+    @pytest.mark.parametrize("stored", [{"read": True}, {"conversations": ["read"]}, JSON.NULL])
+    async def test_a_key_whose_scope_no_schema_can_read(
+        self, client: AsyncClient, db_session: AsyncSession, test_user: dict, key: dict[str, Any], caplog, stored
+    ):
+        """A scope an older version stored used to answer 500 on every request the key made."""
+        await db_session.execute(update(APIKey).where(APIKey.id == key["id"]).values(permissions=stored))
+        await db_session.commit()
+
+        with caplog.at_level(logging.DEBUG):
+            response = await client.get("/api/v1/auth/me", headers=_with(key))
+
+        assert response.status_code == 401
+        warned = [record for record in caplog.records if record.levelno == logging.WARNING]
+        assert [str(key["id"]) in record.message for record in warned] == [True]
+        assert not [record for record in caplog.records if record.levelno >= logging.ERROR]
 
     async def test_a_route_that_answers_anonymous_callers_still_refuses_it(self, client: AsyncClient):
         """A credential that is present and wrong is an attack signal, not an absent one."""

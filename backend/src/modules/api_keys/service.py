@@ -9,6 +9,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import anyio
+import pydantic
 from fastcrud.types import GetMultiResponseDict
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -334,6 +335,9 @@ class APIKeyService:
         Reads only: when the key was last used is stamped by the usage recorder, after the
         response, so authenticating a request commits nothing.
 
+        A row the read schema refuses, such as a scope an older version stored as an
+        object, is reported as invalid and logged.
+
         Args:
             api_key: API key to validate
             db: Database session
@@ -357,7 +361,15 @@ class APIKeyService:
                 error_message="Invalid API key",
             )
 
-        key = APIKeyRead.model_validate(matched).model_dump()
+        try:
+            key = APIKeyRead.model_validate(matched).model_dump()
+        except pydantic.ValidationError:
+            logger.warning(f"API key {matched.id} holds a column no schema can read; run scripts/cleanup_api_key_json.py")
+
+            return APIKeyValidationResponse(
+                is_valid=False,
+                error_message="Invalid API key",
+            )
 
         if not key["is_active"]:
             return APIKeyValidationResponse(

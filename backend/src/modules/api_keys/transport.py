@@ -48,7 +48,8 @@ class APIKeyTransport(Transport):
 
     A request without the header carries no credential here, so the facade moves on to
     the next transport. A header that carries anything else answers 401: a key that is
-    unknown, revoked, expired, or whose owner a soft delete has taken out.
+    unknown, revoked, expired, whose row holds a column no schema can read, or whose owner
+    a soft delete has taken out.
 
     The principal carries the key's scope, which narrows what its owner holds, and never
     the owner's superuser flag: that flag reaches ownership checks no scope can express,

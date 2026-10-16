@@ -728,6 +728,11 @@ matrix. The round that followed fixed what a re-review of the refactor found.
 - **A credential the API throttle cannot resolve now spends the budget its address would have
   spent carrying none.** A junk `X-API-Key` or bearer token used to answer `401` as often as it was
   sent, unmetered, while the same requests without a header were throttled after the limit.
+- **A key whose row holds a column no schema can read answers `401`**, where every request it made
+  used to answer `500`: a scope an older version stored as an object, or a `permissions` or
+  `usage_limits` holding a JSON null. The refusal is logged as a warning naming the key. The owner's
+  listing still answers `500` for that row, so `python scripts/cleanup_api_key_json.py` is still how
+  the row is repaired.
 - **A forwarded address a usage row cannot hold no longer answers `500`.** With `TRUSTED_PROXY_HOPS`
   set, an `X-Forwarded-For` entry longer than an address, or one that is not an address at all, used
   to fail the usage row's validation after the handler had committed its work: the client got a
