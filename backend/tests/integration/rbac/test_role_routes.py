@@ -9,12 +9,13 @@ from typing import Any
 import pytest
 from crudauth import Principal
 from httpx import AsyncClient
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.modules.role.exceptions import RoleExistsError
 from src.modules.role.models import Role, RolePermission, UserRole
 from src.modules.role.service import RoleService
+from src.modules.user.models import User
 from tests.integration.rbac.test_user_permissions import _grant, _login
 
 
@@ -386,6 +387,171 @@ class TestAnAccountStrongerThanTheCaller:
 
         assert response.status_code == 403
         assert await _holds(db_session, test_superuser["id"], role.id)
+
+    async def test_deleting_a_role_a_stronger_account_holds_is_refused(
+        self, client: AsyncClient, db_session: AsyncSession, manager: dict[str, Any], test_user_2: dict
+    ):
+        """Deleting the role takes the permission away from the account, reachable or not."""
+        reachable = await _grant(db_session, test_user_2["id"], "editor", "user.read")
+        await _grant(db_session, test_user_2["id"], "admins", "user.delete")
+
+        response = await client.delete(f"/api/v1/roles/{reachable.id}", headers={"X-CSRF-Token": manager["csrf"]})
+
+        assert response.status_code == 403
+        assert await _role_named(db_session, "editor") is not None
+        assert await _holds(db_session, test_user_2["id"], reachable.id)
+
+    async def test_emptying_a_role_a_stronger_account_holds_is_refused(
+        self, client: AsyncClient, db_session: AsyncSession, manager: dict[str, Any], test_user_2: dict
+    ):
+        reachable = await _grant(db_session, test_user_2["id"], "editor", "user.read")
+        await _grant(db_session, test_user_2["id"], "admins", "user.delete")
+
+        response = await client.put(
+            f"/api/v1/roles/{reachable.id}/permissions",
+            json={"permissions": []},
+            headers={"X-CSRF-Token": manager["csrf"]},
+        )
+
+        assert response.status_code == 403
+        assert await _carried(db_session, reachable.id) == ["user.read"]
+
+    async def test_a_role_a_superuser_holds_is_refused_either_way(
+        self, client: AsyncClient, db_session: AsyncSession, manager: dict[str, Any], test_superuser: dict
+    ):
+        """No scope expresses the flag, so an account carrying it is out of reach."""
+        held = await _grant(db_session, test_superuser["id"], "editor", "user.read")
+
+        emptied = await client.put(
+            f"/api/v1/roles/{held.id}/permissions",
+            json={"permissions": []},
+            headers={"X-CSRF-Token": manager["csrf"]},
+        )
+        deleted = await client.delete(f"/api/v1/roles/{held.id}", headers={"X-CSRF-Token": manager["csrf"]})
+
+        assert [emptied.status_code, deleted.status_code] == [403, 403]
+        assert await _carried(db_session, held.id) == ["user.read"]
+        assert await _role_named(db_session, "editor") is not None
+
+    async def test_a_role_only_weaker_accounts_hold_is_deleted_and_emptied(
+        self, client: AsyncClient, db_session: AsyncSession, manager: dict[str, Any], test_user_2: dict
+    ):
+        """The holder check only refuses what the caller could not reach account by account."""
+        emptied = await _grant(db_session, test_user_2["id"], "editor", "user.read")
+        deleted = await _grant(db_session, test_user_2["id"], "readers", "user.read")
+
+        answers = [
+            (
+                await client.put(
+                    f"/api/v1/roles/{emptied.id}/permissions",
+                    json={"permissions": []},
+                    headers={"X-CSRF-Token": manager["csrf"]},
+                )
+            ).status_code,
+            (await client.delete(f"/api/v1/roles/{deleted.id}", headers={"X-CSRF-Token": manager["csrf"]})).status_code,
+        ]
+
+        assert answers == [200, 200]
+        assert await _carried(db_session, emptied.id) == []
+        assert await _role_named(db_session, "readers") is None
+
+    async def test_one_holder_out_of_reach_refuses_the_whole_role(
+        self, client: AsyncClient, db_session: AsyncSession, manager: dict[str, Any], test_user_2: dict, test_superuser: dict
+    ):
+        """Deleting it takes the role from every holder, so a reachable holder is not enough."""
+        shared = await _grant(db_session, test_user_2["id"], "editor", "user.read")
+        db_session.add(UserRole(user_id=test_superuser["id"], role_id=shared.id))
+        await db_session.commit()
+
+        response = await client.delete(f"/api/v1/roles/{shared.id}", headers={"X-CSRF-Token": manager["csrf"]})
+
+        assert response.status_code == 403
+        assert await _holds(db_session, test_user_2["id"], shared.id)
+
+    async def test_a_holder_a_soft_delete_took_out_is_not_one(
+        self, client: AsyncClient, db_session: AsyncSession, manager: dict[str, Any], test_user_2: dict
+    ):
+        """A deleted account's assignment rows stay behind, and its grants reach nobody."""
+        emptied = await _grant(db_session, test_user_2["id"], "editor", "user.read")
+        deleted = await _grant(db_session, test_user_2["id"], "readers", "user.read")
+        await _grant(db_session, test_user_2["id"], "admins", "user.delete")
+        await db_session.execute(update(User).where(User.id == test_user_2["id"]).values(is_deleted=True))
+        await db_session.commit()
+
+        answers = [
+            (
+                await client.put(
+                    f"/api/v1/roles/{emptied.id}/permissions",
+                    json={"permissions": []},
+                    headers={"X-CSRF-Token": manager["csrf"]},
+                )
+            ).status_code,
+            (await client.delete(f"/api/v1/roles/{deleted.id}", headers={"X-CSRF-Token": manager["csrf"]})).status_code,
+        ]
+
+        assert answers == [200, 200]
+        assert await _carried(db_session, emptied.id) == []
+        assert await _role_named(db_session, "readers") is None
+
+    async def test_a_role_nobody_holds_is_deleted_and_emptied(
+        self, client: AsyncClient, db_session: AsyncSession, manager: dict[str, Any]
+    ):
+        """Nothing is taken from anybody, so the holder check has nothing to refuse."""
+        emptied = Role(name="unheld")
+        deleted = Role(name="unheld-too")
+        db_session.add_all([emptied, deleted])
+        await db_session.flush()
+        db_session.add(RolePermission(role_id=emptied.id, permission_name="user.read"))
+        await db_session.commit()
+
+        answers = [
+            (
+                await client.put(
+                    f"/api/v1/roles/{emptied.id}/permissions",
+                    json={"permissions": []},
+                    headers={"X-CSRF-Token": manager["csrf"]},
+                )
+            ).status_code,
+            (await client.delete(f"/api/v1/roles/{deleted.id}", headers={"X-CSRF-Token": manager["csrf"]})).status_code,
+        ]
+
+        assert answers == [200, 200]
+        assert await _carried(db_session, emptied.id) == []
+        assert await _role_named(db_session, "unheld-too") is None
+
+    async def test_a_stronger_account_holding_another_role_reaches_nothing_here(
+        self, client: AsyncClient, db_session: AsyncSession, manager: dict[str, Any], test_user_2: dict
+    ):
+        """Only the role's own holders are read, or one strong account would freeze every role."""
+        reachable = await _grant(db_session, manager["user"]["id"], "editor", "user.read")
+        await _grant(db_session, test_user_2["id"], "admins", "user.delete")
+
+        response = await client.delete(f"/api/v1/roles/{reachable.id}", headers={"X-CSRF-Token": manager["csrf"]})
+
+        assert response.status_code == 200
+        assert await _role_named(db_session, "editor") is None
+
+    @pytest.mark.parametrize("holder_is_a_superuser", [False, True])
+    async def test_a_superuser_deletes_a_role_whoever_holds_it(
+        self,
+        client: AsyncClient,
+        db_session: AsyncSession,
+        test_superuser: dict,
+        test_user_2: dict,
+        holder_is_a_superuser: bool,
+    ):
+        """The holder check must not put a role beyond every caller, another superuser's included."""
+        reachable = await _grant(db_session, test_user_2["id"], "editor", "user.read")
+        await _grant(db_session, test_user_2["id"], "admins", "user.delete")
+        if holder_is_a_superuser:
+            await db_session.execute(update(User).where(User.id == test_user_2["id"]).values(is_superuser=True))
+            await db_session.commit()
+        csrf = await _login(client, test_superuser)
+
+        response = await client.delete(f"/api/v1/roles/{reachable.id}", headers={"X-CSRF-Token": csrf})
+
+        assert response.status_code == 200
+        assert await _role_named(db_session, "editor") is None
 
     async def test_a_superuser_reaches_any_account(
         self, client: AsyncClient, db_session: AsyncSession, test_superuser: dict, test_user_2: dict

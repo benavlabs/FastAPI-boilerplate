@@ -19,7 +19,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ...infrastructure.auth.authorization import load_permissions
 from ...infrastructure.permissions import all_permissions
 from ..user.crud import crud_users
-from .models import RolePermission
+from ..user.models import User
+from .models import RolePermission, UserRole
 
 
 def can_delegate_permissions(
@@ -65,6 +66,33 @@ async def can_assign_role(db: AsyncSession, principal: Principal, role_id: int, 
         return True
 
     return carried <= set(held)
+
+
+async def can_change_roles_of_every_holder(db: AsyncSession, principal: Principal, role_id: int, held: Collection[str]) -> bool:
+    """Whether a principal holding ``held`` may change the roles of everyone holding this role.
+
+    ``can_change_roles_of``, applied to every account that holds the role, which is what
+    deleting the role or emptying it comes to. An account a soft delete has taken out is
+    not one of them: its grants reach nobody, and its assignment rows stay behind.
+    """
+    if principal.is_superuser:
+        return True
+
+    holders = await db.execute(
+        select(User.id, User.is_superuser)
+        .join(UserRole, UserRole.user_id == User.id)
+        .where(UserRole.role_id == role_id, User.is_deleted.is_(False))
+    )
+    reachable = set(held)
+
+    for user_id, is_superuser in holders:
+        if is_superuser:
+            return False
+
+        if not await load_permissions(db, user_id) <= reachable:
+            return False
+
+    return True
 
 
 async def can_change_roles_of(db: AsyncSession, principal: Principal, user_id: int, held: Collection[str]) -> bool:

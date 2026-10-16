@@ -14,7 +14,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..user.crud import crud_users
 from ..user.exceptions import UserNotFoundError
-from .delegation import can_assign_role, can_change_roles_of, can_delegate_permissions
+from .delegation import (
+    can_assign_role,
+    can_change_roles_of,
+    can_change_roles_of_every_holder,
+    can_delegate_permissions,
+)
 from .exceptions import (
     PermissionDelegationError,
     RoleAssignmentError,
@@ -121,12 +126,17 @@ class RoleService:
             RoleNotFoundError: No role has that id.
             PermissionDelegationError: The caller doesn't hold one of the permissions,
                 or doesn't hold one the role already carries.
+            StrongerAccountError: An account holding the role holds something the caller
+                doesn't.
         """
         await self._role(role_id, db)
         carried = (await self._permissions_of(db, [role_id])).get(role_id, [])
 
         if not can_delegate_permissions(principal, set(permissions) | set(carried), held):
             raise PermissionDelegationError("The caller does not hold every permission this change touches")
+
+        if not await can_change_roles_of_every_holder(db, principal, role_id, held):
+            raise StrongerAccountError("An account holding this role holds something the caller does not")
 
         await db.execute(delete(RolePermission).where(RolePermission.role_id == role_id))
         db.add_all([RolePermission(role_id=role_id, permission_name=name) for name in permissions])
@@ -140,12 +150,17 @@ class RoleService:
         Raises:
             RoleNotFoundError: No role has that id.
             PermissionDelegationError: The caller doesn't hold what the role carries.
+            StrongerAccountError: An account holding the role holds something the caller
+                doesn't.
         """
         await self._role(role_id, db)
         carried = (await self._permissions_of(db, [role_id])).get(role_id, [])
 
         if not can_delegate_permissions(principal, carried, held):
             raise PermissionDelegationError("The caller does not hold every permission this role carries")
+
+        if not await can_change_roles_of_every_holder(db, principal, role_id, held):
+            raise StrongerAccountError("An account holding this role holds something the caller does not")
 
         await db.execute(delete(Role).where(Role.id == role_id))
         await db.commit()

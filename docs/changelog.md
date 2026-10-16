@@ -728,6 +728,14 @@ matrix. The round that followed fixed what a re-review of the refactor found.
 - **A credential the API throttle cannot resolve now spends the budget its address would have
   spent carrying none.** A junk `X-API-Key` or bearer token used to answer `401` as often as it was
   sent, unmetered, while the same requests without a header were throttled after the limit.
+- **Deleting or emptying a role answers `403` while an account stronger than the caller holds it.**
+  Both routes used to check only the permissions the role carries, so a caller who was refused
+  `DELETE /api/v1/roles/{role_id}/users/{user_id}` for an account could take the same permissions
+  away from it by deleting the role, or by emptying it with `PUT /api/v1/roles/{role_id}/permissions`.
+  Each holder is now held to the rule the assign routes already applied: not a superuser, and
+  holding nothing the caller doesn't. An account a soft delete has taken out is not a holder for
+  this, since its grants reach nobody while its assignment rows stay behind. Superusers reach every
+  role as before, without the lookup.
 - **A key whose row holds a column no schema can read answers `401`**, where every request it made
   used to answer `500`: a scope an older version stored as an object, or a `permissions` or
   `usage_limits` holding a JSON null. The refusal is logged as a warning naming the key. The owner's

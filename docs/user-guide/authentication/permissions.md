@@ -148,8 +148,8 @@ assign a role carrying one unless they hold it themselves. Superusers pass both.
 | `GET /api/v1/roles/{role_id}` | `role.read` | — |
 | `POST /api/v1/roles/` | `role.create` | the caller holds every permission the new role carries |
 | `PATCH /api/v1/roles/{role_id}` | `role.update` | the caller holds everything the role carries |
-| `PUT /api/v1/roles/{role_id}/permissions` | `role.update` | the caller holds every permission the change adds **or removes** |
-| `DELETE /api/v1/roles/{role_id}` | `role.delete` | the caller holds everything the role carries |
+| `PUT /api/v1/roles/{role_id}/permissions` | `role.update` | the caller holds every permission the change adds **or removes**, **and** no live account holding the role is a superuser or holds anything the caller doesn't |
+| `DELETE /api/v1/roles/{role_id}` | `role.delete` | the caller holds everything the role carries, **and** no live account holding the role is a superuser or holds anything the caller doesn't |
 | `POST /api/v1/roles/{role_id}/users/{user_id}` | `role.assign` | the caller holds everything the role carries, **and** the account is not a superuser and holds nothing the caller doesn't |
 | `DELETE /api/v1/roles/{role_id}/users/{user_id}` | `role.assign` | the same |
 | `GET /api/v1/users/{user_id}/roles` | `role.read` | — |
@@ -169,7 +169,10 @@ echo what was sent. A refused delegation answers `403` and writes nothing — in
 cases: emptying or relabelling a role whose permissions the caller doesn't hold, and changing the
 roles of an account stronger than the caller's own. That last rule is the one a `user.update` holder
 is already held to when editing an account, because changing which roles an account holds is
-another way to take it over.
+another way to take it over, and emptying or deleting a role is held to it for every account that
+holds the role, since either one takes the role's permissions away from all of them at once. An
+account a soft delete has taken out is not one of those: its grants reach nobody, while its
+assignment rows stay behind.
 
 A `role_id` or a `user_id` outside `1..2147483647` answers `422`. No `Integer` column holds a value
 past that, so the lookup used to reach the database and fail there.

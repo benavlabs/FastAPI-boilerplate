@@ -184,11 +184,13 @@ async def update_role(
 
             A caller may only hand out permissions they hold themselves, and may only take
             away permissions they hold: a change that touches anything else answers 403 and
-            nothing is written. Superusers may set anything.
+            nothing is written. The change also reaches every live account holding the role, so it
+            answers 403 while one of them is a superuser or holds something the caller doesn't.
+            Superusers may set anything.
             """,
     responses={
         401: {"description": "Not authenticated"},
-        403: {"description": "Missing the role.update permission, or touching what the caller doesn't hold"},
+        403: {"description": "Missing the role.update permission, touching what the caller doesn't hold, or a stronger holder"},
         404: {"description": "Role not found"},
         422: {"description": "An unknown permission name"},
     },
@@ -213,11 +215,13 @@ async def set_role_permissions(
     description="""
             Deletes a role, and with it every assignment of it.
 
-            A caller may only delete a role whose permissions they hold themselves.
+            A caller may only delete a role whose permissions they hold themselves, and only
+            while every live account holding it is one they could unassign it from: a role held by
+            a superuser, or by an account holding something the caller doesn't, answers 403.
             """,
     responses={
         401: {"description": "Not authenticated"},
-        403: {"description": "Missing the role.delete permission, or deleting what the caller doesn't hold"},
+        403: {"description": "Missing the role.delete permission, deleting what the caller doesn't hold, or a stronger holder"},
         404: {"description": "Role not found"},
     },
     dependencies=[require_permissions(RolePermissionName.DELETE.value)],
