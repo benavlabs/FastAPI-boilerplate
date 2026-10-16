@@ -728,6 +728,12 @@ matrix. The round that followed fixed what a re-review of the refactor found.
 - **A credential the API throttle cannot resolve now spends the budget its address would have
   spent carrying none.** A junk `X-API-Key` or bearer token used to answer `401` as often as it was
   sent, unmetered, while the same requests without a header were throttled after the limit.
+- **A forwarded address a usage row cannot hold no longer answers `500`.** With `TRUSTED_PROXY_HOPS`
+  set, an `X-Forwarded-For` entry longer than an address, or one that is not an address at all, used
+  to fail the usage row's validation after the handler had committed its work: the client got a
+  plain `500` and no row was written. A key's usage row and its `last_used_ip` now hold the resolved
+  address when it is one and nothing when it is not, and a row the usage schema refuses is logged
+  and dropped rather than raised.
 - **A signup that loses a race for an address answers `409`**, where the second request used to
   reach the unique index and answer `500`. An address stored before it was canonicalised is a
   conflict too, rather than a `500` nobody could sign up past.

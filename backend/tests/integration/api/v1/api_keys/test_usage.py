@@ -15,6 +15,7 @@ from src.modules.api_keys.models import APIKey, KeyUsage
 from src.modules.api_keys.schemas import APIKeyCreate
 from src.modules.api_keys.service import APIKeyService
 from src.modules.api_keys.transport import API_KEY_HEADER
+from src.modules.user.models import User
 from src.modules.user.service import UserService
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.usefixtures("usage_through_the_test_database")]
@@ -209,6 +210,41 @@ class TestTheAddressRecorded:
         stored = await db_session.get_one(APIKey, key["id"])
         await db_session.refresh(stored)
         assert stored.last_used_ip == "203.0.113.7"
+
+    async def test_a_forwarded_address_no_column_can_hold_is_recorded_as_nothing(
+        self, client: AsyncClient, db_session: AsyncSession, test_user: dict, monkeypatch
+    ):
+        """The handler has done its work and committed it by the time the row is built."""
+        monkeypatch.setattr(crud_auth.runtime, "trusted_proxy_hops", 1)
+        key = await _key(db_session, test_user["id"])
+        owned = f"/api/v1/users/{test_user['username']}"
+
+        answered = await client.patch(owned, json={"name": "Renamed"}, headers={**_with(key), "X-Forwarded-For": "a" * 60})
+
+        assert answered.status_code == 200
+        renamed = await db_session.get_one(User, test_user["id"])
+        await db_session.refresh(renamed)
+        assert renamed.name == "Renamed"
+        recorded = await _rows(db_session, key["id"])
+        assert [(row.endpoint, row.status_code, row.ip_address) for row in recorded] == [(owned, 200, None)]
+        stored = await db_session.get_one(APIKey, key["id"])
+        await db_session.refresh(stored)
+        assert stored.last_used_ip is None
+
+    async def test_a_forwarded_address_that_is_not_an_address_is_recorded_as_nothing(
+        self, client: AsyncClient, db_session: AsyncSession, test_user: dict, monkeypatch
+    ):
+        """A header the client writes holds whatever the client put in it."""
+        monkeypatch.setattr(crud_auth.runtime, "trusted_proxy_hops", 1)
+        key = await _key(db_session, test_user["id"])
+
+        answered = await client.get(READABLE, headers={**_with(key), "X-Forwarded-For": "203.0.113.7, not-an-address"})
+
+        assert answered.status_code == 200
+        assert [row.ip_address for row in await _rows(db_session, key["id"])] == [None]
+        stored = await db_session.get_one(APIKey, key["id"])
+        await db_session.refresh(stored)
+        assert stored.last_used_ip is None
 
 
 class TestALimitStoredBeforeTheVocabulary:

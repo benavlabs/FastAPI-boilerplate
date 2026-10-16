@@ -165,7 +165,10 @@ it runs doesn't record that request at all.
 
 Both the row and the key record the address the trusted-proxy boundary resolved
 (`TRUSTED_PROXY_HOPS`), not the socket's, so a deployment behind a proxy records its clients rather
-than the proxy.
+than the proxy. A forwarding header is the client's to write, so the address is recorded only when
+it is one the column holds: anything else, and a request with no address at all, is recorded as
+nothing. A row the usage schema refuses is logged and dropped, so a request keeps the status its
+handler gave it.
 
 ## Revoking, expiring and rotating
 
