@@ -4,12 +4,13 @@ Callers sign in for real, so the permission lookup and the escalation checks run
 the same session the routes use.
 """
 
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
 from crudauth import Principal
 from httpx import AsyncClient
-from sqlalchemy import select, update
+from sqlalchemy import insert, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.modules.role.exceptions import RoleExistsError
@@ -345,6 +346,111 @@ class TestDeleting:
 
         assert response.status_code == 403
         assert await _role_named(db_session, "reader") is not None
+
+
+class TestARoleCarryingAStaleName:
+    """A stored name the registry no longer knows must not strand the role that carries it.
+
+    Removing a feature takes its permissions out of the registry and leaves the grants
+    behind, so every role that carried one would otherwise be unreachable.
+    """
+
+    STALE = "api_key.gone"
+
+    async def _stranded(self, db: AsyncSession, user_id: int, name: str, *permissions: str) -> Role:
+        """A role carrying ``permissions`` plus a grant nothing declares any more.
+
+        The grant goes in as a statement: the model refuses an unregistered name, which is
+        how one of these rows is left behind rather than written.
+        """
+        role = await _grant(db, user_id, name, *permissions)
+        await db.execute(
+            insert(RolePermission).values(role_id=role.id, permission_name=self.STALE, created_at=datetime.now(UTC))
+        )
+        await db.commit()
+
+        return role
+
+    async def test_a_superuser_renames_empties_and_deletes_it(
+        self, client: AsyncClient, db_session: AsyncSession, test_superuser: dict
+    ):
+        renamed = await self._stranded(db_session, test_superuser["id"], "stranded", "user.read")
+        emptied = await self._stranded(db_session, test_superuser["id"], "also-stranded", "user.read")
+        csrf = await _login(client, test_superuser)
+
+        answers = [
+            (
+                await client.patch(f"/api/v1/roles/{renamed.id}", json={"name": "rescued"}, headers={"X-CSRF-Token": csrf})
+            ).status_code,
+            (
+                await client.put(
+                    f"/api/v1/roles/{emptied.id}/permissions",
+                    json={"permissions": ["user.read"]},
+                    headers={"X-CSRF-Token": csrf},
+                )
+            ).status_code,
+            (await client.delete(f"/api/v1/roles/{renamed.id}", headers={"X-CSRF-Token": csrf})).status_code,
+        ]
+
+        assert answers == [200, 200, 200]
+        assert await _role_named(db_session, "rescued") is None
+        assert await _carried(db_session, emptied.id) == ["user.read"]
+
+    async def test_a_caller_holding_what_it_still_carries_edits_it(
+        self, client: AsyncClient, db_session: AsyncSession, manager: dict[str, Any]
+    ):
+        """The stale name grants nothing, so holding it is not something to ask of the caller."""
+        role = await self._stranded(db_session, manager["user"]["id"], "stranded", "user.read")
+
+        renamed = await client.patch(
+            f"/api/v1/roles/{role.id}", json={"name": "rescued"}, headers={"X-CSRF-Token": manager["csrf"]}
+        )
+        emptied = await client.put(
+            f"/api/v1/roles/{role.id}/permissions", json={"permissions": []}, headers={"X-CSRF-Token": manager["csrf"]}
+        )
+
+        assert [renamed.status_code, emptied.status_code] == [200, 200]
+        assert await _carried(db_session, role.id) == []
+
+    async def test_a_put_drops_it(self, client: AsyncClient, db_session: AsyncSession, manager: dict[str, Any]):
+        """Nothing else rewrites the row, so setting the permissions is how a stale name goes."""
+        role = await self._stranded(db_session, manager["user"]["id"], "stranded", "user.read")
+
+        response = await client.put(
+            f"/api/v1/roles/{role.id}/permissions",
+            json={"permissions": ["user.read"]},
+            headers={"X-CSRF-Token": manager["csrf"]},
+        )
+
+        assert response.status_code == 200
+        assert response.json()["permissions"] == ["user.read"]
+        assert await _carried(db_session, role.id) == ["user.read"]
+
+    async def test_a_caller_missing_a_registered_name_it_carries_is_still_refused(
+        self, client: AsyncClient, db_session: AsyncSession, manager: dict[str, Any], test_user_2: dict
+    ):
+        """Ignoring the stale name must not let the rest of the role through."""
+        role = await self._stranded(db_session, test_user_2["id"], "stranded", "user.delete")
+
+        deleted = await client.delete(f"/api/v1/roles/{role.id}", headers={"X-CSRF-Token": manager["csrf"]})
+
+        assert deleted.status_code == 403
+        assert await _role_named(db_session, "stranded") is not None
+
+    async def test_the_stale_name_cannot_be_asked_for_again(
+        self, client: AsyncClient, db_session: AsyncSession, manager: dict[str, Any]
+    ):
+        """What the registry does not know is refused on the way in, stored or not."""
+        role = await self._stranded(db_session, manager["user"]["id"], "stranded", "user.read")
+
+        response = await client.put(
+            f"/api/v1/roles/{role.id}/permissions",
+            json={"permissions": [self.STALE]},
+            headers={"X-CSRF-Token": manager["csrf"]},
+        )
+
+        assert response.status_code == 422
+        assert sorted(await _carried(db_session, role.id)) == [self.STALE, "user.read"]
 
 
 class TestAnAccountStrongerThanTheCaller:

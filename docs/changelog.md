@@ -728,6 +728,13 @@ matrix. The round that followed fixed what a re-review of the refactor found.
 - **A credential the API throttle cannot resolve now spends the budget its address would have
   spent carrying none.** A junk `X-API-Key` or bearer token used to answer `401` as often as it was
   sent, unmetered, while the same requests without a header were throttled after the limit.
+- **A role carrying a permission the registry no longer knows can be edited again.** Its stored
+  names went into the delegation check as they were, and that check refuses an unregistered name
+  before it short-circuits for a superuser, so a role stranded by a removed feature answered `403`
+  on `PATCH`, on `PUT /api/v1/roles/{role_id}/permissions` and on `DELETE`, to every caller, a
+  superuser included. The check now reads only the names the registry still knows, as role
+  assignment already did, and a `PUT` drops the stale ones. A name the request itself asks for is
+  still refused with `422`.
 - **Deleting or emptying a role answers `403` while an account stronger than the caller holds it.**
   Both routes used to check only the permissions the role carries, so a caller who was refused
   `DELETE /api/v1/roles/{role_id}/users/{user_id}` for an account could take the same permissions

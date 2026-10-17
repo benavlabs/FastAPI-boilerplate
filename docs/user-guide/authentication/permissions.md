@@ -174,6 +174,12 @@ holds the role, since either one takes the role's permissions away from all of t
 account a soft delete has taken out is not one of those: its grants reach nobody, while its
 assignment rows stay behind.
 
+A stored name the registry no longer knows counts for nothing, and is not held against the caller
+either: a role carrying a name nothing declares any more can still be renamed, emptied and deleted
+by whoever holds the registered permissions it carries, and setting its permissions is what drops
+the stale name. Otherwise removing a feature would strand every role that carried one of its
+permissions, a superuser included.
+
 A `role_id` or a `user_id` outside `1..2147483647` answers `422`. No `Integer` column holds a value
 past that, so the lookup used to reach the database and fail there.
 

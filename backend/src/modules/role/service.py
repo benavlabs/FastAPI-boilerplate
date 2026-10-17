@@ -12,6 +12,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ...infrastructure.permissions import all_permissions
 from ..user.crud import crud_users
 from ..user.exceptions import UserNotFoundError
 from .delegation import (
@@ -99,9 +100,8 @@ class RoleService:
             PermissionDelegationError: The caller doesn't hold what the role carries.
         """
         role = await self._role(role_id, db)
-        carried = (await self._permissions_of(db, [role_id])).get(role_id, [])
 
-        if not can_delegate_permissions(principal, carried, held):
+        if not can_delegate_permissions(principal, await self._registered_carried(role_id, db), held):
             raise PermissionDelegationError("The caller does not hold every permission this role carries")
 
         name = values.get("name")
@@ -130,9 +130,9 @@ class RoleService:
                 doesn't.
         """
         await self._role(role_id, db)
-        carried = (await self._permissions_of(db, [role_id])).get(role_id, [])
+        touched = set(permissions) | await self._registered_carried(role_id, db)
 
-        if not can_delegate_permissions(principal, set(permissions) | set(carried), held):
+        if not can_delegate_permissions(principal, touched, held):
             raise PermissionDelegationError("The caller does not hold every permission this change touches")
 
         if not await can_change_roles_of_every_holder(db, principal, role_id, held):
@@ -154,9 +154,8 @@ class RoleService:
                 doesn't.
         """
         await self._role(role_id, db)
-        carried = (await self._permissions_of(db, [role_id])).get(role_id, [])
 
-        if not can_delegate_permissions(principal, carried, held):
+        if not can_delegate_permissions(principal, await self._registered_carried(role_id, db), held):
             raise PermissionDelegationError("The caller does not hold every permission this role carries")
 
         if not await can_change_roles_of_every_holder(db, principal, role_id, held):
@@ -223,6 +222,12 @@ class RoleService:
 
         if not await can_change_roles_of(db, principal, user_id, held):
             raise StrongerAccountError("The account holds something the caller does not")
+
+    async def _registered_carried(self, role_id: int, db: AsyncSession) -> set[str]:
+        """What a role carries, less the names the registry no longer knows."""
+        carried = (await self._permissions_of(db, [role_id])).get(role_id, [])
+
+        return set(carried) & all_permissions()
 
     @staticmethod
     async def _name_taken(name: str, db: AsyncSession) -> bool:
