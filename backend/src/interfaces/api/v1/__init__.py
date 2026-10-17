@@ -1,16 +1,14 @@
-from fastapi import APIRouter, Depends
+"""The /api/v1 router, assembled from the routers the selected features contribute."""
 
-from ....infrastructure.auth.routes import router as auth_router
-from ....infrastructure.auth.setup import api_rate_limit_dependency
-from ....modules.api_keys.routes import router as api_keys_router
-from ....modules.rate_limit.routes import router as rate_limits_router
-from ....modules.tier.routes import router as tiers_router
-from ....modules.user.routes import router as users_router
+from fastapi import APIRouter
 
-rate_limit_dependencies = [Depends(api_rate_limit_dependency)]
+from ....wiring.app import API_THROTTLE, ROUTER_MOUNTS
+
 router = APIRouter(prefix="/v1")
-router.include_router(users_router, prefix="/users", dependencies=rate_limit_dependencies)
-router.include_router(tiers_router, prefix="/tiers", dependencies=rate_limit_dependencies)
-router.include_router(rate_limits_router, prefix="/rate-limits", dependencies=rate_limit_dependencies)
-router.include_router(auth_router, prefix="/auth")
-router.include_router(api_keys_router, prefix="/api-keys", dependencies=rate_limit_dependencies)
+
+for mount in ROUTER_MOUNTS:
+    router.include_router(
+        mount.router,
+        prefix=mount.prefix,
+        dependencies=list(API_THROTTLE) if mount.throttled else [],
+    )

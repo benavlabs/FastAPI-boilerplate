@@ -1,4 +1,5 @@
 import re
+from collections.abc import Mapping
 from typing import Any
 
 from .exceptions import CacheIdentificationInferenceError
@@ -109,3 +110,47 @@ def format_extra_data(to_invalidate_extra: dict[str, str], kwargs: dict[str, Any
                 formatted_extra[prefix] = formatted_id
 
     return formatted_extra
+
+
+def format_query(query_params: Any) -> str:
+    """The query a request carried, sorted, so two orderings of one query share an entry."""
+    items = sorted(query_params.multi_items()) if hasattr(query_params, "multi_items") else sorted(query_params)
+
+    return "&".join(f"{name}={value}" for name, value in items)
+
+
+def infer_caller_id(kwargs: dict[str, Any]) -> str | None:
+    """The id of the caller a route resolved, from a principal or a current-user mapping.
+
+    Returns ``None`` when the route resolved no caller, which is what makes a per-caller
+    route refuse to cache rather than share one entry between callers.
+    """
+    for value in kwargs.values():
+        user_id = getattr(value, "user_id", None)
+        if user_id is not None:
+            return str(user_id)
+
+    for value in kwargs.values():
+        if isinstance(value, Mapping) and value.get("id") is not None and "username" in value:
+            return str(value["id"])
+
+    return None
+
+
+def build_cache_key(prefix: str, resource_id: Any, query: str, caller_id: str | None) -> str:
+    """The key one response is stored under.
+
+    The query and the caller are part of it, so a cached page can't be served for another
+    page, and one caller's response can't be served to another. A write passes no query:
+    what it invalidates is the entry for the resource, not the entry for its own
+    parameters, and every page of a listing needs a pattern.
+    """
+    parts = [prefix]
+    if resource_id is not None:
+        parts.append(str(resource_id))
+    if query:
+        parts.append(f"q={query}")
+    if caller_id is not None:
+        parts.append(f"u={caller_id}")
+
+    return ":".join(parts)

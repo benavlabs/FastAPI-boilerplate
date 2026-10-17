@@ -1,27 +1,5 @@
-from .models import Tier as TierModel
-from .schemas import (
-    Tier as TierSchema,
-)
-from .schemas import (
-    TierBase,
-    TierCreate,
-    TierCreateInternal,
-    TierDelete,
-    TierRead,
-    TierUpdate,
-    TierUpdateInternal,
-)
+"""Tiers: a user category other features key off.
 
-__all__ = [
-    # Models
-    "TierModel",
-    # Schemas
-    "TierSchema",
-    "TierBase",
-    "TierCreate",
-    "TierCreateInternal",
-    "TierDelete",
-    "TierRead",
-    "TierUpdate",
-    "TierUpdateInternal",
-]
+Kept import-free, like the rest of the settings import path. Import from the
+submodules: ``.models``, ``.schemas``, ``.service``, ``.settings``.
+"""

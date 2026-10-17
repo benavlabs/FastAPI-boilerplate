@@ -146,13 +146,13 @@ Run from `backend/`:
 
 ```bash
 # Generate a migration from model changes
-uv run alembic revision --autogenerate -m "Add user table"
+uv run --no-sync alembic revision --autogenerate -m "Add user table"
 
 # Apply migrations
-uv run alembic upgrade head
+uv run --no-sync alembic upgrade head
 
 # Roll back the most recent migration
-uv run alembic downgrade -1
+uv run --no-sync alembic downgrade -1
 ```
 
 ## Database Setup
@@ -165,13 +165,13 @@ The boilerplate uses async PostgreSQL via `asyncpg`.
 # backend/.env
 POSTGRES_USER=postgres
 POSTGRES_PASSWORD=postgres
-POSTGRES_SERVER=localhost     # or "db" for Docker Compose
+POSTGRES_SERVER=localhost     # or "postgres" for Docker Compose
 POSTGRES_PORT=5432
 POSTGRES_DB=postgres
 POSTGRES_ASYNC_PREFIX=postgresql+asyncpg://
 POSTGRES_POOL_SIZE=20
 POSTGRES_MAX_OVERFLOW=0
-CREATE_TABLES_ON_STARTUP=true
+CREATE_TABLES_ON_STARTUP=true   # the default in local and development
 ```
 
 The `DATABASE_URL` property on `DatabaseSettings` is computed from these. If you set `DATABASE_URL` directly in the environment it overrides everything else.
@@ -232,9 +232,9 @@ The boilerplate ships with these models (one per feature module):
 - Mixins: `TimestampMixin`, `SoftDeleteMixin`
 - Table name: **`rate_limits`**
 
-### `APIKey`, `KeyUsage`, `KeyPermission` — `modules/api_keys/models.py`
-- API key issuance with per-key permissions and usage tracking
-- Table names: `api_keys`, `key_usage`, `key_permissions`
+### `APIKey`, `KeyUsage` — `modules/api_keys/models.py`
+- API key issuance, each key scoped by a list of registry permission names, with usage tracking
+- Table names: `api_keys`, `key_usage`
 
 ## Directory Structure
 

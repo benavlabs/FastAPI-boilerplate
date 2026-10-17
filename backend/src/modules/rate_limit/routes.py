@@ -1,9 +1,13 @@
 from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from fastcrud import PaginatedListResponse, compute_offset, paginated_response
 
-from ...infrastructure.dependencies import AsyncSessionDep, CurrentSuperUserDep
+from ...infrastructure.auth.deps import CurrentPrincipalDep, CurrentSuperUserDep, CurrentUserDep
+from ...infrastructure.dependencies import AsyncSessionDep
+from ...wiring.cache import cached
+from ..common.pagination import ItemsPerPageDep, PageDep
+from ..user.dependencies import UserServiceDep
 from .dependencies import RateLimitServiceDep
 from .schemas import (
     RateLimitRead,
@@ -11,6 +15,13 @@ from .schemas import (
 )
 
 router = APIRouter(tags=["Rate Limits"])
+
+RATE_LIMITS_CACHE_PREFIX = "rate_limits"
+"""The prefix every cached page of the listing is stored under, and what a write clears."""
+
+RATE_LIMITS_CACHE_SECONDS = 300
+"""How long a page of the listing is served from the cache."""
+user_rate_limits_router = APIRouter(tags=["Rate Limits"])
 
 
 @router.get(
@@ -35,12 +46,14 @@ router = APIRouter(tags=["Rate Limits"])
     },
     response_description="A paginated list of rate limits with their configuration details",
 )
+@cached(key_prefix=RATE_LIMITS_CACHE_PREFIX, expiration=RATE_LIMITS_CACHE_SECONDS, per_caller=False)
 async def get_rate_limits(
+    request: Request,
     db: AsyncSessionDep,
     _: CurrentSuperUserDep,
     rate_limit_service: RateLimitServiceDep,
-    page: int = 1,
-    items_per_page: int = 10,
+    page: PageDep = 1,
+    items_per_page: ItemsPerPageDep = 10,
 ) -> dict[str, Any]:
     """
     Get a paginated list of all rate limits.
@@ -120,7 +133,14 @@ async def get_rate_limit(
     },
     response_description="Success confirmation message",
 )
+@cached(
+    key_prefix=RATE_LIMITS_CACHE_PREFIX,
+    resource_id_name="name",
+    pattern_to_invalidate_extra=[f"{RATE_LIMITS_CACHE_PREFIX}:*"],
+    per_caller=False,
+)
 async def update_rate_limit(
+    request: Request,
     name: str,
     values: RateLimitUpdate,
     db: AsyncSessionDep,
@@ -160,7 +180,14 @@ async def update_rate_limit(
     },
     response_description="Success confirmation message",
 )
+@cached(
+    key_prefix=RATE_LIMITS_CACHE_PREFIX,
+    resource_id_name="name",
+    pattern_to_invalidate_extra=[f"{RATE_LIMITS_CACHE_PREFIX}:*"],
+    per_caller=False,
+)
 async def delete_rate_limit(
+    request: Request,
     name: str,
     db: AsyncSessionDep,
     rate_limit_service: RateLimitServiceDep,
@@ -172,3 +199,41 @@ async def delete_rate_limit(
     """
     await rate_limit_service.delete(name, db)
     return {"message": "Rate limit deleted"}
+
+
+@user_rate_limits_router.get(
+    "/{username}/rate-limits",
+    summary="Get User Rate Limits",
+    description="""
+            Retrieves the rate limit configuration for a specific user.
+
+            This endpoint returns detailed information about API rate limits
+            applicable to the user based on their subscription tier. This includes
+            limits for different API endpoints and operations.
+
+            Permission rules:
+            - Users can view their own rate limits
+            - Administrators can view any user's rate limits
+
+            This is useful for applications to understand their usage allowances
+            and implement appropriate client-side throttling.
+            """,
+    responses={
+        200: {"description": "Rate limit information retrieved"},
+        403: {"description": "Not authorized to view these rate limits"},
+        404: {"description": "User not found"},
+    },
+    response_description="Detailed rate limit configuration for the user",
+)
+async def get_user_rate_limits(
+    username: str,
+    db: AsyncSessionDep,
+    current_user: CurrentUserDep,
+    principal: CurrentPrincipalDep,
+    user_service: UserServiceDep,
+    rate_limit_service: RateLimitServiceDep,
+) -> dict[str, Any]:
+    """Get rate limits for a user."""
+    await user_service.verify_user_permission(current_user, username, "view rate limits", is_superuser=principal.is_superuser)
+    user = await user_service.get_by_username(username, db)
+    return await rate_limit_service.get_for_user(user["id"], db)

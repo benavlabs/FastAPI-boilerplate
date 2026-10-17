@@ -6,6 +6,9 @@
 name: {{ project_name }}
 
 services:
+  # One-shot, and nothing waits on it: run it and only then restart the rest, so a
+  # migration that fails leaves the old code serving on the old schema.
+  #     docker compose --profile migrate run --rm migrate
   migrate:
     build:
       context: {{ build_context }}
@@ -16,6 +19,7 @@ services:
     environment:
       POSTGRES_SERVER: postgres
       CONFIRM_PRODUCTION_MIGRATION: "yes"
+    profiles: ["migrate"]
     depends_on:
       postgres:
         condition: service_healthy
@@ -33,23 +37,29 @@ services:
       CACHE_REDIS_HOST: redis
       RATE_LIMITER_REDIS_HOST: redis
       TASKIQ_REDIS_HOST: redis
+      TRUSTED_PROXY_HOPS: "1"
+      FORWARDED_ALLOW_IPS: "{{ internal_subnet }}"
       WORKERS: "{{ workers }}"
     expose:
       - "8000"
     depends_on:
-      migrate:
-        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/ready').read()"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     restart: unless-stopped
-
+{% if taskiq %}
   worker:
     build:
       context: {{ build_context }}
       dockerfile: {{ backend_dockerfile }}
-      target: base
+      target: prod
     env_file:
       - {{ env_file }}
     environment:
@@ -58,16 +68,36 @@ services:
       RATE_LIMITER_REDIS_HOST: redis
       TASKIQ_REDIS_HOST: redis
     working_dir: /app/src
-    command: taskiq worker infrastructure.taskiq.worker:default_broker --workers 2
+    command: taskiq worker src.infrastructure.taskiq.worker:default_broker --workers 2
     depends_on:
-      migrate:
-        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
     restart: unless-stopped
 
+  # Run exactly one of these: each scheduler fires every schedule it finds.
+  scheduler:
+    build:
+      context: {{ build_context }}
+      dockerfile: {{ backend_dockerfile }}
+      target: prod
+    env_file:
+      - {{ env_file }}
+    environment:
+      POSTGRES_SERVER: postgres
+      CACHE_REDIS_HOST: redis
+      RATE_LIMITER_REDIS_HOST: redis
+      TASKIQ_REDIS_HOST: redis
+    working_dir: /app/src
+    command: taskiq scheduler src.infrastructure.taskiq.scheduler:scheduler
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+{% endif %}
   nginx:
     image: {{ nginx_image }}
     ports:
@@ -110,3 +140,12 @@ services:
 volumes:
   postgres-data:
   redis-data:
+
+# The API trusts forwarded headers only from this range, so a client can neither
+# claim another address nor say the request arrived over HTTPS. Change both this
+# subnet and FORWARDED_ALLOW_IPS together if it clashes with a network you use.
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: "{{ internal_subnet }}"

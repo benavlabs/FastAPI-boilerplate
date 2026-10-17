@@ -10,7 +10,7 @@ generators.
 This package is part of the workspace. From the repo root:
 
 ```bash
-uv sync                    # syncs the workspace; bp is available via `uv run bp`
+uv sync --all-packages --all-extras   # bp is then available via `uv run bp`
 uv run bp --help
 ```
 

@@ -9,6 +9,9 @@ repos:
       - id: trailing-whitespace
       - id: check-yaml
       - id: check-docstring-first
+        # These two document their type aliases with attribute docstrings, which the hook
+        # reads as a second module docstring.
+        exclude: ^backend/src/infrastructure/(composition|auth/deps)\.py$
       - id: check-executables-have-shebangs
       - id: check-case-conflict
       - id: check-added-large-files
@@ -18,17 +21,11 @@ repos:
       - id: check-merge-conflict
 
   - repo: https://github.com/asottile/pyupgrade
-    rev: v3.15.0
+    rev: v3.20.0
     hooks:
       - id: pyupgrade
-        args: [--py310-plus]
-        name: Upgrade code to Python 3.10+
-
-  - repo: https://github.com/myint/docformatter
-    rev: v1.7.7
-    hooks:
-      - id: docformatter
-        args: [--in-place, --wrap-summaries=115, --wrap-descriptions=120]
+        args: [--py311-plus]
+        name: Upgrade code to Python 3.11+
 
   - repo: https://github.com/asottile/yesqa
     rev: v1.5.0
@@ -37,34 +34,34 @@ repos:
         name: Unused noqa
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.1.9
+    rev: v0.15.12
     hooks:
-      - id: ruff
-        args: [ --fix ]
+      - id: ruff-check
+        args: [--fix]
       - id: ruff-format
-
-  - repo: https://github.com/asottile/blacken-docs
-    rev: 1.16.0
-    hooks:
-      - id: blacken-docs
-        args: [--line-length=120]
-        additional_dependencies: [black==22.1.0]
-
-  - repo: https://github.com/executablebooks/mdformat
-    rev: 0.7.17
-    hooks:
-      - id: mdformat
-        additional_dependencies:
-          - mdformat-gfm
-          - mdformat_frontmatter
-        exclude: CHANGELOG.md
 
   - repo: local
     hooks:
+    - id: mypy_backend
+      name: Mypy (backend)
+      language: system
+      entry: bash -c 'cd backend && uv run --no-sync mypy src scripts migrations tests --config-file pyproject.toml'
+      pass_filenames: false
+      files: ^backend/(src|scripts|migrations|tests)/
+      types: [python]
+
+    - id: mypy_cli
+      name: Mypy (cli)
+      language: system
+      entry: bash -c 'cd cli && uv run --no-sync mypy -p cli'
+      pass_filenames: false
+      files: ^cli/src/
+      types: [python]
+
     - id: unit_test
       name: Unit test
       language: system
-      entry: uv run pytest
+      entry: bash -c 'cd backend && uv run --no-sync pytest tests/unit'
       pass_filenames: false
       always_run: true
       types: [python]

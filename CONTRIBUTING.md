@@ -11,7 +11,7 @@ Start by forking and cloning the FastAPI-boilerplate repository:
 
 1. **Fork the Repository**: Begin by forking the project repository. You can do this by visiting https://github.com/igormagalhaesr/FastAPI-boilerplate and clicking the "Fork" button.
 1. **Create a Feature Branch**: Once you've forked the repo, create a branch for your feature by running `git checkout -b feature/fooBar`.
-1. **Testing Changes**: Ensure that your changes do not break existing functionality by running tests. In the root folder, execute `uv run pytest` to run the tests.
+1. **Testing Changes**: Ensure that your changes do not break existing functionality by running tests. From `backend/`, execute `uv run --no-sync pytest`.
 
 ### Using uv for Dependency Management
 
@@ -21,8 +21,11 @@ Once uv is installed, navigate to the cloned repository and install the dependen
 
 ```sh
 cd FastAPI-boilerplate
-uv sync
+uv sync --all-packages --all-extras
 ```
+
+`--all-packages` installs both workspace members, and `--all-extras` brings in the
+dev tools: a plain `uv sync` leaves you without ruff, mypy or pytest.
 
 ### Activating the Virtual Environment
 
@@ -35,7 +38,7 @@ source .venv/bin/activate
 Alternatively, you can run commands directly with `uv run` without activating the environment:
 
 ```sh
-uv run python your_script.py
+uv run --no-sync python your_script.py
 ```
 
 ## Making Contributions
@@ -47,18 +50,21 @@ uv run python your_script.py
 
 ### Testing with Pytest
 
-FastAPI-boilerplate uses pytest for testing. Run tests using:
+FastAPI-boilerplate uses pytest for testing. Run tests from `backend/`:
 
 ```sh
-uv run pytest
+cd backend
+uv run --no-sync pytest
 ```
+
+`--no-sync` skips uv's implicit sync, so the command starts straight away and neither the environment nor the lockfile changes under you. A plain `uv run` installs what the lockfile needs and removes nothing; a plain `uv sync`, without `--all-extras`, is what uninstalls the dev tools.
 
 ### Linting
 
 Use mypy for type checking:
 
 ```sh
-mypy src
+mypy src scripts migrations tests
 ```
 
 Use ruff for style:

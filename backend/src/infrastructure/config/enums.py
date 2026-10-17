@@ -11,21 +11,35 @@ class CacheBackend(StrEnum):
     MEMORY = "memory"
 
 
+class EmailBackend(StrEnum):
+    """How account emails are delivered."""
+
+    CONSOLE = "console"
+    SMTP = "smtp"
+
+
 class SessionBackend(StrEnum):
     """Session storage backend types.
 
-    Supported backends for session storage (crudauth supports redis and memory only).
+    ``DATABASE`` keeps sessions in two tables of the project's own database, which
+    several workers share without a Redis.
     """
 
     REDIS = "redis"
     MEMORY = "memory"
+    DATABASE = "database"
 
 
 class RateLimiterBackend(StrEnum):
-    """Rate limiter backend types (crudauth supports redis and memory only)."""
+    """Rate limiter backend types.
+
+    ``MEMORY`` counts in the process, so each worker counts a login lockout on its own.
+    ``REDIS`` and ``DATABASE`` are shared by every worker.
+    """
 
     REDIS = "redis"
     MEMORY = "memory"
+    DATABASE = "database"
 
 
 class TaskiqBrokerType(StrEnum):

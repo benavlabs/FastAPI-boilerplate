@@ -15,7 +15,7 @@ This page is the meta-guide that ties them together.
 
 ```bash
 cd backend
-uv run fastapi dev src/interfaces/main.py
+uv run --no-sync fastapi dev src/interfaces/main.py
 ```
 
 `--reload` watches the filesystem and restarts on Python file changes. Use it for development; **never** in production.
@@ -36,11 +36,19 @@ If your app uses Taskiq tasks, run a worker alongside the API in a second termin
 
 ```bash
 cd backend
-uv run --extra dev taskiq worker infrastructure.taskiq.worker:default_broker --reload
+uv run --no-sync taskiq worker src.infrastructure.taskiq.worker:default_broker --reload
 ```
 
-`--reload` needs `taskiq[reload]`, which ships in the `dev` extra - hence `--extra dev`, since
-`uv run` syncs the environment without extras otherwise. Drop both in production. See [Background Tasks](background-tasks/index.md) for details.
+For tasks that declare a `schedule` label, run a single scheduler as well:
+
+```bash
+cd backend
+uv run --no-sync taskiq scheduler src.infrastructure.taskiq.scheduler:scheduler
+```
+
+`--reload` needs `taskiq[reload]`, which ships in the `dev` extra. A workspace synced with
+`--all-extras` already has it; `--extra dev` is what installs it into an environment that was
+synced without it. Drop both in production. See [Background Tasks](background-tasks/index.md) for details.
 
 ## The Dev Toolchain
 
@@ -50,41 +58,74 @@ The project ships configured `ruff`, `mypy`, and `pytest` via `backend/pyproject
 cd backend
 
 # Lint + format (ruff handles both)
-uv run ruff check .
-uv run ruff format .
-uv run ruff check --fix .          # auto-fix what ruff can
+uv run --no-sync ruff check .
+uv run --no-sync ruff format .
+uv run --no-sync ruff check --fix .          # auto-fix what ruff can
 
 # Type check
-uv run mypy src
+uv run --no-sync mypy src scripts migrations tests
 
 # Tests
-uv run pytest
-uv run pytest -k "test_user"       # run tests matching a name
-uv run pytest -x                   # stop on first failure
-uv run pytest -n auto              # parallel via pytest-xdist
+uv run --no-sync pytest
+uv run --no-sync pytest -k "test_user"       # run tests matching a name
+uv run --no-sync pytest -x                   # stop on first failure
+uv run --no-sync pytest -n auto              # parallel via pytest-xdist
 ```
 
-Ruff is configured (`pyproject.toml:[tool.ruff]`) with:
+Ruff is configured (`pyproject.toml:[tool.ruff]`, and `backend/pyproject.toml` for the backend) with:
 
 - `line-length = 128`
-- Selected rule sets: `E`, `F`, `I`, `UP` (pyflakes, pycodestyle, isort, pyupgrade)
+- Selected rule sets: `E`, `F`, `I`, `UP` (pycodestyle, pyflakes, isort, pyupgrade)
+- Extended in the backend with `UP006`, `UP007`, `UP035`, `UP039` and `PLC0415`, which keeps imports
+  at the top of a module
 - `known-first-party = ["src"]` so `src.*` imports are grouped correctly
 
-Mypy is intentionally relaxed (`disallow_untyped_defs = false`) — adopt strictness gradually as you add types to new modules.
+Mypy is intentionally relaxed about annotations (`disallow_untyped_defs = false`) — adopt strictness
+gradually as you add types to new modules. It does run over `src`, `scripts`, `migrations` and
+`tests`, in CI and in the pre-commit hook, and it loads the pydantic plugin
+(`plugins = ["pydantic.mypy"]`), which reads a schema's required fields. The plugin only sees a
+default that sits on the assignment side, so write
+
+```python
+name: Annotated[str | None, Field(max_length=50)] = None
+```
+
+rather than putting `default=None` inside `Field(...)`; otherwise every construction without that
+field reads as an error.
 
 ## Pre-Commit
 
-The repo's `.pre-commit-config.yaml` wires up ruff, pyupgrade, docformatter, mdformat, and a few standard hygiene hooks (trailing whitespace, large files, private keys). Install once:
+The repo's `.pre-commit-config.yaml` runs what CI runs, and nothing that fights it:
+
+| Hook | What it does |
+|------|--------------|
+| `ruff-check --fix`, `ruff-format` | the same lint and format CI checks |
+| `pyupgrade` | rewrites to Python 3.11+ syntax |
+| `yesqa` | removes a `noqa` nothing needs any more |
+| hygiene hooks | final newlines, trailing whitespace, YAML, large files, private keys, merge markers, a docstring that isn't first |
+| `mypy_backend`, `mypy_cli` | local hooks, the same invocations CI uses |
+| `unit_test` | local, manual stage: `pytest tests/unit` |
+
+`unit_test` runs the unit tests only — they need no container and finish in seconds. The
+integration suite, which starts Postgres through testcontainers, runs in CI and when you run
+`pytest` yourself.
+
+There are no docstring- or markdown-formatting hooks: `ruff-format` owns formatting, and the two
+documentation hooks this repo used to carry damaged what they touched — `mdformat` broke MkDocs
+content tabs, and `blacken-docs` rewrote code samples into different code.
+
+`pre-commit` ships in the `dev` extra, so `uv sync --all-packages --all-extras` installs it.
+Install the git hook once:
 
 ```bash
-pip install pre-commit
-pre-commit install
+uv run --no-sync pre-commit install
 ```
 
 After that, `git commit` runs the hooks automatically. To run them ad hoc:
 
 ```bash
-pre-commit run --all-files
+uv run --no-sync pre-commit run --all-files
+uv run --no-sync pre-commit run unit_test --hook-stage manual --all-files
 ```
 
 ## Adding a New Module
@@ -112,7 +153,7 @@ The full pattern (with concrete code) is in [Database → Models](database/model
    crud_widgets = FastCRUD(Widget)
    ```
 4. **Implement the service** in `service.py` with class methods that call `crud_widgets`, raise `DomainError` subclasses on bad state.
-5. **Define routes** in `routes.py`. Wrap the service, catch domain exceptions via `handle_exception`, return dicts (FastAPI serializes through `response_model=WidgetRead`).
+5. **Define routes** in `routes.py`. Call the service and return dicts (FastAPI serializes through `response_model=WidgetRead`); let domain errors propagate to the global handler.
 6. **Register the router** in `interfaces/main.py` (or wherever your top-level routers are aggregated):
    ```python
    from src.modules.widgets.routes import router as widgets_router
@@ -121,8 +162,8 @@ The full pattern (with concrete code) is in [Database → Models](database/model
 7. **Generate a migration**:
    ```bash
    cd backend
-   uv run alembic revision --autogenerate -m "Add widget model"
-   uv run alembic upgrade head
+   uv run --no-sync alembic revision --autogenerate -m "Add widget model"
+   uv run --no-sync alembic upgrade head
    ```
    Note: `validate_production_migration` runs at the start of `env.py` and refuses to apply migrations in production unless `CONFIRM_PRODUCTION_MIGRATION=yes` is set. Local development is unaffected.
 8. **(Optional)** Add a `WidgetAdmin` view — see [Admin Panel → Adding Models](admin-panel/adding-models.md).
@@ -156,7 +197,7 @@ Register in `infrastructure/app_factory.py` (or your overridden `create_applicat
 application.add_middleware(TimingMiddleware)
 ```
 
-Order matters — middleware added later runs **earlier** in the request path. The boilerplate's own middlewares (`SecurityHeadersMiddleware`, `ClientCacheMiddleware`, `SessionMiddleware`, etc.) are added in a deliberate order; see `app_factory.py:create_application`.
+Order matters — middleware added later runs **earlier** in the request path. The boilerplate's own middlewares (`SecurityHeadersMiddleware`, `ClientCacheMiddleware`, `CatchAllErrorMiddleware`, `GZipMiddleware`, `CORSMiddleware`) are added in a deliberate order; see `app_factory.py:create_application`. The admin panel's `SessionMiddleware` isn't among them: it is mounted on the panel's routes only.
 
 ## Adding a Custom Dependency
 
@@ -169,7 +210,7 @@ Dependencies belong with the feature they serve. For session-aware dependencies,
 from fastapi import Request
 
 from ...infrastructure.auth.dependencies import get_current_user
-from ...infrastructure.dependencies import CurrentUserDep
+from ...infrastructure.auth.deps import CurrentUserDep
 
 
 def get_workspace(
@@ -193,7 +234,7 @@ from typing import Annotated
 
 from fastapi import Depends
 
-from ...infrastructure.dependencies import CurrentUserDep
+from ...infrastructure.auth.deps import CurrentUserDep
 
 WorkspaceDep = Annotated[str, Depends(get_workspace)]
 ```
@@ -218,7 +259,13 @@ Per-module service aliases follow the same pattern — see the existing `modules
 
 ### See every SQL query
 
-Set `DATABASE_ECHO=true` in your `.env`. Every statement (and parameter binding) is logged. Useful when investigating why a FastCRUD call returns the wrong shape, or when chasing N+1 issues.
+There is no setting for this: the engine is built with `echo=False` and `hide_parameters=True` (`infrastructure/database/session.py`). Raise SQLAlchemy's own logger to see the statements:
+
+```python
+logging.getLogger("sqlalchemy.engine").setLevel(logging.INFO)
+```
+
+Statements are logged without their parameter values, which is deliberate — a failing insert must not write a password hash to the log. For a one-off look at the values, build an engine of your own with `build_engine(hide_parameters=False, echo=True)`.
 
 ### Inspect rate-limit and cache state
 
@@ -257,22 +304,26 @@ When `ENVIRONMENT=production`, `infrastructure/security/` runs validators at sta
 - Insecure or placeholder `SECRET_KEY`
 - Default or empty database password
 - Admin panel enabled without `ADMIN_USERNAME`/`ADMIN_PASSWORD`
-- `CORS_ORIGINS` empty or containing `*`
+- `CORS_ORIGINS` containing `*`
+
+An empty `CORS_ORIGINS` isn't an error: it means no cross-origin request is allowed at all.
 
 If your prod boot is failing with one of those, that's your hint — don't bypass the validator.
 
 ## Testing
 
-The repo is **set up** for `pytest` but doesn't ship example tests yet — `backend/pyproject.toml` configures pytest with:
+The repo ships a suite in `backend/tests/`, and `backend/pyproject.toml` configures pytest with:
 
 ```toml
 [tool.pytest.ini_options]
-pythonpath = ["src"]
 testpaths = ["tests"]
-env = ["ENVIRONMENT=pytest", "PYTEST_CURRENT_TEST=true"]
+asyncio_mode = "auto"
+addopts = ["-v", "--strict-markers", "--tb=short"]
 ```
 
-Tests run with `ENVIRONMENT=pytest`, which the production validator treats as "not production" — your test suite won't be blocked by missing prod-only env vars.
+Nothing forces an `ENVIRONMENT` on the suite. Leave it at `local` or `development`: the production
+validator runs its checks only in `production`, so the tests aren't blocked by missing prod-only
+env vars.
 
 A sane starting `tests/conftest.py`:
 
@@ -283,7 +334,7 @@ import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from src.infrastructure.database.models import Base
+from src.infrastructure.database.session import Base
 from src.infrastructure.database.session import async_session
 from src.interfaces.main import app
 
@@ -325,11 +376,11 @@ Then a smoke test:
 ```python
 # tests/test_smoke.py
 async def test_health(client):
-    response = await client.get("/api/v1/health")
+    response = await client.get("/health")
     assert response.status_code == 200
 ```
 
-For tests that genuinely need Postgres semantics (FK constraints, ARRAY types, JSONB), `testcontainers-postgres` is already a dev dependency — spin up a real Postgres in a fixture instead of mocking the database.
+For tests that genuinely need Postgres semantics (FK constraints, ARRAY types, JSONB), `testcontainers[postgres]` is already a dev dependency — spin up a real Postgres in a fixture instead of mocking the database.
 
 For unit tests on services, mock at the **CRUD layer**, not at the database. The service contract is "I call `crud_widgets.get` and get back a dict-or-None"; that's the seam to mock.
 
@@ -380,7 +431,7 @@ SQLAdmin runs in async context. A relationship without `lazy="selectin"` raises 
 
 ### Catching exceptions too broadly in routes
 
-The route layer catches domain errors (`ResourceNotFoundError`, `PermissionDeniedError`, etc.) and re-raises specific HTTP exceptions. Don't catch them inside the service — services raise; routes translate. The `handle_exception` helper in `modules/common/utils/error_handler.py` does the translation; routes call it as a fallback for unexpected errors.
+Services raise domain errors (`ResourceNotFoundError`, `PermissionDeniedError`, …); routes don't translate them. `register_exception_handlers(app)` in `modules/common/utils/error_handler.py` installs one handler that maps any `DomainError` to its status through `EXCEPTION_MAPPING`, and a catch-all that turns anything else into a 500 with a support id. A route catches a domain error only when it wants to answer something else.
 
 ### Cache decorators without `request: Request`
 

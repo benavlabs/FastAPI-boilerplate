@@ -17,30 +17,44 @@ That's the entire surface area. There's no per-route configuration, no path tabl
 ```python
 # infrastructure/middleware.py
 class ClientCacheMiddleware(BaseHTTPMiddleware):
-    def __init__(self, app: ASGIApp, max_age: int = 60) -> None:
-        super().__init__(app)
-        self.max_age = max_age
+    def __init__(
+        self,
+        app: ASGIApp,
+        max_age: int = 60,
+        public_prefixes: tuple[str, ...] = PUBLIC_CACHE_PREFIXES,
+        api_prefix: str = "/api",
+    ) -> None:
+        ...
 
     async def dispatch(self, request, call_next):
         response = await call_next(request)
-        if request.url.path.startswith("/api/"):
+        if "cache-control" in response.headers:
+            return response
+
+        path = request.url.path
+        if path.startswith(f"{self.api_prefix}/"):
             response.headers["Cache-Control"] = "private, no-cache, no-store, must-revalidate"
-        else:
+        elif path.startswith(self.public_prefixes):
             response.headers["Cache-Control"] = f"public, max-age={self.max_age}"
+        else:
+            response.headers["Cache-Control"] = "private, no-store"
         return response
 ```
 
-Two rules:
+Four rules:
 
-| Path                    | `Cache-Control` value                                  |
-|-------------------------|--------------------------------------------------------|
-| Starts with `/api/`     | `private, no-cache, no-store, must-revalidate`         |
-| Anything else           | `public, max-age={CLIENT_CACHE_MAX_AGE}`               |
+| Path                                       | `Cache-Control` value                          |
+|--------------------------------------------|------------------------------------------------|
+| The route set the header itself            | whatever the route set                         |
+| Under `API_PREFIX` (`/api` by default)     | `private, no-cache, no-store, must-revalidate` |
+| Under a public prefix (`/admin/statics/`)  | `public, max-age={CLIENT_CACHE_MAX_AGE}`       |
+| Anything else                              | `private, no-store`                            |
 
 The reasoning:
 
-- **`/api/*`** is dynamic, often authenticated, and frequently personalized. Caching at the browser or CDN would leak data between users and serve stale state. Default is hard "don't cache."
-- **Non-API paths** (static assets, the admin UI's static files, anything else mounted at the root) tend to be safe to cache for a minute or so by default — long enough to reduce repeat requests, short enough to recover quickly from a deploy.
+- **The API** is dynamic, often authenticated, and frequently personalized. Caching at the browser or CDN would leak data between users and serve stale state. Default is hard "don't cache." The prefix comes from `API_PREFIX`, so moving the API moves this rule with it.
+- **Public prefixes** are the paths whose bytes are the same for every caller — by default where SQLAdmin serves its own CSS and JS. Pass your own `public_prefixes` to add an application's static mount.
+- **Everything else** — the admin pages, the docs, the health endpoints — answers with per-caller data or state, so a shared cache must not keep it. A route that knows its response is cacheable sets the header itself and is left alone.
 
 ## Configuration
 
@@ -52,7 +66,7 @@ CLIENT_CACHE_ENABLED=true
 CLIENT_CACHE_MAX_AGE=60
 ```
 
-The middleware is added to the FastAPI app only when **both** `CACHE_ENABLED` and `CLIENT_CACHE_ENABLED` are true (`infrastructure/app_factory.py`). If you've already disabled the server-side cache, the client-cache middleware also goes away.
+The middleware is added when `CLIENT_CACHE_ENABLED` is true (`infrastructure/app_factory.py`). It has nothing to do with `CACHE_ENABLED`, which governs the server-side cache: either can be on without the other.
 
 When `CLIENT_CACHE_ENABLED=false`, no `Cache-Control` header is set by middleware — your routes (or your reverse proxy) are responsible for it.
 
@@ -163,7 +177,7 @@ curl -I http://localhost:8000/api/v1/users/me \
 # look for: Cache-Control: private, no-cache, no-store, must-revalidate
 ```
 
-If the header is missing, check that `CLIENT_CACHE_ENABLED=true` and `CACHE_ENABLED=true`. Both must be true for the middleware to mount.
+If the header is missing, check that `CLIENT_CACHE_ENABLED=true` — that setting alone decides whether the middleware is mounted.
 
 ### "I want to cache an API response but the middleware overrides it"
 

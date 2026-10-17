@@ -1,15 +1,21 @@
 """Tests for production security validator."""
 
+import base64
+import random
+import secrets
+from typing import cast
 from unittest.mock import Mock
 
 import pytest
 
+from src.infrastructure.config.base import CoreSettings
 from src.infrastructure.config.settings import EnvironmentOption, Settings
 from src.infrastructure.security.production_validator import (
     ProductionSecurityError,
     ProductionSecurityValidator,
     validate_production_security,
 )
+from src.infrastructure.security.secret_key import is_weak_secret_key
 
 
 class TestProductionSecurityValidator:
@@ -25,6 +31,7 @@ class TestProductionSecurityValidator:
             "REDIS_PASSWORD": "secure_redis_password",
             "CACHE_BACKEND": "memcached",
             "RATE_LIMITER_ENABLED": False,
+            "RATE_LIMITER_BACKEND": "memory",
             "SESSION_BACKEND": "redis",
             "CORS_ENABLED": True,
             "CORS_ORIGINS": "https://example.com",
@@ -34,11 +41,13 @@ class TestProductionSecurityValidator:
             "SESSION_SECURE_COOKIES": True,
             "SESSION_TIMEOUT_MINUTES": 30,
             "CSRF_ENABLED": True,
+            "CREATE_TABLES_ON_STARTUP": False,
+            "EMAIL_BACKEND": "smtp",
+            "FRONTEND_URL": "https://app.example.com",
             "ADMIN_ENABLED": True,
             "ADMIN_USERNAME": "secure_admin_user",
             "ADMIN_PASSWORD": "very_secure_admin_password_123",
             "PRODUCTION_SECURITY_VALIDATION_ENABLED": True,
-            "PRODUCTION_SECURITY_STRICT_MODE": False,
             # Redis settings
             "CACHE_REDIS_HOST": "localhost",
             "CACHE_REDIS_PORT": 6379,
@@ -97,6 +106,8 @@ class TestProductionSecurityValidator:
             "",  # Empty
             "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",  # Repeated chars
             "abcd1234qwerty",  # Predictable patterns
+            "my-company-api-signing-key-for-prod",  # Written by hand
+            "0123456789abcdef" * 2,  # One block, twice
         ]
 
         for insecure_key in test_cases:
@@ -196,6 +207,33 @@ class TestProductionSecurityValidator:
         password_warnings = [log for log in warning_logs if "DATABASE_URL is set but contains no password" in log.message]
         assert len(password_warnings) > 0
 
+    @pytest.mark.parametrize(
+        "frontend_url", ["", "   ", "http://localhost:3000", "http://127.0.0.1:3000", "http://0.0.0.0", "http://[::1]"]
+    )
+    def test_a_frontend_url_nobody_can_open_raises_error(self, frontend_url: str):
+        """Every recovery link is built from it, so a local one makes all of them dead."""
+        settings = self.create_mock_settings(FRONTEND_URL=frontend_url)
+        validator = ProductionSecurityValidator(settings)
+
+        with pytest.raises(ProductionSecurityError, match="FRONTEND_URL"):
+            validator.validate_production_security()
+
+    def test_the_console_email_backend_raises_error(self):
+        """It logs every message in full, which would put working reset links in the logs."""
+        settings = self.create_mock_settings(EMAIL_BACKEND="console")
+        validator = ProductionSecurityValidator(settings)
+
+        with pytest.raises(ProductionSecurityError, match="EMAIL_BACKEND"):
+            validator.validate_production_security()
+
+    def test_creating_tables_on_startup_raises_error(self):
+        """A boot that runs create_all can change the live schema behind Alembic's back."""
+        settings = self.create_mock_settings(CREATE_TABLES_ON_STARTUP=True)
+        validator = ProductionSecurityValidator(settings)
+
+        with pytest.raises(ProductionSecurityError, match="CREATE_TABLES_ON_STARTUP"):
+            validator.validate_production_security()
+
     def test_multiple_critical_errors_combined(self):
         """Test that multiple critical errors are combined in one message."""
         settings = self.create_mock_settings(SECRET_KEY="insecure", POSTGRES_PASSWORD="postgres")
@@ -228,6 +266,7 @@ class TestProductionSecurityValidator:
         settings = self.create_mock_settings(
             CACHE_BACKEND="redis",
             RATE_LIMITER_ENABLED=True,
+            RATE_LIMITER_BACKEND="redis",
             # Both using same Redis instance
             CACHE_REDIS_HOST="localhost",
             CACHE_REDIS_PORT=6379,
@@ -282,6 +321,16 @@ class TestProductionSecurityValidator:
         shared_warnings = [record for record in caplog.records if "sharing the same Redis instance" in record.message]
         assert shared_warnings == []
 
+    @pytest.mark.parametrize("backend", ["memory", "database"])
+    def test_a_limiter_off_redis_is_not_reported_as_a_redis_connection(self, backend: str):
+        """A limiter counting in the process or in the database opens no Redis to check."""
+        settings = self.create_mock_settings(
+            RATE_LIMITER_ENABLED=True, RATE_LIMITER_BACKEND=backend, SESSION_BACKEND="memory", SESSION_REDIS_URL=""
+        )
+        validator = ProductionSecurityValidator(settings)
+
+        assert validator._get_redis_configurations() == []
+
     def test_session_redis_url_with_tls_and_password_passes_redis_checks(self, caplog):
         """A rediss:// session URL with credentials satisfies the password and TLS checks."""
         settings = self.create_mock_settings(SESSION_REDIS_URL="rediss://default:p%40ss@sessions.example.com:6380/0")
@@ -314,7 +363,7 @@ class TestProductionSecurityValidator:
 
         message = str(exc_info.value)
         assert "CORS_ORIGINS contains '*'" in message
-        assert ("CORS_ALLOW_CREDENTIALS=true" in message) is expect_note
+        assert ("drops CORS_ALLOW_CREDENTIALS" in message) is expect_note
 
     def test_debug_enabled_logs_warning(self, caplog):
         """Test that debug mode enabled logs warning."""
@@ -422,3 +471,122 @@ class TestProductionSecurityValidator:
         warning_logs = [record for record in caplog.records if record.levelname == "WARNING"]
         ssl_warnings = [log for log in warning_logs if "not using SSL/TLS" in log.message]
         assert len(ssl_warnings) == 0
+
+
+class TestAProjectWithoutTheseFeatures:
+    """The validator runs whatever features a project selected, and no more.
+
+    ``CoreSettings`` carries none of the feature mixins, so every check that reads
+    one has to answer "nothing to warn about" instead of raising.
+    """
+
+    def test_it_validates_settings_that_carry_no_feature(self):
+        validator = ProductionSecurityValidator(cast(Settings, CoreSettings(ENVIRONMENT=EnvironmentOption.PRODUCTION)))
+
+        assert validator._check_session_security() == []
+        assert validator._check_admin_credentials() == []
+        assert validator._get_redis_configurations() == []
+
+    def test_the_core_checks_still_run(self):
+        """Dropping features must not drop the checks that hold for every project."""
+        validator = ProductionSecurityValidator(cast(Settings, CoreSettings(ENVIRONMENT=EnvironmentOption.PRODUCTION)))
+
+        errors = validator._validate_critical_security()
+
+        assert any("SECRET_KEY" in error for error in errors)
+
+
+class TestTheSecretKeyRule:
+    """What the validator refuses, and what it must never refuse."""
+
+    def _validator(self, secret: str) -> ProductionSecurityValidator:
+        return ProductionSecurityValidator(Settings(SECRET_KEY=secret, ENVIRONMENT=EnvironmentOption.PRODUCTION))
+
+    @pytest.mark.parametrize(
+        "shape",
+        [
+            lambda source: source.randbytes(16).hex(),
+            lambda source: source.randbytes(32).hex(),
+            lambda source: base64.urlsafe_b64encode(source.randbytes(24)).rstrip(b"=").decode(),
+            lambda source: base64.urlsafe_b64encode(source.randbytes(32)).rstrip(b"=").decode(),
+        ],
+    )
+    def test_every_generated_key_is_accepted(self, shape):
+        """100,000 keys of each shape a generator produces, drawn from a fixed seed.
+
+        The rules do refuse a few generated keys: one hex key in 12.6 million runs
+        through eight consecutive digits, and a ``token_urlsafe`` key walks
+        neighbouring keys over 0.6 of its length at around one in ten million (one
+        such key in a 10,000,000 sample, none in a second). ``bp env gen-secret``
+        draws again rather than printing those, and the seed here is fixed so that
+        this sweep states what the rules do instead of drawing a lottery.
+        """
+        source = random.Random(20261004)
+        refused = [key for _ in range(100_000) if is_weak_secret_key(key := shape(source))]
+
+        assert refused == []
+
+    @pytest.mark.parametrize(
+        "secret",
+        [
+            "e48102bfe6ac2eac3aa8623456789a6030e4fa7dee3cd173bfb7941f2f819678",
+            "YERgHz9JxnVgFvhYCDrFVjatUKju6-pj",
+        ],
+    )
+    def test_a_key_a_generator_produced_is_refused_when_it_reads_as_a_pattern(self, secret: str):
+        """Both came out of `secrets`: the first runs 2345678, the second walks the keyboard."""
+        assert is_weak_secret_key(secret)
+
+    def test_a_generated_key_reaches_the_validator_as_it_reaches_the_rules(self):
+        """The validator asks the same question these sweeps ask."""
+        key = secrets.token_hex(16)
+
+        assert not self._validator(key)._is_insecure_secret_key()
+        assert self._validator("insecure-secret-key-change-this")._is_insecure_secret_key()
+
+    def test_a_passphrase_of_unrelated_words_is_accepted(self):
+        assert not self._validator("brook-mellow-tundra-quartz-ripple-42")._is_insecure_secret_key()
+
+    @pytest.mark.parametrize(
+        "secret",
+        [
+            "",
+            "short",
+            "insecure-secret-key-change-this",
+            "change-me-please-change-me-please-change",
+            "my-super-secret-production-key-value",
+            "my-company-api-signing-key-for-prod",
+            "developmentdevelopmentdevelopment1",
+            "12345678" * 4,
+            "0123456789abcdef" * 2,
+            "abcdefgh" * 4,
+            "0123456789abcdefghijklmnopqrstuv",
+            "a" * 64,
+            "abababababababababababababababababababab",
+        ],
+    )
+    def test_a_weak_key_is_refused(self, secret: str):
+        assert self._validator(secret)._is_insecure_secret_key()
+
+    @pytest.mark.parametrize(
+        "secret",
+        [
+            "qwertyuiopasdfghjklzxcvbnm123456",
+            "1qaz2wsx3edc4rfv5tgb6yhn7ujm8ik,",
+            "monkey" * 5 + "12",
+            "welcome1" * 4 + "2",
+            "hunter2hunter2hunter2hunter2hunter22",
+            "prodprodprodprodprodprodprodprod1",
+            "Summer2026!Summer2026!Summer2026!!",
+            "abc123" * 5 + "ab",
+            "MyCompanyApiSigningKeyForProd2026",
+            "thisismysupersecurekeyforthisapp",
+        ],
+    )
+    def test_a_key_that_reads_as_typed_is_refused(self, secret: str):
+        """Long enough and varied enough to pass an entropy floor, and still hand-written."""
+        assert self._validator(secret)._is_insecure_secret_key()
+
+    def test_a_generated_key_that_happens_to_spell_a_weak_word_is_accepted(self):
+        """The rules measure a share of the whole value, not any occurrence."""
+        assert not self._validator("Kq7-test-2mZr9XbW4nHt6LyPv8CdFgJs1AuEoQiRzN")._is_insecure_secret_key()

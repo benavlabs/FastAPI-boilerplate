@@ -27,7 +27,7 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-
+{% if taskiq %}
   worker:
     build:
       context: {{ build_context }}
@@ -42,7 +42,7 @@ services:
       TASKIQ_REDIS_HOST: redis
     working_dir: /app/src
     command: >
-      taskiq worker infrastructure.taskiq.worker:default_broker
+      taskiq worker src.infrastructure.taskiq.worker:default_broker
       --reload
     volumes:
       - {{ backend_context }}/src:/app/src
@@ -52,6 +52,30 @@ services:
       redis:
         condition: service_healthy
 
+  # Run exactly one of these: each scheduler fires every schedule it finds.
+  scheduler:
+    build:
+      context: {{ build_context }}
+      dockerfile: {{ backend_dockerfile }}
+      target: dev
+    env_file:
+      - {{ env_file }}
+    environment:
+      POSTGRES_SERVER: postgres
+      CACHE_REDIS_HOST: redis
+      RATE_LIMITER_REDIS_HOST: redis
+      TASKIQ_REDIS_HOST: redis
+    working_dir: /app/src
+    command: >
+      taskiq scheduler src.infrastructure.taskiq.scheduler:scheduler
+    volumes:
+      - {{ backend_context }}/src:/app/src
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+{% endif %}
   postgres:
     image: {{ postgres_image }}
     env_file:
@@ -64,7 +88,7 @@ services:
     volumes:
       - postgres-data:/var/lib/postgresql/data
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
       interval: 5s
@@ -76,7 +100,7 @@ services:
     volumes:
       - redis-data:/data
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s

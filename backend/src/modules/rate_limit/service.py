@@ -2,18 +2,26 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
+from fastcrud import JoinConfig
 from fastcrud.types import GetMultiResponseDict
+from sqlalchemy import and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..common.exceptions import (
-    PermissionDeniedError,
     PersistenceError,
-    RateLimitNotFoundError,
     ResourceExistsError,
-    TierNotFoundError,
 )
 from ..tier.crud import crud_tiers
+from ..tier.exceptions import TierNotFoundError
+from ..tier.models import Tier
+from ..tier.schemas import TierRead
+from ..user.crud import crud_users
+from ..user.exceptions import UserNotFoundError
+from ..user.models import User
+from ..user.schemas import UserRead
 from .crud import crud_rate_limits
+from .exceptions import RateLimitNotFoundError
+from .models import RateLimit
 from .schemas import (
     RateLimitCreate,
     RateLimitCreateInternal,
@@ -28,7 +36,7 @@ class RateLimitService:
 
     async def create(self, rate_limit: RateLimitCreate, tier_id: int, db: AsyncSession) -> dict[str, Any]:
         """Create a new rate limit for a tier."""
-        tier_exists = await crud_tiers.exists(db=db, id=tier_id)
+        tier_exists = await crud_tiers.exists(db=db, id=tier_id, is_deleted=False)
         if not tier_exists:
             raise TierNotFoundError(f"Tier with ID {tier_id} not found")
 
@@ -52,7 +60,7 @@ class RateLimitService:
     async def get_all(self, db: AsyncSession, skip: int = 0, limit: int = 100) -> GetMultiResponseDict:
         """Get all rate limits with pagination."""
         return await crud_rate_limits.get_multi(
-            db=db, offset=skip, limit=limit, schema_to_select=RateLimitRead, is_deleted=False
+            db=db, offset=skip, limit=limit, schema_to_select=RateLimitRead, is_deleted=False, sort_columns="id"
         )
 
     async def get_by_id(self, rate_limit_id: int, db: AsyncSession) -> dict[str, Any]:
@@ -110,7 +118,65 @@ class RateLimitService:
 
         await crud_rate_limits.db_delete(db=db, name=name)
 
-    async def verify_superuser(self, user: dict[str, Any], action: str = "manage rate limits") -> None:
-        """Verify that the user is a superuser."""
-        if not user.get("is_superuser", False):
-            raise PermissionDeniedError(f"Only superusers can {action}")
+    async def get_for_user(self, user_id: int, db: AsyncSession) -> dict[str, Any]:
+        """Get rate limits for a user through their tier assignment.
+
+        Retrieves all rate limits applicable to a user based on their tier
+        assignment. Uses database joins for efficient data retrieval.
+
+        Args:
+            user_id: ID of the user to get rate limits for.
+            db: Database session for the operation.
+
+        Returns:
+            Dictionary containing user data with nested rate limits.
+
+        Raises:
+            UserNotFoundError: If the user doesn't exist.
+
+        Note:
+            Rate limits are inherited from the user's tier. Users without
+            tier assignments have no rate limits. Uses advanced joins to
+            efficiently retrieve related data.
+
+        Example:
+            ```python
+            user_limits = await service.get_rate_limits(123, db)
+            for limit in user_limits.get("rate_limits", []):
+                print(f"Rate limit: {limit['resource']} - {limit['limit']}")
+            ```
+        """
+        user = await crud_users.get(db=db, id=user_id, is_deleted=False, schema_to_select=UserRead)
+        if not user:
+            raise UserNotFoundError(f"User with ID {user_id} not found")
+
+        if user["tier_id"] is None:
+            user["rate_limits"] = []
+            return user
+
+        joins_config = [
+            JoinConfig(
+                model=Tier,
+                join_on=and_(User.tier_id == Tier.id, Tier.is_deleted.is_(False)),
+                join_prefix="tier_",
+                schema_to_select=TierRead,
+                join_type="left",
+            ),
+            JoinConfig(
+                model=RateLimit,
+                join_on=and_(Tier.id == RateLimit.tier_id, RateLimit.is_deleted.is_(False)),
+                join_prefix="rate_limits_",
+                schema_to_select=RateLimitRead,
+                join_type="left",
+                relationship_type="one-to-many",
+            ),
+        ]
+
+        result = await crud_users.get_joined(
+            db=db, schema_to_select=UserRead, joins_config=joins_config, nest_joins=True, id=user_id
+        )
+
+        if not result:
+            raise UserNotFoundError(f"User with ID {user_id} not found")
+
+        return result

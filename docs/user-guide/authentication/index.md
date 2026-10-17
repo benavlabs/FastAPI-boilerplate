@@ -9,6 +9,7 @@ For machine-to-machine clients, the boilerplate ships **API keys** with per-key 
 - **[Sessions](sessions.md)** - Server-side sessions, cookies, and CSRF protection
 - **[User Management](user-management.md)** - Registration, login, profile operations
 - **[Permissions](permissions.md)** - Role-based access control and resource ownership
+- **[Migrating Passwords](migrating-passwords.md)** - Bringing another system's password hashes across
 
 ## Why Sessions, Not JWT
 
@@ -77,10 +78,10 @@ curl -X POST http://localhost:8000/api/v1/auth/logout -b cookies.txt
 
 Routes use `Depends(get_current_user)` to require an authenticated session.
 
-### 2. OAuth (Google)
+### 2. OAuth (Google and GitHub)
 
-For social sign-in — Google OAuth 2.0 with PKCE is wired up. The browser goes to Google, signs
-in, and comes back to a callback that creates the session and sends it on to your app.
+For social sign-in — OAuth 2.0 with PKCE. The browser goes to the provider, signs in, and comes
+back to a callback that creates the session and sends it on to your app.
 
 ```text
 # Link or redirect the browser to (redirect_to is optional, same-origin paths only):
@@ -92,40 +93,153 @@ GET /api/v1/auth/oauth/callback/google?code=...&state=...
 # → session + CSRF cookies set, 307 to /dashboard (or to OAUTH_REDIRECT_BASE_URL)
 ```
 
-Register `{OAUTH_REDIRECT_BASE_URL}/api/v1/auth/oauth/callback/google` as the redirect URI in the
-Google console; `OAUTH_REDIRECT_BASE_URL` is the public origin of the API, without a path.
+GitHub works the same way, on `/api/v1/auth/oauth/github` and
+`/api/v1/auth/oauth/callback/github`.
+
+Register `{OAUTH_REDIRECT_BASE_URL}/api/v1/auth/oauth/callback/<provider>` as the redirect URI with
+each provider — in the Google console, and as the "Authorization callback URL" of a GitHub OAuth app
+(Settings → Developer settings → OAuth Apps → New OAuth App). `OAUTH_REDIRECT_BASE_URL` is the
+public origin of the API, without a path. The paths above follow `API_PREFIX`, so a project that
+moved the API registers the moved callback.
 
 A failed sign-in - the user declined, or their address is longer than the `email` column - sends
 the browser to `OAUTH_REDIRECT_BASE_URL?error=<code>`. A callback whose `state` doesn't match the
 cookie set when the flow started, or whose state was already used or has expired, lands there too
 with `error=invalid_state` and no session, since it may be a login-CSRF attempt; the usual cause is
 a sign-in that took too long or finished in another browser, so offer to start again.
-New accounts take their display name from the Google profile.
 
-Only Google is wired when its credentials are configured. The router is supplied by crudauth: PKCE,
-browser-bound single-use state, and safe same-origin redirects. Add another provider in
-`infrastructure/auth/setup.py` using `OAuthCredentials`.
+**What a sign-in writes back.** Every OAuth sign-in that reaches an active account runs
+`refresh_the_provider_profile` (`infrastructure/auth/oauth_profile.py`), registered as crudauth's
+`on_oauth_login` hook:
+
+| Column | When it is written |
+|---|---|
+| `name` | once, as the account is created, from the provider's profile |
+| `profile_image_url` | from the provider's picture, while the account still carries the placeholder avatar it was created with |
+| `oauth_updated_at` | on every sign-in after the one that created the account, which crudauth stamps itself |
+| `google_id` / `github_id`, `oauth_provider`, `email_verified` | by crudauth, as the account is created or linked |
+
+So the provider seeds an avatar and a display name, and the account owns both afterwards: a user who
+sets either keeps it however often they sign in. A project that would rather let the provider own
+the avatar drops the placeholder check in that hook, and one that wants the provider's current login
+handle (`info.username`, which changes on a GitHub rename) writes it there — `info.raw_data` carries
+the provider's whole payload. The hook is handed crudauth's own fields only, so anything of your own
+it reads comes from the row.
+
+A provider is wired when **both** of its settings are set — `OAUTH_GOOGLE_CLIENT_ID` and
+`OAUTH_GOOGLE_CLIENT_SECRET`, `OAUTH_GITHUB_CLIENT_ID` and `OAUTH_GITHUB_CLIENT_SECRET` — so a
+project can run either, both, or neither, and a client id without its secret wires nothing. With no
+provider configured the OAuth router isn't mounted at all.
+
+GitHub reports its addresses separately (`GET /user/emails`), and crudauth's provider picks the
+primary verified one. An address GitHub has not verified is refused:
+`?error=email_unverified`, with no account created and no session — an unverified address must not
+be able to claim one. GitHub accounts without a public name fall back to the login handle for the
+display name.
+
+The router is supplied by crudauth: PKCE, browser-bound single-use state, and safe same-origin
+redirects. Add a further provider in `infrastructure/auth/setup.py` by listing its name in
+`OAUTH_PROVIDERS` and giving it `OAUTH_<NAME>_CLIENT_ID` / `_CLIENT_SECRET` settings, as long as
+crudauth registers a provider class under that name.
 
 ### 3. API Keys (Machine-to-Machine)
 
-For server-to-server clients, programs, scripts, integrations:
+For server-to-server clients, programs, scripts, integrations. A key belongs to an account, carries
+a scope of its own, and is revoked on its own:
 
 ```bash
-# Create a key (requires an authenticated session)
+# Create one (while signed in; the full key is shown once)
 curl -X POST "http://localhost:8000/api/v1/api-keys/" \
-  -H "Content-Type: application/json" \
+  -H "Content-Type: application/json" -H "X-CSRF-Token: <token>" \
   -b cookies.txt \
-  -d '{"name": "Integration Key", "permissions": {}, "usage_limits": {}}'
-# → { "key": "shown ONCE — store securely", ... }
+  -d '{"name": "Integration Key", "permissions": ["user.read"], "usage_limits": {"requests_per_minute": 60}}'
+
+# Call with it, in the X-API-Key header
+curl http://localhost:8000/api/v1/auth/me -H "X-API-Key: fai_..."
+# → { "user_id": 1, "username": "admin", ..., "via": "apikey" }
 ```
 
-The full key is returned only on creation. Each key has its own permissions, usage limits, and audit trail (`KeyUsage` rows).
+A key-authenticated request is its owner, holding that owner's permissions narrowed to the key's
+scope, and never that owner's superuser flag. It needs no CSRF token, is answered without a cookie,
+and is refused outright by the routes an account must be signed in for — the password, the address,
+the sessions, closing the account, and managing keys. Every request it makes is counted against the
+key's own limits and recorded as a usage row.
+
+**[API Keys](api-keys.md)** covers all of it: creating and scoping a key, calling with it, what it
+cannot do, the limits and the usage rows, revoking and rotating, and how a key is stored.
+
+## Recovery Flows (Email)
+
+crudauth's recovery router is mounted under the same prefix, so the project ships email
+verification, password reset and a confirmed email change:
+
+```text
+POST /api/v1/auth/email/verify-request    {"email": "..."}
+POST /api/v1/auth/email/verify-confirm    {"token": "..."}
+POST /api/v1/auth/password/reset-request  {"email": "..."}
+POST /api/v1/auth/password/reset-confirm  {"token": "...", "new_password": "..."}
+POST /api/v1/auth/email/change-request    {"new_email": "...", "password": "..."}   # authenticated
+POST /api/v1/auth/email/change-confirm    {"token": "..."}
+```
+
+The `-request` routes answer the same whether or not the address belongs to an account, so they
+can't be used to find out who has one, and they are rate limited per client address and per target
+address. Delivery goes through the sender [`EMAIL_BACKEND`](../configuration/environment-variables.md#email)
+names.
+
+What crudauth guarantees, and this project's tests hold it to:
+
+- A token is single-use, and dies early when the password, the address or `token_version` changes.
+- A completed reset ends **every** session the account had, so a stolen one doesn't survive it.
+- A confirmed email change notifies the **old** address (`email_changed`), which is how the previous
+  owner finds out.
+- An inactive account is sent nothing, and the links it already has stop working. `User.is_active`
+  is `not is_deleted`, so a soft-deleted account is covered.
+
+The bodies belong to the library, which takes their fields as plain `str`, so every crudauth route
+mounted here carries `body_a_database_can_hold` (`infrastructure/auth/deps.py`): a JSON body holding
+text no column can store, a lone surrogate or a NUL character, anywhere in it and in a key as well
+as a value, answers `422` naming the field. It reads the content type the way FastAPI does, so an
+`application/merge-patch+json` body is read as JSON too. Without it a `{"token": "\ud800"}` reached `jwt.decode`,
+which encodes the token as UTF-8 and raises, and answered `500` to anybody.
+
+### Where the links point
+
+The boilerplate serves no pages, so the links are built for **your** frontend:
+
+```env
+FRONTEND_URL=https://app.example.com
+```
+
+```text
+{FRONTEND_URL}/verify-email?token=...
+{FRONTEND_URL}/reset-password?token=...
+{FRONTEND_URL}/confirm-email-change?token=...
+```
+
+Each page reads `token` from the query string and POSTs it to the matching `-confirm` route.
+`FRONTEND_URL` is required in production: an empty or `localhost` value is refused at startup,
+because every link built from it would be one nobody can open.
+
+In development the default `console` backend logs the whole message, link included, so there is no
+frontend to run — copy the token out of the log and confirm by hand:
+
+```bash
+curl -X POST http://localhost:8000/api/v1/auth/password/reset-request \
+    -H "Content-Type: application/json" -d '{"email": "you@example.com"}'
+# the API log prints: ... Subject: Reset your password
+#                     ... http://localhost:3000/reset-password?token=eyJhbGciOi...
+
+curl -X POST http://localhost:8000/api/v1/auth/password/reset-confirm \
+    -H "Content-Type: application/json" \
+    -d '{"token": "eyJhbGciOi...", "new_password": "An0therPassword!"}'
+```
 
 ## Key Features
 
 ### Server-Side Sessions
 
-- **Session storage**: Redis by default; memory available (`SESSION_BACKEND` env var)
+- **Session storage**: Redis by default; the project's own database or memory available (`SESSION_BACKEND` env var)
 - **HTTP-only cookies**: `session_id` cookie cannot be read by JavaScript
 - **CSRF tokens**: Returned on login, also set as a cookie, must be sent in `X-CSRF-Token` for state-changing requests
 - **Configurable timeout**: `SESSION_TIMEOUT_MINUTES`
@@ -149,7 +263,7 @@ The full key is returned only on creation. Each key has its own permissions, usa
 
 ### Login Lockout
 
-`crudauth` throttles the login endpoint internally with an escalating per-IP / per-identifier lockout — there are no env vars to tune. When the limit is hit, `POST /api/v1/auth/login` returns `429 Too Many Requests` with a `Retry-After` header telling the client how long to wait. Behind a reverse proxy, set `TRUSTED_PROXY_HOPS` so the lockout keys on the real client IP rather than the proxy's.
+`crudauth` throttles the login endpoint internally with an escalating per-IP / per-identifier lockout, whose thresholds are the `LOGIN_*` settings ([Authentication & Security](../configuration/environment-variables.md#authentication--security)). When the limit is hit, `POST /api/v1/auth/login` returns `429 Too Many Requests` with a `Retry-After` header telling the client how long to wait. Behind a reverse proxy, set `TRUSTED_PROXY_HOPS` so the lockout keys on the real client IP rather than the proxy's.
 
 ## Authentication Patterns
 
@@ -204,7 +318,7 @@ The leading underscore is the codebase's convention for dependency-only paramete
 ### Permission Required
 
 ```python
-from ...infrastructure.auth.dependencies import require_permissions
+from ...infrastructure.auth.authorization import require_permissions
 
 @router.get("/", dependencies=[require_permissions("user.read")])
 async def get_users(
@@ -214,7 +328,7 @@ async def get_users(
     ...
 ```
 
-Returns 403 unless the caller holds every named permission through one of their roles; superusers always pass. `infrastructure/dependencies.py` exports `CurrentPermissionsDep` for handlers that need the permission set itself, and `CurrentPrincipalDep` for the crudauth `Principal`. See [Permissions](permissions.md#role-based-permissions).
+Returns 403 unless the caller holds every named permission through one of their roles; superusers always pass. `infrastructure/auth/deps.py` exports `CurrentPermissionsDep` for handlers that need the permission set itself, and `CurrentPrincipalDep` for the crudauth `Principal`. See [Permissions](permissions.md#role-based-permissions).
 
 ### Resource Ownership
 
@@ -258,9 +372,11 @@ When `ENVIRONMENT=production` and `PRODUCTION_SECURITY_VALIDATION_ENABLED=true` 
 - Insecure or placeholder `SECRET_KEY`
 - Default or empty database password
 - Admin panel enabled without `ADMIN_USERNAME`/`ADMIN_PASSWORD`
-- `CORS_ORIGINS` empty or containing `*`
+- `CORS_ORIGINS` containing `*`
 
-`PRODUCTION_SECURITY_STRICT_MODE=true` makes the validator stricter still.
+An empty `CORS_ORIGINS` isn't an error: it means the app allows no cross-origin request. A `*`
+is refused in production, and wherever it is allowed the app drops `CORS_ALLOW_CREDENTIALS`,
+so cookies never travel to a wildcard origin.
 
 ## Configuration
 
@@ -272,7 +388,7 @@ SESSION_TIMEOUT_MINUTES=30
 SESSION_CLEANUP_INTERVAL_MINUTES=15
 MAX_SESSIONS_PER_USER=5
 SESSION_SECURE_COOKIES=true
-SESSION_BACKEND=redis             # redis | memory
+SESSION_BACKEND=redis             # redis | database | memory
 
 # CSRF
 CSRF_ENABLED=true                  # set false for dev/test
@@ -290,7 +406,6 @@ OAUTH_GITHUB_CLIENT_SECRET=
 # Security
 SECRET_KEY=<openssl rand -hex 32>
 PRODUCTION_SECURITY_VALIDATION_ENABLED=true
-PRODUCTION_SECURITY_STRICT_MODE=false
 ```
 
 ## Quick Examples
