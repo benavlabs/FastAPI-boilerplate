@@ -9,7 +9,9 @@ when none is.
 
 The routes in ``SESSION_ONLY_PATHS`` are mounted behind ``get_session_principal``: changing a
 password, moving an address and ending a session are things an account does while signed in,
-not things another credential does on its behalf.
+not things another credential does on its behalf. The ones in ``PASSWORD_BUDGET_PATHS`` check a
+password of their own, and are mounted behind the budget crudauth counts a password change
+against, which is the account's rather than the caller's address.
 """
 
 from typing import Annotated, Any, cast
@@ -18,6 +20,7 @@ from crudauth import Principal
 from crudauth.account import build_account_router
 from crudauth.email.router import build_email_router
 from crudauth.exceptions import ForbiddenException
+from crudauth.ratelimit import KeyBy
 from crudauth.transports.session.management import build_session_management_router
 from crudauth.utils import is_cross_site
 from fastapi import APIRouter, Depends, Form, Request, Response
@@ -38,19 +41,32 @@ router = APIRouter(tags=["Authentication"])
 SESSION_ONLY_PATHS = ("/change-password", "/email/change-request")
 """The crudauth routes this project reserves for a signed-in session."""
 
+PASSWORD_BUDGET_PATHS = ("/email/change-request",)
+"""The crudauth routes whose own password check counts against the account's budget."""
+
+PASSWORD_ATTEMPT_ACTION = "change_password"
+"""The action that budget is counted under, the one crudauth's password change uses."""
+
+_password_budget = crud_auth.rate_limit(PASSWORD_ATTEMPT_ACTION, key=KeyBy.USER)
+
 
 def _mount(source: APIRouter) -> None:
     """Mount ``source``'s routes under ``router``, each with the gates its path calls for."""
-    open_router, session_only = APIRouter(), APIRouter()
+    open_router, session_only, counted = APIRouter(), APIRouter(), APIRouter()
     for route in source.routes:
         api_route = cast(APIRoute, route)
         api_route.tags = []
-        target = session_only if api_route.path in SESSION_ONLY_PATHS else open_router
-        target.routes.append(api_route)
+        if api_route.path in PASSWORD_BUDGET_PATHS:
+            counted.routes.append(api_route)
+        else:
+            target = session_only if api_route.path in SESSION_ONLY_PATHS else open_router
+            target.routes.append(api_route)
 
     body_text = Depends(body_a_database_can_hold)
+    session = Depends(get_session_principal)
     router.include_router(open_router, dependencies=[body_text])
-    router.include_router(session_only, dependencies=[body_text, Depends(get_session_principal)])
+    router.include_router(session_only, dependencies=[body_text, session])
+    router.include_router(counted, dependencies=[body_text, session, Depends(_password_budget)])
 
 
 _account_router = build_account_router(crud_auth, crud_auth.sessions)

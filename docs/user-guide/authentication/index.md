@@ -187,6 +187,11 @@ can't be used to find out who has one, and they are rate limited per client addr
 address. Delivery goes through the sender [`EMAIL_BACKEND`](../configuration/environment-variables.md#email)
 names.
 
+`email/change-request` checks the account's current password, so this project counts each attempt
+against that account's change-password budget as well: 5 an hour, correct passwords included, shared
+with `POST /api/v1/auth/change-password`. Over it the route answers `429` and checks nothing, so a
+session holder cannot use it to guess a password from one address after another.
+
 What crudauth guarantees, and this project's tests hold it to:
 
 - A token is single-use, and dies early when the password, the address or `token_version` changes.

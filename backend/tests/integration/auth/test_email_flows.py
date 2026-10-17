@@ -24,6 +24,7 @@ from tests.fixtures.accounts import reset_recovery_budgets
 pytestmark = [pytest.mark.asyncio, pytest.mark.usefixtures("fresh_login_lockout")]
 
 NEW_PASSWORD = "An0therPassword!"
+WRONG_PASSWORD = "NotTheOne123!"
 UNKNOWN_ADDRESS = "nobody@example.com"
 MOVED_ADDRESS = "moved@example.com"
 VERIFY_SENT = "If an account exists, a verification email has been sent."
@@ -206,6 +207,54 @@ class TestChangingAnAddress:
         assert stored is not None
         await db_session.refresh(stored)
         assert stored.email == moved
+
+
+class TestTheBudgetBehindTheAddressChange:
+    """The password a change-request checks is counted against the account, not only the address.
+
+    crudauth caps the route per client address; the account's own change-password budget is
+    what a caller rotating addresses, or holding a session from one, runs into.
+    """
+
+    async def _change_request(self, client: AsyncClient, csrf: str, password: str) -> int:
+        response = await client.post(
+            "/api/v1/auth/email/change-request",
+            json={"new_email": MOVED_ADDRESS, "password": password},
+            headers={"X-CSRF-Token": csrf},
+        )
+
+        return response.status_code
+
+    async def _change_password(self, client: AsyncClient, csrf: str, password: str) -> int:
+        response = await client.post(
+            "/api/v1/auth/change-password",
+            json={"current_password": password, "new_password": NEW_PASSWORD},
+            headers={"X-CSRF-Token": csrf},
+        )
+
+        return response.status_code
+
+    async def test_a_wrong_password_here_spends_the_accounts_password_budget(self, client: AsyncClient, test_user: dict):
+        """Three guesses here and the account has two left, wherever the next one comes from."""
+        csrf = await _login(client, test_user)
+        guessed = [await self._change_request(client, csrf, WRONG_PASSWORD) for _ in range(3)]
+
+        left = [await self._change_password(client, csrf, WRONG_PASSWORD) for _ in range(3)]
+
+        assert guessed == [400, 400, 400]
+        assert left == [401, 401, 429]
+
+    async def test_a_budget_spent_elsewhere_refuses_the_change(
+        self, client: AsyncClient, test_user: dict, delivered: list[dict[str, Any]]
+    ):
+        csrf = await _login(client, test_user)
+        spent = [await self._change_password(client, csrf, WRONG_PASSWORD) for _ in range(5)]
+
+        requested = await self._change_request(client, csrf, test_user["password"])
+
+        assert spent == [401, 401, 401, 401, 401]
+        assert requested == 429
+        assert delivered == []
 
 
 class TestAnAddressWithNoAccount:

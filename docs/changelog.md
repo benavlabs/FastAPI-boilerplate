@@ -728,6 +728,12 @@ matrix. The round that followed fixed what a re-review of the refactor found.
 - **A credential the API throttle cannot resolve now spends the budget its address would have
   spent carrying none.** A junk `X-API-Key` or bearer token used to answer `401` as often as it was
   sent, unmetered, while the same requests without a header were throttled after the limit.
+- **`POST /api/v1/auth/email/change-request` now counts against the account's change-password
+  budget**, 5 an hour and shared with `POST /api/v1/auth/change-password`, correct passwords
+  included. crudauth caps that route per client address only, and the password it checks feeds no
+  lockout, so a session holder could guess an account's password from one address after another:
+  three answers per address, then a fresh three from the next. An account whose budget is spent now
+  gets `429` there and nothing is checked or sent.
 - **A broker that accepts connections and says nothing no longer holds up startup.** The RabbitMQ
   broker now hands aio-pika a `BROKER_CONNECT_SECONDS` connect timeout
   (`infrastructure/taskiq/constants.py`, 5 seconds), so such an attempt fails and the app falls into
