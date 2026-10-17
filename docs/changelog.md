@@ -728,6 +728,12 @@ matrix. The round that followed fixed what a re-review of the refactor found.
 - **A credential the API throttle cannot resolve now spends the budget its address would have
   spent carrying none.** A junk `X-API-Key` or bearer token used to answer `401` as often as it was
   sent, unmetered, while the same requests without a header were throttled after the limit.
+- **A broker that accepts connections and says nothing no longer holds up startup.** The RabbitMQ
+  broker now hands aio-pika a `BROKER_CONNECT_SECONDS` connect timeout
+  (`infrastructure/taskiq/constants.py`, 5 seconds), so such an attempt fails and the app falls into
+  its retry loop instead of waiting on the handshake. A blackholed host used to block startup for
+  over two minutes and a silent one indefinitely, and until startup finished not even `GET /health`
+  answered. A worker builds the same broker, so its own startup is bounded by the same timeout.
 - **A role carrying a permission the registry no longer knows can be edited again.** Its stored
   names went into the delegation check as they were, and that check refuses an unregistered name
   before it short-circuits for a superuser, so a role stranded by a removed feature answered `403`

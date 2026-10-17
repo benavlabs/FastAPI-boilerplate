@@ -2,6 +2,7 @@
 
 import asyncio
 import socket
+from contextlib import asynccontextmanager, suppress
 
 import pytest
 from aio_pika import connect_robust
@@ -17,7 +18,7 @@ from src.infrastructure.app_factory import lifespan_factory
 from src.infrastructure.config.enums import TaskiqBrokerType
 from src.infrastructure.config.settings import settings
 from src.infrastructure.taskiq import brokers, lifecycle
-from src.infrastructure.taskiq.constants import BROKER_RETRY_TASK_NAME
+from src.infrastructure.taskiq.constants import BROKER_CONNECT_SECONDS, BROKER_RETRY_TASK_NAME
 from src.infrastructure.taskiq.health import broker_is_reachable
 from src.infrastructure.taskiq.lifecycle import start_broker
 from src.wiring.app import LIFECYCLES
@@ -29,6 +30,7 @@ RETRY_SECONDS = 0.2
 CONNECTED_WITHIN_SECONDS = 30
 READINESS_TURNS_WITHIN_SECONDS = 30
 ATTEMPTS_WITHIN_SECONDS = 5
+STARTS_WITHIN_SECONDS = 10
 
 
 def _ready_container(port: int | None = None) -> DockerContainer:
@@ -44,6 +46,29 @@ def _closed_port() -> int:
         finder.bind(("127.0.0.1", 0))
 
         return int(finder.getsockname()[1])
+
+
+@asynccontextmanager
+async def _silent_port():
+    """A port that accepts a connection and never says anything, as a wedged broker does."""
+    held = []
+
+    async def hold(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        held.append(writer)
+        with suppress(Exception):
+            await reader.read()
+
+    server = await asyncio.start_server(hold, "127.0.0.1", 0)
+    try:
+        yield int(server.sockets[0].getsockname()[1])
+    finally:
+        for writer in held:
+            writer.close()
+            with suppress(Exception):
+                await writer.wait_closed()
+
+        server.close()
+        await server.wait_closed()
 
 
 def _broker_pointed_at(monkeypatch, host: str, port: int) -> AsyncBroker:
@@ -218,6 +243,36 @@ async def test_a_worker_process_leaves_the_broker_to_the_taskiq_cli(rabbitmq_bro
 
     with pytest.raises(SendTaskError):
         await task.kiq()
+
+
+class TestABrokerThatAcceptsAndSaysNothing:
+    """A wedged broker takes the connection and never finishes the handshake."""
+
+    async def test_an_attempt_gives_up_at_the_bound(self, monkeypatch):
+        """Nothing else ends it: the socket stays open and the server answers nothing."""
+        async with _silent_port() as port:
+            _broker_pointed_at(monkeypatch, "127.0.0.1", port)
+            loop = asyncio.get_running_loop()
+            started = loop.time()
+
+            error = await lifecycle._connection_error()
+
+            assert isinstance(error, TimeoutError)
+            assert loop.time() - started < BROKER_CONNECT_SECONDS + ATTEMPTS_WITHIN_SECONDS
+
+    async def test_the_app_starts_and_the_retry_takes_over(self, monkeypatch):
+        """Startup used to wait on this one for as long as the broker stayed silent."""
+        async with _silent_port() as port:
+            _broker_pointed_at(monkeypatch, "127.0.0.1", port)
+            lifespan = _app_lifespan()
+            loop = asyncio.get_running_loop()
+            started = loop.time()
+
+            async with lifespan(FastAPI()):
+                assert loop.time() - started < STARTS_WITHIN_SECONDS
+                assert len(_retries_running()) == 1
+                with pytest.raises(ConnectionError):
+                    await broker_is_reachable()
 
 
 class TestABrokerThatIsDownAtStartup:

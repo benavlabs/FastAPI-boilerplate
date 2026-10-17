@@ -1,5 +1,8 @@
 """Fixed values the taskiq feature uses."""
 
+BROKER_CONNECT_SECONDS = 5.0
+"""Seconds an attempt to reach the broker may take before it counts as unreachable."""
+
 BROKER_RETRY_SECONDS = 5.0
 """Seconds between the attempts that reconnect an unreachable broker."""
 

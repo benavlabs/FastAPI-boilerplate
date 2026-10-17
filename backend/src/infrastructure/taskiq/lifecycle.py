@@ -29,7 +29,11 @@ def broker_connection_is_up() -> bool:
 
 
 async def _connection_error() -> Exception | None:
-    """Start the broker, closing again what a failed attempt opened, and answer why it failed."""
+    """Start the broker, closing again what a failed attempt opened, and answer why it failed.
+
+    The attempt is bounded by the broker's own connection timeout, so a host that takes
+    the connection and says nothing fails here rather than holding startup open.
+    """
     try:
         await brokers.default_broker.startup()
     except Exception as error:

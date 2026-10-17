@@ -148,6 +148,13 @@ A broker that is down doesn't keep the API down. If the connection fails at star
 warning, serves anyway, and retries every `BROKER_RETRY_SECONDS` (`infrastructure/taskiq/constants.py`)
 until one attempt connects — repeat failures at `DEBUG`, one `INFO` line when it does. Each failed
 attempt is closed again, so nothing a half-finished startup opened is left behind.
+
+An attempt that gets no answer counts as a failure after `BROKER_CONNECT_SECONDS`, the timeout the
+RabbitMQ broker hands aio-pika. A refused connection fails at once, but a host that accepts the
+socket and never speaks AMQP (a wedged server, a blackholed address, a load balancer in front of a
+dead node) would otherwise hold the attempt open, and with it the app's startup, so neither the API
+nor `GET /health` would answer. The same bound applies to each retry.
+
 `.kiq(...)` raises `SendTaskError` while the broker is down, so a route that
 enqueues should decide what a queued-work outage means for its response. `GET /health/ready` reports
 the broker as an informational check — it reads the live state of the connection the app holds, so

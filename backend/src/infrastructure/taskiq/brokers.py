@@ -8,6 +8,7 @@ from taskiq_redis import ListQueueBroker, RedisAsyncResultBackend
 from ..config.enums import TaskiqBrokerType
 from ..config.settings import get_settings
 from ..redis import redis_url
+from .constants import BROKER_CONNECT_SECONDS
 
 settings = get_settings()
 
@@ -43,10 +44,15 @@ def _create_redis_broker() -> AsyncBroker:
 
 
 def _create_rabbitmq_broker() -> AsyncBroker:
-    """Create RabbitMQ-based broker for taskiq, on the queue ``AioPikaBroker`` names by default."""
+    """Create RabbitMQ-based broker for taskiq, on the queue ``AioPikaBroker`` names by default.
+
+    ``timeout`` reaches aio-pika's ``connect_robust`` through the broker's connection
+    keywords, so a host that accepts the socket and says nothing fails the attempt within
+    ``BROKER_CONNECT_SECONDS`` rather than holding it open.
+    """
     rabbitmq_url = settings.TASKIQ_BROKER_URL
 
-    broker = AioPikaBroker(url=rabbitmq_url)
+    broker = AioPikaBroker(url=rabbitmq_url, timeout=BROKER_CONNECT_SECONDS)
 
     return broker
 
