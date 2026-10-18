@@ -6,7 +6,14 @@ from typing import Annotated, Any, ClassVar
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, StrictInt, field_validator
 
 from ...infrastructure.permissions import registered_permissions
-from ..common.schemas import EncodableText, PartialUpdate, TimestampSchema, not_nullable_columns, within_utc_range
+from ..common.schemas import (
+    EncodableText,
+    PartialUpdate,
+    TimestampSchema,
+    not_nullable_columns,
+    refuse_oversized_json,
+    within_utc_range,
+)
 from .enums import HTTPMethod
 from .limits import WINDOWS, validated_limits
 from .models import APIKey
@@ -44,6 +51,14 @@ class APIKeyBase(EncodableText):
     @classmethod
     def _countable(cls, limits: dict[str, StrictInt]) -> dict[str, StrictInt]:
         return validated_limits(limits)
+
+    @field_validator("key_metadata")
+    @classmethod
+    def _storable(cls, metadata: dict[str, Any] | None) -> dict[str, Any] | None:
+        if metadata is not None:
+            refuse_oversized_json("key_metadata", metadata)
+
+        return metadata
 
 
 class APIKeyCreate(APIKeyBase):
@@ -84,6 +99,14 @@ class APIKeyUpdate(EncodableText, PartialUpdate):
     @classmethod
     def _countable(cls, limits: dict[str, StrictInt] | None) -> dict[str, StrictInt] | None:
         return None if limits is None else validated_limits(limits)
+
+    @field_validator("key_metadata")
+    @classmethod
+    def _storable(cls, metadata: dict[str, Any] | None) -> dict[str, Any] | None:
+        if metadata is not None:
+            refuse_oversized_json("key_metadata", metadata)
+
+        return metadata
 
 
 class APIKeyRead(TimestampSchema):

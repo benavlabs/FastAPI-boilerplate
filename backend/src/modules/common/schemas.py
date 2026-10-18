@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, datetime
 from typing import Any, ClassVar
 
@@ -72,6 +73,44 @@ def refuse_unencodable_text(name: str, value: Any) -> None:
             pending.extend(current.values())
         elif isinstance(current, list | tuple | set):
             pending.extend(current)
+
+
+JSON_MAX_DEPTH = 16
+"""How deep a stored JSON value may nest."""
+
+JSON_MAX_BYTES = 8 * 1024
+"""How many UTF-8 bytes a stored JSON value may take once serialized."""
+
+
+def refuse_oversized_json(name: str, value: Any) -> None:
+    """Raise unless ``value`` fits ``JSON_MAX_DEPTH`` and ``JSON_MAX_BYTES``.
+
+    The depth is walked without recursion, and before anything serializes ``value``: a
+    value nested deeply enough to exhaust the stack raises where nothing turns it into a
+    refusal, and every validated read of the row it was stored in raises with it.
+
+    Raises:
+        ValueError: ``value`` nests deeper, or is larger stored, than this project allows.
+    """
+    pending: list[tuple[Any, int]] = [(value, 1)]
+
+    while pending:
+        current, depth = pending.pop()
+        if isinstance(current, dict):
+            inside: Any = current.values()
+        elif isinstance(current, list | tuple | set):
+            inside = current
+        else:
+            continue
+
+        if depth > JSON_MAX_DEPTH:
+            raise ValueError(f"{name} nests deeper than {JSON_MAX_DEPTH} levels")
+
+        pending.extend((held, depth + 1) for held in inside)
+
+    stored = len(json.dumps(value, default=str, ensure_ascii=False).encode(errors="surrogatepass"))
+    if stored > JSON_MAX_BYTES:
+        raise ValueError(f"{name} takes {stored} bytes stored, past the {JSON_MAX_BYTES} allowed")
 
 
 class EncodableText(BaseModel):

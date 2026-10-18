@@ -49,7 +49,7 @@ a listing without being a credential.
 | `permissions` | the key's scope: registry permission names, each one the caller holds ([what a key holds](#what-a-key-holds)) |
 | `usage_limits` | requests per window ([usage limits](#usage-limits)) |
 | `expires_at` | when the key stops working; optional, and can later be brought forward but never pushed back |
-| `key_metadata` | anything your project wants to hang off the key; never returned by the create route |
+| `key_metadata` | anything your project wants to hang off the key; never returned by the create route. Capped at 16 levels of nesting and 8 KB stored, so a value no read can serialize cannot be written |
 
 ## Calling with a key
 

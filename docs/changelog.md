@@ -728,6 +728,12 @@ matrix. The round that followed fixed what a re-review of the refactor found.
 - **A credential the API throttle cannot resolve now spends the budget its address would have
   spent carrying none.** A junk `X-API-Key` or bearer token used to answer `401` as often as it was
   sent, unmetered, while the same requests without a header were throttled after the limit.
+- **`key_metadata` is capped at 16 levels of nesting and 8 KB stored**, on a create and on a
+  `PATCH`, and anything past either answers `422`. A value nested deeper was accepted and then made
+  every validated read of that key answer `500` (the listing, the single key and the summary), with
+  no way to edit the row back through the API; a 5 MB value was accepted as well. The depth is read
+  without recursion and before anything serializes the value, since serializing is what used to
+  raise.
 - **`scripts/unlock_account.py` clears the login lockout one account is held in.** The
   per-identifier half of the lockout counts failures from every address and applies before the
   password is checked, so anybody who knows a username can keep that account out, and nothing but

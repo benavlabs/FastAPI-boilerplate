@@ -11,6 +11,11 @@ SURROGATE = "\\ud800"
 NUL = "\\u0000"
 
 
+def _nested(levels: int) -> str:
+    """A ``key_metadata`` value nested ``levels`` deep, as a client would send it."""
+    return '{"a": ' * levels + "1" + "}" * levels
+
+
 async def _create(auth_client: AsyncClient, body: str) -> Any:
     return await auth_client.post("/api/v1/api-keys/", content=body, headers={"Content-Type": "application/json"})
 
@@ -86,3 +91,51 @@ class TestTextTheDatabaseCannotStore:
 
         assert response.status_code == 201
         assert response.json()["name"] == "Fine"
+
+
+class TestMetadataTooLargeToStore:
+    """``key_metadata`` is the client's to shape, so its depth and its size are capped."""
+
+    async def test_a_value_nested_past_the_cap_on_create(self, auth_client: AsyncClient):
+        response = await _create(auth_client, '{"name": "Deep", "key_metadata": ' + _nested(17) + "}")
+
+        assert response.status_code == 422
+
+    async def test_a_value_nested_deep_enough_to_exhaust_the_stack(self, auth_client: AsyncClient):
+        """The depth is read before anything serializes it, or this raises where nothing refuses."""
+        response = await _create(auth_client, '{"name": "Deeper", "key_metadata": ' + _nested(300) + "}")
+
+        assert response.status_code == 422
+        assert (await auth_client.get("/api/v1/api-keys/")).status_code == 200
+
+    async def test_a_value_too_large_to_store_on_create(self, auth_client: AsyncClient):
+        response = await _create(auth_client, '{"name": "Big", "key_metadata": {"a": "' + "x" * 9000 + '"}}')
+
+        assert response.status_code == 422
+
+    async def test_a_value_nested_past_the_cap_on_an_update(self, auth_client: AsyncClient):
+        created = await _create(auth_client, '{"name": "Patched"}')
+        assert created.status_code == 201
+
+        response = await auth_client.patch(
+            f"/api/v1/api-keys/{created.json()['id']}",
+            content='{"key_metadata": ' + _nested(17) + "}",
+            headers={"Content-Type": "application/json"},
+        )
+
+        assert response.status_code == 422
+
+    async def test_non_ascii_text_under_the_cap_is_accepted(self, auth_client: AsyncClient):
+        """Counted escaped, these 3,000 characters read as 18,009 bytes and would be refused."""
+        response = await _create(auth_client, '{"name": "Accented", "key_metadata": {"a": "' + "é" * 3000 + '"}}')
+
+        assert response.status_code == 201
+
+    async def test_metadata_the_project_stores_is_accepted_and_listable(self, auth_client: AsyncClient):
+        """The control: what the caps allow is written and read back."""
+        response = await _create(auth_client, '{"name": "Held", "key_metadata": ' + _nested(16) + "}")
+
+        assert response.status_code == 201
+        listed = await auth_client.get("/api/v1/api-keys/")
+        assert listed.status_code == 200
+        assert [entry["name"] for entry in listed.json()["data"]] == ["Held"]
