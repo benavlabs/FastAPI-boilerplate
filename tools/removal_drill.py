@@ -41,7 +41,9 @@ FEATURES: dict[str, Feature] = {
             "backend/src/modules/user",
             "backend/scripts/create_first_superuser.py",
             "backend/scripts/canonicalize_emails.py",
+            "backend/scripts/unlock_account.py",
             "backend/tests/unit/scripts/test_create_first_superuser.py",
+            "backend/tests/unit/scripts/test_unlock_account.py",
             "backend/tests/unit/scripts/test_setup_initial_data.py",
             "backend/tests/unit/scripts/test_canonicalize_emails.py",
             "backend/tests/fixtures/accounts.py",
@@ -385,12 +387,9 @@ def _wiring_hooks(chosen: set[str]) -> str:
 
 def _wiring_tasks(chosen: set[str]) -> str:
     """The modules whose background tasks the worker registers."""
-    modules = ('("src.infrastructure.taskiq.email",)' if {"accounts", "taskiq"} <= chosen else "()")
+    modules = '("src.infrastructure.taskiq.email",)' if {"accounts", "taskiq"} <= chosen else "()"
 
-    return (
-        '"""The modules whose background tasks the worker registers."""\n\n'
-        f"TASK_MODULES: tuple[str, ...] = {modules}\n"
-    )
+    return f'"""The modules whose background tasks the worker registers."""\n\nTASK_MODULES: tuple[str, ...] = {modules}\n'
 
 
 def _wiring_email(chosen: set[str]) -> str:

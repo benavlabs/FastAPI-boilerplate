@@ -728,6 +728,15 @@ matrix. The round that followed fixed what a re-review of the refactor found.
 - **A credential the API throttle cannot resolve now spends the budget its address would have
   spent carrying none.** A junk `X-API-Key` or bearer token used to answer `401` as often as it was
   sent, unmetered, while the same requests without a header were throttled after the limit.
+- **`scripts/unlock_account.py` clears the login lockout one account is held in.** The
+  per-identifier half of the lockout counts failures from every address and applies before the
+  password is checked, so anybody who knows a username can keep that account out, and nothing but
+  time cleared it. The script takes a username or an address, clears the count, the lock and the
+  escalation rounds under both of the account's identifiers, and leaves the counters of the
+  addresses those failures came from alone. It reads the lock back afterwards and exits non-zero
+  while the limiter still holds it or cannot be reached, so a run that reports success is one the
+  account can sign in after.
+  [Login lockout](user-guide/authentication/index.md#login-lockout) documents the trade-off.
 - **`POST /api/v1/auth/email/change-request` now counts against the account's change-password
   budget**, 5 an hour and shared with `POST /api/v1/auth/change-password`, correct passwords
   included. crudauth caps that route per client address only, and the password it checks feeds no

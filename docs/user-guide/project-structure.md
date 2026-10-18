@@ -35,7 +35,8 @@ backend/
 │   ├── create_first_tier.py
 │   ├── create_tables.py
 │   ├── seeders.py            # The seeders the selected features contribute
-│   └── setup_initial_data.py
+│   ├── setup_initial_data.py
+│   └── unlock_account.py
 ├── src/                      # Application source (the three layers below)
 └── tests/                    # Test suite (unit + integration)
 ```
@@ -196,7 +197,8 @@ scripts/
 ├── create_first_tier.py      # Just the default tier
 ├── create_tables.py          # Just the database tables
 ├── cleanup_api_key_json.py   # One-off repair for legacy API key rows
-└── canonicalize_emails.py    # One-off repair for addresses stored with case or spaces
+├── canonicalize_emails.py    # One-off repair for addresses stored with case or spaces
+└── unlock_account.py         # Clears the login lockout one account is held in
 ```
 
 The most common entry point is `setup_initial_data` which calls all three.

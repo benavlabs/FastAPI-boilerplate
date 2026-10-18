@@ -270,6 +270,32 @@ curl -X POST http://localhost:8000/api/v1/auth/password/reset-confirm \
 
 `crudauth` throttles the login endpoint internally with an escalating per-IP / per-identifier lockout, whose thresholds are the `LOGIN_*` settings ([Authentication & Security](../configuration/environment-variables.md#authentication--security)). When the limit is hit, `POST /api/v1/auth/login` returns `429 Too Many Requests` with a `Retry-After` header telling the client how long to wait. Behind a reverse proxy, set `TRUSTED_PROXY_HOPS` so the lockout keys on the real client IP rather than the proxy's.
 
+The per-identifier half counts failures from every address and applies before the password is
+checked, so anybody who knows a username, an admin's included, can keep that account out by failing
+`LOGIN_MAX_ATTEMPTS` logins against it from as many addresses as they like. That is the trade-off of
+locking per account rather than per address only: without it, a spray from a botnet gets
+`LOGIN_MAX_ATTEMPTS` guesses per address against every account it knows. The cost is an availability
+lever for anyone holding an identifier.
+
+Two things take the edge off. The lock expires on its own, starting at `LOGIN_LOCKOUT_BASE_SECONDS`
+and doubling each round up to `LOGIN_LOCKOUT_MAX_SECONDS`. And an operator can clear one account's
+lock without waiting for it:
+
+```bash
+uv run --no-sync python scripts/unlock_account.py <username-or-email>
+```
+
+That clears the failure count, the lock and the escalation rounds held under the account's username
+and under its address, since a login submits either and the lock may be under the one its owner
+never types. The counters of the addresses those failures came from are left alone: they belong to
+whoever filled them. The counters live in the limiter, so the script reaches a running API only
+while the limiter is shared (`RATE_LIMITER_BACKEND=redis`, or the database store); with `memory`
+each worker holds its own and a restart is what clears them.
+
+The script reads the lock back after clearing it and exits non-zero if the limiter still holds it or
+cannot be reached, because the clear itself logs a backend failure and carries on. So a run that
+exits `0` is one where the account can sign in again.
+
 ## Authentication Patterns
 
 All auth deps live in `src/infrastructure/auth/dependencies.py` (they wrap the `crudauth` `auth` singleton).
