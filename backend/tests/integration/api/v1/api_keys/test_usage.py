@@ -1,6 +1,8 @@
 """What a key-authenticated request records, and what its usage limits refuse."""
 
+import logging
 import time
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
@@ -10,11 +12,11 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 import src.modules.api_keys.usage as usage_module
 from src.infrastructure.auth.setup import auth as crud_auth
-from src.modules.api_keys.limits import WINDOWS, counter_key
+from src.modules.api_keys.limits import WINDOWS, counter_key, refusal_key
 from src.modules.api_keys.models import APIKey, KeyUsage
-from src.modules.api_keys.schemas import APIKeyCreate
+from src.modules.api_keys.schemas import APIKeyCreate, KeyUsageCreate
 from src.modules.api_keys.service import APIKeyService
-from src.modules.api_keys.transport import API_KEY_HEADER
+from src.modules.api_keys.transport import API_KEY_HEADER, UsedKey
 from src.modules.user.models import User
 from src.modules.user.service import UserService
 
@@ -56,7 +58,7 @@ COUNTED_IDS = range(1, 11)
 
 
 async def _empty_the_windows() -> None:
-    """Clear every window a key in this file could be counted under, current one included.
+    """Clear every window a key in this file counts under, the refusals it records included.
 
     ``increment_and_check`` counts under a window-stamped key, so resetting the bare key
     would leave the live window untouched and carry a filled budget into the next test.
@@ -68,14 +70,31 @@ async def _empty_the_windows() -> None:
     now = int(time.time())
     for api_key_id in COUNTED_IDS:
         for window, seconds in WINDOWS.items():
-            key = counter_key(api_key_id, window)
-            await limiter.reset(key)
-            await limiter.reset(f"{key}:{now - now % seconds}")
+            for key in (counter_key(api_key_id, window), refusal_key(api_key_id, window)):
+                await limiter.reset(key)
+                await limiter.reset(f"{key}:{now - now % seconds}")
 
 
 @pytest.fixture(autouse=True)
 async def clear_counters():
     """The limiter counts in this process for the whole run, so each test starts clean."""
+    await _empty_the_windows()
+
+    yield
+
+    await _empty_the_windows()
+
+
+@pytest.fixture
+async def a_window_that_cannot_roll(monkeypatch):
+    """The minute window, counted over a day instead, for a test that spans requests.
+
+    A window is fixed and aligned to the clock, so a minute boundary landing between two
+    of a test's requests rolls the counters and makes the next refusal the first one its
+    window has seen. The counters are emptied under this window on the way in and out, so
+    nothing it counted is left for the test after it.
+    """
+    monkeypatch.setitem(WINDOWS, "requests_per_minute", WINDOWS["requests_per_day"])
     await _empty_the_windows()
 
     yield
@@ -166,6 +185,25 @@ class TestWhenTheKeyWasLastUsed:
         await db_session.refresh(stored)
         assert stored.last_used_at is not None
         assert stored.last_used_ip == "127.0.0.1"
+
+
+class TestWhatTheRecorderIsHandedForTheStamp:
+    """``record`` is handed the time the request arrived, and stamps the key with that one."""
+
+    async def test_the_time_it_is_handed_is_the_time_the_key_is_stamped_with(self, db_session: AsyncSession, test_user: dict):
+        """Reading the clock here instead would stamp the key with when the write landed."""
+        key = await _key(db_session, test_user["id"])
+        arrived = datetime.now(UTC) - timedelta(minutes=1)
+        usage = KeyUsageCreate(api_key_id=key["id"], user_id=test_user["id"], endpoint=READABLE, method="GET", status_code=200)
+
+        await usage_module.record(UsedKey(key["id"], test_user["id"], "203.0.113.7"), usage, arrived)
+
+        stamped = await db_session.get_one(APIKey, key["id"])
+        await db_session.refresh(stamped)
+
+        assert stamped.last_used_at == arrived
+        assert stamped.last_used_ip == "203.0.113.7"
+        assert [row.status_code for row in await _rows(db_session, key["id"])] == [200]
 
 
 class TestARowForEveryAnswer:
@@ -334,11 +372,72 @@ class TestTheUsageLimits:
 
         assert answers == [200, 200, 200]
 
-    async def test_the_refusal_is_recorded_as_well(self, client: AsyncClient, db_session: AsyncSession, test_user: dict):
-        """A key that spends its window on refusals can see that it did."""
+    async def test_a_window_records_its_first_refusal_and_not_the_rest(
+        self, client: AsyncClient, db_session: AsyncSession, test_user: dict, a_window_that_cannot_roll
+    ):
+        """A key that spends its window on refusals can see that it did, for one row a window.
+
+        Recording each of them would make a refused request the most expensive one the key
+        makes: a row and a stamp for a request the limiter already turned away.
+        """
+        key = await _key(db_session, test_user["id"], usage_limits={"requests_per_minute": 1})
+
+        answers = [(await client.get(READABLE, headers=_with(key))).status_code for _ in range(5)]
+
+        assert answers == [200, 429, 429, 429, 429]
+        assert [row.status_code for row in await _rows(db_session, key["id"])] == [200, 429]
+
+    async def test_the_refusals_it_does_not_record_leave_the_stamp_alone(
+        self, client: AsyncClient, db_session: AsyncSession, test_user: dict, a_window_that_cannot_roll
+    ):
+        """A refusal that writes no row writes no stamp either: the recorder never runs."""
         key = await _key(db_session, test_user["id"], usage_limits={"requests_per_minute": 1})
         await client.get(READABLE, headers=_with(key))
+        await client.get(READABLE, headers=_with(key))
+        stamped = await db_session.get_one(APIKey, key["id"])
+        await db_session.refresh(stamped)
+        recorded = stamped.last_used_at
 
         await client.get(READABLE, headers=_with(key))
 
-        assert [row.status_code for row in await _rows(db_session, key["id"])] == [200, 429]
+        await db_session.refresh(stamped)
+        assert stamped.last_used_at == recorded
+
+
+class TestWhenOneOfTheTwoWritesFails:
+    """The stamp and the row are written on their own, so one of them failing keeps the other."""
+
+    async def test_the_row_is_written_when_the_stamp_fails(
+        self, client: AsyncClient, db_session: AsyncSession, test_user: dict, monkeypatch, caplog
+    ):
+        async def unreachable(*args: Any, **kwargs: Any) -> None:
+            raise RuntimeError("the stamp went nowhere")
+
+        monkeypatch.setattr(APIKeyService, "note_use", unreachable)
+        key = await _key(db_session, test_user["id"])
+
+        with caplog.at_level(logging.ERROR):
+            answered = await client.get(READABLE, headers=_with(key))
+
+        assert answered.status_code == 200
+        assert [row.status_code for row in await _rows(db_session, key["id"])] == [200]
+        assert f"Could not stamp API key {key['id']} as used" in caplog.text
+
+    async def test_the_key_is_stamped_when_the_row_fails(
+        self, client: AsyncClient, db_session: AsyncSession, test_user: dict, monkeypatch, caplog
+    ):
+        async def unreachable(*args: Any, **kwargs: Any) -> None:
+            raise RuntimeError("the row went nowhere")
+
+        monkeypatch.setattr(APIKeyService, "record_usage", unreachable)
+        key = await _key(db_session, test_user["id"])
+
+        with caplog.at_level(logging.ERROR):
+            answered = await client.get(READABLE, headers=_with(key))
+
+        assert answered.status_code == 200
+        assert await _rows(db_session, key["id"]) == []
+        stamped = await db_session.get_one(APIKey, key["id"])
+        await db_session.refresh(stamped)
+        assert stamped.last_used_at is not None
+        assert f"Could not record usage for API key {key['id']}" in caplog.text

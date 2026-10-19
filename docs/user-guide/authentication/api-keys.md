@@ -142,7 +142,8 @@ runs.
 
 ## What a key's usage records
 
-Every request a key authenticates writes one row:
+Every request a key authenticates writes one row, and so does the first refusal each of its
+windows answers:
 
 ```bash
 curl http://localhost:8000/api/v1/api-keys/1/usage -b cookies.txt
@@ -151,9 +152,11 @@ curl http://localhost:8000/api/v1/api-keys/summary/user -b cookies.txt
 ```
 
 The row carries the path, the method, the status the client actually got, how long the request took,
-the address and the user agent. Refusals are recorded too — the `429`s from the key's own limits and
-the `500`s from a route that raised — so an owner can see a key being throttled or failing. A
-session request records nothing.
+the address and the user agent. Refusals are recorded too, so an owner can see a key being throttled
+or failing: every `500` from a route that raised, and the first `429` each window answers from the
+key's own limits. The refusals after that one are answered and counted but not written, so a client
+holding a key at its limit costs the limiter alone rather than a row and a stamp for every request
+it makes. A session request records nothing.
 
 A request a route refuses *before* the key is authenticated is the exception: the session-only
 routes try the session transport alone, so nothing there resolves the key, and whether such a
@@ -165,6 +168,11 @@ The write runs as a background task after the response, so no client waits for i
 stamps `last_used_at` and `last_used_ip` on the key. Authenticating a request therefore writes
 nothing itself. "Last used" trails by however long that task takes, and a process that dies before
 it runs doesn't record that request at all.
+
+The stamp and the row are two writes taken one at a time, so one of them failing leaves the other
+written, with the failure logged. `last_used_at` is when the request arrived, not when its write
+landed, and a key already stamped later than that keeps the stamp it has. So of two requests whose
+writes land out of order, the key names the later request, time and address together.
 
 Both the row and the key record the address the trusted-proxy boundary resolved
 (`TRUSTED_PROXY_HOPS`), not the socket's, so a deployment behind a proxy records its clients rather

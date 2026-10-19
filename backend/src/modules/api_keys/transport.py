@@ -9,7 +9,7 @@ from crudauth.utils import get_client_ip
 from starlette.requests import Request
 
 from ...infrastructure.auth.scope import SCOPE_OWNER_IS_SUPERUSER
-from .limits import WINDOWS, countable, counter_key
+from .limits import REFUSALS_RECORDED_PER_WINDOW, WINDOWS, countable, counter_key, refusal_key
 from .service import APIKeyService
 
 API_KEY_HEADER = "X-API-Key"
@@ -18,6 +18,13 @@ TRANSPORT_NAME = "apikey"
 INVALID_KEY = "Invalid API key"
 RECOVERED_ACCOUNT = "This API key was issued before the account was recovered."
 OVER_THE_LIMIT = "This API key has made too many requests."
+
+
+class Refusal(NamedTuple):
+    """A request one of a key's windows turned away, and whether it is the one recorded."""
+
+    retry_after: int
+    recorded: bool
 
 
 class UsedKey(NamedTuple):
@@ -61,8 +68,9 @@ class APIKeyTransport(Transport):
     with it. Ending sessions does not: a key holds none.
 
     A key over one of its ``usage_limits`` answers 429 here rather than at a route, so
-    every route a key can reach is covered, throttled or not. The request is stamped with
-    the key before that refusal, so the usage recorder sees the refusal as well.
+    every route a key can reach is covered, throttled or not. The first refusal a window
+    answers is stamped with the key, so the usage recorder writes it; the rest are stamped
+    with nothing, and a key held at its limit costs the limiter alone.
     """
 
     name = TRANSPORT_NAME
@@ -84,10 +92,14 @@ class APIKeyTransport(Transport):
         if validated.owner_token_version != ctx.repo.token_version(owner):
             raise UnauthorizedException(RECOVERED_ACCOUNT)
 
-        request.state.api_key_id = validated.api_key_id
-        request.state.api_key_user_id = validated.user_id
-        request.state.api_key_client_ip = get_client_ip(request, ctx.runtime.trusted_proxy_hops)
-        await self._refuse_over_the_limit(validated.api_key_id, validated.usage_limits or {}, ctx)
+        refusal = await self._refusal(validated.api_key_id, validated.usage_limits or {}, ctx)
+        if refusal is None or refusal.recorded:
+            request.state.api_key_id = validated.api_key_id
+            request.state.api_key_user_id = validated.user_id
+            request.state.api_key_client_ip = get_client_ip(request, ctx.runtime.trusted_proxy_hops)
+
+        if refusal is not None:
+            raise RateLimitException(OVER_THE_LIMIT, retry_after=refusal.retry_after)
 
         principal = ctx.build_principal(
             user_id=ctx.repo.user_id(owner),
@@ -102,23 +114,33 @@ class APIKeyTransport(Transport):
 
         return replace(principal, is_superuser=False)
 
-    async def _refuse_over_the_limit(self, api_key_id: int | None, limits: dict[str, int], ctx: AuthContext) -> None:
-        """Count this request against each window the key carries, refusing one it fills.
+    async def _refusal(self, api_key_id: int | None, limits: dict[str, int], ctx: AuthContext) -> Refusal | None:
+        """Count this request against each window the key carries, naming one it fills.
 
         Counting fails open: a limiter that can't be reached must not take the API down
         with it, the way the login lockout deliberately fails closed. A stored limit
         naming a window nothing counts is skipped rather than raised over.
 
-        Raises:
-            RateLimitException: A window is full, with the seconds until it rolls.
+        A window's refusals are counted of their own, and the first of them is the one the
+        recorder is given, so a key held at its limit writes a row a window rather than a
+        row a request.
+
+        Returns:
+            The window's refusal, or ``None`` where the request filled no window.
         """
         limiter = ctx.runtime.rate_limiter
         if api_key_id is None or limiter is None or not limits:
-            return
+            return None
 
         for window, allowed in countable(limits).items():
             _, over, retry_after = await limiter.increment_and_check(
                 counter_key(api_key_id, window), allowed, WINDOWS[window], fail_open=True
             )
             if over:
-                raise RateLimitException(OVER_THE_LIMIT, retry_after=retry_after)
+                _, already, _ = await limiter.increment_and_check(
+                    refusal_key(api_key_id, window), REFUSALS_RECORDED_PER_WINDOW, WINDOWS[window], fail_open=True
+                )
+
+                return Refusal(retry_after, not already)
+
+        return None

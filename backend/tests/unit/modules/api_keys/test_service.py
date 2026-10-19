@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import select, update
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.modules.api_keys.crud import crud_api_keys
@@ -757,3 +757,57 @@ async def test_keys_created_at_the_same_moment_keep_a_stable_order(api_key_servi
 
     assert ids == sorted(ids, reverse=True)
     assert len(set(ids)) == 3
+
+
+class TestTheStampOnAKey:
+    """``note_use``: the time a request arrived and the address it came from."""
+
+    WRITTEN_LONG_AGO = datetime(2020, 1, 1, tzinfo=UTC)
+
+    async def _stamped(self, db_session: AsyncSession, key_id: int) -> APIKey:
+        stored = await db_session.get_one(APIKey, key_id)
+        await db_session.refresh(stored)
+
+        return stored
+
+    async def test_it_stamps_the_time_the_request_arrived_not_the_time_of_the_write(
+        self, api_key_service, db_session: AsyncSession, test_api_key
+    ):
+        """The write runs after the response, so the two are a request's length apart."""
+        arrived = datetime.now(UTC) - timedelta(minutes=1)
+        await db_session.execute(update(APIKey).where(APIKey.id == test_api_key["id"]).values(updated_at=self.WRITTEN_LONG_AGO))
+        await db_session.commit()
+
+        await api_key_service.note_use(api_key_id=test_api_key["id"], used_from="203.0.113.7", used_at=arrived, db=db_session)
+
+        stamped = await self._stamped(db_session, test_api_key["id"])
+
+        assert stamped.last_used_at == arrived
+        assert stamped.last_used_ip == "203.0.113.7"
+        assert stamped.updated_at is not None and stamped.updated_at > arrived
+
+    async def test_the_write_that_lands_late_leaves_the_later_request_stamped(
+        self, api_key_service, db_session: AsyncSession, test_api_key
+    ):
+        """Each request writes from a session of its own, so the last to land may be the older."""
+        earlier = datetime.now(UTC) - timedelta(minutes=1)
+        later = datetime.now(UTC)
+
+        await api_key_service.note_use(api_key_id=test_api_key["id"], used_from="198.51.100.4", used_at=later, db=db_session)
+        await api_key_service.note_use(api_key_id=test_api_key["id"], used_from="203.0.113.7", used_at=earlier, db=db_session)
+
+        stamped = await self._stamped(db_session, test_api_key["id"])
+
+        assert stamped.last_used_at == later
+        assert stamped.last_used_ip == "198.51.100.4"
+
+    async def test_a_key_that_is_gone_is_stamped_with_nothing(self, api_key_service, db_session: AsyncSession, test_api_key):
+        """A key can be revoked and deleted between the response and this write."""
+        await db_session.execute(delete(APIKey).where(APIKey.id == test_api_key["id"]))
+        await db_session.commit()
+
+        await api_key_service.note_use(
+            api_key_id=test_api_key["id"], used_from="203.0.113.7", used_at=datetime.now(UTC), db=db_session
+        )
+
+        assert await db_session.get(APIKey, test_api_key["id"]) is None

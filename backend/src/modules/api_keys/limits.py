@@ -11,6 +11,9 @@ WINDOWS: dict[str, int] = {
 
 COUNTER_PREFIX = "api_key"
 
+REFUSALS_RECORDED_PER_WINDOW = 1
+"""How many of the refusals a window answers are written as a usage row."""
+
 
 def validated_limits(limits: dict[str, Any]) -> dict[str, int]:
     """``limits`` with every value read as a positive count of requests.
@@ -47,3 +50,8 @@ def countable(limits: dict[str, Any]) -> dict[str, int]:
 def counter_key(api_key_id: int, window: str) -> str:
     """The limiter key a key's window counts under."""
     return f"{COUNTER_PREFIX}:{api_key_id}:{window}"
+
+
+def refusal_key(api_key_id: int, window: str) -> str:
+    """The limiter key the refusals recorded for a window count under."""
+    return f"{counter_key(api_key_id, window)}:refused"

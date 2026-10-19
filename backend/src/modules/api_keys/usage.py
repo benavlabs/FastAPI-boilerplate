@@ -2,6 +2,7 @@
 
 import ipaddress
 import time
+from datetime import UTC, datetime
 
 from starlette.background import BackgroundTask
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
@@ -33,37 +34,56 @@ def _address(resolved: str | None) -> str | None:
     return resolved
 
 
-async def record(used: UsedKey, usage: KeyUsageCreate) -> None:
-    """Stamp the key as used and write one usage row, through a session of its own.
+async def record(used: UsedKey, usage: KeyUsageCreate, used_at: datetime) -> None:
+    """Stamp the key as used and write one usage row, each through a session of its own.
 
     The request's session is closed by the time this runs, and a failure here is logged
     rather than raised: the response has already gone out, and losing a usage row must
-    not look like a failed request.
+    not look like a failed request. The two writes are taken one at a time, so one of
+    them failing still leaves the other written.
+
+    ``used_at`` is when the request arrived, which is what the key is stamped with.
     """
+    await _stamp_the_key(used, used_at)
+    await _write_the_usage_row(used, usage)
+
+
+async def _stamp_the_key(used: UsedKey, used_at: datetime) -> None:
+    """Stamp the key with the time the request arrived and the address it came from."""
     try:
         async with local_session() as db:
-            service = APIKeyService()
-            await service.note_use(api_key_id=used.api_key_id, used_from=used.client_ip, db=db)
-            await service.record_usage(api_key_id=used.api_key_id, user_id=used.owner_id, usage_data=usage, db=db)
+            await APIKeyService().note_use(api_key_id=used.api_key_id, used_from=used.client_ip, used_at=used_at, db=db)
+    except Exception:
+        logger.exception(f"Could not stamp API key {used.api_key_id} as used")
+
+
+async def _write_the_usage_row(used: UsedKey, usage: KeyUsageCreate) -> None:
+    """Write the row this request became."""
+    try:
+        async with local_session() as db:
+            await APIKeyService().record_usage(api_key_id=used.api_key_id, user_id=used.owner_id, usage_data=usage, db=db)
     except Exception:
         logger.exception(f"Could not record usage for API key {used.api_key_id}")
 
 
 class KeyUsageMiddleware(BaseHTTPMiddleware):
-    """Attaches a usage row to every response a key authenticated.
+    """Attaches a usage row to every response the transport stamped with a key.
 
     The write runs as the response's background task, so the client waits for none of
-    it, and a request that carried no key is stamped with nothing and recorded as
-    nothing. It carries the address the transport resolved, not the socket's, so a row
-    behind a proxy names the client rather than the proxy, and anything that is not an
-    address is recorded as none.
+    it, and a request that carried no key, or that a filled window refused and recorded
+    already, is stamped with nothing and recorded as nothing. The key is stamped with the
+    time the request arrived, read here rather than where the write lands. The address is
+    the one the transport resolved, not the socket's, so a row behind a proxy names the
+    client rather than the proxy, and anything that is not an address is recorded as none.
 
     A row the schema refuses is logged and dropped, so the client keeps the status the
-    handler gave it.
+    handler gave it. A task the route set runs as well: that one belongs to the route's
+    own response, which this middleware's response streams rather than replaces.
     """
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         started = time.perf_counter()
+        arrived = datetime.now(UTC)
         response = await call_next(request)
         used = used_key(request)
         if used is None:
@@ -86,6 +106,6 @@ class KeyUsageMiddleware(BaseHTTPMiddleware):
 
             return response
 
-        response.background = BackgroundTask(record, recorded, usage)
+        response.background = BackgroundTask(record, recorded, usage, arrived)
 
         return response

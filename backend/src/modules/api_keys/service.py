@@ -11,7 +11,7 @@ from typing import Any
 import anyio
 import pydantic
 from fastcrud.types import GetMultiResponseDict
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...infrastructure.logging import get_logger
@@ -427,13 +427,20 @@ class APIKeyService:
 
         return None
 
-    async def note_use(self, api_key_id: int, used_from: str | None, db: AsyncSession) -> None:
-        """Stamp a key with the time and address of the request that just used it."""
-        await crud_api_keys.update(
-            db=db,
-            object={"last_used_at": datetime.now(UTC), "last_used_ip": used_from},
-            id=api_key_id,
+    async def note_use(self, api_key_id: int, used_from: str | None, used_at: datetime, db: AsyncSession) -> None:
+        """Stamp a key with the time a request arrived and the address it came from.
+
+        ``used_at`` is that time, not the moment this write lands, and a key already
+        stamped later than it keeps the stamp it has. So of two requests whose writes land
+        out of order, the later request is the one the key names, time and address
+        together, and a key that is gone is stamped with nothing.
+        """
+        await db.execute(
+            update(APIKey)
+            .where(APIKey.id == api_key_id, or_(APIKey.last_used_at.is_(None), APIKey.last_used_at < used_at))
+            .values(last_used_at=used_at, last_used_ip=used_from, updated_at=datetime.now(UTC))
         )
+        await db.commit()
 
     async def record_usage(
         self,

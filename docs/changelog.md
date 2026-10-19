@@ -728,6 +728,15 @@ matrix. The round that followed fixed what a re-review of the refactor found.
 - **A credential the API throttle cannot resolve now spends the budget its address would have
   spent carrying none.** A junk `X-API-Key` or bearer token used to answer `401` as often as it was
   sent, unmetered, while the same requests without a header were throttled after the limit.
+- **A key held at its limit records one refused request a window, not all of them.** Every `429` a
+  key's own `usage_limits` answered used to write a usage row and stamp `last_used_at`, which made a
+  refused request the most expensive one a key could make: five requests against
+  `{"requests_per_minute": 1}` left five rows and five updates. The first refusal each window
+  answers is still recorded, so an owner can still see a key being throttled, and the rest cost the
+  limiter alone. `last_used_at` is the time the request arrived rather than the time its write
+  landed, and a key stamped later than that keeps what it has, so of two requests whose writes land
+  out of order the key names the later one, its address included. The stamp and the row are also
+  written separately now, so one of them failing no longer takes the other with it.
 - **Key usage rows are kept for `KEY_USAGE_RETENTION_DAYS` days, 90 by default, and pruned after
   that.** One row per key-authenticated request carries the caller's address and user agent, and
   nothing used to delete any of them. `0` keeps every row. With the taskiq feature the prune is a
