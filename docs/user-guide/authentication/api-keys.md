@@ -173,6 +173,41 @@ it is one the column holds: anything else, and a request with no address at all,
 nothing. A row the usage schema refuses is logged and dropped, so a request keeps the status its
 handler gave it.
 
+## How long the usage rows are kept
+
+`KEY_USAGE_RETENTION_DAYS` (default 90) says how many days of rows to keep. Each row carries the
+caller's address and user agent, one row per request, so the table holds personal data at request
+volume. `0` keeps every row and prunes nothing, and a value below `0` is refused as the settings
+load.
+
+The rate limiter counts in its own store and reads none of these rows, so pruning changes nothing
+about what a key is allowed. The analytics routes read no further back than what is kept (`days` is
+capped at the retention, and at 365 where nothing is pruned), and `total_requests` and
+`total_cost_microcents` in the user summary are totals over that window rather than over the key's
+life. A project that bills from these rows has to aggregate them somewhere of its own before they
+are pruned; the boilerplate doesn't bill. A key's own `last_used_at` and `last_used_ip` are stamped
+on the key, not read from these rows, so they survive every prune.
+
+With the taskiq feature the prune is a scheduled task, `api_keys:prune_usage`, which the scheduler
+enqueues at 03:00 UTC:
+
+```sh
+cd backend
+uv run --no-sync taskiq scheduler src.infrastructure.taskiq.scheduler:scheduler
+```
+
+Nothing is pruned unless that scheduler runs next to a worker. Without the taskiq feature, the same
+prune is a script for a system cron:
+
+```bash
+cd backend
+python scripts/prune_key_usage.py
+```
+
+Either way it deletes 10,000 rows per statement, committing each batch, and logs how many rows it
+deleted in all. With a retention of `0` the task returns without reading a row and the script says
+nothing is configured to prune.
+
 ## Revoking, expiring and rotating
 
 ```bash
@@ -249,6 +284,9 @@ that the header is expected.
 | Service (minting, validation, usage) | `backend/src/modules/api_keys/service.py` |
 | Usage recorder (middleware) | `backend/src/modules/api_keys/usage.py` |
 | Limit windows | `backend/src/modules/api_keys/limits.py` |
+| Retention and pruning | `backend/src/modules/api_keys/retention.py` |
+| Scheduled prune (with taskiq) | `backend/src/modules/api_keys/tasks.py` |
+| Prune script (without taskiq) | `backend/scripts/prune_key_usage.py` |
 | Routes | `backend/src/modules/api_keys/routes.py` |
 | Models (`APIKey`, `KeyUsage`) | `backend/src/modules/api_keys/models.py` |
 | Transport registration | `backend/src/wiring/transports.py` |

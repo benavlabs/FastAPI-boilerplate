@@ -71,6 +71,7 @@ The actual classes that ship with the boilerplate, all in `src/infrastructure/co
 | `SecuritySettings` | `SECRET_KEY`, `PRODUCTION_SECURITY_VALIDATION_ENABLED`, `SECURITY_HEADERS_ENABLED` |
 | `LoggingSettings` | All `LOG_*` |
 | `TaskiqSettings` | `TASKIQ_*` (Redis + RabbitMQ + worker tuning) |
+| `APIKeySettings` | `KEY_USAGE_RETENTION_DAYS` |
 
 ## Anatomy of a Settings Group
 

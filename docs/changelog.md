@@ -728,6 +728,18 @@ matrix. The round that followed fixed what a re-review of the refactor found.
 - **A credential the API throttle cannot resolve now spends the budget its address would have
   spent carrying none.** A junk `X-API-Key` or bearer token used to answer `401` as often as it was
   sent, unmetered, while the same requests without a header were throttled after the limit.
+- **Key usage rows are kept for `KEY_USAGE_RETENTION_DAYS` days, 90 by default, and pruned after
+  that.** One row per key-authenticated request carries the caller's address and user agent, and
+  nothing used to delete any of them. `0` keeps every row. With the taskiq feature the prune is a
+  scheduled task (`api_keys:prune_usage`, 03:00 UTC, so it needs a scheduler running); without it,
+  `scripts/prune_key_usage.py` does the same from a system cron. The analytics `days` is read down
+  to the retained window, and the user summary's `total_requests` and `total_cost_microcents` are
+  totals over that window rather than over a key's life, so a project billing from these rows has to
+  aggregate them before they are pruned. `key_usage` gained an index on `created_at` for the cutoff.
+- **`src/modules/api_keys/__init__.py` exports nothing any more.** Import from the submodules
+  (`.models`, `.schemas`, `.service`, `.retention`, `.settings`), as the tier module already does:
+  the feature's settings mixin is imported while the settings compose, and a package init that
+  reaches app code closes that circle.
 - **`key_metadata` is capped at 16 levels of nesting and 8 KB stored**, on a create and on a
   `PATCH`, and anything past either answers `422`. A value nested deeper was accepted and then made
   every validated read of that key answer `500` (the listing, the single key and the summary), with

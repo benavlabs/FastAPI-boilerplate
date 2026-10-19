@@ -65,4 +65,5 @@ class KeyUsage(Base, TimestampMixin):
         Index("idx_key_usage_user_created", "user_id", "created_at"),
         Index("idx_key_usage_endpoint", "endpoint"),
         Index("idx_key_usage_status", "status_code"),
+        Index("idx_key_usage_created", "created_at"),
     )

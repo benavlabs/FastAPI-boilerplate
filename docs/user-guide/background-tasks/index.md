@@ -32,7 +32,11 @@ backend/src/infrastructure/taskiq/
 └── worker.py          Worker entry point: registers the handlers on `default_broker`
 ```
 
-One task ships: `email:send`, which delivers the account emails (`infrastructure/taskiq/email.py`), so no request waits on a mail server. Beyond it the infrastructure is wired up and the task modules are yours to add.
+Two tasks ship. `email:send` delivers the account emails (`infrastructure/taskiq/email.py`), so no
+request waits on a mail server. `api_keys:prune_usage` deletes the key usage rows past
+`KEY_USAGE_RETENTION_DAYS` (`modules/api_keys/tasks.py`), on a schedule of its own, and ships with
+the api_keys feature. Beyond them the infrastructure is wired up and the task modules are yours to
+add.
 
 ## Configuration
 
@@ -104,23 +108,22 @@ A few things worth knowing:
 
 ### Importing Tasks for Discovery
 
-The Taskiq worker only knows about tasks whose modules have been imported. Import every task module
-from the worker entry point, `src/infrastructure/taskiq/worker.py` — the package's `__init__.py` is
-deliberately import-free, so adding them there would pull app code into the settings import path.
+The Taskiq worker only knows about tasks whose modules have been imported. Name every task module in
+`src/wiring/tasks.py`, which the worker entry point imports on startup. The taskiq package's
+`__init__.py` is deliberately import-free, so importing them there would pull app code into the
+settings import path.
 
 ```python
-# backend/src/infrastructure/taskiq/worker.py
-from .app import configure_broker_lifecycle
-from .brokers import default_broker
-from src.modules.widgets import tasks as _widget_tasks  # noqa: F401
-from src.modules.reports import tasks as _report_tasks  # noqa: F401
-
-configure_broker_lifecycle(default_broker)
-
-__all__ = ["default_broker"]
+# backend/src/wiring/tasks.py
+TASK_MODULES: tuple[str, ...] = (
+    "src.infrastructure.taskiq.email",
+    "src.modules.api_keys.tasks",
+    "src.modules.widgets.tasks",
+)
 ```
 
-Without these imports, `widgets:rebuild_index.kiq(...)` will queue the message but no worker will know how to execute it.
+A module left out of that list queues fine and runs nowhere: `widgets:rebuild_index.kiq(...)` puts
+the message on the broker, and the worker reports the task as unknown and drops it.
 
 ## Enqueuing a Task
 
@@ -206,6 +209,10 @@ carries the taskiq feature.
 **Run exactly one scheduler.** Each one fires every schedule it finds, so a second replica means
 every cron entry is enqueued twice. The worker is the one to scale out instead: `--workers`, or more
 replicas of the worker service.
+
+One scheduled task ships: `api_keys:prune_usage`, at `0 3 * * *`. It deletes the key usage rows past
+their retention, so a project that carries the api_keys feature and runs no scheduler keeps every
+row ([how long the usage rows are kept](../authentication/api-keys.md#how-long-the-usage-rows-are-kept)).
 
 A schedule can also be an interval or a one-off time (`{"interval": 60}`, `{"time": datetime(...)}`),
 and `args` / `kwargs` in the same entry are passed to the task. Schedule ids are generated at
@@ -417,6 +424,7 @@ async def rebuild_widget_index(owner_id: int, db: DBSession) -> dict[str, Any]:
 | Worker lifecycle hooks | `backend/src/infrastructure/taskiq/app.py`                         |
 | Broker lifecycle (API) | `backend/src/infrastructure/taskiq/lifecycle.py`                   |
 | DB dependency          | `backend/src/infrastructure/taskiq/deps.py`                        |
+| Registered task modules | `backend/src/wiring/tasks.py`                                     |
 | Settings               | `backend/src/infrastructure/config/settings.py` (`TaskiqSettings`) |
 
 ## Next Steps

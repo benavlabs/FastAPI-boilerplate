@@ -310,6 +310,17 @@ contact and no licence until it sets its own.
 `API_PREFIX` must start with `/` and must not end with `/`; anything else is refused when the
 settings load. It moves every API route, the OAuth routes and the `no-store` cache header with it.
 
+## API Keys
+
+```env
+KEY_USAGE_RETENTION_DAYS=90      # days of key usage rows to keep; 0 keeps every row, below 0 is refused
+```
+
+A row per request carries the caller's address and user agent, so the window is what bounds the
+personal data the table holds. The analytics routes read no further back than what is kept. See
+[how long the usage rows are kept](../authentication/api-keys.md#how-long-the-usage-rows-are-kept)
+for what prunes them.
+
 ## Initial Setup
 
 These are read by `python -m scripts.setup_initial_data`:

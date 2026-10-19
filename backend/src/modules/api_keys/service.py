@@ -19,6 +19,7 @@ from ..common.exceptions import PermissionDeniedError, ResourceNotFoundError, Va
 from ..user.models import User
 from .crud import crud_api_keys, crud_key_usage
 from .models import APIKey, KeyUsage
+from .retention import retained_days
 from .schemas import (
     APIKeyCreate,
     APIKeyCreateInternal,
@@ -514,14 +515,14 @@ class APIKeyService:
             key_id: API key ID
             user_id: User ID (for ownership verification)
             db: Database session
-            days: Number of days to analyze
+            days: Number of days to analyze, read down to the days still retained
 
         Returns:
             Usage analytics
         """
         await self.get_api_key(key_id=key_id, user_id=user_id, db=db)
 
-        since_date = datetime.now(UTC) - timedelta(days=days)
+        since_date = datetime.now(UTC) - timedelta(days=min(days, retained_days()))
 
         in_window = (KeyUsage.api_key_id == key_id, KeyUsage.created_at >= since_date)
         successful = func.count().filter(KeyUsage.status_code.between(200, 299))

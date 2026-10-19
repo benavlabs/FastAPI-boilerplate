@@ -213,8 +213,8 @@ class UserAPIKeySummary(BaseModel):
     user_id: int
     total_keys: int
     active_keys: int
-    total_requests: int
-    total_cost_microcents: int
+    total_requests: int = Field(description="Requests recorded over the retained window (KEY_USAGE_RETENTION_DAYS)")
+    total_cost_microcents: int = Field(description="Cost recorded over the retained window (KEY_USAGE_RETENTION_DAYS)")
     keys: list[APIKeyRead]
 
 

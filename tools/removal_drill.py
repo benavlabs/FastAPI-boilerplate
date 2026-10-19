@@ -94,10 +94,15 @@ FEATURES: dict[str, Feature] = {
         paths=(
             "backend/src/modules/api_keys",
             "backend/scripts/cleanup_api_key_json.py",
+            "backend/scripts/prune_key_usage.py",
             "backend/tests/unit/modules/api_keys",
             "backend/tests/integration/api/v1/api_keys",
         ),
         combination_paths={
+            "taskiq": (
+                "backend/src/modules/api_keys/tasks.py",
+                "backend/tests/unit/modules/api_keys/test_tasks.py",
+            ),
             "rbac": ("backend/tests/integration/api_keys_rbac",),
             "ratelimit": ("backend/tests/integration/api_keys_ratelimit",),
             "tier_limits": ("backend/tests/integration/api_keys_tiers",),
@@ -209,6 +214,11 @@ def _wiring_settings(chosen: set[str]) -> str:
             "RateLimitSettings",
         ),
         ("tiers", "from ..modules.tier.settings import TierSettings", "TierSettings"),
+        (
+            "api_keys",
+            "from ..modules.api_keys.settings import APIKeySettings",
+            "APIKeySettings",
+        ),
         (
             "admin",
             "from ..interfaces.admin.settings import SQLAdminSettings",
@@ -387,7 +397,12 @@ def _wiring_hooks(chosen: set[str]) -> str:
 
 def _wiring_tasks(chosen: set[str]) -> str:
     """The modules whose background tasks the worker registers."""
-    modules = '("src.infrastructure.taskiq.email",)' if {"accounts", "taskiq"} <= chosen else "()"
+    declared = [
+        ("accounts", "src.infrastructure.taskiq.email"),
+        ("api_keys", "src.modules.api_keys.tasks"),
+    ]
+    registered = tuple(module for feature, module in declared if {feature, "taskiq"} <= chosen)
+    modules = repr(registered) if registered else "()"
 
     return f'"""The modules whose background tasks the worker registers."""\n\nTASK_MODULES: tuple[str, ...] = {modules}\n'
 

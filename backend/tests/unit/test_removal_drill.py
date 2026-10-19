@@ -121,6 +121,50 @@ def test_a_scratch_project_is_built_from_the_repository(tmp_path):
     assert [path for path in project.rglob("*") if path.name == ".env"] == []
 
 
+def _features_on_disk() -> set[str]:
+    """The features this project still carries, read from the source paths they own."""
+    repository = BACKEND_ROOT.parent
+    present = set()
+    for name, feature in drill.FEATURES.items():
+        sources = [path for path in feature.paths if path.startswith("backend/src")]
+        if sources and all((repository / path).exists() for path in sources):
+            present.add(name)
+
+    return present
+
+
+def _needs(*features: str) -> None:
+    """Skip where this project no longer carries the sources a preset is built from."""
+    missing = sorted(set(features) - _features_on_disk())
+    if missing:
+        pytest.skip(f"this project carries no {', '.join(missing)} to build from")
+
+
+class TestTheTaskModulesAProjectRegisters:
+    """A task module imports the feature it belongs to and the broker it registers on."""
+
+    @pytest.mark.parametrize("chosen", [{"accounts", "api_keys"}, {"accounts", "taskiq"}, {"taskiq"}, set()])
+    def test_the_usage_prune_is_registered_by_neither_feature_alone(self, chosen: set[str]):
+        assert "src.modules.api_keys.tasks" not in drill._wiring_tasks(chosen)
+
+    def test_the_usage_prune_is_registered_where_both_features_are_present(self):
+        assert "src.modules.api_keys.tasks" in drill._wiring_tasks({"accounts", "api_keys", "taskiq"})
+
+    def test_a_project_with_the_keys_and_no_worker_has_no_task_module(self, tmp_path):
+        _needs("accounts", "api_keys")
+        project = drill.build("accounts-api-keys", tmp_path)
+
+        assert (project / "backend/src/modules/api_keys/service.py").exists()
+        assert not (project / "backend/src/modules/api_keys/tasks.py").exists()
+
+    def test_a_project_with_a_worker_and_no_keys_has_no_task_module(self, tmp_path):
+        _needs("accounts", "taskiq")
+        project = drill.build("accounts-cache-taskiq", tmp_path)
+
+        assert (project / "backend/src/infrastructure/taskiq/worker.py").exists()
+        assert not (project / "backend/src/modules/api_keys").exists()
+
+
 GENERATED_FILES = (
     ("src/wiring/settings.py", "_wiring_settings"),
     ("src/wiring/app.py", "_wiring_app"),
@@ -147,18 +191,6 @@ def _without_formatting(source: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
     statements = [ast.dump(node) for node in body if not isinstance(node, ast.Import | ast.ImportFrom)]
 
     return tuple(imports), tuple(statements)
-
-
-def _features_on_disk() -> set[str]:
-    """The features this project still carries, read from the source paths they own."""
-    repository = BACKEND_ROOT.parent
-    present = set()
-    for name, feature in drill.FEATURES.items():
-        sources = [path for path in feature.paths if path.startswith("backend/src")]
-        if sources and all((repository / path).exists() for path in sources):
-            present.add(name)
-
-    return present
 
 
 def test_the_generator_rebuilds_what_this_project_committed():

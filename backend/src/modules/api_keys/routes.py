@@ -283,7 +283,8 @@ async def get_key_usage(
     Retrieves comprehensive usage analytics for a specific API key.
 
     - **key_id**: ID of the API key
-    - **days**: Number of days to analyze (default: 30)
+    - **days**: Number of days to analyze (default: 30), read down to the days
+      ``KEY_USAGE_RETENTION_DAYS`` still keeps
 
     Returns detailed analytics including:
     - Total and successful request counts
@@ -305,7 +306,7 @@ async def get_key_analytics(
     api_key_service: APIKeyServiceDep,
     db: AsyncSessionDep,
     key_id: int = Path(..., ge=1, le=MAX_INTEGER_ID, description="API key ID"),
-    days: int = Query(30, ge=1, le=365, description="Number of days to analyze"),
+    days: int = Query(30, ge=1, le=365, description="Number of days to analyze, capped at the retained window"),
 ) -> dict[str, Any]:
     """Get usage analytics for an API key."""
     return await api_key_service.get_usage_analytics(
