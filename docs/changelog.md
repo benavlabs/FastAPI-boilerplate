@@ -732,6 +732,20 @@ matrix. The round that followed fixed what a re-review of the refactor found.
 - **A credential the API throttle cannot resolve now spends the budget its address would have
   spent carrying none.** A junk `X-API-Key` or bearer token used to answer `401` as often as it was
   sent, unmetered, while the same requests without a header were throttled after the limit.
+- **An account email the broker will not take is delivered in the request rather than lost.**
+  `QueuedSender` enqueued and nothing caught the failure, and crudauth delivers every account email
+  best-effort: it logs what a channel raises and answers the same either way, so with the broker
+  down a password reset answered `200` and no link was ever sent. The enqueue is now tried first and
+  delivery falls back to the request, through the same sender the worker would have used, with a
+  warning naming the kind of mail. A request that falls back waits for the mail server, which is
+  what the message is worth. Reaching that fallback takes an enqueue that fails rather than one that
+  hangs, so the Redis broker is built with the `socket_connect_timeout` redis-py leaves unset, and
+  the call is given `BROKER_CONNECT_SECONDS` of its own, which covers a broker that connects and
+  then stalls and a RabbitMQ connection that is reconnecting. The socket's read timeout stays unset
+  on purpose: the worker waits for its next job in a `brpop` with no timeout of its own, so a socket
+  that stopped waiting would raise out of the listener on the first idle minute. A message that
+  lands just as the sender's time runs out is delivered as well as queued and read twice, which
+  beats a recovery link nobody is sent.
 - **A task's result expires after an hour instead of being kept for good.** The Redis result backend
   was built with no expiry, so every result it ever wrote stayed in the database the queue itself
   runs on: `TTL` on a result key answered `-1`, and the only way to reclaim the space was to delete

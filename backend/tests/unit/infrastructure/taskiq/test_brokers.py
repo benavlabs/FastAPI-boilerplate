@@ -134,3 +134,23 @@ class TestTheBrokerTheProjectBuilds:
 
         assert isinstance(broker, ListQueueBroker)
         assert broker.queue_name == "default"
+
+    def test_the_redis_broker_bounds_how_long_it_waits_to_connect(self):
+        """redis-py leaves it unset, so a host that does not answer holds the caller for good."""
+        broker = create_default_broker()
+
+        assert isinstance(broker, ListQueueBroker)
+        assert broker.connection_pool.connection_kwargs["socket_connect_timeout"] == BROKER_CONNECT_SECONDS
+
+    def test_the_redis_broker_leaves_reading_unbounded(self):
+        """The worker waits for its next job in a ``brpop`` that has no timeout of its own.
+
+        A socket that stops waiting raises ``redis.exceptions.TimeoutError`` out of the
+        listener the first time the queue is idle that long, and that loop catches the
+        built-in ``ConnectionError``, which no redis exception inherits. A caller that
+        needs a bound on a stalled broker puts it around its own call.
+        """
+        broker = create_default_broker()
+
+        assert isinstance(broker, ListQueueBroker)
+        assert "socket_timeout" not in broker.connection_pool.connection_kwargs

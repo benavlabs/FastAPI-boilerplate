@@ -33,7 +33,18 @@ backend/src/infrastructure/taskiq/
 ```
 
 Two tasks ship. `email:send` delivers the account emails (`infrastructure/taskiq/email.py`), so no
-request waits on a mail server. `api_keys:prune_usage` deletes the key usage rows past
+request waits on a mail server. A broker that cannot be reached is the exception: the sender logs a
+warning and delivers in the request instead, which costs that one request the delivery and keeps the
+mail, because an account email is best-effort to the caller and a lost recovery link is one nobody
+is told about. Two bounds get the request there: the broker's `socket_connect_timeout` for a host
+that never answers, and `BROKER_CONNECT_SECONDS` around the sender's own call for a broker that
+connects and then stalls. The socket's read timeout is deliberately left unset, because the worker
+waits for its next job in a `brpop` with no timeout and a socket that stopped waiting would raise
+out of that listener on the first idle minute. A message that lands just as the sender's time runs
+out is both queued and delivered, and the account reads it twice, which beats not reading it at all. While the broker is down, a recovery request for an
+address that exists takes as long as the mail server does and one for an address that doesn't
+returns immediately, the same difference a project running without the taskiq feature always has.
+`api_keys:prune_usage` deletes the key usage rows past
 `KEY_USAGE_RETENTION_DAYS` (`modules/api_keys/tasks.py`), on a schedule of its own, and ships with
 the api_keys feature. Beyond them the infrastructure is wired up and the task modules are yours to
 add.

@@ -30,6 +30,17 @@ def create_default_broker() -> AsyncBroker:
 def _create_redis_broker() -> AsyncBroker:
     """Create Redis-based broker for taskiq.
 
+    The connect timeout is the broker's own: redis-py leaves it unset, so a host that does
+    not answer holds a caller for as long as the operating system takes to give up on the
+    connection. Bounded, an unreachable queue fails within ``BROKER_CONNECT_SECONDS`` and
+    the caller can do something about it.
+
+    A read timeout belongs to the caller rather than the connection: the worker waits for
+    its next job in a ``brpop`` with no timeout of its own, so a socket that stops waiting
+    raises ``redis.exceptions.TimeoutError`` out of the listener the first time the queue
+    is idle for that long, and nothing in that loop catches it. What the sender needs is a
+    bound on its own enqueue, which it has.
+
     A result expires after ``RESULT_KEPT_SECONDS``, so the results nothing ever came back
     for leave the Redis the queue itself runs on rather than filling it for good.
     """
@@ -40,7 +51,11 @@ def _create_redis_broker() -> AsyncBroker:
 
     url = redis_url(redis_host, redis_port, redis_db, redis_password)
 
-    broker = ListQueueBroker(url=url, queue_name="default").with_result_backend(
+    broker = ListQueueBroker(
+        url=url,
+        queue_name="default",
+        socket_connect_timeout=BROKER_CONNECT_SECONDS,
+    ).with_result_backend(
         RedisAsyncResultBackend(redis_url=url, serializer=JSONSerializer(), result_ex_time=RESULT_KEPT_SECONDS)
     )
 
