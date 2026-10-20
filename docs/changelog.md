@@ -732,6 +732,12 @@ matrix. The round that followed fixed what a re-review of the refactor found.
 - **A credential the API throttle cannot resolve now spends the budget its address would have
   spent carrying none.** A junk `X-API-Key` or bearer token used to answer `401` as often as it was
   sent, unmetered, while the same requests without a header were throttled after the limit.
+- **A task's result expires after an hour instead of being kept for good.** The Redis result backend
+  was built with no expiry, so every result it ever wrote stayed in the database the queue itself
+  runs on: `TTL` on a result key answered `-1`, and the only way to reclaim the space was to delete
+  the keys by hand. Results are written with `result_ex_time` now, `RESULT_KEPT_SECONDS`, so one
+  nothing came back for leaves on its own. A result is still there to be awaited for an hour after
+  the task ran, which is far longer than the `wait_result` the docs describe.
 - **A cached entry is keyed by what the route declares, escaped, and by the credential that asked.**
   The query went into the key as it came, joined with the same `&` and `=` it was being split on, so
   `?items_per_page%3D20%26page=1` is one parameter whose name reads back as the two it spells: a

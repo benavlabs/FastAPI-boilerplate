@@ -103,7 +103,7 @@ A few things worth knowing:
 
 - **`task_name`** is optional but recommended. If you don't pass one, Taskiq uses `module.function_name` — fine for hobbyist setups, but a refactor that moves the function will silently break consumers. Pin a stable name.
 - **`DBSession`** is the boilerplate's `Annotated[AsyncSession, TaskiqDepends(get_db_session)]`. Each task gets its own session backed by a `NullPool` engine — connections aren't shared with the API process and are closed at the end of the task.
-- **Return values** can be retrieved via the result backend (Redis, by default). If you don't need the result, don't await it.
+- **Return values** can be retrieved via the result backend (Redis, by default) for an hour after the task runs, which is `RESULT_KEPT_SECONDS`. If you don't need the result, don't await it.
 - **Logging** flows through your standard logger — there's no separate Taskiq logger to configure.
 
 ### Importing Tasks for Discovery
@@ -327,7 +327,7 @@ Taskiq doesn't ship a Flower-style dashboard, but you have a few options:
 
 - **`default_broker.get_all_tasks()`** lists every task the process has imported, name to task — the same registry the worker and the scheduler read.
 - **Logs** — every task logs through your standard logger; flow them into your existing log aggregation.
-- **Result backend** — Redis stores task results for the configured TTL; you can read them back or scan with `redis-cli`.
+- **Result backend** — Redis stores task results for an hour (`RESULT_KEPT_SECONDS` in `infrastructure/taskiq/constants.py`); you can read them back or scan with `redis-cli` until they expire.
 - **External tools** — Taskiq has community projects for Prometheus metrics and admin UIs; see the [Taskiq docs](https://taskiq-python.github.io/) for what's current.
 
 For most teams, structured logs plus alerting on error rates is enough. Add per-task counters to your existing metrics pipeline if you need finer visibility.

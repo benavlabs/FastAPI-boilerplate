@@ -8,3 +8,6 @@ BROKER_RETRY_SECONDS = 5.0
 
 BROKER_RETRY_TASK_NAME = "taskiq-broker-retry"
 """The name carried by the task those attempts run in."""
+
+RESULT_KEPT_SECONDS = 3600
+"""Seconds a task's result stays in Redis before it expires."""

@@ -5,7 +5,7 @@ import json
 import pickle
 from collections.abc import Iterator
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, NamedTuple
 
 import pytest
 from aio_pika import connect_robust
@@ -18,7 +18,7 @@ from taskiq_redis import ListQueueBroker, RedisAsyncResultBackend, redis_backend
 from src.infrastructure.config.enums import TaskiqBrokerType
 from src.infrastructure.taskiq import brokers
 from src.infrastructure.taskiq.brokers import create_default_broker
-from src.infrastructure.taskiq.constants import BROKER_CONNECT_SECONDS
+from src.infrastructure.taskiq.constants import BROKER_CONNECT_SECONDS, RESULT_KEPT_SECONDS
 
 
 def _result_backend() -> RedisAsyncResultBackend:
@@ -32,10 +32,17 @@ def _result(return_value: Any) -> TaskiqResult:
     return TaskiqResult(is_err=False, return_value=return_value, execution_time=0.1)
 
 
+class _Written(NamedTuple):
+    """What the backend wrote to Redis: the value under each key, and how it was set."""
+
+    store: dict[str, bytes]
+    options: dict[str, dict[str, Any]]
+
+
 @pytest.fixture
-def written(monkeypatch) -> Iterator[dict[str, bytes]]:
-    """Keep what the backend writes to Redis in a dict."""
-    store: dict[str, bytes] = {}
+def written(monkeypatch) -> Iterator[_Written]:
+    """Keep what the backend writes to Redis, values and set options alike."""
+    kept = _Written(store={}, options={})
 
     class _Redis:
         def __init__(self, connection_pool: Any = None) -> None:
@@ -48,14 +55,15 @@ def written(monkeypatch) -> Iterator[dict[str, bytes]]:
             return False
 
         async def set(self, name: str, value: bytes, **options: Any) -> None:
-            store[name] = value
+            kept.store[name] = value
+            kept.options[name] = options
 
         async def get(self, name: str) -> bytes | None:
-            return store.get(name)
+            return kept.store.get(name)
 
     monkeypatch.setattr(redis_backend, "Redis", _Redis)
 
-    yield store
+    yield kept
 
 
 class TestTheRedisResultBackend:
@@ -66,33 +74,39 @@ class TestTheRedisResultBackend:
 
         assert isinstance(serializer, JSONSerializer)
 
-    async def test_a_result_round_trips(self, written: dict[str, bytes]):
+    async def test_a_result_round_trips(self, written: _Written):
         backend = _result_backend()
 
         await backend.set_result("task-1", _result({"widgets": 3}))
 
-        assert json.loads(next(iter(written.values())))["return_value"] == {"widgets": 3}
+        assert json.loads(next(iter(written.store.values())))["return_value"] == {"widgets": 3}
         assert (await backend.get_result("task-1")).return_value == {"widgets": 3}
 
-    async def test_a_datetime_comes_back_as_an_iso_string(self, written: dict[str, bytes]):
+    async def test_a_datetime_comes_back_as_an_iso_string(self, written: _Written):
         backend = _result_backend()
 
         await backend.set_result("task-2", _result(datetime(2026, 10, 1, 12, 30, tzinfo=UTC)))
 
         assert (await backend.get_result("task-2")).return_value == "2026-10-01T12:30:00Z"
 
-    async def test_a_value_json_has_no_form_for_is_refused(self, written: dict[str, bytes]):
+    async def test_a_value_json_has_no_form_for_is_refused(self, written: _Written):
         class Row:
             id = 1
 
         with pytest.raises(PydanticSerializationError):
             await _result_backend().set_result("task-3", _result(Row()))
 
-    async def test_a_pickle_written_to_the_result_key_is_refused(self, written: dict[str, bytes]):
+    async def test_a_result_is_written_with_an_expiry(self, written: _Written):
+        """A result nothing came back for would otherwise be kept in Redis for good."""
+        await _result_backend().set_result("task-5", _result("done"))
+
+        assert list(written.options.values()) == [{"ex": RESULT_KEPT_SECONDS}]
+
+    async def test_a_pickle_written_to_the_result_key_is_refused(self, written: _Written):
         backend = _result_backend()
         await backend.set_result("task-4", _result("fine"))
-        key = next(iter(written))
-        written[key] = pickle.dumps({"is_err": False, "return_value": "chosen", "execution_time": 0.1})
+        key = next(iter(written.store))
+        written.store[key] = pickle.dumps({"is_err": False, "return_value": "chosen", "execution_time": 0.1})
 
         with pytest.raises(UnicodeDecodeError):
             await backend.get_result("task-4")

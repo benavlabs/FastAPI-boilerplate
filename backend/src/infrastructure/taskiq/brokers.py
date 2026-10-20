@@ -8,7 +8,7 @@ from taskiq_redis import ListQueueBroker, RedisAsyncResultBackend
 from ..config.enums import TaskiqBrokerType
 from ..config.settings import get_settings
 from ..redis import redis_url
-from .constants import BROKER_CONNECT_SECONDS
+from .constants import BROKER_CONNECT_SECONDS, RESULT_KEPT_SECONDS
 
 settings = get_settings()
 
@@ -28,7 +28,11 @@ def create_default_broker() -> AsyncBroker:
 
 
 def _create_redis_broker() -> AsyncBroker:
-    """Create Redis-based broker for taskiq."""
+    """Create Redis-based broker for taskiq.
+
+    A result expires after ``RESULT_KEPT_SECONDS``, so the results nothing ever came back
+    for leave the Redis the queue itself runs on rather than filling it for good.
+    """
     redis_host = settings.TASKIQ_REDIS_HOST
     redis_port = settings.TASKIQ_REDIS_PORT
     redis_db = settings.TASKIQ_REDIS_DB
@@ -37,7 +41,7 @@ def _create_redis_broker() -> AsyncBroker:
     url = redis_url(redis_host, redis_port, redis_db, redis_password)
 
     broker = ListQueueBroker(url=url, queue_name="default").with_result_backend(
-        RedisAsyncResultBackend(redis_url=url, serializer=JSONSerializer())
+        RedisAsyncResultBackend(redis_url=url, serializer=JSONSerializer(), result_ex_time=RESULT_KEPT_SECONDS)
     )
 
     return broker
