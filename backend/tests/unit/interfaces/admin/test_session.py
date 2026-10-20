@@ -6,7 +6,9 @@ what the session carries: when it was issued, and a fingerprint of the credentia
 issued against.
 """
 
+import hashlib
 from time import time
+from typing import Any
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -176,3 +178,51 @@ def test_the_fingerprint_changes_with_either_credential(monkeypatch):
     assert len({configured, with_another_password, with_another_username}) == 3
     assert "s3cret" not in configured
     assert AdminAuth(secret_key="another-secret", base_url="/admin").credentials_fingerprint() != configured
+
+
+def test_the_fingerprint_is_derived_from_the_credentials_with_a_work_factor(monkeypatch):
+    """A cookie carries it, so a fast hash would be one a word list could be run against.
+
+    Whoever holds the cookie and ``SECRET_KEY`` holds everything the derivation was made
+    from apart from the password itself.
+    """
+    derived: list[tuple[bytes, bytes, int]] = []
+    real_scrypt = hashlib.scrypt
+
+    def recording(password: bytes, **parameters: Any) -> bytes:
+        derived.append((password, parameters["salt"], parameters["n"]))
+
+        return real_scrypt(password, **parameters)
+
+    monkeypatch.setattr(hashlib, "scrypt", recording)
+    monkeypatch.setattr(settings, "ADMIN_USERNAME", "admin")
+    monkeypatch.setattr(settings, "ADMIN_PASSWORD", "a-work-factor")
+    auth._derived.cache_clear()
+
+    fingerprint = AdminAuth(secret_key="a-secret", base_url="/admin").credentials_fingerprint()
+
+    assert derived == [(b"admin:a-work-factor", b"a-secret", 2**14)]
+    assert "a-work-factor" not in fingerprint
+
+
+def test_the_derivation_is_made_once_for_the_credentials_it_is_made_from(monkeypatch):
+    """The panel compares the fingerprint on every request it serves."""
+    derivations = 0
+    real_scrypt = hashlib.scrypt
+
+    def counting(password: bytes, **parameters: Any) -> bytes:
+        nonlocal derivations
+        derivations += 1
+
+        return real_scrypt(password, **parameters)
+
+    monkeypatch.setattr(hashlib, "scrypt", counting)
+    monkeypatch.setattr(settings, "ADMIN_USERNAME", "admin")
+    monkeypatch.setattr(settings, "ADMIN_PASSWORD", "derived-once")
+    auth._derived.cache_clear()
+    backend = AdminAuth(secret_key="a-secret", base_url="/admin")
+
+    repeated = {backend.credentials_fingerprint() for _ in range(3)}
+
+    assert derivations == 1
+    assert len(repeated) == 1

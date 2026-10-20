@@ -2,6 +2,7 @@
 
 import hashlib
 import hmac
+from functools import lru_cache
 from time import time
 from typing import Any, Literal
 
@@ -31,6 +32,14 @@ ISSUED_AT = "issued_at"
 
 FINGERPRINT = "fingerprint"
 """An HMAC of the credentials the session was created against."""
+
+_SCRYPT_N = 2**14
+_SCRYPT_R = 8
+_SCRYPT_P = 1
+_SCRYPT_DKLEN = 32
+
+DERIVATIONS_KEPT = 4
+"""How many derivations are kept, which is a credential change or two of them."""
 
 LOCKOUT_PREFIX = "admin-panel"
 """Prefix of the identifier the per-address lockout counts the panel's failures against."""
@@ -111,6 +120,23 @@ class RootPathSessionMiddleware:
             self._scoped[root_path] = middleware
 
         await middleware(scope, receive, send)
+
+
+@lru_cache(maxsize=DERIVATIONS_KEPT)
+def _derived(secret_key: str, username: str, password: str) -> str:
+    """The credentials, derived with a work factor and salted with ``secret_key``.
+
+    Kept for as long as the credentials it was derived from, because the panel compares it
+    on every request it serves and the derivation is meant to be slow.
+    """
+    return hashlib.scrypt(
+        f"{username}:{password}".encode(),
+        salt=secret_key.encode(),
+        n=_SCRYPT_N,
+        r=_SCRYPT_R,
+        p=_SCRYPT_P,
+        dklen=_SCRYPT_DKLEN,
+    ).hex()
 
 
 def _credential_matches(submitted: object, expected: str) -> bool:
@@ -222,16 +248,17 @@ class AdminAuth(AuthenticationBackend):
         return True
 
     def credentials_fingerprint(self) -> str:
-        """An HMAC of the configured credentials, which changing either one of them changes.
+        """A derivation of the configured credentials, which changing either one of them changes.
 
-        Keyed with ``SECRET_KEY``, because the session travels in a cookie the browser can
-        read: a plain digest of the password would be one an attacker holding the cookie
-        could work backwards from.
+        Salted with ``SECRET_KEY`` and derived with a work factor, because the session
+        travels in a cookie the browser can read: a fast hash of the password would be one
+        an attacker holding that cookie and the key could run a word list against. The
+        settings are read here rather than at startup, so a credential changed while the
+        panel is running refuses the sessions issued before it.
         """
         settings = get_settings()
-        credentials = f"{settings.ADMIN_USERNAME}:{settings.ADMIN_PASSWORD}".encode()
 
-        return hmac.new(self.secret_key.encode(), credentials, hashlib.sha256).hexdigest()
+        return _derived(self.secret_key, settings.ADMIN_USERNAME, settings.ADMIN_PASSWORD)
 
     def _refuse(self, session: dict[str, Any], why: str) -> bool:
         """Clear the session the request carried, so the browser stops sending it."""
