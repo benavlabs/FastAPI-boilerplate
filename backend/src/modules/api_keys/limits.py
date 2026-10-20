@@ -47,9 +47,36 @@ def countable(limits: dict[str, Any]) -> dict[str, int]:
     }
 
 
+def counted_shortest_first(limits: dict[str, Any]) -> list[tuple[str, int]]:
+    """The windows in ``limits`` this project counts, the shortest window first.
+
+    A request is counted against each of them in turn and refused by the first one it
+    fills, so the order decides what a refusal costs: shortest first means a refusal
+    leaves every longer window uncounted, and a key held at its per-minute limit keeps
+    the rest of its day. The order the limits were written in is the client's, so it
+    cannot be the one that is counted.
+    """
+    return sorted(countable(limits).items(), key=lambda counted: WINDOWS[counted[0]])
+
+
 def counter_key(api_key_id: int, window: str) -> str:
     """The limiter key a key's window counts under."""
     return f"{COUNTER_PREFIX}:{api_key_id}:{window}"
+
+
+def window_stamped(key: str, seconds: int, now: int) -> str:
+    """``key`` as the limiter counts it, under the window of ``seconds`` running at ``now``.
+
+    The limiter stamps a counter key with the window it belongs to, so each window is a key
+    of its own that expires on its own. Stamping one here is how a window's count is read
+    without counting a request against it.
+    """
+    return f"{key}:{now - now % seconds}"
+
+
+def time_left(seconds: int, now: int) -> int:
+    """How long until the window of ``seconds`` running at ``now`` rolls."""
+    return seconds - now % seconds
 
 
 def refusal_key(api_key_id: int, window: str) -> str:

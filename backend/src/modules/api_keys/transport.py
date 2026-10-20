@@ -1,15 +1,25 @@
 """The ``X-API-Key`` transport: a request authenticated by a key, as the key's owner."""
 
+import time
 from dataclasses import replace
 from typing import NamedTuple
 
 from crudauth import AuthContext, Principal, Transport
 from crudauth.exceptions import RateLimitException, UnauthorizedException
+from crudauth.ratelimit import RateLimiterBackend
 from crudauth.utils import get_client_ip
 from starlette.requests import Request
 
 from ...infrastructure.auth.scope import SCOPE_OWNER_IS_SUPERUSER
-from .limits import REFUSALS_RECORDED_PER_WINDOW, WINDOWS, countable, counter_key, refusal_key
+from .limits import (
+    REFUSALS_RECORDED_PER_WINDOW,
+    WINDOWS,
+    counted_shortest_first,
+    counter_key,
+    refusal_key,
+    time_left,
+    window_stamped,
+)
 from .service import APIKeyService
 
 API_KEY_HEADER = "X-API-Key"
@@ -121,6 +131,9 @@ class APIKeyTransport(Transport):
         with it, the way the login lockout deliberately fails closed. A stored limit
         naming a window nothing counts is skipped rather than raised over.
 
+        The windows are counted shortest first, so a request refused by one of them has
+        spent nothing in the longer ones: a key at its per-minute limit keeps its day.
+
         A window's refusals are counted of their own, and the first of them is the one the
         recorder is given, so a key held at its limit writes a row a window rather than a
         row a request.
@@ -132,15 +145,41 @@ class APIKeyTransport(Transport):
         if api_key_id is None or limiter is None or not limits:
             return None
 
-        for window, allowed in countable(limits).items():
+        counted = counted_shortest_first(limits)
+        for position, (window, allowed) in enumerate(counted):
             _, over, retry_after = await limiter.increment_and_check(
                 counter_key(api_key_id, window), allowed, WINDOWS[window], fail_open=True
             )
             if over:
+                held = await self._filled_longest(limiter, api_key_id, counted[position + 1 :])
                 _, already, _ = await limiter.increment_and_check(
                     refusal_key(api_key_id, window), REFUSALS_RECORDED_PER_WINDOW, WINDOWS[window], fail_open=True
                 )
 
-                return Refusal(retry_after, not already)
+                return Refusal(max(retry_after, held), not already)
 
         return None
+
+    async def _filled_longest(self, limiter: RateLimiterBackend, api_key_id: int, longer: list[tuple[str, int]]) -> int:
+        """How long until the last of the longer windows the key has filled rolls, or ``0`` for none.
+
+        The request being refused never reached these windows, so they are read and never
+        counted. Naming the window that refused would send a client back the moment that
+        one rolls, to be refused again by a longer window it cannot wait out that way, so
+        what is named is the longest window a request coming back would still be refused
+        by. A read that fails leaves its window out, the way a count that fails lets a
+        request through.
+        """
+        now = int(time.time())
+        longest = 0
+        for window, allowed in longer:
+            seconds = WINDOWS[window]
+            try:
+                filled = await limiter.get_count(window_stamped(counter_key(api_key_id, window), seconds, now)) or 0
+            except Exception:
+                continue
+
+            if filled >= allowed:
+                longest = max(longest, time_left(seconds, now))
+
+        return longest

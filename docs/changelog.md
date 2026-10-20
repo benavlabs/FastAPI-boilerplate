@@ -728,6 +728,15 @@ matrix. The round that followed fixed what a re-review of the refactor found.
 - **A credential the API throttle cannot resolve now spends the budget its address would have
   spent carrying none.** A junk `X-API-Key` or bearer token used to answer `401` as often as it was
   sent, unmetered, while the same requests without a header were throttled after the limit.
+- **A key's windows are counted shortest first, so a refused request keeps its longer budgets.**
+  The windows were counted in the order the limits were written in, which is the client's order, so
+  a key carrying `{"requests_per_day": 10, "requests_per_minute": 1}` spent a day's worth of quota
+  on nine refusals inside a minute: ten requests, one answered, and the day exhausted. The shortest
+  window is now counted first and refuses before any longer one is touched, whatever order the
+  limits were stored in. A refusal reads the longer windows it spent nothing in, so `Retry-After`
+  names the time until the last window the key is still full in rolls rather than the window that
+  refused it: a key that has spent its day is no longer sent back a minute later, once a minute,
+  until the day rolls.
 - **A key held at its limit records one refused request a window, not all of them.** Every `429` a
   key's own `usage_limits` answered used to write a usage row and stamp `last_used_at`, which made a
   refused request the most expensive one a key could make: five requests against

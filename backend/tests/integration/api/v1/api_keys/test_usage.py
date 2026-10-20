@@ -37,6 +37,17 @@ def _with(key: dict[str, Any]) -> dict[str, str]:
     return {API_KEY_HEADER: key["api_key"]}
 
 
+async def _counted(api_key_id: int, window: str) -> int:
+    """What the limiter has counted for a key's window, in the window running now."""
+    limiter = crud_auth.rate_limiter
+    assert limiter is not None
+    now = int(time.time())
+    seconds = WINDOWS[window]
+    counted = await limiter.get_count(f"{counter_key(api_key_id, window)}:{now - now % seconds}")
+
+    return counted or 0
+
+
 async def _rows(db_session: AsyncSession, api_key_id: int) -> list[KeyUsage]:
     stored = await db_session.execute(select(KeyUsage).where(KeyUsage.api_key_id == api_key_id))
 
@@ -86,15 +97,18 @@ async def clear_counters():
 
 
 @pytest.fixture
-async def a_window_that_cannot_roll(monkeypatch):
-    """The minute window, counted over a day instead, for a test that spans requests.
+async def a_clock_that_does_not_move(monkeypatch):
+    """The clock the limiter stamps its windows from, held at the second the test starts.
 
-    A window is fixed and aligned to the clock, so a minute boundary landing between two
-    of a test's requests rolls the counters and makes the next refusal the first one its
-    window has seen. The counters are emptied under this window on the way in and out, so
-    nothing it counted is left for the test after it.
+    A window is fixed and aligned to the clock, so a boundary landing between two of a
+    test's requests rolls the counters: the next refusal is the first one its window has
+    seen, and a count read after it is read under a window the requests never counted in.
+    Held still, the window a request counts in and the window a count is read from are the
+    same one. The counters are emptied under it on the way in and out, so a window the
+    clock was holding open is left to no later test.
     """
-    monkeypatch.setitem(WINDOWS, "requests_per_minute", WINDOWS["requests_per_day"])
+    held = float(int(time.time()))
+    monkeypatch.setattr(time, "time", lambda: held)
     await _empty_the_windows()
 
     yield
@@ -372,8 +386,45 @@ class TestTheUsageLimits:
 
         assert answers == [200, 200, 200]
 
+    @pytest.mark.parametrize(
+        "stored",
+        [{"requests_per_day": 10, "requests_per_minute": 1}, {"requests_per_minute": 1, "requests_per_day": 10}],
+    )
+    async def test_a_window_that_refuses_leaves_the_longer_windows_uncounted(
+        self, client: AsyncClient, db_session: AsyncSession, test_user: dict, stored: dict, a_clock_that_does_not_move
+    ):
+        """Ten a day and one a minute: the nine refusals must not spend the day's budget.
+
+        The windows are counted shortest first, so which of them the limits were written
+        in makes no difference.
+        """
+        key = await _key(db_session, test_user["id"], usage_limits=stored)
+
+        answers = [(await client.get(READABLE, headers=_with(key))).status_code for _ in range(10)]
+
+        assert answers == [200] + [429] * 9
+        assert await _counted(key["id"], "requests_per_minute") == 10
+        assert await _counted(key["id"], "requests_per_day") == 1
+
+    async def test_a_refusal_names_the_time_until_the_longest_full_window_rolls(
+        self, client: AsyncClient, db_session: AsyncSession, test_user: dict
+    ):
+        """Two a minute and two a day: the minute refuses, and the day is what is named.
+
+        The two requests the day allows fill both windows, so a client told to come back
+        when the minute rolls would be refused again, every minute until the day rolls.
+        """
+        key = await _key(db_session, test_user["id"], usage_limits={"requests_per_minute": 2, "requests_per_day": 2})
+        allowed = [(await client.get(READABLE, headers=_with(key))).status_code for _ in range(2)]
+
+        refused = [await client.get(READABLE, headers=_with(key)) for _ in range(2)]
+
+        assert allowed == [200, 200]
+        assert [answer.status_code for answer in refused] == [429, 429]
+        assert min(int(answer.headers["Retry-After"]) for answer in refused) > WINDOWS["requests_per_minute"]
+
     async def test_a_window_records_its_first_refusal_and_not_the_rest(
-        self, client: AsyncClient, db_session: AsyncSession, test_user: dict, a_window_that_cannot_roll
+        self, client: AsyncClient, db_session: AsyncSession, test_user: dict, a_clock_that_does_not_move
     ):
         """A key that spends its window on refusals can see that it did, for one row a window.
 
@@ -388,7 +439,7 @@ class TestTheUsageLimits:
         assert [row.status_code for row in await _rows(db_session, key["id"])] == [200, 429]
 
     async def test_the_refusals_it_does_not_record_leave_the_stamp_alone(
-        self, client: AsyncClient, db_session: AsyncSession, test_user: dict, a_window_that_cannot_roll
+        self, client: AsyncClient, db_session: AsyncSession, test_user: dict, a_clock_that_does_not_move
     ):
         """A refusal that writes no row writes no stamp either: the recorder never runs."""
         key = await _key(db_session, test_user["id"], usage_limits={"requests_per_minute": 1})
