@@ -11,3 +11,9 @@ BROKER_RETRY_TASK_NAME = "taskiq-broker-retry"
 
 RESULT_KEPT_SECONDS = 3600
 """Seconds a task's result stays in Redis before it expires."""
+
+RETRY_MAX_DELAY_SECONDS = 600.0
+"""The longest a delayed retry waits, however many attempts a task has already made."""
+
+RETRY_SCHEDULE_PREFIX = "taskiq-retry"
+"""What the Redis keys holding the retries waiting to be due are named after."""

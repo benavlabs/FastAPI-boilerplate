@@ -59,6 +59,7 @@ TASKIQ_BROKER_TYPE=redis            # or "rabbitmq"
 
 # Retries
 TASKIQ_DEFAULT_RETRY_COUNT=3        # runs in all, for a task that asks; 0 turns retries off
+TASKIQ_RETRY_DELAY_SECONDS=0        # how long a retry waits; 0 retries immediately
 
 # Redis broker (when TASKIQ_BROKER_TYPE=redis)
 TASKIQ_REDIS_HOST=redis             # use "localhost" without Docker
@@ -207,7 +208,8 @@ async def rebuild_widget_index(db: DBSession) -> None: ...
 
 `infrastructure/taskiq/scheduler.py` is the entry point that reads those labels — a `TaskiqScheduler`
 over Taskiq's `LabelScheduleSource`, pointed at the same broker and the same task imports as
-`worker.py`:
+`worker.py`. With `TASKIQ_RETRY_DELAY_SECONDS` set it also reads the retries waiting to be due
+([Error Handling and Retries](#error-handling-and-retries)):
 
 ```sh
 cd backend
@@ -224,6 +226,8 @@ replicas of the worker service.
 One scheduled task ships: `api_keys:prune_usage`, at `0 3 * * *`. It deletes the key usage rows past
 their retention, so a project that carries the api_keys feature and runs no scheduler keeps every
 row ([how long the usage rows are kept](../authentication/api-keys.md#how-long-the-usage-rows-are-kept)).
+A delayed retry is the other thing the scheduler enqueues, and without one running the delay never
+passes.
 
 A schedule can also be an interval or a one-off time (`{"interval": 60}`, `{"time": datetime(...)}`),
 and `args` / `kwargs` in the same entry are passed to the task. Schedule ids are generated at
@@ -322,13 +326,19 @@ task can say so for itself:
 async def reconcile_widgets(...): ...
 ```
 
-Retries are immediate: the message is requeued the moment the task fails, so a task tripped up by a
-brief network blip or a rate limit spends its attempts within milliseconds. Taskiq also ships
-`SmartRetryMiddleware`, which adds a delay, exponential backoff and jitter, but its delay needs
-somewhere to hold the message: a `schedule_source` with a scheduler running, or a RabbitMQ broker
-built with a delay queue or the delayed-message-exchange plugin. On the Redis broker this project
-builds, the `delay` label is ignored and the retry is immediate again; on its RabbitMQ broker,
-publishing with a delay raises until one of those is configured.
+`TASKIQ_RETRY_DELAY_SECONDS` is how long a retry waits, and at `0`, the default, retries are
+immediate: the message is requeued the moment the task fails, so a task tripped up by a rate limit
+or a dependency that is down for a minute spends every attempt inside the first few milliseconds.
+
+Set it and each retry waits instead: the first for that long, each one after for longer (`* retries`,
+capped at `RETRY_MAX_DELAY_SECONDS`), with up to a second of jitter so a queue of them doesn't come
+back in step. That takes **a scheduler running next to the worker**, because a broker holds the
+messages it is given now and one due later has to wait somewhere a scheduler reads: the worker
+writes the retry to a `ListRedisScheduleSource` under the `taskiq-retry` prefix, and the scheduler
+is what enqueues it when it is due. With a delay set and no scheduler running, a retried task is
+written down and never runs, which is why the delay is off unless you ask for it. It also needs the
+Redis broker: with `TASKIQ_BROKER_TYPE=rabbitmq` there is no Redis configured to hold the retry, and
+the worker refuses to start rather than drop the delay silently.
 
 For dead-letter queues and middlewares of your own, check the [Taskiq middlewares docs](https://taskiq-python.github.io/guide/taskiq-middlewares.html). Whichever pattern you pick, **make tasks idempotent** — at-least-once delivery means the same task can run twice on partial failures.
 

@@ -4,11 +4,10 @@ import logging
 
 from taskiq import AsyncBroker
 from taskiq.events import TaskiqEvents
-from taskiq.middlewares import SimpleRetryMiddleware
 from taskiq.state import TaskiqState
 
-from ..config.settings import settings
 from .deps import dispose_taskiq_engine
+from .retries import retry_middleware, retry_schedule_source
 
 logger = logging.getLogger(__name__)
 
@@ -38,11 +37,12 @@ def configure_broker_lifecycle(broker: AsyncBroker) -> None:
     """Configure broker with its middlewares and its startup and shutdown handlers.
 
     A task labelled ``retry_on_error=True`` is retried up to
-    ``TASKIQ_DEFAULT_RETRY_COUNT`` times in all; at ``0`` it runs once.
+    ``TASKIQ_DEFAULT_RETRY_COUNT`` times in all; at ``0`` it runs once. Each retry waits
+    ``TASKIQ_RETRY_DELAY_SECONDS``, which at ``0`` is not at all.
 
     Args:
         broker: The broker to configure
     """
-    broker.add_middlewares(SimpleRetryMiddleware(default_retry_count=settings.TASKIQ_DEFAULT_RETRY_COUNT))
+    broker.add_middlewares(retry_middleware(retry_schedule_source()))
     broker.add_event_handler(TaskiqEvents.WORKER_STARTUP, startup_taskiq_worker)
     broker.add_event_handler(TaskiqEvents.WORKER_SHUTDOWN, shutdown_taskiq_worker)

@@ -732,6 +732,16 @@ matrix. The round that followed fixed what a re-review of the refactor found.
 - **A credential the API throttle cannot resolve now spends the budget its address would have
   spent carrying none.** A junk `X-API-Key` or bearer token used to answer `401` as often as it was
   sent, unmetered, while the same requests without a header were throttled after the limit.
+- **A retry can wait, with `TASKIQ_RETRY_DELAY_SECONDS`.** Retries were immediate and nothing else
+  was on offer: a task tripped up by a dependency that is down for a minute spent all three of its
+  attempts in the first milliseconds, and the queue's own `SmartRetryMiddleware` delays nothing on a
+  Redis broker, which ignores the `delay` label. Set the seconds and each retry is written to a
+  `ListRedisScheduleSource` instead, waits that long, waits longer with each attempt up to
+  `RETRY_MAX_DELAY_SECONDS`, and carries jitter so a queue of them does not come back in step. The
+  scheduler is what enqueues them when they are due, so a project that sets a delay runs one next to
+  its worker; at `0`, the default, nothing changes and no scheduler is needed. A delay set with
+  `TASKIQ_BROKER_TYPE=rabbitmq` is refused where the broker is configured, since there is no Redis
+  to hold the retry in.
 - **An account email the broker will not take is delivered in the request rather than lost.**
   `QueuedSender` enqueued and nothing caught the failure, and crudauth delivers every account email
   best-effort: it logs what a channel raises and answers the same either way, so with the broker

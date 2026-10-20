@@ -142,6 +142,7 @@ request delivers the message itself rather than losing it.
 ```env
 TASKIQ_BROKER_TYPE=redis        # or "rabbitmq"
 TASKIQ_DEFAULT_RETRY_COUNT=3    # runs in all for a task labelled retry_on_error=True; 0 turns retries off
+TASKIQ_RETRY_DELAY_SECONDS=0    # seconds a retry waits; 0 retries immediately, above 0 needs the scheduler
 ```
 
 ### Redis broker

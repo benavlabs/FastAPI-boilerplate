@@ -6,10 +6,10 @@ Run from ``backend/`` with
 """
 
 from taskiq import TaskiqScheduler
-from taskiq.schedule_sources import LabelScheduleSource
 
+from .retries import schedule_sources
 from .worker import default_broker
 
-scheduler = TaskiqScheduler(broker=default_broker, sources=[LabelScheduleSource(default_broker)])
+scheduler = TaskiqScheduler(broker=default_broker, sources=schedule_sources(default_broker))
 
 __all__ = ["scheduler"]
