@@ -35,8 +35,8 @@ async def test_a_key_holds_only_what_its_scope_names(
 ):
     """The owner holds two permissions; the key is scoped to one of them.
 
-    Editing somebody else's profile is what ``user.update`` gates. Editing one's own is
-    gated by ownership, which a scope does not narrow.
+    Reading the listing is what ``user.read`` gates, and editing a profile is what
+    ``user.update`` gates, so a key scoped away from one holds the other and no more.
     """
     await _grant(db_session, test_user["id"], "editor", "user.read", "user.update")
     key = await key_for(db_session, test_user["id"], "user.read")
@@ -56,6 +56,30 @@ async def test_the_same_key_widened_to_update_may_edit_another_account(
     key = await key_for(db_session, test_user["id"], "user.read", "user.update")
 
     updating = await client.patch(f"/api/v1/users/{test_user_2['username']}", json={"name": "Renamed"}, headers=with_key(key))
+
+    assert updating.status_code == 200
+
+
+async def test_a_key_cannot_edit_its_owners_own_profile_without_the_permission(
+    client: AsyncClient, db_session: AsyncSession, test_user: dict
+):
+    """The owner may edit that profile, and the key is narrowed out of what the edit takes."""
+    await _grant(db_session, test_user["id"], "editor", "user.read", "user.update")
+    key = await key_for(db_session, test_user["id"], "user.read")
+
+    updating = await client.patch(f"/api/v1/users/{test_user['username']}", json={"name": "Renamed"}, headers=with_key(key))
+
+    assert updating.status_code == 403
+
+
+async def test_the_same_key_scoped_to_update_may_edit_its_owners_own_profile(
+    client: AsyncClient, db_session: AsyncSession, test_user: dict
+):
+    """The control: the refusal above is the scope, and the owner's own session is unaffected."""
+    await _grant(db_session, test_user["id"], "editor", "user.read", "user.update")
+    key = await key_for(db_session, test_user["id"], "user.read", "user.update")
+
+    updating = await client.patch(f"/api/v1/users/{test_user['username']}", json={"name": "Renamed"}, headers=with_key(key))
 
     assert updating.status_code == 200
 

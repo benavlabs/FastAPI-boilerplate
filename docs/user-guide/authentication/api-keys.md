@@ -100,9 +100,13 @@ its own tracks:
 | `DELETE /api/v1/users/{username}` | a key must not close the account that issued it |
 | every `/api/v1/api-keys/` route | a key must not mint, read, rescope or revoke a key, its own included |
 
-Ownership is a separate axis from the scope: a key can still act on what its owner owns, so it can
-edit its owner's own profile however it is scoped. The routes above are the ones where that would
-matter.
+Ownership is a separate axis from the scope: a key acts on what its owner owns. That is not a
+licence of its own, though. Editing the owner's own profile takes `user.update` in the key's scope
+as well, so a key minted for reading cannot rename the account behind it, and the routes above are
+refused whatever a key is scoped to. A scope names only what its owner holds, so this takes that
+owner holding `user.update` too: the rbac feature is where an ordinary account gets it, from a role
+carrying it, and with no permission source configured only a superuser's keys hold it
+([Permissions](permissions.md#api-key-scope)).
 
 ## Usage limits
 

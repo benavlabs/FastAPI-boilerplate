@@ -732,6 +732,16 @@ matrix. The round that followed fixed what a re-review of the refactor found.
 - **A credential the API throttle cannot resolve now spends the budget its address would have
   spent carrying none.** A junk `X-API-Key` or bearer token used to answer `401` as often as it was
   sent, unmetered, while the same requests without a header were throttled after the limit.
+- **A credential that carries a scope needs `user.update` to edit its owner's own profile.**
+  Ownership was checked before the scope was consulted, so an API key scoped to nothing at all, or
+  to reading, could `PATCH /api/v1/users/{username}` for the account that minted it and change its
+  name or its username. A key made for reading is not a licence to rename the account behind it, so
+  a scoped credential now holds `user.update` as well or reaches no profile at all, its owner's
+  included. A session is unchanged: an account editing its own profile needs no permission. The
+  other self-service routes already refuse a key outright. Worth knowing before a `403` surprises
+  anybody: a scope names only permissions its owner holds, and the rbac feature is this project's
+  only source of one, so with rbac an owner needs a role carrying `user.update`, and with no
+  permission source at all only a superuser's keys can edit a profile.
 - **A key stored as scrypt moves over in a write of its own, not in the request's transaction.**
   The rewrite set the new hash on the row the request's session was tracking and committed that
   session, which is the one the route writes through: a route that failed afterwards could not roll

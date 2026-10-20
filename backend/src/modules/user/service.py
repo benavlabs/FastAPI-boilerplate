@@ -391,21 +391,28 @@ class UserService:
         permissions: Collection[str],
         *,
         is_superuser: bool,
+        scoped: bool,
     ) -> None:
         """Verify the requester may update this profile at all.
 
-        Editing your own profile stays the ownership rule. Editing someone else's
-        needs the ``user.update`` permission, or superuser.
+        Editing your own profile is the ownership rule, for a credential that carries no
+        scope. One that carries a scope holds ``user.update`` as well or reaches no
+        profile at all, its owner's included: a scope naming nothing is what an API key
+        made for reading carries, and such a key renaming the account behind it is not
+        what its owner asked for. Editing someone else's profile needs ``user.update``
+        either way, or superuser.
 
         Args:
             requester_user: User data of the user making the request.
             target_username: Username of the user to be updated.
             permissions: Effective permissions held by the requester.
+            is_superuser: Whether the acting credential is a superuser's.
+            scoped: Whether the acting credential carries a scope.
 
         Raises:
             PermissionDeniedError: If the requester may not update this profile.
         """
-        if self.is_self_or_superuser(requester_user, target_username, is_superuser=is_superuser):
+        if not scoped and self.is_self_or_superuser(requester_user, target_username, is_superuser=is_superuser):
             return
 
         if UserPermission.UPDATE.value in permissions:

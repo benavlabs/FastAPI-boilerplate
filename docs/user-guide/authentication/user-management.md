@@ -146,7 +146,7 @@ Returns 404 if not found or soft-deleted. The admin-only `/active-and-inactive/{
 
 ### Update Profile
 
-Users can always update their own profile. Updating someone else's needs superuser, or the `user.update` permission. Tier updates are gated on a separate endpoint (see [Permissions](permissions.md)).
+Users can update their own profile. A credential that carries a scope, an API key among them, needs `user.update` for that too, so a key minted for reading cannot rename the account behind it. Updating someone else's needs superuser, or the `user.update` permission. Tier updates are gated on a separate endpoint (see [Permissions](permissions.md)).
 
 ```bash
 curl -X PATCH http://localhost:8000/api/v1/users/johndoe \
@@ -165,8 +165,11 @@ async def verify_update_permission(
     requester_user: dict[str, Any],
     target_username: str,
     permissions: Collection[str],
+    *,
+    is_superuser: bool,
+    scoped: bool,
 ) -> None:
-    if self.is_self_or_superuser(requester_user, target_username):
+    if not scoped and self.is_self_or_superuser(requester_user, target_username, is_superuser=is_superuser):
         return
 
     if UserPermission.UPDATE.value in permissions:

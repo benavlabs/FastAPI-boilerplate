@@ -11,6 +11,7 @@ from ...infrastructure.auth.deps import (
     CurrentUserDep,
     FreshSessionPrincipalDep,
 )
+from ...infrastructure.auth.scope import carries_a_scope
 from ...infrastructure.dependencies import AsyncSessionDep
 from ..common.pagination import ItemsPerPageDep, PageDep
 from .dependencies import UserServiceDep
@@ -186,6 +187,8 @@ async def get_active_and_inactive_user_by_username(
             Permission rules:
             - Regular users can only update their own profiles
             - Superusers can update any user's profile
+            - A credential that carries a scope, an API key among them, needs
+              `user.update` even for its owner's own profile
             - A `user.update` holder can update another user only when that user is
               not a superuser and holds no permission the requester lacks
             - Note: Tier updates are handled by a separate endpoint (/users/{username}/tier)
@@ -216,7 +219,9 @@ async def update_user_profile(
 ) -> dict[str, str]:
     """Update user profile information."""
     acting_as_superuser = principal.is_superuser
-    await user_service.verify_update_permission(current_user, username, permissions, is_superuser=acting_as_superuser)
+    await user_service.verify_update_permission(
+        current_user, username, permissions, is_superuser=acting_as_superuser, scoped=carries_a_scope(principal)
+    )
     user = await user_service.get_by_username(username, db)
 
     if not user_service.is_self_or_superuser(current_user, user["username"], is_superuser=acting_as_superuser):

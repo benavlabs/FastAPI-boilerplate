@@ -2,7 +2,8 @@
 
 A permission source is what lets an ordinary account hold anything, and this project's is
 the rbac feature. So the cases here are the ones a superuser's key states on its own, plus
-the ownership rule a scope doesn't touch. The rest live with the feature they need:
+what a key's ownership of its account does and does not reach. The rest live with the
+feature they need:
 ``tests/integration/api_keys_rbac`` and ``tests/integration/api_keys_tiers``.
 """
 
@@ -51,15 +52,36 @@ async def sign_in(client: AsyncClient, account: dict) -> str:
     return token
 
 
-async def test_a_key_may_still_edit_its_own_account_unscoped(client: AsyncClient, db_session: AsyncSession, test_user: dict):
-    """Ownership is a different axis: a scope narrows permissions, not what an account owns.
+async def test_a_key_that_names_nothing_cannot_edit_its_own_account(
+    client: AsyncClient, db_session: AsyncSession, test_user: dict
+):
+    """A scope naming nothing reaches nothing of the account behind it, its profile included.
 
-    The dangerous self-service routes — the password, the address, closing the account,
-    managing keys — take a session and refuse a key outright.
+    Ownership is what lets the account edit that profile, and a key carries the account's
+    ownership; what it does not carry is the permission the edit now also takes. The other
+    self-service routes, the password, the address, closing the account and managing keys,
+    take a session and refuse a key outright.
     """
     key = await key_for(db_session, test_user["id"])
 
     updating = await client.patch(f"/api/v1/users/{test_user['username']}", json={"name": "Renamed"}, headers=with_key(key))
+
+    assert updating.status_code == 403
+
+
+async def test_a_key_scoped_to_the_permission_may_edit_its_own_account(
+    client: AsyncClient, db_session: AsyncSession, test_superuser: dict
+):
+    """The control: the refusal above is the scope, not a route a key cannot reach.
+
+    A superuser holds every registered permission, which is what lets a key of theirs hold
+    ``user.update`` where no permission source is configured.
+    """
+    key = await key_for(db_session, test_superuser["id"], "user.update", held=frozenset({"user.update"}))
+
+    updating = await client.patch(
+        f"/api/v1/users/{test_superuser['username']}", json={"name": "Renamed"}, headers=with_key(key)
+    )
 
     assert updating.status_code == 200
 

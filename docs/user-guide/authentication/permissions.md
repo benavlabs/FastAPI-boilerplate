@@ -294,14 +294,17 @@ async def update_user_profile(
     username: str,
     values: UserUpdate,
     current_user: CurrentUserDep,
+    principal: CurrentPrincipalDep,
     permissions: CurrentPermissionsDep,
     db: AsyncSessionDep,
     user_service: UserServiceDep,
 ) -> dict[str, str]:
-    await user_service.verify_update_permission(current_user, username, permissions)
+    await user_service.verify_update_permission(
+        current_user, username, permissions, is_superuser=principal.is_superuser, scoped=carries_a_scope(principal)
+    )
     user = await user_service.get_by_username(username, db)
 
-    if not user_service.is_self_or_superuser(current_user, user["username"]):
+    if not user_service.is_self_or_superuser(current_user, user["username"], is_superuser=principal.is_superuser):
         target_permissions = await load_permissions(db, user["id"])
         user_service.verify_no_privilege_escalation(user, values, permissions, target_permissions)
 
@@ -311,7 +314,7 @@ async def update_user_profile(
 
 The rules this enforces:
 
-- A user may always edit their own profile.
+- A user may edit their own profile, and a credential that carries a scope needs `user.update` to edit that profile too.
 - A superuser may edit anyone.
 - A `user.update` holder may edit *another* user only when that user is not a superuser and holds no permission the requester lacks — editing an account is a way to take it over, so it can't reach a stronger one.
 - Only a superuser may change another user's email address: a verified provider email is how an OAuth login is matched to an existing account.
@@ -455,9 +458,11 @@ credential minting it.
     a role carrying anything its scope lacks; and editing another account, or reading its tier or
     rate limits, goes by the acting credential's flag rather than the account's row.
 
-    Ownership is a separate axis: a scope narrows permissions, not what an account owns, so a key
-    can still edit its owner's own profile. The dangerous self-service routes — the password, the
-    address, closing the account, managing keys — take a session and refuse a key outright
+    Ownership is a separate axis: a scope narrows permissions, not what an account owns. It is no
+    licence on its own, though. Editing a profile takes `user.update` of a scoped credential even
+    where the profile is its owner's, so a key minted for reading cannot rename the account behind
+    it. The other self-service routes, the password, the address, closing the account and managing
+    keys, take a session and refuse a key outright
     ([API keys](api-keys.md#what-a-key-cannot-do)).
 
 A key's lifecycle is `is_active` and `expires_at`: revoking is one way, and an expiry can be
