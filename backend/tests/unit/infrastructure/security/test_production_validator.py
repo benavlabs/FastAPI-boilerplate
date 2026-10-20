@@ -487,6 +487,18 @@ class TestAProjectWithoutTheseFeatures:
         assert validator._check_admin_credentials() == []
         assert validator._get_redis_configurations() == []
 
+    def test_the_email_settings_are_left_alone_without_the_accounts_feature(self):
+        """``EmailSettings`` is core, and a project with no accounts sends nobody a link.
+
+        Both settings read their defaults there, so checking them would refuse a deployment
+        over an address nothing builds and a backend nothing delivers through.
+        """
+        validator = ProductionSecurityValidator(cast(Settings, CoreSettings(ENVIRONMENT=EnvironmentOption.PRODUCTION)))
+
+        errors = validator._validate_critical_security()
+
+        assert not [error for error in errors if "FRONTEND_URL" in error or "EMAIL_BACKEND" in error]
+
     def test_the_core_checks_still_run(self):
         """Dropping features must not drop the checks that hold for every project."""
         validator = ProductionSecurityValidator(cast(Settings, CoreSettings(ENVIRONMENT=EnvironmentOption.PRODUCTION)))

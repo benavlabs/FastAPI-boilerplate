@@ -732,6 +732,13 @@ matrix. The round that followed fixed what a re-review of the refactor found.
 - **A credential the API throttle cannot resolve now spends the budget its address would have
   spent carrying none.** A junk `X-API-Key` or bearer token used to answer `401` as often as it was
   sent, unmetered, while the same requests without a header were throttled after the limit.
+- **A project with no accounts is no longer refused production over the email settings.**
+  `EMAIL_BACKEND` and `FRONTEND_URL` live in the core settings, so a core-only project reads
+  `console` and `http://localhost:3000` the same as any other, and the production validator refused
+  to start over a backend nothing delivers through and an address nothing builds a link from. Both
+  checks now run only where the accounts feature is present, which is what gives a project an
+  account to email. Every other check is unchanged, the secret key and the schema-on-boot refusals
+  included.
 - **A retry can wait, with `TASKIQ_RETRY_DELAY_SECONDS`.** Retries were immediate and nothing else
   was on offer: a task tripped up by a dependency that is down for a minute spent all three of its
   attempts in the first milliseconds, and the queue's own `SmartRetryMiddleware` delays nothing on a

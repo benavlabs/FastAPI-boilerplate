@@ -16,6 +16,9 @@ logger = get_logger()
 
 LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", "0.0.0.0"})
 
+ACCOUNTS_SETTING = "SESSION_TIMEOUT_MINUTES"
+"""A setting only the accounts feature brings, which is how its presence is read."""
+
 
 class ProductionSecurityError(Exception):
     """Exception raised when critical security issues are found in production.
@@ -149,6 +152,15 @@ class ProductionSecurityValidator:
         """
         return getattr(self.settings, name, default)
 
+    def _has_accounts_to_email(self) -> bool:
+        """Whether the project selected the feature that sends an account anything.
+
+        ``EmailSettings`` is core, so a project with no accounts reads the same defaults as
+        one that recovers them by email. Checking those there would refuse a deployment
+        over an address nothing builds a link from and a backend nothing delivers through.
+        """
+        return hasattr(self.settings, ACCOUNTS_SETTING)
+
     def _is_frontend_url_local(self) -> bool:
         """Whether ``FRONTEND_URL`` is empty, or names a host only this machine can reach."""
         url = self.settings.FRONTEND_URL.strip()
@@ -231,7 +243,7 @@ class ProductionSecurityValidator:
                 "ADMIN_ENABLED=false for production."
             )
 
-        if self._is_frontend_url_local():
+        if self._has_accounts_to_email() and self._is_frontend_url_local():
             errors.append(
                 f"FRONTEND_URL is {self.settings.FRONTEND_URL!r} in production. The verification, "
                 "password-reset and email-change links are built from it, so every one of them "
@@ -239,7 +251,7 @@ class ProductionSecurityValidator:
                 "frontend."
             )
 
-        if self.settings.EMAIL_BACKEND == EmailBackend.CONSOLE.value:
+        if self._has_accounts_to_email() and self.settings.EMAIL_BACKEND == EmailBackend.CONSOLE.value:
             errors.append(
                 "EMAIL_BACKEND is 'console' in production. That backend logs every message in full, "
                 "so password-reset and verification links would be written to the logs instead of "
