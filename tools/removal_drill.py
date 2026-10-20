@@ -95,6 +95,7 @@ FEATURES: dict[str, Feature] = {
             "backend/src/modules/api_keys",
             "backend/scripts/cleanup_api_key_json.py",
             "backend/scripts/prune_key_usage.py",
+            "backend/scripts/revoke_scrypt_api_keys.py",
             "backend/tests/unit/modules/api_keys",
             "backend/tests/integration/api/v1/api_keys",
         ),

@@ -268,10 +268,18 @@ indexed lookup on `key_hash`.
     reads as a password; for this column that reading is wrong. Account passwords in this project
     are hashed by crudauth with bcrypt and are not involved.
 
-A key stored by an older version under a salted scrypt hash still authenticates — found by prefix
-and verified the old way — and its row is rewritten as a digest the first time it is used. Until
-then, a request carrying that key's prefix still costs one verification, so run the old keys once
-after upgrading.
+A key stored by an older version under a salted scrypt hash still authenticates, found by prefix
+and verified the old way, and its row is rewritten as a digest the first time it is used. Until
+then, every request carrying that key's prefix costs a derivation, not just the ones its owner
+makes: the prefix is in the owner's listing, so whoever holds it can ask for that work as often as
+they like. Only a row a request could authenticate with is verified against, so a key that is
+revoked or has expired costs nothing, and a key that gets used costs nothing from then on.
+
+`uv run --no-sync python scripts/revoke_scrypt_api_keys.py` from `backend/`, or
+`docker compose exec api python -m scripts.revoke_scrypt_api_keys` in the container, names the keys
+still stored that way with the prefix and the name their owners see, so the owners can be told to
+mint new ones. Run with `--revoke` it deactivates them, which ends the cost without waiting for a
+key to be used, and leaves every key stored as a digest alone.
 
 ## `X-API-Key` in the interactive docs
 
@@ -305,6 +313,7 @@ that the header is expected.
 | Retention and pruning | `backend/src/modules/api_keys/retention.py` |
 | Scheduled prune (with taskiq) | `backend/src/modules/api_keys/tasks.py` |
 | Prune script (without taskiq) | `backend/scripts/prune_key_usage.py` |
+| Script for the keys still on scrypt | `backend/scripts/revoke_scrypt_api_keys.py` |
 | Routes | `backend/src/modules/api_keys/routes.py` |
 | Models (`APIKey`, `KeyUsage`) | `backend/src/modules/api_keys/models.py` |
 | Transport registration | `backend/src/wiring/transports.py` |

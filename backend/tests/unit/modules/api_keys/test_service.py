@@ -667,7 +667,7 @@ async def test_an_expiry_can_be_brought_forward(api_key_service, db_session, tes
 
 
 class TestAKeyStoredBeforeTheDigest:
-    """The scrypt fallback: it authenticates, it moves the row over, and it runs once."""
+    """The scrypt fallback: what it authenticates, how the row moves over, and when it runs."""
 
     @pytest_asyncio.fixture
     async def legacy_key(self, api_key_service, db_session: AsyncSession, test_user: dict):
@@ -712,6 +712,41 @@ class TestAKeyStoredBeforeTheDigest:
         assert threads
         assert threading.main_thread().name not in threads
 
+    async def test_a_revoked_row_is_never_verified(
+        self, api_key_service, db_session: AsyncSession, legacy_key: dict, monkeypatch
+    ):
+        """A revoked key's prefix stays in the listing that showed it, and it is derived against.
+
+        A row no request can authenticate with is never used again either, so it holds its
+        scrypt hash for good: the derivation it costs is one a stranger holding the prefix
+        can ask for as often as they like.
+        """
+        await db_session.execute(update(APIKey).where(APIKey.id == legacy_key["id"]).values(is_active=False))
+        await db_session.commit()
+        stored = await self._stored_hash(db_session, legacy_key["id"])
+        monkeypatch.setattr(hashlib, "scrypt", _no_scrypt)
+
+        validation = await api_key_service.validate_api_key(api_key=legacy_key["api_key"], db=db_session)
+
+        assert validation.is_valid is False
+        assert await self._stored_hash(db_session, legacy_key["id"]) == stored
+
+    async def test_an_expired_row_is_never_verified(
+        self, api_key_service, db_session: AsyncSession, legacy_key: dict, monkeypatch
+    ):
+        """An expiry passes on its own, so a key nobody revoked becomes one of those rows."""
+        await db_session.execute(
+            update(APIKey).where(APIKey.id == legacy_key["id"]).values(expires_at=datetime.now(UTC) - timedelta(days=1))
+        )
+        await db_session.commit()
+        stored = await self._stored_hash(db_session, legacy_key["id"])
+        monkeypatch.setattr(hashlib, "scrypt", _no_scrypt)
+
+        validation = await api_key_service.validate_api_key(api_key=legacy_key["api_key"], db=db_session)
+
+        assert validation.is_valid is False
+        assert await self._stored_hash(db_session, legacy_key["id"]) == stored
+
     async def test_it_pays_for_scrypt_once(self, api_key_service, db_session: AsyncSession, legacy_key: dict, monkeypatch):
         """The row holds a digest after the first call, so the second finds it by lookup."""
         await api_key_service.validate_api_key(api_key=legacy_key["api_key"], db=db_session)
@@ -727,8 +762,8 @@ async def test_a_junk_key_sharing_a_migrated_keys_prefix_is_refused_without_scry
 ):
     """Prefixes are listed, so a stranger holding one must not be able to make the server derive.
 
-    Only a prefix whose row still holds a scrypt hash costs a verification, and only until
-    that key is next used.
+    Only a prefix with a live row still holding a scrypt hash costs a verification, and only
+    until that key is next used.
     """
     monkeypatch.setattr(hashlib, "scrypt", _no_scrypt)
     presented = test_api_key["api_key"][:-4] + "beef"

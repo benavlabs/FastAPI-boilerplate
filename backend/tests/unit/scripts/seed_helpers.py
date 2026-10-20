@@ -42,10 +42,10 @@ def script_environment(database_url: str, **extra: str) -> dict[str, str]:
     }
 
 
-def run_script(name: str, environment: dict[str, str]) -> subprocess.CompletedProcess[str]:
+def run_script(name: str, environment: dict[str, str], *arguments: str) -> subprocess.CompletedProcess[str]:
     """Run ``scripts/<name>.py`` from ``backend/``, as the documentation does."""
     return subprocess.run(
-        [sys.executable, f"scripts/{name}.py"],
+        [sys.executable, f"scripts/{name}.py", *arguments],
         cwd=BACKEND_DIR,
         env=environment,
         capture_output=True,

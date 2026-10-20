@@ -237,12 +237,16 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   bound, and Starlette starts that clock again whenever something writes to the session, which a
   flashed message does, so an operator who kept working kept a session alive indefinitely. Nothing
   tied a session to the credentials either: changing `ADMIN_PASSWORD` left a stolen cookie working
-  until it expired. A session now carries the time it was issued and an HMAC of
-  `ADMIN_USERNAME:ADMIN_PASSWORD` keyed with `SECRET_KEY`, and the panel refuses it eight hours
-  after that login however active it has been, or as soon as either credential changes, which is
-  the panel's only way of revoking a session. A refused session is cleared, so the browser stops
-  sending it. Sessions from before this version carry neither field and are refused, so every
-  operator signs in once after it is deployed.
+  until it expired. A session now carries the time it was issued and a fingerprint of
+  `ADMIN_USERNAME:ADMIN_PASSWORD`, derived with scrypt and salted with `SECRET_KEY`, and the panel
+  refuses it eight hours after that login however active it has been, or as soon as either
+  credential changes, which is the panel's only way of revoking a session. The work factor is what
+  the cookie makes necessary: it is readable by whoever holds it, so a fast hash of a password an
+  operator chose would be one a word list could be run against by anybody who also had the key. The
+  derivation is kept for as long as the credentials it was made from, so only the first request of
+  a process pays for it. A refused session is cleared, so the browser stops sending it. Sessions
+  from before this version carry neither field and are refused, so every operator signs in once
+  after it is deployed.
 - **Signing out of the panel takes a `POST`.** sqladmin serves logout on `GET` and links to it from
   every page, so anything that made the operator's browser fetch `/admin/logout` signed them out,
   with `SameSite=Lax` sending the cookie along. The route answers a `GET` with a one-button form now
@@ -292,8 +296,8 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   derivation per request — which anyone holding a key prefix, and listings show them, could make the
   server pay on junk. A request now finds its row through one indexed lookup on `key_hash`. A key
   stored with the old `scrypt$…` hash still authenticates, through the prefix lookup and the same
-  verification as before, and its row is rewritten as a digest on that first use, so each old key
-  pays for scrypt once.
+  verification as before, and its row is rewritten as a digest on that first use. Until that
+  happens, every request carrying its prefix costs a derivation, not only the ones its owner makes.
 - **Emails are stored canonically** (lowercased, as crudauth looks them up), on signup, on update and
   in the admin panel. `UserService.get_by_email` canonicalises its lookup, so seeding a superuser
   with a mixed-case `ADMIN_EMAIL` is idempotent.
@@ -728,6 +732,16 @@ matrix. The round that followed fixed what a re-review of the refactor found.
 - **A credential the API throttle cannot resolve now spends the budget its address would have
   spent carrying none.** A junk `X-API-Key` or bearer token used to answer `401` as often as it was
   sent, unmetered, while the same requests without a header were throttled after the limit.
+- **A key stored as scrypt is derived against only while a request could authenticate with it.**
+  The lookup behind the old hash took every row carrying the presented prefix and a `scrypt$` hash
+  and ran the derivation against each, revoked and expired rows included. Such a row is never used
+  again, so it holds that hash for good, and a key's prefix is in its owner's listing: whoever held
+  one could make the server derive on junk, as often as they liked, for as long as a single row like
+  that survived. The lookup now reads only rows that are active and unexpired, so revoking a key or
+  letting it expire ends what it costs. `uv run --no-sync python scripts/revoke_scrypt_api_keys.py`
+  names the keys still stored that way, and `--revoke` deactivates them. A revoked or expired key of
+  that kind now answers `Invalid API key` rather than being rewritten as a digest and then refused
+  as inactive.
 - **A key's windows are counted shortest first, so a refused request keeps its longer budgets.**
   The windows were counted in the order the limits were written in, which is the client's order, so
   a key carrying `{"requests_per_day": 10, "requests_per_minute": 1}` spent a day's worth of quota

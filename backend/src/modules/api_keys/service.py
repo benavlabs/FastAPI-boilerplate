@@ -398,7 +398,10 @@ class APIKeyService:
 
         A digest finds its row through the unique index on ``key_hash``. A row an older
         version stored as scrypt is found by prefix and verified, then rewritten as a
-        digest, so each of those keys pays for scrypt once.
+        digest, so a key of that kind pays for a derivation on its next use and none
+        after. A key matching no digest pays one for every live scrypt row under the
+        prefix it carries, each time it is presented, and
+        ``scripts/revoke_scrypt_api_keys.py`` names those rows.
         """
         stored = await db.execute(
             select(APIKey).where(APIKey.key_hash == self._hash_api_key(api_key)).execution_options(populate_existing=True)
@@ -410,10 +413,21 @@ class APIKeyService:
         return await self._rehashed(api_key, prefix, db)
 
     async def _rehashed(self, api_key: str, prefix: str, db: AsyncSession) -> APIKey | None:
-        """The key row holding a scrypt hash of ``api_key``, rewritten as a digest."""
+        """The key row holding a scrypt hash of ``api_key``, rewritten as a digest.
+
+        Only a row a request could be authenticated by is derived against. A revoked or
+        expired row is refused either way, and is never used again to move itself over, so
+        it would hold its scrypt hash for good: anybody holding the prefix a listing showed
+        them could ask the server for that derivation as often as they liked.
+        """
         legacy = await db.execute(
             select(APIKey)
-            .where(APIKey.key_prefix == prefix, APIKey.key_hash.startswith(f"{SCRYPT_SCHEME}$"))
+            .where(
+                APIKey.key_prefix == prefix,
+                APIKey.key_hash.startswith(f"{SCRYPT_SCHEME}$"),
+                APIKey.is_active,
+                or_(APIKey.expires_at.is_(None), APIKey.expires_at > datetime.now(UTC)),
+            )
             .execution_options(populate_existing=True)
         )
         for candidate in legacy.scalars().all():

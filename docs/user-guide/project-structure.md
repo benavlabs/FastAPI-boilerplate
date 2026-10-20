@@ -198,7 +198,8 @@ scripts/
 ├── create_tables.py          # Just the database tables
 ├── cleanup_api_key_json.py   # One-off repair for legacy API key rows
 ├── canonicalize_emails.py    # One-off repair for addresses stored with case or spaces
-└── unlock_account.py         # Clears the login lockout one account is held in
+├── unlock_account.py         # Clears the login lockout one account is held in
+└── revoke_scrypt_api_keys.py # Names the API keys still stored as scrypt, revokes them on request
 ```
 
 The most common entry point is `setup_initial_data` which calls all three.
