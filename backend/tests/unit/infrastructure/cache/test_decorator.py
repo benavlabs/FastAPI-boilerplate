@@ -1,36 +1,47 @@
 """What a cached response is keyed by, and when it is served."""
 
-from typing import Any
+from collections.abc import Callable
+from typing import Annotated, Any
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from fastapi import Request
+from crudauth import Principal
+from fastapi import Depends, Query, Request
+from fastapi.routing import APIRoute
+from pydantic import BaseModel, Field
 
+from src.infrastructure.auth.scope import SCOPE_OWNER_IS_SUPERUSER
 from src.infrastructure.cache.decorator import cache
 from src.infrastructure.cache.exceptions import InvalidRequestError
 from src.infrastructure.uncached import cached as uncached
 
 pytestmark = pytest.mark.asyncio
 
-ALICE = {"id": 1, "username": "alice"}
-BOB = {"id": 2, "username": "bob"}
+ALICE = Principal(user_id=1, transport="session")
+BOB = Principal(user_id=2, transport="session")
 
 
-def _request(method: str = "GET", query: str = "") -> Request:
-    """A request the decorator can read a method and a query string off."""
-    return Request(
-        {
-            "type": "http",
-            "method": method,
-            "path": "/items",
-            "raw_path": b"/items",
-            "query_string": query.encode(),
-            "headers": [],
-            "client": ("127.0.0.1", 1234),
-            "server": ("test", 80),
-            "scheme": "http",
-        }
-    )
+def _request(method: str = "GET", query: str = "", route: Callable[..., Any] | None = None) -> Request:
+    """A request the decorator can read a method, a query string and its route off.
+
+    The route is what the query parameters are read from, so a request carrying a query
+    arrives through one, built over the endpoint the way the router builds it.
+    """
+    scope: dict[str, Any] = {
+        "type": "http",
+        "method": method,
+        "path": "/items",
+        "raw_path": b"/items",
+        "query_string": query.encode(),
+        "headers": [],
+        "client": ("127.0.0.1", 1234),
+        "server": ("test", 80),
+        "scheme": "http",
+    }
+    if route is not None:
+        scope["route"] = APIRoute("/items", route, methods=[method])
+
+    return Request(scope)
 
 
 @pytest.fixture
@@ -61,54 +72,141 @@ class TestWhatTheKeyIsMadeOf:
 
     async def test_the_query_is_part_of_the_key(self, backend):
         @cache(key_prefix="tiers", per_caller=False)
-        async def endpoint(request: Request, page: int) -> dict[str, Any]:
+        async def endpoint(request: Request, page: int, items_per_page: int) -> dict[str, Any]:
             return {"page": page}
 
-        await endpoint(_request(query="page=1&items_per_page=10"), page=1)
-        await endpoint(_request(query="page=2&items_per_page=10"), page=2)
+        await endpoint(_request(query="page=1&items_per_page=10", route=endpoint), page=1, items_per_page=10)
+        await endpoint(_request(query="page=2&items_per_page=10", route=endpoint), page=2, items_per_page=10)
 
         asked = [call.args[0] for call in backend.get.call_args_list]
-        assert asked == ["tiers:1:q=items_per_page=10&page=1", "tiers:2:q=items_per_page=10&page=2"]
+        assert asked == ["tiers:q=items_per_page=10&page=1", "tiers:q=items_per_page=10&page=2"]
 
     async def test_two_orderings_of_one_query_share_an_entry(self, backend):
+        @cache(key_prefix="tiers", per_caller=False)
+        async def endpoint(request: Request, page: int, items_per_page: int) -> dict[str, Any]:
+            return {"page": page}
+
+        await endpoint(_request(query="page=1&items_per_page=10", route=endpoint), page=1, items_per_page=10)
+        await endpoint(_request(query="items_per_page=10&page=1", route=endpoint), page=1, items_per_page=10)
+
+        asked = {call.args[0] for call in backend.get.call_args_list}
+        assert asked == {"tiers:q=items_per_page=10&page=1"}
+
+    async def test_a_parameter_the_route_does_not_declare_is_no_part_of_the_key(self, backend):
+        """It cannot have changed the answer, so it must not store an answer of its own."""
+
         @cache(key_prefix="tiers", per_caller=False)
         async def endpoint(request: Request, page: int) -> dict[str, Any]:
             return {"page": page}
 
-        await endpoint(_request(query="a=1&b=2"), page=1)
-        await endpoint(_request(query="b=2&a=1"), page=1)
+        await endpoint(_request(query="page=1", route=endpoint), page=1)
+        await endpoint(_request(query="page=1&utm_source=newsletter", route=endpoint), page=1)
 
         asked = {call.args[0] for call in backend.get.call_args_list}
-        assert asked == {"tiers:1:q=a=1&b=2"}
+        assert asked == {"tiers:q=page=1"}
+
+    async def test_a_query_spelling_the_delimiters_is_not_the_query_it_spells(self, backend):
+        """``?items_per_page%3D20%26page=1`` carries one parameter, named with an escaped pair.
+
+        Written into a key as it came, that name reads as the two parameters it spells, so
+        a request for anything at all is stored under the entry a real request for that
+        page is served from.
+        """
+
+        @cache(key_prefix="tiers", per_caller=False)
+        async def endpoint(request: Request, page: int = 1, items_per_page: int = 10) -> dict[str, Any]:
+            return {"page": page}
+
+        await endpoint(_request(query="items_per_page%3D20%26page=1", route=endpoint), page=1, items_per_page=10)
+        await endpoint(_request(query="items_per_page=20&page=1", route=endpoint), page=1, items_per_page=20)
+
+        crafted, real = (call.args[0] for call in backend.get.call_args_list)
+        assert crafted != real
+
+    async def test_a_scoped_credential_does_not_share_an_entry_with_its_owners_session(self, backend):
+        """A key holds its owner's permissions narrowed, so a response made for the owner's
+        session is not one it may be served.
+        """
+        session = Principal(user_id=1, transport="session")
+        scoped = Principal(user_id=1, transport="apikey", scopes=("user.read",), metadata={SCOPE_OWNER_IS_SUPERUSER: False})
+
+        @cache(key_prefix="keys", resource_id_name="item_id", caller_from="principal")
+        async def endpoint(request: Request, item_id: int, principal: Principal) -> dict[str, Any]:
+            return {"ok": True}
+
+        await endpoint(_request(), item_id=7, principal=session)
+        await endpoint(_request(), item_id=7, principal=scoped)
+
+        asked = [call.args[0] for call in backend.get.call_args_list]
+        assert asked[0] != asked[1]
 
     async def test_each_caller_gets_their_own_entry(self, backend):
-        @cache(key_prefix="keys", resource_id_name="item_id")
-        async def endpoint(request: Request, item_id: int, current_user: dict[str, Any]) -> dict[str, Any]:
-            return {"for": current_user["username"]}
+        @cache(key_prefix="keys", resource_id_name="item_id", caller_from="principal")
+        async def endpoint(request: Request, item_id: int, principal: Principal) -> dict[str, Any]:
+            return {"for": principal.user_id}
 
-        await endpoint(_request(), item_id=7, current_user=ALICE)
-        await endpoint(_request(), item_id=7, current_user=BOB)
+        await endpoint(_request(), item_id=7, principal=ALICE)
+        await endpoint(_request(), item_id=7, principal=BOB)
 
         asked = [call.args[0] for call in backend.get.call_args_list]
         assert asked == ["keys:7:u=1", "keys:7:u=2"]
 
-    async def test_a_principal_names_the_caller_too(self, backend):
-        class _Principal:
-            user_id = 42
+    async def test_a_caller_that_is_not_a_principal_is_not_cached(self, backend):
+        """An account read any other way says nothing about which credential asked.
 
-        @cache(key_prefix="keys", resource_id_name="item_id")
-        async def endpoint(request: Request, item_id: int, principal: _Principal) -> dict[str, Any]:
-            return {"ok": True}
+        A current-user mapping is the account itself, so a key scoped to reading and its
+        owner's session would both be stored under the account, and one would be served the
+        other's response.
+        """
+        calls: list[int] = []
 
-        await endpoint(_request(), item_id=7, principal=_Principal())
+        @cache(key_prefix="keys", resource_id_name="item_id", caller_from="current_user")
+        async def endpoint(request: Request, item_id: int, current_user: dict[str, Any]) -> dict[str, Any]:
+            calls.append(item_id)
+            return {"for": current_user["username"]}
 
-        backend.get.assert_called_once_with("keys:7:u=42")
+        await endpoint(_request(), item_id=7, current_user={"id": 1, "username": "alice"})
+        await endpoint(_request(), item_id=7, current_user={"id": 1, "username": "alice"})
+
+        assert calls == [7, 7]
+        backend.get.assert_not_called()
+        backend.set.assert_not_called()
+
+    async def test_a_parameter_under_an_alias_is_part_of_the_key(self, backend):
+        """It arrives under the alias and lands in an argument of another name."""
+
+        @cache(key_prefix="tiers", per_caller=False)
+        async def endpoint(request: Request, items_per_page: Annotated[int, Query(alias="items-per-page")] = 10):
+            return {"items_per_page": items_per_page}
+
+        await endpoint(_request(query="items-per-page=10", route=endpoint), items_per_page=10)
+        await endpoint(_request(query="items-per-page=20", route=endpoint), items_per_page=20)
+
+        asked = [call.args[0] for call in backend.get.call_args_list]
+        assert asked == ["tiers:q=items-per-page=10", "tiers:q=items-per-page=20"]
+
+    async def test_a_parameter_a_dependency_reads_is_part_of_the_key(self, backend):
+        """It is no argument of the route at all, so two pages would share one entry."""
+
+        class Pagination:
+            def __init__(self, page: int = 1, items_per_page: int = 10) -> None:
+                self.page = page
+
+        @cache(key_prefix="tiers", per_caller=False)
+        async def endpoint(request: Request, pages: Annotated[Pagination, Depends()]) -> dict[str, Any]:
+            return {"page": pages.page}
+
+        await endpoint(_request(query="page=1", route=endpoint), pages=Pagination(page=1))
+        await endpoint(_request(query="page=2", route=endpoint), pages=Pagination(page=2))
+
+        asked = [call.args[0] for call in backend.get.call_args_list]
+        assert asked == ["tiers:q=page=1", "tiers:q=page=2"]
 
     async def test_a_per_caller_route_with_no_caller_is_not_cached(self, backend):
         """Sharing one entry between callers is the mistake this refuses to make."""
         calls: list[int] = []
 
-        @cache(key_prefix="keys", resource_id_name="item_id")
+        @cache(key_prefix="keys", resource_id_name="item_id", caller_from="current_user")
         async def endpoint(request: Request, item_id: int) -> dict[str, Any]:
             calls.append(item_id)
             return {"ok": True}
@@ -119,6 +217,45 @@ class TestWhatTheKeyIsMadeOf:
         assert calls == [7, 7]
         backend.get.assert_not_called()
         backend.set.assert_not_called()
+
+    async def test_the_parameters_a_query_model_carries_are_part_of_the_key(self, backend):
+        """The route declares one parameter, named after an argument no query ever carries."""
+
+        class Filters(BaseModel):
+            page: int = 1
+            size: Annotated[int, Field(alias="items-per-page")] = 10
+
+        @cache(key_prefix="tiers", per_caller=False)
+        async def endpoint(request: Request, filters: Annotated[Filters, Query()]) -> dict[str, Any]:
+            return {"page": filters.page}
+
+        await endpoint(_request(query="page=1", route=endpoint), filters=Filters(page=1))
+        await endpoint(_request(query="page=2", route=endpoint), filters=Filters(page=2))
+        await endpoint(_request(query="items-per-page=20", route=endpoint), filters=Filters(**{"items-per-page": 20}))
+
+        asked = [call.args[0] for call in backend.get.call_args_list]
+        assert asked == ["tiers:q=page=1", "tiers:q=page=2", "tiers:q=items-per-page=20"]
+
+    async def test_a_request_with_no_route_to_read_keeps_every_parameter(self, backend):
+        """Nothing says which parameters count, so a key too many beats serving one answer twice."""
+
+        @cache(key_prefix="tiers", per_caller=False)
+        async def endpoint(request: Request, page: int) -> dict[str, Any]:
+            return {"page": page}
+
+        await endpoint(_request(query="page=1&anything=1"), page=1)
+        await endpoint(_request(query="page=2&anything=1"), page=2)
+
+        asked = [call.args[0] for call in backend.get.call_args_list]
+        assert asked == ["tiers:q=anything=1&page=1", "tiers:q=anything=1&page=2"]
+
+    async def test_a_per_caller_route_that_names_no_caller_is_a_programming_error(self):
+        """Which argument identifies the caller is the route's to say, at import time."""
+        with pytest.raises(ValueError, match="must name the argument"):
+
+            @cache(key_prefix="keys", resource_id_name="item_id")
+            async def endpoint(request: Request, item_id: int) -> dict[str, Any]:
+                return {"ok": True}
 
 
 class TestWhatIsServedFromTheCache:

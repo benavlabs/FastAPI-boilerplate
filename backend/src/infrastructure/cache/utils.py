@@ -1,39 +1,14 @@
 import re
-from collections.abc import Mapping
+from collections.abc import Collection
 from typing import Any
+from urllib.parse import urlencode
 
-from .exceptions import CacheIdentificationInferenceError
+from crudauth import Principal
+from fastapi.dependencies.utils import get_flat_dependant
+from pydantic import BaseModel
+from starlette.requests import Request
 
-
-def infer_resource_id(kwargs: dict[str, Any], resource_id_type: type | tuple[type, ...]) -> int | str:
-    """Infer the resource ID from a dictionary of keyword arguments.
-
-    Args:
-        kwargs: A dictionary of keyword arguments.
-        resource_id_type: The expected type of the resource ID (int, str, or tuple of types).
-
-    Returns:
-        The inferred resource ID.
-
-    Raises:
-        CacheIdentificationInferenceError: If the resource ID cannot be inferred.
-    """
-    if not isinstance(resource_id_type, tuple):
-        resource_id_type = (resource_id_type,)
-
-    for arg_name, arg_value in kwargs.items():
-        if "id" in arg_name.lower() and any(isinstance(arg_value, t) for t in resource_id_type):
-            if isinstance(arg_value, int | str):
-                return arg_value
-            return str(arg_value)
-
-    for arg_name, arg_value in kwargs.items():
-        if any(isinstance(arg_value, t) for t in resource_id_type):
-            if isinstance(arg_value, int | str):
-                return arg_value
-            return str(arg_value)
-
-    raise CacheIdentificationInferenceError()
+from ..auth.scope import scope_fingerprint
 
 
 def extract_data_inside_brackets(input_string: str) -> list[str]:
@@ -112,29 +87,84 @@ def format_extra_data(to_invalidate_extra: dict[str, str], kwargs: dict[str, Any
     return formatted_extra
 
 
-def format_query(query_params: Any) -> str:
-    """The query a request carried, sorted, so two orderings of one query share an entry."""
-    items = sorted(query_params.multi_items()) if hasattr(query_params, "multi_items") else sorted(query_params)
+def format_query(query_params: Any, declared: Collection[str] | None) -> str:
+    """The query a request carried, as the parameters ``declared`` names, sorted and escaped.
 
-    return "&".join(f"{name}={value}" for name, value in items)
+    Only what the route declares decides its answer, so a parameter it never reads is left
+    out rather than stored under a key of its own. ``declared`` of ``None`` is for a route
+    whose parameters could not be read, and keeps every one of them: a key too many costs
+    a request its cache, where a key too few answers one request with another's response.
 
-
-def infer_caller_id(kwargs: dict[str, Any]) -> str | None:
-    """The id of the caller a route resolved, from a principal or a current-user mapping.
-
-    Returns ``None`` when the route resolved no caller, which is what makes a per-caller
-    route refuse to cache rather than share one entry between callers.
+    Escaping is what keeps a name or a value holding a ``&`` or an ``=`` from reading as
+    the parameters it spells: written as it came, ``items_per_page%3D20%26page=1`` is one
+    parameter that reads back as two.
     """
-    for value in kwargs.values():
-        user_id = getattr(value, "user_id", None)
-        if user_id is not None:
-            return str(user_id)
+    items = query_params.multi_items() if hasattr(query_params, "multi_items") else query_params
+    carried = items if declared is None else [(name, value) for name, value in items if name in declared]
 
-    for value in kwargs.values():
-        if isinstance(value, Mapping) and value.get("id") is not None and "username" in value:
-            return str(value["id"])
+    return urlencode(sorted(carried))
 
-    return None
+
+def caller_marks(caller: Any) -> str | None:
+    """How the caller a route resolved is written into a key, or ``None`` for anything else.
+
+    Only a principal will do, because only a principal brings its credential with it: one
+    that carries a scope holds less than the account behind it, and two of them hold
+    different things, so the scope is part of what the response was made for. An account
+    read any other way, a current-user mapping among them, says nothing about which of its
+    credentials asked, and a route keyed on that would serve a session's response to a key.
+    """
+    if not isinstance(caller, Principal):
+        return None
+
+    narrowed = scope_fingerprint(caller)
+
+    return str(caller.user_id) if narrowed is None else f"{caller.user_id}/{narrowed}"
+
+
+DECLARED_QUERY_NAMES = "_declared_query_names"
+"""Where the names a route declares are kept once read, which is on the route itself."""
+
+
+def _names_of(parameter: Any) -> set[str]:
+    """What a declared query parameter is read under: its own name, or a model's fields.
+
+    A parameter annotated with a model carries the query in that model's fields, and is
+    itself named after the argument it lands in, which no query ever carries.
+    """
+    annotation = getattr(parameter.field_info, "annotation", None)
+    if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+        return {field.alias or name for name, field in annotation.model_fields.items()}
+
+    return {parameter.alias}
+
+
+def declared_query_names(request: Request) -> frozenset[str] | None:
+    """The query parameters the route this request matched declares, under the names it reads.
+
+    Taken from the route rather than from the arguments it was called with: a parameter
+    carrying an alias arrives under the alias and lands in an argument of another name, and
+    one a dependency or a model reads is no argument of the route at all, so the arguments
+    would leave all of those out of the key and every page of such a listing would share
+    one entry.
+
+    ``None`` where there is no route to read it from, which keeps every parameter the
+    request carried rather than none of them.
+
+    Read once and kept on the route, because walking a dependency tree is not work for
+    every request.
+    """
+    route = request.scope.get("route")
+    if route is None or getattr(route, "dependant", None) is None:
+        return None
+
+    kept: frozenset[str] | None = route.__dict__.get(DECLARED_QUERY_NAMES)
+    if kept is None:
+        declared = get_flat_dependant(route.dependant).query_params
+        kept = frozenset(name for parameter in declared for name in _names_of(parameter))
+        route.__dict__[DECLARED_QUERY_NAMES] = kept
+
+    return kept
 
 
 def build_cache_key(prefix: str, resource_id: Any, query: str, caller_id: str | None) -> str:

@@ -1,5 +1,7 @@
 """Whether a credential narrows what its account holds."""
 
+import hashlib
+
 from crudauth import Principal
 
 SCOPE_OWNER_IS_SUPERUSER = "scope_owner_is_superuser"
@@ -27,3 +29,21 @@ def owner_is_superuser(principal: Principal) -> bool:
     a scope narrows like any other set.
     """
     return bool(principal.metadata.get(SCOPE_OWNER_IS_SUPERUSER))
+
+
+def scope_fingerprint(principal: Principal) -> str | None:
+    """What tells one scoped credential of an account from another, or ``None`` for a session.
+
+    A session holds everything its account holds, so there is nothing to tell apart. Two
+    credentials that carry a scope hold different things, and anything stored per caller,
+    a cached response among them, belongs to one of them rather than to the account.
+
+    It is a digest rather than the names themselves, so what it is written into stays a
+    bounded length however long a scope is.
+    """
+    if not carries_a_scope(principal):
+        return None
+
+    held = f"{principal.transport}:{','.join(sorted(principal.scopes))}"
+
+    return hashlib.sha256(held.encode()).hexdigest()[:16]

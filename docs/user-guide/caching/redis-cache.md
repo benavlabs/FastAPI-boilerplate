@@ -57,16 +57,21 @@ The decorator builds the cache key as `widget:{widget_id}`. On cache hits, the h
     key_prefix: str,                                  # required — cache namespace
     resource_id_name: Any = None,                     # name of the parameter holding the resource ID
     expiration: int = 3600,                           # TTL in seconds (default: 1 hour)
-    resource_id_type: type | tuple[type, ...] = int,  # expected type when auto-inferring
     to_invalidate_extra: dict[str, Any] | None = None,
     pattern_to_invalidate_extra: list[str] | None = None,
     backend_name: str | None = None,                  # if you've registered multiple backends
     per_caller: bool = True,                          # one entry per caller, unless the response is shared
+    caller_from: str | None = None,                   # the argument the caller is read from
 )
 ```
 
-The key is `prefix[:resource_id][:q=sorted query][:u=caller]`. Two pages of one listing, and two
-callers of one route, never share an entry.
+The key is `prefix[:resource_id][:q=query][:u=caller]`. The query part is the parameters the route
+declares, read from the route itself so an alias counts, and so does a parameter a dependency or a
+query model reads, sorted and percent-escaped, so two orderings of one query share an entry while a
+value holding an `&` or an `=` cannot read back as the parameters it spells. Where there is no route
+to read, every parameter the request carried goes into the key instead of none of them. Two pages of
+one listing, two callers of one route, and two scopes of one caller's credentials never share an
+entry.
 
 ### `key_prefix` — Cache Namespace
 
@@ -94,26 +99,32 @@ The decorator appends `:{resource_id}` to the prefix. Resource ID resolution:
 @cache(key_prefix="widget", resource_id_name="widget_id", expiration=600)
 async def get_widget(request: Request, widget_id: int, ...): ...
 
-# Implicit — the decorator infers from the kwargs (looks for an int argument by default)
-@cache(key_prefix="widget", expiration=600)
-async def get_widget(request: Request, widget_id: int, ...): ...
-
-# String IDs — set resource_id_type
-@cache(key_prefix="user", resource_id_name="username", resource_id_type=str)
+# A string id reads the same as any other
+@cache(key_prefix="user", resource_id_name="username", per_caller=False)
 async def get_user(request: Request, username: str, ...): ...
 ```
 
-If the decorator can't infer a resource ID, the key simply has no id part — which is what a
-listing wants, since its query string already identifies the page.
+Without a `resource_id_name` the key has no id part, which is what a listing wants: its query
+string identifies the page, and the page is not a resource.
 
 ### `per_caller` — Who the Entry Belongs To
 
-By default each caller gets their own entry, keyed by the `user_id` of a `Principal` argument or the
-`id` in a `current_user` mapping. A route whose response is identical for everyone passes
-`per_caller=False` to share one entry; see
+By default each caller gets their own entry, and `caller_from` names the argument the caller is read
+from, which holds a `Principal` (`CurrentPrincipalDep`). A per-caller route that names no argument
+raises `ValueError` where it is declared, because which argument identifies the caller is the
+route's to say rather than something to go looking for. A credential that carries a scope, an API
+key, is keyed apart from its owner's session and from the account's other scopes, since it holds
+less than the account does.
+
+Only a principal will do: a `current_user` mapping is the account, and says nothing about which of
+its credentials asked, so a route keyed on one would store a session's response where a key scoped
+to reading reads it. A per-caller route whose named argument holds anything else, or nothing, is
+**not cached at all**: the decorator logs a warning and calls through, rather than hand one person's
+response to the next.
+
+A route whose response is identical for everyone passes `per_caller=False` to share one entry; see
 [Per-Caller vs Shared Caches](cache-strategies.md#per-caller-vs-shared-caches) for when that is
-safe. A route that keeps the default but resolves no caller is **not cached at all**: the decorator
-logs a warning and calls through, rather than hand one person's response to the next.
+safe.
 
 ### What ships cached
 

@@ -732,6 +732,28 @@ matrix. The round that followed fixed what a re-review of the refactor found.
 - **A credential the API throttle cannot resolve now spends the budget its address would have
   spent carrying none.** A junk `X-API-Key` or bearer token used to answer `401` as often as it was
   sent, unmetered, while the same requests without a header were throttled after the limit.
+- **A cached entry is keyed by what the route declares, escaped, and by the credential that asked.**
+  The query went into the key as it came, joined with the same `&` and `=` it was being split on, so
+  `?items_per_page%3D20%26page=1` is one parameter whose name reads back as the two it spells: a
+  request for anything at all was stored under the entry a real request for that page is served
+  from. The query part is now `urlencode` of the parameters the route declares, sorted, so a value
+  holding a delimiter cannot spell another request and a parameter the route never reads stores no
+  entry of its own. Three more things the key got wrong: a listing with no `resource_id_name`
+  inferred one from the first int argument, which was `page`, so the id part held a page number;
+  the caller was looked for in whatever argument happened to carry a `user_id`; and a credential
+  that carries a scope shared its owner's entries, so a response made for a session could be served
+  to an API key that holds less. A per-caller route now names its caller with `caller_from=` and
+  raises `ValueError` where it is declared if it does not, the argument it names must hold a
+  `Principal` (an account read any other way says nothing about which credential asked, and leaves
+  the route uncached), nothing is inferred, and a scoped credential is keyed apart from the account
+  and from its other scopes. The declared parameters are read from the route rather than from the
+  arguments it was called with, so an alias, a parameter a dependency reads and the fields of a
+  query model are all part of the key, and a request with no route to read keeps every parameter it
+  carried rather than none. `resource_id_type`, `infer_resource_id` and `CacheIdentificationInferenceError`
+  are gone with the inference. The shipped `rate_limits` listing changes key shape, so its entries
+  are read afresh once after this deploys. A write still clears only the entry of the caller that
+  wrote, which [Cache Strategies](user-guide/caching/cache-strategies.md#per-caller-vs-shared-caches)
+  now spells out.
 - **A credential that carries a scope needs `user.update` to edit its owner's own profile.**
   Ownership was checked before the scope was consulted, so an API key scoped to nothing at all, or
   to reading, could `PATCH /api/v1/users/{username}` for the account that minted it and change its

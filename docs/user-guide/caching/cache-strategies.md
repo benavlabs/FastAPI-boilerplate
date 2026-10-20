@@ -7,9 +7,12 @@ All examples use the boilerplate's real APIs: the [`@cache` decorator](redis-cac
 ## Picking a Key Naming Scheme
 
 The decorator generates keys as `{formatted_key_prefix}[:{resource_id}][:q={query}][:u={caller}]`:
-the resource id when the route has one, the request's query string sorted (so `?a=1&b=2` and
-`?b=2&a=1` share one entry, and two pages never do), and the caller's id unless the route passes
-`per_caller=False`. Your job is to pick a `key_prefix` (and any `{kwarg}` placeholders) that:
+the resource id when the route names one, the parameters the route declares, sorted and
+percent-escaped (so `?a=1&b=2` and `?b=2&a=1` share one entry, two pages never do, and a value
+holding a delimiter cannot read back as the parameters it spells), and the caller unless the route
+passes `per_caller=False`. The parameters come from the route, so an alias, a parameter a dependency
+reads and the fields of a query model each count under the name the query carries. Your job is to
+pick a `key_prefix` (and any `{kwarg}` placeholders) that:
 
 1. **Doesn't collide** with unrelated caches
 2. **Matches your invalidation surface** — if you'll wipe by user, include the user identifier
@@ -28,7 +31,7 @@ Patterns the codebase encourages:
 # → user_5_widgets:page_1:size_10:5
 
 # String IDs (usernames, slugs, hashed query strings)
-@cache(key_prefix="user", resource_id_name="username", resource_id_type=str)
+@cache(key_prefix="user", resource_id_name="username", per_caller=False)
 # → user:johndoe
 
 # Time-windowed analytics — bake the window into the prefix
@@ -305,16 +308,29 @@ Keep negative TTLs **much shorter** than positive ones — the row will appear e
 ## Per-Caller vs Shared Caches
 
 A cached response is per caller by default, so a personalized route cannot serve one person's
-response to another. The caller is read off the route's own arguments — a `Principal`'s `user_id`,
-or the `current_user` mapping `CurrentUserDep` provides:
+response to another. `caller_from` names the argument the caller is read from, which holds a
+`Principal`:
 
 ```python
 @router.get("/me/dashboard")
-@cache(key_prefix="dashboard")
-async def my_dashboard(request: Request, current_user: CurrentUserDep, ...):
+@cache(key_prefix="dashboard", caller_from="principal")
+async def my_dashboard(request: Request, principal: CurrentPrincipalDep, ...):
     ...
 # → dashboard:u=5, and dashboard:u=9 for somebody else
 ```
+
+A credential that carries a scope is keyed apart from the account behind it: an API key scoped to
+`user.read` holds less than its owner's session does, so `dashboard:u=5/9f0c…` is the entry it reads
+and writes, and two scopes of one account are two entries. A `current_user` mapping is the account
+rather than the credential, so naming one leaves the route uncached rather than storing a session's
+response where that key would read it.
+
+**A write clears the entry of the caller that wrote, and no other.** So one account's own
+credentials can read a stale response after it writes through another of them: a session's `PATCH`
+clears `dashboard:u=5` and leaves `dashboard:u=5/9f0c…` to its TTL. Entries of other accounts were
+never cleared by a write either. Where that matters, give the write
+`pattern_to_invalidate_extra=["dashboard:*"]` on a backend that supports patterns, which Redis does
+and memcached does not.
 
 A route whose response is the same for everybody says so, and shares one entry:
 
@@ -327,8 +343,9 @@ personal data, and no part of it is filtered by the caller's permissions, tier o
 have to think about it, leave the default on — or don't cache the route at all, since a hot per-user
 response often costs more in cache round trips than it saves.
 
-A route that keeps the default and resolves no caller is **not cached**: the decorator logs a
-warning and calls through, rather than share one entry between everyone.
+A route that keeps the default and whose named argument resolves to nothing is **not cached**: the
+decorator logs a warning and calls through, rather than share one entry between everyone. A route
+that keeps the default and names no argument at all raises `ValueError` where it is declared.
 
 ## Picking TTLs
 

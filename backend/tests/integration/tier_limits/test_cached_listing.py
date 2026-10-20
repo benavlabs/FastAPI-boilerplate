@@ -65,7 +65,7 @@ async def test_a_second_read_of_one_page_is_served_from_the_cache(
     second = await _listing(superuser_auth_client, page=1, items_per_page=10)
 
     assert second == first
-    assert [name for name in cached.stored] == [f"{RATE_LIMITS_CACHE_PREFIX}:1:q=items_per_page=10&page=1"]
+    assert [name for name in cached.stored] == [f"{RATE_LIMITS_CACHE_PREFIX}:q=items_per_page=10&page=1"]
 
 
 async def test_two_pages_do_not_share_an_entry(
