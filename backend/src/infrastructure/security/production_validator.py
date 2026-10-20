@@ -7,7 +7,7 @@ checking for common misconfigurations that could lead to security vulnerabilitie
 from typing import Any
 from urllib.parse import unquote, urlsplit
 
-from ..config.enums import EmailBackend
+from ..config.enums import EmailBackend, RateLimiterBackend, SessionBackend, TaskiqBrokerType
 from ..config.settings import EnvironmentOption, Settings
 from ..logging import get_logger
 from .secret_key import is_weak_secret_key
@@ -18,6 +18,9 @@ LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", "0.0.0.0"})
 
 ACCOUNTS_SETTING = "SESSION_TIMEOUT_MINUTES"
 """A setting only the accounts feature brings, which is how its presence is read."""
+
+BROKER_DEFAULT_CREDENTIALS = ("guest", "guest")
+"""The user and password every RabbitMQ installation starts with."""
 
 
 class ProductionSecurityError(Exception):
@@ -126,23 +129,25 @@ class ProductionSecurityValidator:
                 sys.exit(1)
             ```
         """
-        if not self._is_production():
-            self.logger.debug("Not in production environment, skipping security validation")
+        if not self._is_production() and not self._is_staging():
+            self.logger.debug("Not in production or staging, skipping security validation")
             return
 
-        self.logger.info("Running production security validation...")
+        environment = self.settings.ENVIRONMENT
+        self.logger.info(f"Running {environment} security validation...")
 
-        critical_errors = self._validate_critical_security()
+        critical_errors = self._validate_critical_security() if self._is_production() else self._validate_staging_security()
         if critical_errors:
-            error_msg = "Critical security issues detected in production:\n" + "\n".join(
+            error_msg = f"Critical security issues detected in {environment}:\n" + "\n".join(
                 f"  • {error}" for error in critical_errors
             )
             self.logger.error(error_msg)
             raise ProductionSecurityError(error_msg)
 
-        self._validate_warning_security()
+        if self._is_production():
+            self._validate_warning_security()
 
-        self.logger.info("Production security validation completed successfully")
+        self.logger.info(f"{environment.capitalize()} security validation completed successfully")
 
     def _feature_setting(self, name: str, default: Any) -> Any:
         """A setting a feature contributes, or ``default`` when the project didn't select it.
@@ -168,6 +173,10 @@ class ProductionSecurityValidator:
             return True
 
         return (urlsplit(url).hostname or "") in LOCAL_HOSTS
+
+    def _is_staging(self) -> bool:
+        """Whether this is the staging deployment, which is held to a subset of the checks."""
+        return self.settings.ENVIRONMENT == EnvironmentOption.STAGING
 
     def _is_production(self) -> bool:
         """Check if the application is running in production environment.
@@ -211,14 +220,7 @@ class ProductionSecurityValidator:
             - ADMIN_ENABLED without ADMIN_USERNAME/ADMIN_PASSWORD
             - CORS_ORIGINS containing '*'
         """
-        errors = []
-
-        if self._is_insecure_secret_key():
-            errors.append(
-                "SECRET_KEY is using default or insecure value. "
-                "This compromises session security, CSRF protection, and JWT tokens. "
-                "Generate a strong, unique secret key for production."
-            )
+        errors = self._validate_staging_security()
 
         if self._is_database_using_default_credentials():
             errors.append(
@@ -251,18 +253,33 @@ class ProductionSecurityValidator:
                 "frontend."
             )
 
-        if self._has_accounts_to_email() and self.settings.EMAIL_BACKEND == EmailBackend.CONSOLE.value:
+        if self._has_accounts_to_email() and self._is_frontend_url_plaintext():
             errors.append(
-                "EMAIL_BACKEND is 'console' in production. That backend logs every message in full, "
-                "so password-reset and verification links would be written to the logs instead of "
-                "being delivered. Set EMAIL_BACKEND=smtp and configure EMAIL_SMTP_*."
+                f"FRONTEND_URL is {self.settings.FRONTEND_URL!r} in production, which is not HTTPS. "
+                "Every verification, password-reset and email-change link is built from it, so each "
+                "one would carry its token over a connection anybody on the path can read."
             )
 
-        if self.settings.CREATE_TABLES_ON_STARTUP:
+        if self._keeps_sessions_in_the_process():
             errors.append(
-                "CREATE_TABLES_ON_STARTUP is enabled in production. A boot would build the schema "
-                "from the models, behind Alembic's back. Run 'alembic upgrade head' instead and set "
-                "CREATE_TABLES_ON_STARTUP=false."
+                "SESSION_BACKEND is 'memory' in production. Each process keeps its own sessions, so "
+                "a sign-in is unknown to the next worker, a restart signs everybody out, and ending "
+                "a session elsewhere leaves it working. Use 'redis' or 'database'."
+            )
+
+        if self._counts_rate_limits_in_the_process():
+            errors.append(
+                "RATE_LIMITER_BACKEND is 'memory' in production. Each process counts on its own, so "
+                "every limit is as many times the configured one as there are workers, and the login "
+                "lockout, the account-change budgets and an API key's windows each hold in whichever "
+                "worker saw the requests. Use 'redis' or 'database'."
+            )
+
+        if self._broker_uses_default_credentials():
+            errors.append(
+                "TASKIQ_RABBITMQ_USER and TASKIQ_RABBITMQ_PASSWORD are RabbitMQ's 'guest' defaults "
+                "in production. Anybody who reaches the broker can enqueue a task the worker runs "
+                "and read the messages waiting in it. Set credentials of the project's own."
             )
 
         if self._is_cors_too_permissive():
@@ -278,6 +295,73 @@ class ProductionSecurityValidator:
             )
 
         return errors
+
+    def _validate_staging_security(self) -> list[str]:
+        """The checks a staging deployment is held to as well as a production one.
+
+        Staging answers on the internet, often against a copy of production's data, so the
+        three things that make a deployment unsafe to expose at all are refused there too: a
+        secret key anybody can guess, a mail backend that writes recovery links into the log
+        rather than sending them, and a boot that builds the schema behind Alembic's back.
+        The rest is production's to refuse, so staging can run on one worker with a
+        throwaway database password.
+        """
+        errors = []
+
+        if self._is_insecure_secret_key():
+            errors.append(
+                "SECRET_KEY is using default or insecure value. "
+                "This compromises session security, CSRF protection, and JWT tokens. "
+                f"Generate a strong, unique secret key for {self.settings.ENVIRONMENT}."
+            )
+
+        if self._has_accounts_to_email() and self.settings.EMAIL_BACKEND == EmailBackend.CONSOLE.value:
+            errors.append(
+                f"EMAIL_BACKEND is 'console' in {self.settings.ENVIRONMENT}. That backend logs every "
+                "message in full, so password-reset and verification links would be written to the "
+                "logs instead of being delivered. Set EMAIL_BACKEND=smtp and configure EMAIL_SMTP_*."
+            )
+
+        if self.settings.CREATE_TABLES_ON_STARTUP:
+            errors.append(
+                f"CREATE_TABLES_ON_STARTUP is enabled in {self.settings.ENVIRONMENT}. A boot would "
+                "build the schema from the models, behind Alembic's back. Run 'alembic upgrade head' "
+                "instead and set CREATE_TABLES_ON_STARTUP=false."
+            )
+
+        return errors
+
+    def _is_frontend_url_plaintext(self) -> bool:
+        """Whether ``FRONTEND_URL`` names a scheme that carries a link in the clear."""
+        url = self.settings.FRONTEND_URL.strip()
+
+        return bool(url) and urlsplit(url).scheme != "https"
+
+    def _keeps_sessions_in_the_process(self) -> bool:
+        """Whether sessions live in the process that created them."""
+        return bool(self._feature_setting("SESSION_BACKEND", SessionBackend.REDIS.value) == SessionBackend.MEMORY.value)
+
+    def _counts_rate_limits_in_the_process(self) -> bool:
+        """Whether the limiter counts in the process that saw the request.
+
+        ``RATE_LIMITER_BACKEND`` is the whole switch. It belongs to the accounts feature,
+        and the limiter it builds carries the login lockout, the account-change budgets and
+        an API key's own windows whether or not the ratelimit feature is selected, let alone
+        switched on with ``RATE_LIMITER_ENABLED``. Its absence is what says there are no
+        accounts to count for.
+        """
+        counting = self._feature_setting("RATE_LIMITER_BACKEND", RateLimiterBackend.REDIS.value)
+
+        return bool(counting == RateLimiterBackend.MEMORY.value)
+
+    def _broker_uses_default_credentials(self) -> bool:
+        """Whether the task queue reaches RabbitMQ as the user every installation ships with."""
+        if self._feature_setting("TASKIQ_BROKER_TYPE", "") != TaskiqBrokerType.RABBITMQ.value:
+            return False
+
+        carried = (self._feature_setting("TASKIQ_RABBITMQ_USER", ""), self._feature_setting("TASKIQ_RABBITMQ_PASSWORD", ""))
+
+        return carried == BROKER_DEFAULT_CREDENTIALS
 
     def audit(self) -> tuple[list[str], list[str]]:
         """Every critical error and every warning this configuration produces.

@@ -31,7 +31,7 @@ class TestProductionSecurityValidator:
             "REDIS_PASSWORD": "secure_redis_password",
             "CACHE_BACKEND": "memcached",
             "RATE_LIMITER_ENABLED": False,
-            "RATE_LIMITER_BACKEND": "memory",
+            "RATE_LIMITER_BACKEND": "redis",
             "SESSION_BACKEND": "redis",
             "CORS_ENABLED": True,
             "CORS_ORIGINS": "https://example.com",
@@ -332,8 +332,14 @@ class TestProductionSecurityValidator:
         assert validator._get_redis_configurations() == []
 
     def test_session_redis_url_with_tls_and_password_passes_redis_checks(self, caplog):
-        """A rediss:// session URL with credentials satisfies the password and TLS checks."""
-        settings = self.create_mock_settings(SESSION_REDIS_URL="rediss://default:p%40ss@sessions.example.com:6380/0")
+        """A rediss:// session URL with credentials satisfies the password and TLS checks.
+
+        The limiter counts in the database here, so the only Redis to report is the one the
+        sessions name.
+        """
+        settings = self.create_mock_settings(
+            SESSION_REDIS_URL="rediss://default:p%40ss@sessions.example.com:6380/0", RATE_LIMITER_BACKEND="database"
+        )
         validator = ProductionSecurityValidator(settings)
 
         assert validator._get_redis_configurations() == [
@@ -473,6 +479,107 @@ class TestProductionSecurityValidator:
         assert len(ssl_warnings) == 0
 
 
+class TestWhatElseProductionRefuses:
+    """A configuration that works on one machine and stops working on several."""
+
+    def test_sessions_kept_in_the_process_are_refused(self):
+        """Each worker would hold its own, so a session is signed in on one and unknown to the next."""
+        validator = ProductionSecurityValidator(
+            TestProductionSecurityValidator().create_mock_settings(SESSION_BACKEND="memory")
+        )
+
+        errors = validator._validate_critical_security()
+
+        assert any("SESSION_BACKEND" in error for error in errors)
+
+    @pytest.mark.parametrize("throttle", [True, False])
+    def test_rate_limits_counted_in_the_process_are_refused(self, throttle: bool):
+        """The backend is the switch, and the API throttle is not.
+
+        The limiter that backend builds carries the login lockout, the account-change
+        budgets and an API key's windows, so a project that never selected the ratelimit
+        feature, or switched its throttle off, counts all of those per process just the
+        same.
+        """
+        validator = ProductionSecurityValidator(
+            TestProductionSecurityValidator().create_mock_settings(RATE_LIMITER_ENABLED=throttle, RATE_LIMITER_BACKEND="memory")
+        )
+
+        errors = validator._validate_critical_security()
+
+        assert any("RATE_LIMITER_BACKEND" in error for error in errors)
+
+    def test_the_brokers_guest_credentials_are_refused(self):
+        """Anybody who reaches the broker could enqueue a task the worker runs."""
+        validator = ProductionSecurityValidator(
+            TestProductionSecurityValidator().create_mock_settings(
+                TASKIQ_BROKER_TYPE="rabbitmq", TASKIQ_RABBITMQ_USER="guest", TASKIQ_RABBITMQ_PASSWORD="guest"
+            )
+        )
+
+        errors = validator._validate_critical_security()
+
+        assert any("TASKIQ_RABBITMQ" in error for error in errors)
+
+    def test_the_brokers_own_credentials_are_accepted(self):
+        """The control: it is the defaults that are refused, not the broker."""
+        validator = ProductionSecurityValidator(
+            TestProductionSecurityValidator().create_mock_settings(
+                TASKIQ_BROKER_TYPE="rabbitmq", TASKIQ_RABBITMQ_USER="queue", TASKIQ_RABBITMQ_PASSWORD="a-real-password"
+            )
+        )
+
+        assert not [error for error in validator._validate_critical_security() if "TASKIQ_RABBITMQ" in error]
+
+    def test_the_guest_credentials_are_refused_only_where_rabbitmq_is_the_broker(self):
+        """They are RabbitMQ's defaults, and a queue on redis never reaches a RabbitMQ at all."""
+        validator = ProductionSecurityValidator(
+            TestProductionSecurityValidator().create_mock_settings(
+                TASKIQ_BROKER_TYPE="redis", TASKIQ_RABBITMQ_USER="guest", TASKIQ_RABBITMQ_PASSWORD="guest"
+            )
+        )
+
+        assert not [error for error in validator._validate_critical_security() if "TASKIQ_RABBITMQ" in error]
+
+    def test_a_frontend_url_served_over_plaintext_is_refused(self):
+        """Every recovery link is built from it, so each one would travel in the clear."""
+        validator = ProductionSecurityValidator(
+            TestProductionSecurityValidator().create_mock_settings(FRONTEND_URL="http://app.example.com")
+        )
+
+        errors = validator._validate_critical_security()
+
+        assert any("FRONTEND_URL" in error for error in errors)
+
+
+class TestWhatStagingRefuses:
+    """Staging runs on the internet, often against a copy of production's data."""
+
+    def _staging(self, **overrides):
+        return ProductionSecurityValidator(
+            TestProductionSecurityValidator().create_mock_settings(ENVIRONMENT=EnvironmentOption.STAGING, **overrides)
+        )
+
+    def test_the_default_secret_key_is_refused(self):
+        with pytest.raises(ProductionSecurityError, match="SECRET_KEY"):
+            self._staging(SECRET_KEY="change-me").validate_production_security()
+
+    def test_the_console_email_backend_is_refused(self):
+        with pytest.raises(ProductionSecurityError, match="EMAIL_BACKEND"):
+            self._staging(EMAIL_BACKEND="console").validate_production_security()
+
+    def test_building_the_schema_on_a_boot_is_refused(self):
+        with pytest.raises(ProductionSecurityError, match="CREATE_TABLES_ON_STARTUP"):
+            self._staging(CREATE_TABLES_ON_STARTUP=True).validate_production_security()
+
+    def test_what_only_production_refuses_is_left_to_production(self):
+        """Staging is held to the three that make a deployment unsafe to expose, and no more."""
+        self._staging(POSTGRES_PASSWORD="postgres", CORS_ORIGINS="*", SESSION_BACKEND="memory").validate_production_security()
+
+    def test_a_staging_deployment_that_holds_up_passes(self):
+        self._staging().validate_production_security()
+
+
 class TestAProjectWithoutTheseFeatures:
     """The validator runs whatever features a project selected, and no more.
 
@@ -486,6 +593,8 @@ class TestAProjectWithoutTheseFeatures:
         assert validator._check_session_security() == []
         assert validator._check_admin_credentials() == []
         assert validator._get_redis_configurations() == []
+        assert validator._counts_rate_limits_in_the_process() is False
+        assert validator._keeps_sessions_in_the_process() is False
 
     def test_the_email_settings_are_left_alone_without_the_accounts_feature(self):
         """``EmailSettings`` is core, and a project with no accounts sends nobody a link.

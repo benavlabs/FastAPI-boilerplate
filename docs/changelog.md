@@ -732,6 +732,17 @@ matrix. The round that followed fixed what a re-review of the refactor found.
 - **A credential the API throttle cannot resolve now spends the budget its address would have
   spent carrying none.** A junk `X-API-Key` or bearer token used to answer `401` as often as it was
   sent, unmetered, while the same requests without a header were throttled after the limit.
+- **The production validator refuses four more things, and staging is checked at all.** It accepted
+  `SESSION_BACKEND=memory` (each process keeping its own sessions, so a restart signs everybody out
+  and a sibling worker knows none of them), `RATE_LIMITER_BACKEND=memory` (every limit multiplied by
+  the worker count: that backend carries the login lockout, the account-change budgets and an API
+  key's windows, whatever the ratelimit feature is doing), RabbitMQ's `guest`/`guest` (anybody who
+  reaches the broker can enqueue a task the worker runs), and an `http://` `FRONTEND_URL` (every
+  recovery link carrying its token in the clear). All four are refused in production. Staging ran no
+  checks at all, so it accepted the default `SECRET_KEY`, the console mail backend and
+  `CREATE_TABLES_ON_STARTUP=true`; those three are refused there as well, since staging answers on
+  the internet and often against a copy of production's data. The rest stays production's, so
+  staging can still run on one worker with a throwaway database password.
 - **A project with no accounts is no longer refused production over the email settings.**
   `EMAIL_BACKEND` and `FRONTEND_URL` live in the core settings, so a core-only project reads
   `console` and `http://localhost:3000` the same as any other, and the production validator refused
