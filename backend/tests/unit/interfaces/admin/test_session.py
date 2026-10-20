@@ -205,8 +205,11 @@ def test_the_fingerprint_is_derived_from_the_credentials_with_a_work_factor(monk
     assert "a-work-factor" not in fingerprint
 
 
-def test_the_derivation_is_made_once_for_the_credentials_it_is_made_from(monkeypatch):
-    """The panel compares the fingerprint on every request it serves."""
+def test_the_derivation_is_made_as_the_panel_is_built_and_not_again(monkeypatch):
+    """The panel compares the fingerprint on every request, and deriving one is slow.
+
+    Built before the panel serves anything, so no request holds the loop for it.
+    """
     derivations = 0
     real_scrypt = hashlib.scrypt
 
@@ -220,9 +223,9 @@ def test_the_derivation_is_made_once_for_the_credentials_it_is_made_from(monkeyp
     monkeypatch.setattr(settings, "ADMIN_USERNAME", "admin")
     monkeypatch.setattr(settings, "ADMIN_PASSWORD", "derived-once")
     auth._derived.cache_clear()
+
     backend = AdminAuth(secret_key="a-secret", base_url="/admin")
 
-    repeated = {backend.credentials_fingerprint() for _ in range(3)}
-
     assert derivations == 1
-    assert len(repeated) == 1
+    assert len({backend.credentials_fingerprint() for _ in range(3)}) == 1
+    assert derivations == 1

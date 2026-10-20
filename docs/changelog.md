@@ -243,10 +243,10 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   credential changes, which is the panel's only way of revoking a session. The work factor is what
   the cookie makes necessary: it is readable by whoever holds it, so a fast hash of a password an
   operator chose would be one a word list could be run against by anybody who also had the key. The
-  derivation is kept for as long as the credentials it was made from, so only the first request of
-  a process pays for it. A refused session is cleared, so the browser stops sending it. Sessions
-  from before this version carry neither field and are refused, so every operator signs in once
-  after it is deployed.
+  derivation is made as the panel is built and kept for as long as the credentials it was made
+  from, so no request waits for it. A refused session is cleared, so the browser stops sending it.
+  Sessions from before this version carry neither field and are refused, so every operator signs in
+  once after it is deployed.
 - **Signing out of the panel takes a `POST`.** sqladmin serves logout on `GET` and links to it from
   every page, so anything that made the operator's browser fetch `/admin/logout` signed them out,
   with `SameSite=Lax` sending the cookie along. The route answers a `GET` with a one-button form now

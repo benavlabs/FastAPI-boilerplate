@@ -109,8 +109,8 @@ Notes:
   derived with scrypt and salted with `SECRET_KEY`, and `authenticate` refuses it once either the
   eight hours are up or the fingerprint stops matching the configured credentials. The cookie is
   readable by whoever holds it, so the work factor is what keeps a password an operator chose out of
-  reach of a word list run by somebody who also has the key. Each derivation is kept for as long as
-  the credentials it was made from, so only the first request of a process pays for it. A refused
+  reach of a word list run by somebody who also has the key. It is derived as the panel is built and
+  kept for as long as the credentials it was made from, so no request waits for it. A refused
   session is cleared, so the browser stops sending the cookie. A session carrying neither field,
   which is what a cookie from a build before this one holds, is refused as well.
 - Signing out clears the session (`request.session.clear()`), and takes a `POST`.

@@ -157,7 +157,9 @@ class AdminAuth(AuthenticationBackend):
 
     The session itself carries when it was issued and a fingerprint of the credentials it
     was issued against, which is what bounds it: see
-    [authenticate][src.interfaces.admin.auth.AdminAuth.authenticate].
+    [authenticate][src.interfaces.admin.auth.AdminAuth.authenticate]. That fingerprint is
+    derived as the panel is built, before it serves anything, so no request waits for a
+    derivation that is meant to be slow.
     """
 
     def __init__(self, secret_key: str, base_url: str | None = None) -> None:
@@ -165,6 +167,9 @@ class AdminAuth(AuthenticationBackend):
         self.secret_key = secret_key
         settings = get_settings()
         local = settings.ENVIRONMENT in (EnvironmentOption.LOCAL, EnvironmentOption.DEVELOPMENT)
+
+        if settings.ADMIN_USERNAME and settings.ADMIN_PASSWORD:
+            self.credentials_fingerprint()
 
         self.middlewares = [
             Middleware(SameOriginOnly),
@@ -252,9 +257,7 @@ class AdminAuth(AuthenticationBackend):
 
         Salted with ``SECRET_KEY`` and derived with a work factor, because the session
         travels in a cookie the browser can read: a fast hash of the password would be one
-        an attacker holding that cookie and the key could run a word list against. The
-        settings are read here rather than at startup, so a credential changed while the
-        panel is running refuses the sessions issued before it.
+        an attacker holding that cookie and the key could run a word list against.
         """
         settings = get_settings()
 
