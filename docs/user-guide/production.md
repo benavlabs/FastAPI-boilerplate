@@ -362,8 +362,9 @@ key_usage, user` where the project has no migrations.
 
 Each check runs with its own two-second timeout, and they all run together, so one blackholed
 server can't hold the probe open. Two checks pointed at the same server are asked once - the server
-is the scheme, host and port, so a cache on Redis database 0 and sessions on database 1 of one
-server count as one. Probes that arrive together share one run of the checks, and its report is
+is the scheme, the credentials, the host and the port, so a cache on Redis database 0 and sessions
+on database 1 of one server count as one, while two checks reaching one host as different users are
+asked separately: what one password opens says nothing about what another one does. Probes that arrive together share one run of the checks, and its report is
 reused for a couple of seconds, so a flood of probes can't take the database pool away from real
 requests.
 

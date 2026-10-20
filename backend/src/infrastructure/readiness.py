@@ -1,5 +1,6 @@
 """Running the readiness checks a project selected."""
 
+import hashlib
 import time
 from collections.abc import Mapping, Sequence
 from urllib.parse import urlsplit
@@ -92,7 +93,17 @@ async def _probe(checks: Sequence[ReadinessCheck]) -> tuple[dict[str, str], bool
 
 
 def _server(check: ReadinessCheck) -> str | None:
-    """The server ``check`` probes, as scheme, host and port, with whatever follows dropped."""
+    """The server ``check`` probes: its scheme, its credentials, its host and its port.
+
+    Only what follows the port is dropped, which is the database a Redis URL names: two
+    databases of one server are reached by one connection and answer together.
+
+    The credentials are part of it because a wrong one is the failure worth catching:
+    checks that reach a host as different users are two different answers, and mirroring
+    one onto the other would report a dependency as ready while nothing this project sends
+    can get in. They are carried as a digest, so a password is no part of what the probe
+    keeps.
+    """
     if check.target is None:
         return None
 
@@ -110,8 +121,19 @@ def _server(check: ReadinessCheck) -> str | None:
         return target
 
     port = parsed.port or DEFAULT_PORTS.get(parsed.scheme)
+    reached_as = _credentials(parsed.username, parsed.password)
 
-    return f"{parsed.scheme}://{parsed.hostname}:{port}"
+    return f"{parsed.scheme}://{reached_as}{parsed.hostname}:{port}"
+
+
+def _credentials(username: str | None, password: str | None) -> str:
+    """How a target's credentials are written into the server it names, or ``""`` for none."""
+    if not username and not password:
+        return ""
+
+    reached_as = f"{username or ''}:{password or ''}"
+
+    return f"{hashlib.sha256(reached_as.encode()).hexdigest()[:16]}@"
 
 
 async def _run(checks: Sequence[ReadinessCheck]) -> dict[str, str]:

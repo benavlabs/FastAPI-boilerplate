@@ -732,6 +732,13 @@ matrix. The round that followed fixed what a re-review of the refactor found.
 - **A credential the API throttle cannot resolve now spends the budget its address would have
   spent carrying none.** A junk `X-API-Key` or bearer token used to answer `401` as often as it was
   sent, unmetered, while the same requests without a header were throttled after the limit.
+- **Readiness tells two checks on one host apart when they reach it as different users.** The probe
+  asks each server once and mirrors that answer onto the rest, and a server was its scheme, host and
+  port alone. So a cache pointed at the limiter's Redis with the wrong password was reported ready,
+  mirrored from the limiter that got in: `GET /health/ready` answered `200` for a dependency no
+  request could reach. The credentials are part of what identifies a server now, as a digest rather
+  than in the clear, and only the database a Redis URL names is still dropped, since two databases
+  of one server answer together.
 - **The production validator refuses four more things, and staging is checked at all.** It accepted
   `SESSION_BACKEND=memory` (each process keeping its own sessions, so a restart signs everybody out
   and a sibling worker knows none of them), `RATE_LIMITER_BACKEND=memory` (every limit multiplied by

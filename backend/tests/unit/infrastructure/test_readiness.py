@@ -250,17 +250,46 @@ class TestWhatCountsAsOneServer:
         assert calls == ["cache"]
         assert report == {"cache": READY, "sessions": READY, "broker": READY}
 
-    async def test_the_same_server_with_and_without_a_password_is_one_server(self):
+    async def test_one_server_reached_with_the_same_credentials_is_asked_once(self):
         calls: list[str] = []
         checks = (
             _answering("cache", calls=calls, target="redis://:secret@redis:6379/0"),
-            _answering("sessions", calls=calls, target="redis://redis:6379/1"),
+            _answering("sessions", calls=calls, target="redis://:secret@redis:6379/1"),
         )
 
         report = await probe(checks)
 
         assert calls == ["cache"]
         assert report == {"cache": READY, "sessions": READY}
+
+    async def test_one_server_reached_with_different_credentials_is_asked_for_each(self):
+        """What one credential opens says nothing about what another one does.
+
+        The limiter answers here and the cache's password is wrong, so mirroring the
+        limiter's answer would report a cache no request of this project's can reach as
+        ready.
+        """
+        calls: list[str] = []
+        checks = (
+            _answering("rate_limiter", calls=calls, target="redis://:right@redis:6379/1"),
+            _answering("cache", calls=calls, fails=True, target="redis://:wrong@redis:6379/0"),
+        )
+
+        report = await probe(checks)
+
+        assert calls == ["rate_limiter", "cache"]
+        assert report == {"rate_limiter": READY, "cache": UNAVAILABLE}
+
+    async def test_a_server_reached_with_a_password_is_not_the_one_reached_without(self):
+        calls: list[str] = []
+        checks = (
+            _answering("cache", calls=calls, target="redis://:secret@redis:6379/0"),
+            _answering("sessions", calls=calls, target="redis://redis:6379/1"),
+        )
+
+        await probe(checks)
+
+        assert calls == ["cache", "sessions"]
 
     async def test_a_url_without_a_port_is_the_same_server_as_one_with_the_default(self):
         calls: list[str] = []
