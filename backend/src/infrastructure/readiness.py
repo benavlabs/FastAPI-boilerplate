@@ -3,6 +3,7 @@
 import hashlib
 import time
 from collections.abc import Mapping, Sequence
+from functools import cache
 from urllib.parse import urlsplit
 
 import anyio
@@ -19,6 +20,11 @@ READY = "ready"
 UNAVAILABLE = "unavailable"
 
 DEFAULT_PORTS = {"redis": 6379, "rediss": 6379, "memcached": 11211}
+
+_SCRYPT_N = 2**14
+_SCRYPT_R = 8
+_SCRYPT_P = 1
+_SCRYPT_DKLEN = 16
 
 _cached: dict[tuple[str, ...], tuple[float, dict[str, str]]] = {}
 _in_flight: dict[tuple[str, ...], anyio.Event] = {}
@@ -126,14 +132,25 @@ def _server(check: ReadinessCheck) -> str | None:
     return f"{parsed.scheme}://{reached_as}{parsed.hostname}:{port}"
 
 
+@cache
 def _credentials(username: str | None, password: str | None) -> str:
-    """How a target's credentials are written into the server it names, or ``""`` for none."""
+    """How a target's credentials are written into the server it names, or ``""`` for none.
+
+    Derived with a work factor, because a service password is as guessable as whoever chose
+    it: this is what tells two targets apart rather than what proves anything, so a digest
+    anybody holding it could run a word list against would be a copy of the password for no
+    reason. Kept for the process, since the derivation is deliberately slow and the targets
+    are the handful a project configures.
+    """
     if not username and not password:
         return ""
 
     reached_as = f"{username or ''}:{password or ''}"
+    derived = hashlib.scrypt(
+        reached_as.encode(), salt=b"readiness-server", n=_SCRYPT_N, r=_SCRYPT_R, p=_SCRYPT_P, dklen=_SCRYPT_DKLEN
+    )
 
-    return f"{hashlib.sha256(reached_as.encode()).hexdigest()[:16]}@"
+    return f"{derived.hex()}@"
 
 
 async def _run(checks: Sequence[ReadinessCheck]) -> dict[str, str]:

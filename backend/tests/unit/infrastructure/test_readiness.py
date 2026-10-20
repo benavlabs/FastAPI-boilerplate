@@ -1,6 +1,9 @@
 """Running the readiness checks: bounded, concurrent, deduplicated and briefly remembered."""
 
+import hashlib
 import logging
+from typing import Any
+from unittest.mock import patch
 
 import anyio
 import pytest
@@ -261,6 +264,30 @@ class TestWhatCountsAsOneServer:
 
         assert calls == ["cache"]
         assert report == {"cache": READY, "sessions": READY}
+
+    async def test_what_tells_two_credentials_apart_is_derived_with_a_work_factor(self):
+        """A service password is as guessable as whoever chose it, and this is kept in memory.
+
+        It is read once per pair of credentials and kept for the process, so a probe pays
+        for the derivation at most once.
+        """
+        derivations: list[tuple[bytes, int]] = []
+        real_scrypt = hashlib.scrypt
+
+        def recording(password: bytes, **parameters: Any) -> bytes:
+            derivations.append((password, parameters["n"]))
+
+            return real_scrypt(password, **parameters)
+
+        readiness_module._credentials.cache_clear()
+        with patch.object(hashlib, "scrypt", recording):
+            derived = readiness_module._credentials("cache", "a-service-password")
+            again = readiness_module._credentials("cache", "a-service-password")
+
+        assert derivations == [(b"cache:a-service-password", 2**14)]
+        assert "a-service-password" not in derived
+        assert again == derived
+        assert readiness_module._credentials(None, None) == ""
 
     async def test_one_server_reached_with_different_credentials_is_asked_for_each(self):
         """What one credential opens says nothing about what another one does.
