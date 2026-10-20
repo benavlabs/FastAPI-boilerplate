@@ -264,17 +264,22 @@ class TestTheAddressRecorded:
         assert stored.last_used_ip == "203.0.113.7"
 
     async def test_a_forwarded_address_no_column_can_hold_is_recorded_as_nothing(
-        self, client: AsyncClient, db_session: AsyncSession, test_user: dict, monkeypatch
+        self, client: AsyncClient, db_session: AsyncSession, test_superuser: dict, monkeypatch
     ):
-        """The handler has done its work and committed it by the time the row is built."""
+        """The handler has done its work and committed it by the time the row is built.
+
+        The write is a profile edit, which takes ``user.update`` of a scoped credential: a
+        superuser's key can be scoped to it with no permission source configured.
+        """
         monkeypatch.setattr(crud_auth.runtime, "trusted_proxy_hops", 1)
-        key = await _key(db_session, test_user["id"])
-        owned = f"/api/v1/users/{test_user['username']}"
+        updating = frozenset({"user.update"})
+        key = await _key(db_session, test_superuser["id"], held=updating, permissions=sorted(updating))
+        owned = f"/api/v1/users/{test_superuser['username']}"
 
         answered = await client.patch(owned, json={"name": "Renamed"}, headers={**_with(key), "X-Forwarded-For": "a" * 60})
 
-        assert answered.status_code == 200
-        renamed = await db_session.get_one(User, test_user["id"])
+        assert answered.status_code == 200, answered.text
+        renamed = await db_session.get_one(User, test_superuser["id"])
         await db_session.refresh(renamed)
         assert renamed.name == "Renamed"
         recorded = await _rows(db_session, key["id"])

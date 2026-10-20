@@ -34,10 +34,10 @@ SESSION_ONLY_ROUTES = [
 ]
 
 
-async def _mint(db_session: AsyncSession, user_id: int, **fields: Any) -> dict[str, Any]:
+async def _mint(db_session: AsyncSession, user_id: int, *, held: frozenset[str] = frozenset(), **fields: Any) -> dict[str, Any]:
     """A key row as the service writes it, with the raw key the caller presents."""
     minted: dict[str, Any] = await APIKeyService().create_api_key(
-        user_id=user_id, key_data=APIKeyCreate(name="Request Key", **fields), db=db_session
+        user_id=user_id, key_data=APIKeyCreate(name="Request Key", **fields), db=db_session, held=held
     )
 
     return minted
@@ -78,15 +78,23 @@ async def test_a_key_cannot_close_the_account_that_issued_it(
 
 
 async def test_a_key_authenticates_a_protected_route_without_a_csrf_token(
-    client: AsyncClient, db_session: AsyncSession, test_user: dict, key: dict[str, Any]
+    client: AsyncClient, db_session: AsyncSession, test_superuser: dict
 ):
-    """CSRF guards a cookie the browser attaches by itself; a key is sent deliberately."""
+    """CSRF guards a cookie the browser attaches by itself; a key is sent deliberately.
+
+    Editing a profile takes ``user.update`` of a scoped credential, and a superuser holds
+    every registered permission, so a key of theirs can be scoped to it where no
+    permission source is configured.
+    """
+    updating = frozenset({"user.update"})
+    key = await _mint(db_session, test_superuser["id"], held=updating, permissions=sorted(updating))
+
     response = await client.patch(
-        f"/api/v1/users/{test_user['username']}", json={"name": "Renamed By A Key"}, headers=_with(key)
+        f"/api/v1/users/{test_superuser['username']}", json={"name": "Renamed By A Key"}, headers=_with(key)
     )
 
     assert response.status_code == 200, response.text
-    stored = await db_session.get_one(User, test_user["id"])
+    stored = await db_session.get_one(User, test_superuser["id"])
     await db_session.refresh(stored)
     assert stored.name == "Renamed By A Key"
 
