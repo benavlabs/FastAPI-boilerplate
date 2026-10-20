@@ -16,6 +16,7 @@ dependencies = [
     "alembic>=1.16.4",
     "asyncpg>=0.30.0",
     "crudauth[all]>=0.8.2,<0.9.0",
+    "cryptography>=42.0.0",
     "faker>=37.1.0",
     "fastapi[standard]>=0.115.8",
     "fastcrud>=0.21.0",

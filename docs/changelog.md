@@ -732,6 +732,21 @@ matrix. The round that followed fixed what a re-review of the refactor found.
 - **A credential the API throttle cannot resolve now spends the budget its address would have
   spent carrying none.** A junk `X-API-Key` or bearer token used to answer `401` as often as it was
   sent, unmetered, while the same requests without a header were throttled after the limit.
+- **A queued account email carries no readable recovery link.** `email:send` was enqueued with the
+  recipient, the subject, the rendered body and the link, so every verification and password-reset
+  token sat in Redis or RabbitMQ in the clear until a worker picked it up, and in any backup or
+  export of that queue afterwards. The message is now sealed with Fernet under a key taken from
+  `SECRET_KEY` and opened in the worker, so the queue holds one opaque string; a payload nothing
+  sealed, or one changed since, is refused rather than delivered, and a message this worker cannot
+  open is logged once and dropped rather than retried, since no retry will open it. The seal
+  carries the time it was made and is opened against the lifetime of the link inside it, so a
+  message that waited out its link, after an outage say, is dropped as well: the recipient would
+  otherwise get a page saying only that the link has expired. The key is derived for this one use,
+  so a feature that reaches for `SECRET_KEY` later cannot arrive at the same one. `cryptography` is
+  declared as a dependency of its own, having arrived through `crudauth[all]` until now. **Drain
+  the queue before deploying this**, since a message enqueued by the previous version carries six
+  arguments the new task does not take, **and before changing `SECRET_KEY`** from now on, since a
+  message sealed under the old key is mail nobody receives.
 - **Readiness tells two checks on one host apart when they reach it as different users.** The probe
   asks each server once and mirrors that answer onto the rest, and a server was its scheme, host and
   port alone. So a cache pointed at the limiter's Redis with the wrong password was reported ready,

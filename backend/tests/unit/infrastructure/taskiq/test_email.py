@@ -1,19 +1,24 @@
 """Handing an account email to the worker, and what arrives there."""
 
+import json
 import logging
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
 import anyio
 from crudauth import EmailContext, EmailSender
 from crudauth.email.constants import EmailKind
+from cryptography.fernet import Fernet
 from taskiq import InMemoryBroker
 
 from src.infrastructure.taskiq import email as taskiq_email
+from src.infrastructure.taskiq import sealing
 from src.infrastructure.taskiq.email import EMAIL_TASK_NAME, queued_sender, send_email
+from src.infrastructure.taskiq.sealing import seal
 
 RECIPIENT = "owner@example.com"
 SUBJECT = "Confirm your email"
@@ -73,6 +78,85 @@ async def test_the_caller_does_not_wait_for_delivery(monkeypatch):
 
     assert enqueued == []
     assert len(delivering.sent) == 1
+
+
+async def test_the_queue_carries_nothing_a_recovery_link_can_be_read_from(monkeypatch):
+    """Whoever reads the queue, or a backup of one, would otherwise read every link in it."""
+    delivering = _Capturing()
+    broker = _in_memory_worker(monkeypatch, delivering, inplace=False)
+    enqueued: list[bytes] = []
+    reached_the_queue = broker.kick
+
+    async def watching(message: Any) -> None:
+        enqueued.append(message.message)
+        await reached_the_queue(message)
+
+    monkeypatch.setattr(broker, "kick", watching)
+
+    await _enqueue_the_verification_email()
+    await broker.wait_all()
+
+    carried = enqueued[0]
+    assert b"the-signed-token" not in carried
+    assert LINK.encode() not in carried and BODY.encode() not in carried
+    assert RECIPIENT.encode() not in carried
+    assert delivering.sent == [{"to": RECIPIENT, "subject": SUBJECT, "body": BODY, "kind": "verify_email", "context": CONTEXT}]
+
+
+async def test_a_message_the_worker_cannot_open_is_dropped_rather_than_retried(monkeypatch, caplog):
+    """``SECRET_KEY`` changed while it waited, and no retry will open it either.
+
+    The error names the task and nothing of the message, which was sealed for a reason.
+    """
+    delivering = _Capturing()
+    _in_memory_worker(monkeypatch, delivering, inplace=True)
+    sealed_under_the_old_key = seal({"to": RECIPIENT, "subject": SUBJECT, "body": BODY, "kind": "verify_email", "link": LINK})
+    monkeypatch.setattr(sealing.settings, "SECRET_KEY", "the-key-this-project-turned-over-to")
+
+    with caplog.at_level(logging.ERROR):
+        await send_email.original_func(sealed=sealed_under_the_old_key, expires_in=7200)
+
+    assert delivering.sent == []
+    assert EMAIL_TASK_NAME in caplog.text
+    assert RECIPIENT not in caplog.text and LINK not in caplog.text
+
+
+async def test_a_message_that_waited_longer_than_its_link_lives_is_dropped(monkeypatch, caplog):
+    """Delivering it would send somebody a page that says only that the link has expired."""
+    delivering = _Capturing()
+    _in_memory_worker(monkeypatch, delivering, inplace=True)
+    message = {"to": RECIPIENT, "subject": SUBJECT, "body": BODY, "kind": "verify_email", "link": LINK}
+    waited = Fernet(sealing._key()).encrypt_at_time(json.dumps(message).encode(), int(time.time()) - 7300)
+
+    with caplog.at_level(logging.ERROR):
+        await send_email.original_func(sealed=waited.decode(), expires_in=7200)
+
+    assert delivering.sent == []
+    assert EMAIL_TASK_NAME in caplog.text
+    assert RECIPIENT not in caplog.text and LINK not in caplog.text
+
+
+async def test_a_message_that_names_no_lifetime_is_delivered_however_long_it_waited(monkeypatch):
+    """A notice carries no link, so it has nothing that runs out.
+
+    ``existing_account`` is one: it tells an account somebody tried to sign up with its
+    address, and there is nothing in it to click.
+    """
+    delivering = _Capturing()
+    _in_memory_worker(monkeypatch, delivering, inplace=True)
+    notice = {
+        "to": RECIPIENT,
+        "subject": "Somebody tried to sign up with your address",
+        "body": "You already have an account.",
+        "kind": "existing_account",
+        "link": None,
+    }
+    waited = Fernet(sealing._key()).encrypt_at_time(json.dumps(notice).encode(), int(time.time()) - 86400)
+
+    await send_email.original_func(sealed=waited.decode(), expires_in=0)
+
+    assert [sent["to"] for sent in delivering.sent] == [RECIPIENT]
+    assert delivering.sent[0]["kind"] == "existing_account"
 
 
 async def test_a_message_the_broker_will_not_take_is_delivered_in_the_request(monkeypatch, caplog):
