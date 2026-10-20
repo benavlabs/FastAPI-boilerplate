@@ -6,14 +6,15 @@ import hashlib
 import hmac
 import secrets
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 
 import anyio
 import pydantic
 from fastcrud.types import GetMultiResponseDict
-from sqlalchemy import func, or_, select, update
+from sqlalchemy import CursorResult, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ...infrastructure.database.session import local_session
 from ...infrastructure.logging import get_logger
 from ..common.exceptions import PermissionDeniedError, ResourceNotFoundError, ValidationError
 from ..user.models import User
@@ -333,8 +334,9 @@ class APIKeyService:
     ) -> APIKeyValidationResponse:
         """Match an API key to a live key row, and report its owner and its scope.
 
-        Reads only: when the key was last used is stamped by the usage recorder, after the
-        response, so authenticating a request commits nothing.
+        Nothing of the request's own session is committed here: when the key was last used
+        is stamped by the usage recorder, after the response, and a row an older version
+        stored as scrypt is moved over through a session of its own.
 
         A row the read schema refuses, such as a scope an older version stored as an
         object, is reported as invalid and logged.
@@ -413,7 +415,10 @@ class APIKeyService:
         return await self._rehashed(api_key, prefix, db)
 
     async def _rehashed(self, api_key: str, prefix: str, db: AsyncSession) -> APIKey | None:
-        """The key row holding a scrypt hash of ``api_key``, rewritten as a digest.
+        """The key row holding a scrypt hash of ``api_key``, with its digest written as well.
+
+        The row is read through ``db`` and rewritten through a session of its own, so the
+        session the request authenticates through is one this path only reads.
 
         Only a row a request could be authenticated by is derived against. A revoked or
         expired row is refused either way, and is never used again to move itself over, so
@@ -432,14 +437,37 @@ class APIKeyService:
         )
         for candidate in legacy.scalars().all():
             if await anyio.to_thread.run_sync(self._verify_api_key, api_key, candidate.key_hash):
-                candidate.key_hash = self._hash_api_key(api_key)
-                await db.commit()
-                await db.refresh(candidate)
-                logger.info(f"Rehashed API key {candidate.id} from scrypt to sha256")
+                await self._write_the_digest(candidate.id, candidate.key_hash, self._hash_api_key(api_key))
 
                 return candidate
 
         return None
+
+    async def _write_the_digest(self, api_key_id: int, verified: str, digest: str) -> None:
+        """Rewrite the scrypt hash a key's row holds as ``digest``, in a session of its own.
+
+        A request authenticates through a session its route writes through, so committing
+        that one here would end a transaction the route never finished and carry whatever
+        it had written with it. This write is its own, and a route that rolls back or fails
+        afterwards leaves it done.
+
+        The row is rewritten only while it still holds the hash that was verified, so of
+        two requests racing with one key exactly one row moves over. A write that fails
+        leaves the key as valid as it was, and the next request it carries tries again.
+        """
+        try:
+            async with local_session() as writing:
+                moved = await writing.execute(
+                    update(APIKey).where(APIKey.id == api_key_id, APIKey.key_hash == verified).values(key_hash=digest)
+                )
+                await writing.commit()
+        except Exception:
+            logger.exception(f"Could not rehash API key {api_key_id} from scrypt to sha256")
+
+            return
+
+        if cast("CursorResult[Any]", moved).rowcount == 1:
+            logger.info(f"Rehashed API key {api_key_id} from scrypt to sha256")
 
     async def note_use(self, api_key_id: int, used_from: str | None, used_at: datetime, db: AsyncSession) -> None:
         """Stamp a key with the time a request arrived and the address it came from.

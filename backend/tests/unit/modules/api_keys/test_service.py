@@ -1,7 +1,9 @@
 """Tests for API key management service."""
 
+import asyncio
 import base64
 import hashlib
+import logging
 import secrets
 import threading
 from datetime import UTC, datetime, timedelta
@@ -11,8 +13,9 @@ from unittest.mock import patch
 import pytest
 import pytest_asyncio
 from sqlalchemy import delete, select, update
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+import src.modules.api_keys.service as service_module
 from src.modules.api_keys.crud import crud_api_keys
 from src.modules.api_keys.models import APIKey, KeyUsage
 from src.modules.api_keys.schemas import (
@@ -682,19 +685,32 @@ class TestAKeyStoredBeforeTheDigest:
 
         return minted
 
+    @pytest.fixture
+    def the_rewrite_through_the_test_engine(self, monkeypatch, db_session: AsyncSession):
+        """The rewrite opens a session of its own, which outside a test is the app's engine."""
+        monkeypatch.setattr(
+            service_module,
+            "local_session",
+            async_sessionmaker(bind=db_session.bind, class_=AsyncSession, expire_on_commit=False),
+        )
+
     async def _stored_hash(self, db_session: AsyncSession, key_id: int) -> str:
         stored = await db_session.execute(select(APIKey.key_hash).where(APIKey.id == key_id))
 
         return str(stored.scalar_one())
 
-    async def test_it_authenticates_and_its_row_moves_over(self, api_key_service, db_session: AsyncSession, legacy_key: dict):
+    async def test_it_authenticates_and_its_row_moves_over(
+        self, api_key_service, db_session: AsyncSession, legacy_key: dict, the_rewrite_through_the_test_engine
+    ):
         validation = await api_key_service.validate_api_key(api_key=legacy_key["api_key"], db=db_session)
 
         assert validation.is_valid is True
         assert validation.api_key_id == legacy_key["id"]
         assert await self._stored_hash(db_session, legacy_key["id"]) == api_key_service._hash_api_key(legacy_key["api_key"])
 
-    async def test_the_fallback_verifies_off_the_event_loop(self, api_key_service, db_session: AsyncSession, legacy_key: dict):
+    async def test_the_fallback_verifies_off_the_event_loop(
+        self, api_key_service, db_session: AsyncSession, legacy_key: dict, the_rewrite_through_the_test_engine
+    ):
         """scrypt is sized to take real time; on the loop thread it stalls every other request."""
         threads: list[str] = []
         real_verify = api_key_service._verify_api_key
@@ -711,6 +727,79 @@ class TestAKeyStoredBeforeTheDigest:
         assert validation.is_valid is True
         assert threads
         assert threading.main_thread().name not in threads
+
+    async def test_authenticating_commits_nothing_of_the_requests_own_session(
+        self,
+        api_key_service,
+        db_session: AsyncSession,
+        test_user: dict,
+        legacy_key: dict,
+        the_rewrite_through_the_test_engine,
+    ):
+        """The session a request authenticates through is the one its route writes through.
+
+        Committing it here would end a transaction the route never finished, and take with
+        it whatever the route had written so far. The rewrite still lands: it goes through
+        a session of its own, which a rollback of the route's cannot take back.
+        """
+        other = await api_key_service.create_api_key(
+            user_id=test_user["id"], key_data=APIKeyCreate(name="Another key"), db=db_session
+        )
+        await db_session.commit()
+        await db_session.execute(update(APIKey).where(APIKey.id == other["id"]).values(name="Half written"))
+
+        validation = await api_key_service.validate_api_key(api_key=legacy_key["api_key"], db=db_session)
+
+        await db_session.rollback()
+        assert validation.is_valid is True
+        assert await self._stored_hash(db_session, legacy_key["id"]) == api_key_service._hash_api_key(legacy_key["api_key"])
+        kept = await db_session.execute(select(APIKey.name).where(APIKey.id == other["id"]))
+        assert kept.scalar_one() == "Another key"
+
+    async def test_two_requests_racing_with_the_same_key_move_the_row_over_once(
+        self, api_key_service, db_session: AsyncSession, legacy_key: dict, the_rewrite_through_the_test_engine, caplog
+    ):
+        """Both verify before either writes, so the second finds a row that has moved on.
+
+        The barrier holds each verification in its worker thread until the other arrives,
+        which is the order two requests carrying one legacy key race in.
+        """
+        both_verifying = threading.Barrier(2, timeout=5)
+        real_verify = api_key_service._verify_api_key
+
+        def verify_together(api_key: str, stored_hash: str) -> bool:
+            verified: bool = real_verify(api_key, stored_hash)
+            both_verifying.wait()
+
+            return verified
+
+        sessions = async_sessionmaker(bind=db_session.bind, class_=AsyncSession, expire_on_commit=False)
+        async with sessions() as one, sessions() as two:
+            with patch.object(api_key_service, "_verify_api_key", verify_together), caplog.at_level(logging.INFO):
+                answered = await asyncio.gather(
+                    api_key_service.validate_api_key(api_key=legacy_key["api_key"], db=one),
+                    api_key_service.validate_api_key(api_key=legacy_key["api_key"], db=two),
+                )
+
+        assert [validation.is_valid for validation in answered] == [True, True]
+        assert caplog.text.count("Rehashed API key") == 1
+
+    async def test_a_rewrite_that_fails_leaves_the_key_as_valid_as_it_was(
+        self, api_key_service, db_session: AsyncSession, legacy_key: dict, monkeypatch, caplog
+    ):
+        """The key is the one the request presented, and its next use tries the rewrite again."""
+
+        def unreachable() -> NoReturn:
+            raise OSError("the database is unreachable")
+
+        monkeypatch.setattr(service_module, "local_session", unreachable)
+
+        with caplog.at_level(logging.ERROR):
+            validation = await api_key_service.validate_api_key(api_key=legacy_key["api_key"], db=db_session)
+
+        assert (validation.is_valid, validation.api_key_id) == (True, legacy_key["id"])
+        assert f"Could not rehash API key {legacy_key['id']}" in caplog.text
+        assert (await self._stored_hash(db_session, legacy_key["id"])).startswith("scrypt$")
 
     async def test_a_revoked_row_is_never_verified(
         self, api_key_service, db_session: AsyncSession, legacy_key: dict, monkeypatch
@@ -747,7 +836,9 @@ class TestAKeyStoredBeforeTheDigest:
         assert validation.is_valid is False
         assert await self._stored_hash(db_session, legacy_key["id"]) == stored
 
-    async def test_it_pays_for_scrypt_once(self, api_key_service, db_session: AsyncSession, legacy_key: dict, monkeypatch):
+    async def test_it_pays_for_scrypt_once(
+        self, api_key_service, db_session: AsyncSession, legacy_key: dict, monkeypatch, the_rewrite_through_the_test_engine
+    ):
         """The row holds a digest after the first call, so the second finds it by lookup."""
         await api_key_service.validate_api_key(api_key=legacy_key["api_key"], db=db_session)
         monkeypatch.setattr(hashlib, "scrypt", _no_scrypt)

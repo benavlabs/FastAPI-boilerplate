@@ -732,6 +732,14 @@ matrix. The round that followed fixed what a re-review of the refactor found.
 - **A credential the API throttle cannot resolve now spends the budget its address would have
   spent carrying none.** A junk `X-API-Key` or bearer token used to answer `401` as often as it was
   sent, unmetered, while the same requests without a header were throttled after the limit.
+- **A key stored as scrypt moves over in a write of its own, not in the request's transaction.**
+  The rewrite set the new hash on the row the request's session was tracking and committed that
+  session, which is the one the route writes through: a route that failed afterwards could not roll
+  back, and whatever it had written so far was committed by a write it never asked for.
+  Authenticating now reads through that session and nothing else, and the digest goes through a
+  session of its own, guarded on the hash that was verified, so of two requests racing with one key
+  exactly one row moves over. A rewrite that fails is logged and leaves the key as valid as it was,
+  with the next request it carries trying again.
 - **A key stored as scrypt is derived against only while a request could authenticate with it.**
   The lookup behind the old hash took every row carrying the presented prefix and a `scrypt$` hash
   and ran the derivation against each, revoked and expired rows included. Such a row is never used

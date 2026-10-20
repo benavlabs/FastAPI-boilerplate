@@ -1,13 +1,16 @@
 """The script that names the API keys an older version stored as scrypt, and revokes them."""
 
 import logging
+from typing import Any
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import Select, Update, select
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import scripts.revoke_scrypt_api_keys as script
 from scripts.revoke_scrypt_api_keys import revoke_scrypt_api_keys
+from scripts.seed_errors import SeedError
 from src.modules.api_keys.models import APIKey
 from tests.unit.scripts.seed_helpers import run_script, script_environment
 
@@ -93,6 +96,32 @@ async def test_running_it_again_revokes_nothing_and_still_names_the_keys(
     await revoke_scrypt_api_keys(revoking=True)
 
     assert await revoke_scrypt_api_keys(revoking=True) == (1, 0)
+
+
+@pytest.mark.parametrize(
+    ("refused", "says"),
+    [
+        (Select, "Could not read the API keys stored as scrypt"),
+        (Update, "Could not revoke the API keys stored as scrypt"),
+    ],
+)
+async def test_what_it_reports_names_the_statement_that_failed(
+    the_script_through_the_test_session, db_session: AsyncSession, test_user: dict, monkeypatch, refused: Any, says: str
+):
+    """Reading the keys and revoking them fail for different reasons and read back as one."""
+    await _insert_key(db_session, test_user["id"], "legacy", STORED_BY_AN_OLDER_VERSION)
+    reached = db_session.execute
+
+    async def refuse(statement, *arguments, **keywords):
+        if isinstance(statement, refused):
+            raise OperationalError(str(statement), {}, Exception("the connection dropped"))
+
+        return await reached(statement, *arguments, **keywords)
+
+    monkeypatch.setattr(db_session, "execute", refuse)
+
+    with pytest.raises(SeedError, match=says):
+        await revoke_scrypt_api_keys(revoking=True)
 
 
 class TestTheScriptRunOnItsOwn:

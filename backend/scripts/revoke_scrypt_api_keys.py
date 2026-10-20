@@ -64,6 +64,25 @@ async def _report(session: AsyncSession) -> int:
     return len(held)
 
 
+async def _revoke(session: AsyncSession) -> int:
+    """Deactivate every key still holding a scrypt hash, and how many of them that changed.
+
+    A key already revoked is left as it is, so a second run revokes nothing.
+
+    Raises:
+        SeedError: The keys could not be revoked.
+    """
+    try:
+        deactivated = await session.execute(
+            update(APIKey).where(APIKey.key_hash.startswith(STORED_AS_SCRYPT), APIKey.is_active).values(is_active=False)
+        )
+        await session.commit()
+    except (OSError, SQLAlchemyError) as error:
+        raise SeedError(f"Could not revoke the API keys stored as scrypt: {type(error).__name__}") from error
+
+    return cast("CursorResult[Any]", deactivated).rowcount
+
+
 async def revoke_scrypt_api_keys(revoking: bool = False) -> tuple[int, int]:
     """Report the keys still stored as scrypt, deactivating them where ``revoking``.
 
@@ -78,15 +97,10 @@ async def revoke_scrypt_api_keys(revoking: bool = False) -> tuple[int, int]:
     async with local_session() as session:
         try:
             stored = await _report(session)
-            revoked = 0
-            if revoking:
-                deactivated = await session.execute(
-                    update(APIKey).where(APIKey.key_hash.startswith(STORED_AS_SCRYPT), APIKey.is_active).values(is_active=False)
-                )
-                revoked = cast("CursorResult[Any]", deactivated).rowcount
-                await session.commit()
         except (OSError, SQLAlchemyError) as error:
             raise SeedError(f"Could not read the API keys stored as scrypt: {type(error).__name__}") from error
+
+        revoked = await _revoke(session) if revoking else 0
 
     logger.info(f"API keys stored as scrypt: {stored}, revoked: {revoked}")
 
