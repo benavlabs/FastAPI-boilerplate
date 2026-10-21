@@ -35,3 +35,20 @@ async def test_the_same_address_in_another_case_cannot_be_stored(db_session: Asy
 
     with pytest.raises(IntegrityError):
         await db_session.flush()
+
+
+async def test_the_refusal_names_the_index_it_was_refused_by(db_session: AsyncSession):
+    """The signup route reads that name to decide how to answer, so it has to be there.
+
+    asyncpg carries it on the error the dialect wrapped, which is kept as the cause.
+    """
+    db_session.add(_user("first", "owner@example.com"))
+    await db_session.flush()
+    db_session.add(_user("second", "OWNER@example.com"))
+
+    with pytest.raises(IntegrityError) as refused:
+        await db_session.flush()
+
+    driver_error = refused.value.orig
+    assert driver_error is not None
+    assert getattr(driver_error.__cause__, "constraint_name", None) == "ix_user_email_lower"

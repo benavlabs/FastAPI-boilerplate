@@ -1,6 +1,6 @@
 from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, BackgroundTasks
 from fastcrud import PaginatedListResponse, compute_offset, paginated_response
 
 from ...infrastructure.auth.authorization import load_permissions, require_permissions
@@ -15,6 +15,7 @@ from ...infrastructure.auth.scope import carries_a_scope
 from ...infrastructure.dependencies import AsyncSessionDep
 from ..common.pagination import ItemsPerPageDep, PageDep
 from .dependencies import UserServiceDep
+from .exceptions import EmailAlreadyRegisteredError
 from .schemas import (
     UserCreate,
     UserProfileRead,
@@ -24,11 +25,13 @@ from .schemas import (
 
 router = APIRouter(tags=["Users"])
 
+SIGNUP_ACCEPTED = "If the address is available, the account has been created."
+"""What a signup answers, whether the address was free or already had an account."""
+
 
 @router.post(
     "/",
     status_code=201,
-    response_model=UserRead,
     summary="Create New User Account",
     description="""
            Creates a new user account in the system.
@@ -40,21 +43,42 @@ router = APIRouter(tags=["Users"])
            - Password (with security requirements)
 
            New accounts are automatically assigned to the default tier.
+
+           The answer says nothing about whether the address was free. An address that
+           already has an account is answered the same way as one that did not, and the
+           account that holds it is told somebody tried to sign up with it, so a caller
+           cannot use this route to find out who is registered. A username that is taken
+           answers `409`: a username is public, and a signup form has to be able to say
+           so.
+
+           The created profile is not returned, for the same reason. Read it from
+           `GET /api/v1/users/{username}` once signed in.
            """,
     responses={
-        201: {"description": "User account created successfully"},
+        201: {"description": "The signup was accepted, whether or not the address was free"},
         400: {"description": "Invalid user data"},
-        409: {"description": "Username or email already exists"},
+        409: {"description": "Username already exists"},
     },
-    response_description="The created user profile with assigned ID",
+    response_description="A fixed confirmation, the same for every accepted signup",
 )
 async def create_user(
     user: UserCreate,
     db: AsyncSessionDep,
     user_service: UserServiceDep,
-) -> dict[str, Any]:
-    """Create a new user account."""
-    return await user_service.create(user, db)
+    background: BackgroundTasks,
+) -> dict[str, str]:
+    """Create a new user account, answering the same way whether its address was free.
+
+    The notice to an existing owner is left to run after the answer: waiting for a mail
+    server on that path alone would tell a caller which addresses hold accounts by the
+    clock, since the other path waits for nothing.
+    """
+    try:
+        await user_service.create(user, db)
+    except EmailAlreadyRegisteredError:
+        background.add_task(user_service.notify_the_address_owner, user.email)
+
+    return {"message": SIGNUP_ACCEPTED}
 
 
 @router.get(

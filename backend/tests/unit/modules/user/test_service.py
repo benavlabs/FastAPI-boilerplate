@@ -3,13 +3,18 @@
 from typing import Any
 
 import pytest
+from fastapi import BackgroundTasks
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import src.modules.user.service as service_module
 from src.modules.common.exceptions import PermissionDeniedError
 from src.modules.user.crud import crud_users
 from src.modules.user.exceptions import (
+    EmailAlreadyRegisteredError,
     UserExistsError,
 )
+from src.modules.user.routes import SIGNUP_ACCEPTED, create_user
 from src.modules.user.schemas import UserAdminUpdate, UserCreate, UserUpdate
 from src.modules.user.service import UserService
 
@@ -139,6 +144,130 @@ async def test_signup_cannot_write_the_verification_or_oauth_columns(user_servic
 
     assert created["email_verified"] is False
     assert created["oauth_provider"] is None
+
+
+# =============================================================================
+# Which credential was taken decides how a signup answers
+# =============================================================================
+async def test_an_address_that_already_has_an_account_is_its_own_error(user_service: UserService, db_session: AsyncSession):
+    """The route answers it the way it answers a signup that worked, so it has to be told apart."""
+    await user_service.create(
+        UserCreate(name="Owner", username="theowner", email="owner@example.com", password="Str1ngst!"), db_session
+    )
+
+    with pytest.raises(EmailAlreadyRegisteredError):
+        await user_service.create(
+            UserCreate(name="Stranger", username="astranger", email="owner@example.com", password="Str1ngst!"),
+            db_session,
+        )
+
+
+async def test_a_taken_username_stays_a_conflict(user_service: UserService, db_session: AsyncSession):
+    """A username is public, so a signup form is told, and the error is the plain one."""
+    await user_service.create(
+        UserCreate(name="Owner", username="takenname", email="first@example.com", password="Str1ngst!"), db_session
+    )
+
+    with pytest.raises(UserExistsError) as refused:
+        await user_service.create(
+            UserCreate(name="Stranger", username="takenname", email="second@example.com", password="Str1ngst!"),
+            db_session,
+        )
+
+    assert not isinstance(refused.value, EmailAlreadyRegisteredError)
+
+
+async def test_a_signup_for_a_taken_address_still_pays_for_the_hash(
+    user_service: UserService, db_session: AsyncSession, test_user: dict, monkeypatch
+):
+    """Hashing only where the address was free tells a caller by the clock what the answer won't.
+
+    bcrypt is the slowest thing a signup does, so it runs before either credential is
+    looked up.
+    """
+    hashed: list[str] = []
+    real_hash = service_module.get_password_hash_async
+
+    async def recording(password: str) -> str:
+        hashed.append(password)
+
+        return await real_hash(password)
+
+    monkeypatch.setattr(service_module, "get_password_hash_async", recording)
+
+    with pytest.raises(EmailAlreadyRegisteredError):
+        await user_service.create(
+            UserCreate(name="Stranger", username="astranger", email=test_user["email"], password="Str1ngst!"),
+            db_session,
+        )
+
+    assert hashed == ["Str1ngst!"]
+
+
+async def test_the_notice_to_an_existing_owner_runs_after_the_answer(
+    user_service: UserService, db_session: AsyncSession, test_user: dict, monkeypatch
+):
+    """Waiting for a mail server on this path alone would give the answer away by the clock.
+
+    Without the taskiq feature the notice goes out over SMTP in the request, so the route
+    leaves it to run once the answer is on its way, which is what Starlette does with a
+    background task.
+    """
+    told: list[str] = []
+
+    async def noting(email: str) -> None:
+        told.append(email)
+
+    monkeypatch.setattr(user_service, "notify_the_address_owner", noting)
+    background = BackgroundTasks()
+
+    answered = await create_user(
+        user=UserCreate(name="Stranger", username="astranger", email=test_user["email"], password="Str1ngst!"),
+        db=db_session,
+        user_service=user_service,
+        background=background,
+    )
+
+    assert answered == {"message": SIGNUP_ACCEPTED}
+    assert told == []
+    await background()
+    assert told == [test_user["email"]]
+
+
+async def test_the_index_is_read_from_the_driver_rather_than_the_message(user_service: UserService, db_session: AsyncSession):
+    """How a refusal is worded is the driver's to change; the name it puts on the error is not."""
+
+    class _Refusal(Exception):
+        constraint_name = "ix_user_email_lower"
+
+    wrapped = Exception("duplicate key value violates a unique index")
+    wrapped.__cause__ = _Refusal()
+
+    with pytest.raises(EmailAlreadyRegisteredError):
+        await user_service._refuse_taken_credentials(db_session, IntegrityError("INSERT INTO user", {}, wrapped))
+
+
+@pytest.mark.parametrize(
+    ("index", "expected"),
+    [
+        ("ix_user_email", EmailAlreadyRegisteredError),
+        ("ix_user_email_lower", EmailAlreadyRegisteredError),
+        ("ix_user_username", UserExistsError),
+        ("ix_user_email_of_some_later_table", UserExistsError),
+    ],
+)
+async def test_a_race_is_named_by_the_index_that_refused_the_row(
+    user_service: UserService, db_session: AsyncSession, index: str, expected: type[Exception]
+):
+    """Both pre-checks passed and the database refused the insert, which names what it refused."""
+    collision = IntegrityError("INSERT INTO user", {}, Exception(f'duplicate key value violates unique constraint "{index}"'))
+
+    with pytest.raises(expected) as refused:
+        await user_service._refuse_taken_credentials(db_session, collision)
+
+    assert isinstance(refused.value, expected)
+    if expected is UserExistsError:
+        assert not isinstance(refused.value, EmailAlreadyRegisteredError)
 
 
 # =============================================================================

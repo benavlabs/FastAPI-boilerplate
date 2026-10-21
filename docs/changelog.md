@@ -732,6 +732,21 @@ matrix. The round that followed fixed what a re-review of the refactor found.
 - **A credential the API throttle cannot resolve now spends the budget its address would have
   spent carrying none.** A junk `X-API-Key` or bearer token used to answer `401` as often as it was
   sent, unmetered, while the same requests without a header were throttled after the limit.
+- **A signup no longer says whether an address is registered.** `POST /api/v1/users/` answered
+  `409 Conflict` for a taken email, so anybody could ask it which addresses hold accounts, one
+  request at a time, while the password-reset and verification routes were careful to answer
+  uniformly. It now answers `201` with a fixed message whether the address was free or not, creates
+  nothing in the second case, and tells the account that holds the address that somebody tried to
+  sign up with it (crudauth's `notify_existing_account`, which is what its own register route
+  does). A mail server that is down does not change the answer. **The created profile is no longer
+  in the response**: a body carrying it would say the address was free, so a client that read
+  `response.json()["id"]` has to read the account from `GET /api/v1/users/{username}` after signing
+  in. A taken **username** still answers `409`: a username is public, a profile URL reveals it, and
+  a signup form has to be able to say so. A race decided by the database answers by the index that
+  refused the row, read from the name asyncpg puts on the error, so a lost race for an address is
+  uniform too. The clock says nothing either: the password is hashed before either credential is
+  looked up, since bcrypt is the slowest thing a signup does, and the notice to an existing owner
+  runs as a background task, so neither path waits on a mail server.
 - **A queued account email carries no readable recovery link.** `email:send` was enqueued with the
   recipient, the subject, the rendered body and the link, so every verification and password-reset
   token sat in Redis or RabbitMQ in the clear until a worker picked it up, and in any backup or
@@ -938,7 +953,9 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   and dropped rather than raised.
 - **A signup that loses a race for an address answers `409`**, where the second request used to
   reach the unique index and answer `500`. An address stored before it was canonicalised is a
-  conflict too, rather than a `500` nobody could sign up past.
+  conflict too, rather than a `500` nobody could sign up past. (Both answer the fixed signup
+  confirmation from the entry below, rather than a conflict, since no answer says whether an
+  address is taken.)
 - **A role id, an account id in a role path and a `tier_id` outside `1..2147483647` answer `422`**,
   where the request used to reach the database and fail there with a `500`. A rate limit's `limit`
   and `period` are bounded the same way, on a create and on a `PATCH`.
@@ -969,7 +986,8 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   username answers `409 Conflict` with the same body it used to send
   (`"A user with this email or username already exists."`), which is what the route always
   declared. A client that treats `422` as "already registered" has to read `409` as well. The same
-  applies to the profile update and to renaming a rate limit onto a taken name.
+  applies to the profile update and to renaming a rate limit onto a taken name. (A taken address no
+  longer answers at all: see the entry below.)
 - **An empty `API_PREFIX` no longer serves the API from the root.** `API_PREFIX=` used to mount the
   routes at `/v1/...`; it is now refused at startup, together with any prefix that does not start
   with `/` or that ends with `/`. Set a prefix such as `/api`.

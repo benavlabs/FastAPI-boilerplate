@@ -107,7 +107,7 @@ async def create_user(
     return await user_service.create(user, db)
 ```
 
-If the service raises `UserExistsError`, the client gets a 409 with `"A user with this email or username already exists."` and a `support_id`; anything unexpected becomes a 500 with the generic message the same way.
+If the service raises `UserExistsError`, the client gets a 409 with `"A user with this email or username already exists."` and a `support_id`; anything unexpected becomes a 500 with the generic message the same way. The signup route is the one place that catches an error rather than letting the mapping answer it: `EmailAlreadyRegisteredError` is answered with the same confirmation a signup that worked gets, so the route says nothing about which addresses are registered ([Registration](../authentication/user-management.md#registration)).
 
 ### The Default Mapping
 

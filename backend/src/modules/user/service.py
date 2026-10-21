@@ -1,3 +1,4 @@
+import re
 from collections.abc import Collection
 from datetime import UTC, datetime
 from typing import Any, NoReturn
@@ -17,6 +18,7 @@ from ..common.exceptions import (
 )
 from .crud import crud_users
 from .exceptions import (
+    EmailAlreadyRegisteredError,
     UserExistsError,
     UserNotFoundError,
 )
@@ -33,6 +35,29 @@ from .schemas import (
 )
 
 logger = get_logger()
+
+ADDRESS_INDEXES = frozenset({"ix_user_email", "ix_user_email_lower"})
+"""The indexes that hold an address, which a signup for a taken one is refused by."""
+
+NAMED_CONSTRAINT = re.compile(r'constraint "([^"]+)"')
+"""What a refusal quotes the index as, where the driver's own name for it is missing."""
+
+
+def _refused_index(collision: IntegrityError) -> str:
+    """The index a unique violation names, or ``""`` where nothing in it names one.
+
+    asyncpg names the constraint on the error the driver wrapped, which the dialect keeps
+    as the cause; the message is read only where that is missing, and read for the name it
+    quotes rather than searched for one. Either way the name is matched whole, so a later
+    index called something like ``ix_user_email_of_whatever`` is nobody's address index.
+    """
+    named = getattr(getattr(collision.orig, "__cause__", None), "constraint_name", None)
+    if named:
+        return str(named)
+
+    quoted = NAMED_CONSTRAINT.search(str(collision.orig))
+
+    return quoted.group(1) if quoted else ""
 
 
 class UserService:
@@ -60,8 +85,13 @@ class UserService:
         Returns:
             The created user data dictionary.
 
+        The password is hashed before either credential is looked up, because the hash is
+        the slowest thing a signup does: hashing only where the address was free would tell
+        a caller which addresses hold accounts by the clock, whatever the answer says.
+
         Raises:
-            UserExistsError: If email or username already exists.
+            EmailAlreadyRegisteredError: The address already has an account.
+            UserExistsError: The username is taken.
 
         Note:
             Passwords are automatically hashed using secure password hashing.
@@ -83,10 +113,11 @@ class UserService:
         """
         await auth.validate_password(user.password, source="register")
         email = canonical_email(user.email)
+        hashed_password = await get_password_hash_async(user.password)
 
         email_exists = await crud_users.exists(db=db, email=email)
         if email_exists:
-            raise UserExistsError("Email already registered")
+            raise EmailAlreadyRegisteredError("Email already registered")
 
         username_exists = await crud_users.exists(db=db, username=user.username)
         if username_exists:
@@ -96,7 +127,7 @@ class UserService:
             name=user.name,
             username=user.username,
             email=email,
-            hashed_password=await get_password_hash_async(user.password),
+            hashed_password=hashed_password,
         )
         try:
             created_user = await crud_users.create(db=db, object=user_internal, schema_to_select=UserRead)
@@ -109,14 +140,37 @@ class UserService:
 
     @staticmethod
     async def _refuse_taken_credentials(db: AsyncSession, collision: IntegrityError) -> NoReturn:
-        """Undo the write and answer credentials another request took first as a conflict.
+        """Undo the write and answer credentials another request took first.
+
+        Which of them it was decides how the signup answers, so the refusal is named by the
+        index the database refused the row over rather than by anything the message happens
+        to contain.
 
         Raises:
-            UserExistsError: Always; a unique constraint refused the row.
+            EmailAlreadyRegisteredError: The address was taken while this request ran.
+            UserExistsError: The username was.
         """
         await db.rollback()
 
-        raise UserExistsError("Email or username already taken") from collision
+        if _refused_index(collision) in ADDRESS_INDEXES:
+            raise EmailAlreadyRegisteredError("Email already registered") from collision
+
+        raise UserExistsError("Username already taken") from collision
+
+    async def notify_the_address_owner(self, email: str) -> None:
+        """Tell whoever holds ``email`` that somebody tried to sign up with it.
+
+        Best effort, and nothing of it reaches the caller: a signup answers the same way
+        whether the address was free, so a mail server that is down must not turn that
+        answer into a failure anybody could read as "the address is taken".
+        """
+        if auth.emails is None:
+            return
+
+        try:
+            await auth.emails.notify_existing_account(canonical_email(email))
+        except Exception:
+            logger.exception("Could not tell an address owner that somebody tried to sign up with it")
 
     async def get_paginated(self, db: AsyncSession, skip: int = 0, limit: int = 100) -> GetMultiResponseDict:
         """Retrieve a paginated list of users.

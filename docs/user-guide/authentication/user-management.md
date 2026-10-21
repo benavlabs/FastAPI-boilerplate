@@ -37,23 +37,38 @@ curl -X POST http://localhost:8000/api/v1/users/ \
   }'
 ```
 
+**Every accepted signup answers the same**: `201` with a fixed message and nothing of the account.
+An address that already has one is answered exactly like an address that was free, and the account
+holding it is sent a notice instead, so this route cannot be used to find out who is registered.
+A taken **username** still answers `409`, because a username is public: a profile URL reveals it,
+and a signup form has to be able to say so. The created profile is not in the answer either: an
+answer carrying it would say whether the address was free. Read it from
+`GET /api/v1/users/{username}` once signed in.
+
 The route delegates to `UserService.create`, which:
 
-1. Checks `email` is unique → raises `UserExistsError` if not (→ 409). Addresses are stored
-   trimmed and lowercased, and `ix_user_email_lower` keeps the database from holding the same
-   address twice in different case even when a write goes around the service
-2. Checks `username` is unique → raises `UserExistsError` if not (→ 409)
-3. Hashes the password with bcrypt via `get_password_hash`
+1. Hashes the password with bcrypt via `get_password_hash_async`, **before** either credential is
+   looked up. bcrypt is the slowest thing a signup does, so hashing only where the address was free
+   would tell a caller by the clock what the answer deliberately does not
+2. Checks `email` is unique → raises `EmailAlreadyRegisteredError` if not, which the route answers
+   with the fixed message, leaving the notice to the address owner to a background task so that
+   path waits on no mail server either. Addresses are stored trimmed and lowercased, and
+   `ix_user_email_lower` keeps the database from holding the same address twice in different case
+   even when a write goes around the service
+3. Checks `username` is unique → raises `UserExistsError` if not (→ 409)
 4. Builds a `UserCreateInternal` (schema with `hashed_password` instead of `password`)
-5. Persists via `crud_users.create`, and answers `409` where a unique constraint refuses the row
-   rather than `500`: two signups racing for one address both pass the checks above, and an address
-   stored before it was canonicalised is found by neither
+5. Persists via `crud_users.create`. Where a unique constraint refuses the row rather than the
+   checks above, two signups racing for one address or an address stored before it was
+   canonicalised, the index that refused it decides the answer: `ix_user_email` or
+   `ix_user_email_lower` gives the fixed message, `ix_user_username` gives `409`. The index is read
+   from the name asyncpg puts on the error, matched whole, so a later index whose name merely looks
+   like one of those is not mistaken for it
 
 ```python
 # modules/user/service.py
 async def create(self, user: UserCreate, db: AsyncSession) -> dict[str, Any]:
     if await crud_users.exists(db=db, email=user.email):
-        raise UserExistsError("Email already registered")
+        raise EmailAlreadyRegisteredError("Email already registered")
     if await crud_users.exists(db=db, username=user.username):
         raise UserExistsError("Username already taken")
 
@@ -286,8 +301,8 @@ forgotten" doesn't always apply if the platform is required to keep records).
 
 Keeping it also **retires the address**: the row holds it, soft-deleted, so
 
-- signing up with it again answers `409` — the row still owns the address, and
-  `ix_user_email_lower` owns it case-insensitively;
+- signing up with it again creates nothing and answers what every signup answers — the row still
+  owns the address, and `ix_user_email_lower` owns it case-insensitively;
 - a verification or password-reset request for it sends nothing and answers exactly as it does for
   an address with no account, because the row is inactive (`is_active` is `not is_deleted`);
 - an OAuth sign-in with it is refused with `account_inactive` and links nothing, so a provider
