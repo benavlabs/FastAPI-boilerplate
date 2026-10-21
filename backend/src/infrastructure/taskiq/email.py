@@ -11,6 +11,7 @@ from ..email.factory import build_sender
 from ..logging import get_logger
 from .brokers import default_broker
 from .constants import BROKER_CONNECT_SECONDS
+from .handover import hand_over
 from .sealing import seal, unseal
 
 logger = get_logger()
@@ -58,25 +59,37 @@ async def send_email(sealed: str, expires_in: int) -> None:
 class QueuedSender(EmailSender):
     """Puts the message on the task queue, sealed, where a worker delivers it.
 
-    A broker that cannot be reached falls back to delivering in the request. Every account
-    email is best-effort to the caller that asked for one: a failure is logged and the
-    answer is the same either way, so there is nothing to retry and nobody to tell. An
+    A broker that cannot be reached falls back to delivering the message itself. Every
+    account email is best-effort to the caller that asked for one: a failure is logged and
+    the answer is the same either way, so there is nothing to retry and nobody to tell. An
     enqueue nobody catches loses the message, and a recovery link is the one piece of mail
     an account cannot do without.
+
+    None of it happens before the answer. A recovery route sends only where the address has
+    an account, so a route that waited for the broker on that path alone would say which
+    addresses have one by how long it took, and with a broker that is down the wait is the
+    whole of ``BROKER_CONNECT_SECONDS``. Handed over instead, both paths answer in the time
+    it takes to make a task.
     """
 
     async def send(self, *, to: str, subject: str, body: str, kind: EmailKind, context: EmailContext) -> None:
+        """Hand one message over to be queued, without waiting for the queue to take it."""
+        hand_over(
+            self._deliver(to=to, subject=subject, body=body, kind=kind, context=context),
+            name=f"{EMAIL_TASK_NAME}:{kind}",
+        )
+
+    async def _deliver(self, *, to: str, subject: str, body: str, kind: EmailKind, context: EmailContext) -> None:
         """Enqueue one message, with the parts of ``context`` a worker needs to render it.
 
-        Delivers it here instead where the queue will not take it, which costs the request
-        what the delivery takes.
+        Delivers it here instead where the queue will not take it, and logs it where
+        neither works: nothing is waiting on this to answer anybody.
 
         The enqueue is given ``BROKER_CONNECT_SECONDS`` of its own, because a broker that
         refuses is not the slow case: one that accepts the connection and says nothing, or
-        is reconnecting, would hold the request rather than reach the delivery below. A
-        message that landed just as the time ran out is delivered as well as queued, and
-        the account reads it twice. That is the trade: a duplicate beats a recovery link
-        nobody is sent.
+        is reconnecting, would hold this for as long as it liked. A message that landed
+        just as the time ran out is delivered as well as queued, and the account reads it
+        twice. That is the trade: a duplicate beats a recovery link nobody is sent.
         """
         try:
             with anyio.fail_after(BROKER_CONNECT_SECONDS):
@@ -93,8 +106,11 @@ class QueuedSender(EmailSender):
                     expires_in=context.expires_in,
                 )
         except Exception:
-            logger.warning(f"Could not enqueue a {kind} email, delivering it in the request instead", exc_info=True)
-            await sender.send(to=to, subject=subject, body=body, kind=kind, context=context)
+            logger.warning(f"Could not enqueue a {kind} email, delivering it from here instead", exc_info=True)
+            try:
+                await sender.send(to=to, subject=subject, body=body, kind=kind, context=context)
+            except Exception:
+                logger.exception(f"Could not deliver a {kind} email at all")
 
 
 queued_sender = QueuedSender()

@@ -9,6 +9,7 @@ from taskiq_aio_pika import AioPikaBroker
 from ..composition import Lifecycle
 from . import brokers
 from .constants import BROKER_RETRY_SECONDS, BROKER_RETRY_TASK_NAME
+from .handover import drain
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +77,11 @@ async def start_broker() -> None:
 
 
 async def stop_broker() -> None:
-    """Stop the retries, then close whatever the broker opened."""
+    """Stop the retries, then close whatever the broker opened.
+
+    The work handed over to run after an answer is drained before this, so a message on its
+    way to the queue is not dropped by the shutdown that was meant to let it finish.
+    """
     global _retrying
 
     if brokers.default_broker.is_worker_process:
@@ -91,4 +96,4 @@ async def stop_broker() -> None:
     await brokers.default_broker.shutdown()
 
 
-lifecycle = Lifecycle("taskiq", startup=start_broker, shutdown=(stop_broker,))
+lifecycle = Lifecycle("taskiq", startup=start_broker, shutdown=(drain, stop_broker))

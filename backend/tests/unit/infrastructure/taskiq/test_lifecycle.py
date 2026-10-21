@@ -19,6 +19,7 @@ from src.infrastructure.config.enums import TaskiqBrokerType
 from src.infrastructure.config.settings import settings
 from src.infrastructure.taskiq import brokers, lifecycle
 from src.infrastructure.taskiq.constants import BROKER_CONNECT_SECONDS, BROKER_RETRY_TASK_NAME
+from src.infrastructure.taskiq.handover import drain
 from src.infrastructure.taskiq.health import broker_is_reachable
 from src.infrastructure.taskiq.lifecycle import start_broker
 from src.wiring.app import LIFECYCLES
@@ -183,6 +184,15 @@ async def rabbitmq_broker(rabbitmq, monkeypatch):
     yield broker
 
     await broker.shutdown()
+
+
+def test_the_shutdown_drains_what_was_handed_over_before_it_closes_the_broker():
+    """A message handed over finds a closed broker otherwise, and falls back to SMTP or is lost.
+
+    ``lifespan_factory`` runs a lifecycle's shutdowns in the order the tuple gives them,
+    which ``test_app_factory`` pins.
+    """
+    assert lifecycle.lifecycle.shutdown == (drain, lifecycle.stop_broker)
 
 
 async def test_an_enqueue_while_the_app_runs_reaches_the_broker(rabbitmq_broker: AsyncBroker):

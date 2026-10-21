@@ -134,8 +134,10 @@ EMAIL_SMTP_TIMEOUT_SECONDS=10
 `EMAIL_SMTP_STARTTLS` verifies the server's certificate and hostname, so a server presenting a
 self-signed certificate is refused rather than trusted; turn it off only for a relay on a network
 you own. With the taskiq feature present, delivery is enqueued as the `email:send` task and a worker
-does the sending, so no request waits on the mail server; where the broker cannot be reached, the
-request delivers the message itself rather than losing it.
+does the sending, so no request waits on the mail server. Where the broker cannot be reached, the
+message is delivered from the task the sender handed it to rather than lost, and still not in the
+request: a recovery route that waited for mail only when the address existed would say which
+addresses do.
 
 ## Background Tasks (Taskiq)
 

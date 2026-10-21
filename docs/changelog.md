@@ -747,6 +747,18 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   uniform too. The clock says nothing either: the password is hashed before either credential is
   looked up, since bcrypt is the slowest thing a signup does, and the notice to an existing owner
   runs as a background task, so neither path waits on a mail server.
+- **With the taskiq feature, a recovery request no longer takes longer when the address exists.**
+  `password/reset-request`, the verification request and the email-change request send only where
+  the address has an account, and the sender was awaited in the request: the publish to the broker
+  on one path and nothing at all on the other, which a caller could time to find out who is
+  registered. With a broker that was down the difference was the whole `BROKER_CONNECT_SECONDS`,
+  and the SMTP fallback on top. The sender now hands the message to a task of its own and returns,
+  so both paths answer in the time it takes to make one. The shutdown waits `DRAIN_SECONDS` for
+  what was handed over before closing the broker, so a deploy does not drop a message on its way to
+  the queue, and logs how many it gave up on where a mail server never answered. A delivery that
+  fails in the handover is logged too, where before it was swallowed by the caller. A project
+  **without** the taskiq feature is unchanged: crudauth awaits the configured sender in the
+  request, so a registered address still costs the mail server's time there.
 - **A queued account email carries no readable recovery link.** `email:send` was enqueued with the
   recipient, the subject, the rendered body and the link, so every verification and password-reset
   token sat in Redis or RabbitMQ in the clear until a worker picked it up, and in any backup or

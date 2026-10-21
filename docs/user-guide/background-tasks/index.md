@@ -46,18 +46,26 @@ under the old one cannot be opened, and the worker logs it and drops it rather t
 something that can never succeed, so whatever was waiting is a verification or reset link nobody
 receives.
 
-A broker that cannot be reached is the exception: the sender logs a warning and delivers in the
-request instead, which costs that one request the delivery and keeps the mail, because an account
-email is best-effort to the caller and a lost recovery link is one nobody is told about. Two bounds
-get the request there: the broker's `socket_connect_timeout` for a host that never answers, and
-`BROKER_CONNECT_SECONDS` around the sender's own call for a broker that connects and then stalls.
-The socket's read timeout is deliberately left unset, because the worker waits for its next job in
-a `brpop` with no timeout and a socket that stopped waiting would raise out of that listener on the
-first idle minute. A message that lands just as the sender's time runs out is both queued and
-delivered, and the account reads it twice, which beats not reading it at all. While the broker is
-down, a recovery request for an address that exists takes as long as the mail server does and one
-for an address that doesn't returns immediately, the same difference a project running without the
-taskiq feature always has.
+Nothing of that happens before the answer. The sender hands the message to a task of its own
+(`infrastructure/taskiq/handover.py`) and returns, because a recovery route sends only where the
+address has an account: a route that waited for the publish would answer slowly for an address that
+exists and quickly for one that does not, which is the one thing those routes are careful not to
+say. The shutdown drains what has been handed over before it closes the broker, so a deploy does
+not drop a message on its way to the queue. **This is the taskiq feature's doing.** Without it
+there is no handover: crudauth awaits the configured sender itself, so a recovery request for a
+registered address still takes the mail server's time while one for an unknown address returns at
+once.
+
+A broker that cannot be reached is the exception: the handover logs a warning and delivers the
+message itself, which keeps the mail, because an account email is best-effort to the caller and a
+lost recovery link is one nobody is told about. Two bounds keep that handover from running forever:
+the broker's `socket_connect_timeout` for a host that never answers, and `BROKER_CONNECT_SECONDS`
+around the publish for a broker that connects and then stalls. The socket's read timeout is
+deliberately left unset, because the worker waits for its next job in a `brpop` with no timeout and
+a socket that stopped waiting would raise out of that listener on the first idle minute. A message
+that lands just as the publish's time runs out is both queued and delivered, and the account reads
+it twice, which beats not reading it at all. The shutdown waits `DRAIN_SECONDS` for what was handed
+over, which is what one delivery may legitimately take, and logs how many messages it gave up on.
 
 `api_keys:prune_usage` deletes the key usage rows past `KEY_USAGE_RETENTION_DAYS`
 (`modules/api_keys/tasks.py`), on a schedule of its own, and ships with the api_keys feature. Beyond

@@ -1,5 +1,6 @@
 """Handing an account email to the worker, and what arrives there."""
 
+import asyncio
 import json
 import logging
 import os
@@ -18,6 +19,7 @@ from taskiq import InMemoryBroker
 from src.infrastructure.taskiq import email as taskiq_email
 from src.infrastructure.taskiq import sealing
 from src.infrastructure.taskiq.email import EMAIL_TASK_NAME, queued_sender, send_email
+from src.infrastructure.taskiq.handover import drain
 from src.infrastructure.taskiq.sealing import seal
 
 RECIPIENT = "owner@example.com"
@@ -48,6 +50,12 @@ async def _enqueue_the_verification_email() -> None:
     await queued_sender.send(to=RECIPIENT, subject=SUBJECT, body=BODY, kind="verify_email", context=CONTEXT)
 
 
+async def _hand_over_and_wait() -> None:
+    """Send, then wait for what the sender handed over, which a shutdown waits for too."""
+    await _enqueue_the_verification_email()
+    await drain()
+
+
 def _in_memory_worker(monkeypatch, delivering: EmailSender, *, inplace: bool) -> InMemoryBroker:
     broker = InMemoryBroker(await_inplace=inplace)
     broker.register_task(send_email.original_func, task_name=EMAIL_TASK_NAME, retry_on_error=True)
@@ -62,18 +70,19 @@ async def test_the_message_the_worker_delivers_is_the_one_that_was_enqueued(monk
     delivering = _Capturing()
     _in_memory_worker(monkeypatch, delivering, inplace=True)
 
-    await _enqueue_the_verification_email()
+    await _hand_over_and_wait()
 
     assert delivering.sent == [{"to": RECIPIENT, "subject": SUBJECT, "body": BODY, "kind": "verify_email", "context": CONTEXT}]
 
 
 async def test_the_caller_does_not_wait_for_delivery(monkeypatch):
-    """Enqueueing returns before the task runs, so a slow mail server never holds a request."""
+    """Sending returns before the message is even queued, let alone delivered."""
     delivering = _Capturing()
     broker = _in_memory_worker(monkeypatch, delivering, inplace=False)
 
     await _enqueue_the_verification_email()
     enqueued = delivering.sent.copy()
+    await drain()
     await broker.wait_all()
 
     assert enqueued == []
@@ -93,7 +102,7 @@ async def test_the_queue_carries_nothing_a_recovery_link_can_be_read_from(monkey
 
     monkeypatch.setattr(broker, "kick", watching)
 
-    await _enqueue_the_verification_email()
+    await _hand_over_and_wait()
     await broker.wait_all()
 
     carried = enqueued[0]
@@ -159,12 +168,36 @@ async def test_a_message_that_names_no_lifetime_is_delivered_however_long_it_wai
     assert delivering.sent[0]["kind"] == "existing_account"
 
 
-async def test_a_message_the_broker_will_not_take_is_delivered_in_the_request(monkeypatch, caplog):
+async def test_a_publish_that_cannot_finish_does_not_delay_the_caller(monkeypatch):
+    """A recovery route sends only where the address has an account.
+
+    So a route that waited for the publish would answer slowly for an address that exists
+    and quickly for one that does not, which is the thing no answer gives away. The call is
+    given a second of its own, so a sender that waits again fails this rather than hanging.
+    """
+    delivering = _Capturing()
+    broker = _in_memory_worker(monkeypatch, delivering, inplace=True)
+    let_it_finish = asyncio.Event()
+
+    async def waiting(message: Any) -> None:
+        await let_it_finish.wait()
+
+    monkeypatch.setattr(broker, "kick", waiting)
+
+    with anyio.fail_after(1):
+        await _enqueue_the_verification_email()
+
+    assert delivering.sent == []
+    let_it_finish.set()
+    await drain()
+
+
+async def test_a_message_the_broker_will_not_take_is_delivered_anyway(monkeypatch, caplog):
     """A message is best-effort to crudauth, which logs what a channel raises and answers 200.
 
     So an enqueue nothing catches loses the mail: the account that asked for a reset link
-    never gets one, and the answer says nothing about it. Delivering in the request is
-    slower than the queue and is what the message is worth.
+    never gets one, and the answer says nothing about it. Delivering it from the handover
+    is slower than the queue and is what the message is worth.
     """
     delivering = _Capturing()
     broker = _in_memory_worker(monkeypatch, delivering, inplace=True)
@@ -175,18 +208,39 @@ async def test_a_message_the_broker_will_not_take_is_delivered_in_the_request(mo
     monkeypatch.setattr(broker, "kick", unreachable)
 
     with caplog.at_level(logging.WARNING):
-        await _enqueue_the_verification_email()
+        await _hand_over_and_wait()
 
     assert delivering.sent == [{"to": RECIPIENT, "subject": SUBJECT, "body": BODY, "kind": "verify_email", "context": CONTEXT}]
     assert "verify_email" in caplog.text
 
 
-async def test_a_broker_that_never_answers_does_not_hold_the_request(monkeypatch, caplog):
+async def test_a_message_neither_the_queue_nor_the_sender_takes_is_logged(monkeypatch, caplog):
+    """Nothing is waiting on this to answer anybody, so the log is all that is left of it."""
+    delivering = _Capturing()
+    broker = _in_memory_worker(monkeypatch, delivering, inplace=True)
+
+    async def unreachable(message: Any) -> None:
+        raise ConnectionError("the broker is unreachable")
+
+    async def refused(**message: Any) -> None:
+        raise ConnectionRefusedError("no mail server either")
+
+    monkeypatch.setattr(broker, "kick", unreachable)
+    monkeypatch.setattr(delivering, "send", refused)
+
+    with caplog.at_level(logging.WARNING):
+        await _hand_over_and_wait()
+
+    assert delivering.sent == []
+    assert "Could not deliver a verify_email email at all" in caplog.text
+
+
+async def test_a_broker_that_never_answers_still_ends_in_a_delivery(monkeypatch, caplog):
     """A refusal is the quick failure; a broker that accepts and stalls is the slow one.
 
     The timeout is shortened here, so the test waits for it rather than the five seconds a
-    request would, and the whole call is given a second of its own, so a sender that stopped
-    bounding the enqueue fails this rather than hanging the suite.
+    shutdown would, and the whole call is given a second of its own, so a sender that
+    stopped bounding the enqueue fails this rather than hanging the suite.
     """
     delivering = _Capturing()
     broker = _in_memory_worker(monkeypatch, delivering, inplace=True)
@@ -198,7 +252,7 @@ async def test_a_broker_that_never_answers_does_not_hold_the_request(monkeypatch
     monkeypatch.setattr(taskiq_email, "BROKER_CONNECT_SECONDS", 0.05)
 
     with caplog.at_level(logging.WARNING), anyio.fail_after(1):
-        await _enqueue_the_verification_email()
+        await _hand_over_and_wait()
 
     assert delivering.sent == [{"to": RECIPIENT, "subject": SUBJECT, "body": BODY, "kind": "verify_email", "context": CONTEXT}]
     assert "verify_email" in caplog.text
@@ -211,6 +265,7 @@ async def test_a_message_the_broker_takes_is_not_delivered_twice(monkeypatch):
 
     await _enqueue_the_verification_email()
     before_the_worker_ran = len(delivering.sent)
+    await drain()
     await broker.wait_all()
 
     assert (before_the_worker_ran, len(delivering.sent)) == (0, 1)
