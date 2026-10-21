@@ -30,6 +30,7 @@ from ..config.enums import SessionBackend
 from ..config.settings import settings
 from ..database.session import async_session
 from .audit import record_a_lockout, record_a_refused_login
+from .evictions import end_every_session_through
 from .limiter import build_rate_limiter, rate_limiter_redis_client
 from .oauth_profile import refresh_the_provider_profile
 from .password_policy import password_policy
@@ -140,6 +141,7 @@ auth = CRUDAuth(
         on_login_failed=record_a_refused_login,
         on_lockout=record_a_lockout,
         on_oauth_login=refresh_the_provider_profile,
+        on_after_email_changed=end_every_session_through(session_transport),
     ),
     password_policy=password_policy,
     new_user_fields=_new_user_fields,

@@ -157,6 +157,12 @@ registered through `AuthHooks` sees a logout the same way it sees a login. To en
 user holds on all devices (e.g. after a suspected compromise), use `POST /api/v1/auth/logout-all`.
 See [Logout All Sessions](#logout-all-sessions).
 
+Two credential changes end sessions on their own: a completed password reset, and a confirmed email
+change, which ends every session the account had because the address is what recovers it
+(`infrastructure/auth/evictions.py`). Neither keeps the session that asked, since both are confirmed
+through a link clicked from a mailbox, which carries none. `change-password` is the one that keeps
+it, because the request holding the current password is the session making the change.
+
 ### Two timeouts
 
 `SESSION_TIMEOUT_MINUTES` is an idle timeout: every authenticated request slides it forward, so a

@@ -211,6 +211,10 @@ curl -X POST http://localhost:8000/api/v1/auth/email/change-request \
   -d '{"new_email": "new@example.com", "password": "<current password>"}'
 ```
 
+Confirming ends every session the account had, the one that asked for the change included: the
+address is what recovers an account, and the confirmation is a link from the new mailbox, so there
+is no session to keep. The owner signs in again, as their new address.
+
 See [Recovery Flows](index.md#recovery-flows-email). The admin panel is the other way in: its form
 is built from `UserAdminUpdate`, which does carry `email` (along with the OAuth identifiers and the
 verification flag), so an administrator can correct an address without the owner confirming it.

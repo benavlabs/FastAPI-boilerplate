@@ -181,6 +181,31 @@ class TestAnAccountWithNoPassword:
 class TestChangingAnAddress:
     """The new address confirms the change, and the old one is told about it."""
 
+    async def test_confirming_the_change_ends_every_session_the_account_had(
+        self, client: AsyncClient, test_user: dict, delivered: list[dict[str, Any]]
+    ):
+        """The address is what recovers an account, so changing it is a credential change.
+
+        The confirmation is a link clicked from the new mailbox and carries no session, so
+        there is none to keep: every session goes and the owner signs in again, as their new
+        address. A session somebody else was holding is what this ends.
+        """
+        other = await _second_session(test_user)
+        csrf = await _login(client, test_user)
+        assert (await other.get("/api/v1/users/me")).status_code == 200
+
+        await client.post(
+            "/api/v1/auth/email/change-request",
+            json={"new_email": MOVED_ADDRESS, "password": test_user["password"]},
+            headers={"X-CSRF-Token": csrf},
+        )
+        confirmed = await client.post("/api/v1/auth/email/change-confirm", json={"token": _token_of(delivered[0])})
+
+        assert confirmed.status_code == 200
+        assert (await other.get("/api/v1/users/me")).status_code == 401
+        assert (await client.get("/api/v1/users/me")).status_code == 401
+        await other.aclose()
+
     async def test_the_old_address_is_notified_once_the_new_one_confirms(
         self, client: AsyncClient, test_user: dict, delivered: list[dict[str, Any]], db_session: AsyncSession
     ):

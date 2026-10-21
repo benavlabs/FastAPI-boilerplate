@@ -170,14 +170,14 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   address first; `POST /set-password` stays unmounted, since a borrowed session must not be able to
   put a password on such an account.
 - **The account recovery flows**, mounted from crudauth under `/api/v1/auth`: email verification
-  (`email/verify-request`, `email/verify-confirm`), password reset (`password/reset-request`,
-  `password/reset-confirm`) and a confirmed email change (`email/change-request`,
-  `email/change-confirm`). The request routes answer the same for an address with no account, a
-  token is single-use, a completed reset ends every session the account had, a confirmed change
-  notifies the old address, and an inactive account — a soft-deleted one included — is sent nothing
-  and has its outstanding links refused. `FRONTEND_URL` is where the links point (your own pages,
-  which POST the token to the matching confirm route); production refuses an empty or `localhost`
-  value.
+  (`email/verify-request`, `email/verify-confirm`), password reset
+  (`password/reset-request`, `password/reset-confirm`) and a confirmed email change
+  (`email/change-request`, `email/change-confirm`). The request routes answer the same for an
+  address with no account, a token is single-use, a completed reset ends every session the account
+  had, a confirmed change notifies the old address, and an inactive account — a soft-deleted one
+  included — is sent nothing and has its outstanding links refused. `FRONTEND_URL` is where the
+  links point (your own pages, which POST the token to the matching confirm route); production
+  refuses an empty or `localhost` value.
 - **A sender for the account emails.** `EMAIL_BACKEND` picks it: `console` logs each message with
   its link and sends nothing (the default, so a fresh project needs no mail server), `smtp` delivers
   over `EMAIL_SMTP_*` with the server's certificate verified. With the taskiq feature present the
@@ -759,6 +759,14 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   fails in the handover is logged too, where before it was swallowed by the caller. A project
   **without** the taskiq feature is unchanged: crudauth awaits the configured sender in the
   request, so a registered address still costs the mail server's time there.
+- **A confirmed email change now ends every session the account had.** `email/change-confirm` moved
+  the address and left the sessions running, so whoever confirmed the change kept one the previous
+  owner's password no longer reaches, and the notice to the old address was all that owner got. The
+  address is what recovers an account, and a completed password reset already ends every session, so
+  this is treated as the same kind of change. The confirmation is a link clicked from the new
+  mailbox and carries no session, so there is none to keep and the one that asked for the change
+  goes with the rest: the owner signs in again, as their new address. API keys are untouched, since
+  nothing about an address moves the generation they were minted under.
 - **A queued account email carries no readable recovery link.** `email:send` was enqueued with the
   recipient, the subject, the rendered body and the link, so every verification and password-reset
   token sat in Redis or RabbitMQ in the clear until a worker picked it up, and in any backup or

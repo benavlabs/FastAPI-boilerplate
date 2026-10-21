@@ -197,7 +197,9 @@ What crudauth guarantees, and this project's tests hold it to:
 - A token is single-use, and dies early when the password, the address or `token_version` changes.
 - A completed reset ends **every** session the account had, so a stolen one doesn't survive it.
 - A confirmed email change notifies the **old** address (`email_changed`), which is how the previous
-  owner finds out.
+  owner finds out. This project ends **every** session the account had as well
+  (`infrastructure/auth/evictions.py`): the address is what recovers an account, so moving it is a
+  credential change. The confirmation carries no session, so the owner signs in again.
 - An inactive account is sent nothing, and the links it already has stop working. `User.is_active`
   is `not is_deleted`, so a soft-deleted account is covered.
 
