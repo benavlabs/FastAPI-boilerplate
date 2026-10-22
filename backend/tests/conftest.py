@@ -30,7 +30,7 @@ import pytest_asyncio  # noqa: E402
 import redis as syncredis  # noqa: E402
 import redis.asyncio as aioredis  # noqa: E402
 from httpx import ASGITransport, AsyncClient  # noqa: E402
-from sqlalchemy.ext.asyncio import AsyncSession  # noqa: E402
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker  # noqa: E402
 from sqlalchemy.orm import sessionmaker  # noqa: E402
 from testcontainers.core.docker_client import DockerClient  # noqa: E402
 from testcontainers.postgres import PostgresContainer  # noqa: E402
@@ -132,6 +132,22 @@ async def client(test_db):
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         yield ac
+
+    app.dependency_overrides = {}
+
+
+@pytest_asyncio.fixture(scope="function")
+async def a_session_per_request(test_db_engine):
+    """A client whose requests each get their own session, so they can run at once."""
+    sessions = async_sessionmaker(test_db_engine, class_=AsyncSession, expire_on_commit=False)
+
+    async def one_session():
+        async with sessions() as session:
+            yield session
+
+    app.dependency_overrides[async_session] = one_session
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as racing:
+        yield racing
 
     app.dependency_overrides = {}
 

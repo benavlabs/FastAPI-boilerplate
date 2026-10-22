@@ -4,15 +4,19 @@ Callers sign in for real, so the permission lookup and the escalation checks run
 the same session the routes use.
 """
 
+import asyncio
 from datetime import UTC, datetime
 from typing import Any
 
 import pytest
 from crudauth import Principal
-from httpx import AsyncClient
-from sqlalchemy import insert, select, update
-from sqlalchemy.ext.asyncio import AsyncSession
+from httpx import ASGITransport, AsyncClient
+from sqlalchemy import delete, insert, select, update
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from src.infrastructure.auth import authorization as authz
+from src.interfaces.main import app
+from src.modules.role import service as role_service
 from src.modules.role.exceptions import RoleExistsError
 from src.modules.role.models import Role, RolePermission, UserRole
 from src.modules.role.service import RoleService
@@ -38,6 +42,12 @@ async def _carried(db: AsyncSession, role_id: int) -> list[str]:
 
 async def _role_named(db: AsyncSession, name: str) -> Role | None:
     return (await db.execute(select(Role).where(Role.name == name))).scalar_one_or_none()
+
+
+async def _holders_of(db: AsyncSession, role_id: int) -> list[int]:
+    held = await db.execute(select(UserRole.user_id).where(UserRole.role_id == role_id).order_by(UserRole.user_id))
+
+    return list(held.scalars().all())
 
 
 async def _holds(db: AsyncSession, user_id: int, role_id: int) -> bool:
@@ -741,6 +751,199 @@ class TestAssigning:
 
         assert response.status_code == 403
         assert not await _holds(db_session, test_user_2["id"], role.id)
+
+
+class TestWritesThatRace:
+    """Two writes to one role arrive at once, and the loser is answered rather than 500ed."""
+
+    @pytest.fixture
+    async def racing_manager(self, a_session_per_request: AsyncClient, db_session: AsyncSession, test_user: dict) -> str:
+        """The managing caller, signed in on the client whose requests run at once."""
+        await _grant(db_session, test_user["id"], "role-manager", *MANAGING, "user.read")
+
+        return await _login(a_session_per_request, test_user)
+
+    @pytest.fixture
+    def both_authorized_at_once(self, monkeypatch) -> None:
+        """Hold each request at the end of its permission lookup until the other is there.
+
+        The lookup runs once per request, before the route reads a role, so neither has
+        touched one when they are let go: that is the moment two writes meet.
+        """
+        both = asyncio.Barrier(2)
+        resolve = authz.load_permissions
+
+        async def waiting_for_the_other(db, user_id, **asked):
+            held = await resolve(db, user_id, **asked)
+            async with asyncio.timeout(10):
+                await both.wait()
+
+            return held
+
+        monkeypatch.setattr(authz, "load_permissions", waiting_for_the_other)
+
+    async def test_two_assignments_of_one_role_to_one_account_both_answer(
+        self,
+        a_session_per_request: AsyncClient,
+        db_session: AsyncSession,
+        test_user: dict,
+        test_user_2: dict,
+        racing_manager: str,
+        both_authorized_at_once: None,
+    ):
+        """Both used to check the table before inserting, so the loser hit the primary key."""
+        role = await _grant(db_session, test_user["id"], "editor", "user.read")
+        path = f"/api/v1/roles/{role.id}/users/{test_user_2['id']}"
+
+        answers = await asyncio.gather(
+            *(a_session_per_request.post(path, headers={"X-CSRF-Token": racing_manager}) for _ in range(2))
+        )
+
+        assert [answer.status_code for answer in answers] == [201, 201]
+        assert await _holders_of(db_session, role.id) == sorted([test_user["id"], test_user_2["id"]])
+
+    async def test_two_replacements_of_what_one_role_carries_both_answer(
+        self,
+        a_session_per_request: AsyncClient,
+        db_session: AsyncSession,
+        test_user: dict,
+        racing_manager: str,
+        both_authorized_at_once: None,
+    ):
+        """Each deletes what the role carries and inserts its own, which collided."""
+        role = await _grant(db_session, test_user["id"], "editor", "user.read")
+        path = f"/api/v1/roles/{role.id}/permissions"
+        sets = (["user.read"], ["role.read"])
+
+        answers = await asyncio.gather(
+            *(
+                a_session_per_request.put(path, json={"permissions": carried}, headers={"X-CSRF-Token": racing_manager})
+                for carried in sets
+            )
+        )
+
+        assert [answer.status_code for answer in answers] == [200, 200]
+        assert await _carried(db_session, role.id) in [sorted(carried) for carried in sets]
+
+    async def test_an_assignment_racing_the_deletion_of_the_role_is_answered(
+        self,
+        a_session_per_request: AsyncClient,
+        db_session: AsyncSession,
+        test_user: dict,
+        test_user_2: dict,
+        racing_manager: str,
+        both_authorized_at_once: None,
+    ):
+        """The assignment's row points at a role the deletion is taking away.
+
+        Whichever order they land in is sound: the assignment either goes in and the
+        deletion takes it with the role, or it finds no role to assign and answers 404.
+        """
+        role = await _grant(db_session, test_user["id"], "editor", "user.read")
+        headers = {"X-CSRF-Token": racing_manager}
+
+        assigned, deleted = await asyncio.gather(
+            a_session_per_request.post(f"/api/v1/roles/{role.id}/users/{test_user_2['id']}", headers=headers),
+            a_session_per_request.delete(f"/api/v1/roles/{role.id}", headers=headers),
+        )
+
+        assert deleted.status_code == 200
+        assert assigned.status_code in (201, 404)
+        assert await _role_named(db_session, "editor") is None
+        assert await _holders_of(db_session, role.id) == []
+
+    async def test_replacing_what_a_role_carries_while_it_is_deleted_is_answered(
+        self,
+        a_session_per_request: AsyncClient,
+        db_session: AsyncSession,
+        test_user: dict,
+        racing_manager: str,
+        both_authorized_at_once: None,
+    ):
+        """The permissions being written belong to a role the deletion is taking away."""
+        role = await _grant(db_session, test_user["id"], "editor", "user.read")
+        headers = {"X-CSRF-Token": racing_manager}
+
+        replaced, deleted = await asyncio.gather(
+            a_session_per_request.put(
+                f"/api/v1/roles/{role.id}/permissions", json={"permissions": ["role.read"]}, headers=headers
+            ),
+            a_session_per_request.delete(f"/api/v1/roles/{role.id}", headers=headers),
+        )
+
+        assert deleted.status_code == 200
+        assert replaced.status_code in (200, 404)
+        assert await _role_named(db_session, "editor") is None
+        assert await _carried(db_session, role.id) == []
+
+    async def test_a_role_is_not_deleted_from_under_an_account_the_caller_cannot_reach(
+        self,
+        a_session_per_request: AsyncClient,
+        db_session: AsyncSession,
+        test_user: dict,
+        test_user_2: dict,
+        test_superuser: dict,
+        racing_manager: str,
+        both_authorized_at_once: None,
+    ):
+        """Deleting a role takes it from every holder, so a stronger holder refuses it.
+
+        The holder arrives while the deletion is being authorized: a superuser is assigning
+        the role to an account the manager could not have assigned it to. Either the
+        deletion was first and the assignment finds no role, or the assignment was first
+        and the deletion is refused the role it may no longer reach.
+        """
+        role = await _grant(db_session, test_user["id"], "editor", "user.read")
+        await _grant(db_session, test_user_2["id"], "deleters", "user.delete")
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as superuser_client:
+            theirs = await _login(superuser_client, test_superuser)
+
+            assigned, deleted = await asyncio.gather(
+                superuser_client.post(f"/api/v1/roles/{role.id}/users/{test_user_2['id']}", headers={"X-CSRF-Token": theirs}),
+                a_session_per_request.delete(f"/api/v1/roles/{role.id}", headers={"X-CSRF-Token": racing_manager}),
+            )
+
+        assert (deleted.status_code, assigned.status_code) in ((200, 404), (403, 201))
+        if deleted.status_code == 403:
+            assert await _holders_of(db_session, role.id) == sorted([test_user["id"], test_user_2["id"]])
+        else:
+            assert await _role_named(db_session, "editor") is None
+
+    async def test_an_account_deleted_once_the_checks_have_passed_is_a_404(
+        self,
+        client: AsyncClient,
+        db_session: AsyncSession,
+        manager: dict[str, Any],
+        test_user_2: dict,
+        monkeypatch,
+    ):
+        """The admin panel deletes account rows, and an assignment's key needs one.
+
+        The check that the account is reachable answers truthfully, and the row is gone by
+        the time the assignment is written: the role's lock holds the role still, nothing
+        holds the account. The panel's own delete is what the second session runs here.
+        """
+        role_id = (await _grant(db_session, manager["user"]["id"], "editor", "user.read")).id
+        reachable = role_service.can_change_roles_of
+        sessions = async_sessionmaker(bind=db_session.bind, class_=AsyncSession, expire_on_commit=False)
+
+        async def deleted_right_after(db: AsyncSession, principal: Principal, user_id: int, held: Any) -> bool:
+            allowed: bool = await reachable(db, principal, user_id, held)
+            async with sessions() as panel:
+                await panel.execute(delete(User).where(User.id == user_id))
+                await panel.commit()
+
+            return allowed
+
+        monkeypatch.setattr(role_service, "can_change_roles_of", deleted_right_after)
+
+        response = await client.post(
+            f"/api/v1/roles/{role_id}/users/{test_user_2['id']}", headers={"X-CSRF-Token": manager["csrf"]}
+        )
+
+        assert response.status_code == 404
+        assert await _holders_of(db_session, role_id) == [manager["user"]["id"]]
 
 
 class TestReadingAUsersRoles:

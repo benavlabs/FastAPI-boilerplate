@@ -767,6 +767,19 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   mailbox and carries no session, so there is none to keep and the one that asked for the change
   goes with the rest: the owner signs in again, as their new address. API keys are untouched, since
   nothing about an address moves the generation they were minted under.
+- **Two writes to one role no longer race.** `POST /roles/{id}/users/{user}` looked for the
+  assignment and then inserted it, so two at once answered `201` and `500`: the loser's insert hit
+  the primary key of `user_roles`. `PUT /roles/{id}/permissions` was quieter and worse. Each
+  replacement deletes what the role carries and inserts its own, and neither saw the other, so the
+  role came out carrying the permissions of **both** requests, one set of them from a caller who had
+  asked for the other. An assignment landing as the role was deleted answered `500` from the foreign
+  key, and a deletion landing as a stronger account was given the role took it away from an account
+  the caller could not reach. Every write path now takes the role's row first (`SELECT … FOR
+  UPDATE`), so two writes to one role queue instead. A write that finds the role gone answers `404`,
+  and an account deleted between the check and the write, which the admin panel can do, answers
+  `404` rather than `500`. Only that one role queues: a write racing a change to the account's
+  **other** roles is not covered, since those roles are not locked, so the stronger-account checks
+  can still read roles another request is changing.
 - **A queued account email carries no readable recovery link.** `email:send` was enqueued with the
   recipient, the subject, the rendered body and the link, so every verification and password-reset
   token sat in Redis or RabbitMQ in the clear until a worker picked it up, and in any backup or

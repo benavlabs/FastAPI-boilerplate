@@ -99,7 +99,7 @@ class RoleService:
             RoleExistsError: Another role already holds the new name.
             PermissionDelegationError: The caller doesn't hold what the role carries.
         """
-        role = await self._role(role_id, db)
+        role = await self._locked_role(role_id, db)
 
         if not can_delegate_permissions(principal, await self._registered_carried(role_id, db), held):
             raise PermissionDelegationError("The caller does not hold every permission this role carries")
@@ -129,7 +129,7 @@ class RoleService:
             StrongerAccountError: An account holding the role holds something the caller
                 doesn't.
         """
-        await self._role(role_id, db)
+        await self._locked_role(role_id, db)
         touched = set(permissions) | await self._registered_carried(role_id, db)
 
         if not can_delegate_permissions(principal, touched, held):
@@ -153,7 +153,7 @@ class RoleService:
             StrongerAccountError: An account holding the role holds something the caller
                 doesn't.
         """
-        await self._role(role_id, db)
+        await self._locked_role(role_id, db)
 
         if not can_delegate_permissions(principal, await self._registered_carried(role_id, db), held):
             raise PermissionDelegationError("The caller does not hold every permission this role carries")
@@ -177,7 +177,10 @@ class RoleService:
 
         if not await db.scalar(select(UserRole.user_id).where(UserRole.user_id == user_id, UserRole.role_id == role_id)):
             db.add(UserRole(user_id=user_id, role_id=role_id))
-            await db.commit()
+            try:
+                await db.commit()
+            except IntegrityError as collision:
+                await self._refuse_an_account_that_went_away(db, user_id, collision)
 
     async def unassign(self, role_id: int, user_id: int, principal: Principal, db: AsyncSession, held: Collection[str]) -> None:
         """Take a role away from a user.
@@ -211,8 +214,12 @@ class RoleService:
     async def _assignable(
         self, role_id: int, user_id: int, principal: Principal, db: AsyncSession, held: Collection[str]
     ) -> None:
-        """Raise unless the role and the account exist, and the caller may reach both."""
-        await self._role(role_id, db)
+        """Hold the role still, and raise unless both exist and the caller may reach them.
+
+        Every write path to a role takes the lock first, so two writes to one role queue
+        instead of racing.
+        """
+        await self._locked_role(role_id, db)
 
         if not await crud_users.exists(db=db, id=user_id, is_deleted=False):
             raise UserNotFoundError(f"User with ID {user_id} not found")
@@ -244,6 +251,41 @@ class RoleService:
         await db.rollback()
 
         raise RoleExistsError(f"Role '{name}' already exists") from collision
+
+    @staticmethod
+    async def _refuse_an_account_that_went_away(db: AsyncSession, user_id: int, collision: IntegrityError) -> NoReturn:
+        """Undo the write and answer an account deleted since it was checked as a 404.
+
+        The role is locked and the assignment re-read under that lock, so the key the
+        account's row holds up is the only one left to refuse the write.
+
+        Raises:
+            UserNotFoundError: Always; a foreign key refused the row.
+        """
+        await db.rollback()
+
+        raise UserNotFoundError(f"User with ID {user_id} not found") from collision
+
+    @staticmethod
+    async def _locked_role(role_id: int, db: AsyncSession) -> Role:
+        """The role row, held still until the caller's transaction ends.
+
+        A role's rows are read and then written: what it carries is replaced by a delete
+        and an insert, an assignment is checked for and then added, and both read what the
+        escalation checks allow. Two requests doing that at once used to answer 500 from
+        the key their inserts collided over, or leave a role carrying the permissions of
+        both. The role row is what every one of those writes belongs to, so it is the thing
+        to queue on.
+
+        Raises:
+            RoleNotFoundError: No role has that id, or a request that had it first
+                deleted it.
+        """
+        role = await db.scalar(select(Role).where(Role.id == role_id).with_for_update())
+        if role is None:
+            raise RoleNotFoundError(f"Role with ID {role_id} not found")
+
+        return role
 
     @staticmethod
     async def _role(role_id: int, db: AsyncSession) -> Role:

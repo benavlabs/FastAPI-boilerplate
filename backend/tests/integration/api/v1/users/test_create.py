@@ -2,17 +2,14 @@ import asyncio
 import logging
 import traceback
 import uuid
-from collections.abc import AsyncGenerator
 
 import pytest
 from faker import Faker
-from httpx import ASGITransport, AsyncClient
+from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.infrastructure.auth.setup import auth as crud_auth
-from src.infrastructure.database.session import async_session
-from src.interfaces.main import app
 from src.modules.user.crud import crud_users
 from src.modules.user.exceptions import UserExistsError
 from src.modules.user.models import User
@@ -354,22 +351,6 @@ async def test_a_password_that_is_not_valid_unicode_is_refused(client: AsyncClie
     assert response.status_code == 422
     assert "not valid Unicode" in caplog.text
     assert "Passw0rd" not in caplog.text
-
-
-@pytest.fixture
-async def a_session_per_request(test_db_engine):
-    """A client whose requests each get their own session, so they can run at once."""
-    sessions = async_sessionmaker(test_db_engine, class_=AsyncSession, expire_on_commit=False)
-
-    async def one_session() -> AsyncGenerator[AsyncSession, None]:
-        async with sessions() as session:
-            yield session
-
-    app.dependency_overrides[async_session] = one_session
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        yield client
-
-    app.dependency_overrides = {}
 
 
 async def test_signups_racing_for_one_address_give_one_account_and_one_answer(

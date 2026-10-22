@@ -180,6 +180,14 @@ by whoever holds the registered permissions it carries, and setting its permissi
 the stale name. Otherwise removing a feature would strand every role that carried one of its
 permissions, a superuser included.
 
+Two writes to one role queue rather than race. Every write path takes the role's row first
+(`SELECT … FOR UPDATE`): two requests assigning one role to one account both answer `201`, two
+replacing what it carries leave it carrying one of the two sets rather than both, and whichever
+arrives after the role was deleted answers `404`. An account deleted between the check and the
+write, which the admin panel can do, answers `404` as well. Only that one role queues: a write
+racing a change to the account's **other** roles is not covered, so the stronger-account checks can
+still read roles another request is changing.
+
 A `role_id` or a `user_id` outside `1..2147483647` answers `422`. No `Integer` column holds a value
 past that, so the lookup used to reach the database and fail there.
 
