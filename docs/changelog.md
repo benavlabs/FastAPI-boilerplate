@@ -790,6 +790,18 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   another request got there first. A database that already holds two rows for one tier and path
   cannot create the index: [Migrations](user-guide/database/migrations.md#alembic-migrations) has
   the query that finds them.
+- **The text a caller can leave for other people to read is bounded.** A profile image URL had a
+  shape to match and no length, so a 2 MB one was stored and then served to every signed-in
+  account that read the profile; it is now held to 2048 characters, the length a URL is held to
+  elsewhere, and an OAuth provider's picture is left out rather than written where it is longer. A
+  `redirect_to` on a recovery request had no length either, and it is signed into the token the
+  emailed link carries, so a megabyte of path was a megabyte of link in somebody's mailbox: the
+  crudauth routes now carry `a_redirect_a_link_can_carry` beside the body guard, and one longer
+  than 2048 characters answers `422`. The OAuth routes carry it too: there the destination arrives
+  as `?redirect_to=`, bounded only by the server's request line, and waits in the state store
+  until the callback. A usage row keeps the first 512 characters of the user agent
+  the request sent, where it kept whatever the header held. Rows already stored keep what they
+  hold: the read schemas describe a row rather than policing it.
 - **An account's deletion can no longer be blocked by registering the name it would take.** The
   anonymized row took `del_<id>_<seconds % 10000>`, a name inside `USERNAME_PATTERN` and drawn from
   10,000 values: anybody who knew an account's id could sign up for that range and leave every

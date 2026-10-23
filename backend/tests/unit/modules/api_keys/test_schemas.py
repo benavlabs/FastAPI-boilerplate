@@ -7,6 +7,7 @@ from pydantic import ValidationError
 
 from src.modules.api_keys.models import APIKey
 from src.modules.api_keys.schemas import (
+    USER_AGENT_MAX_LENGTH,
     APIKeyBase,
     APIKeyCreate,
     APIKeyRead,
@@ -173,6 +174,17 @@ class TestTheInputSchemasKeepTheirRules:
         with pytest.raises(ValidationError):
             KeyUsageCreate(api_key_id=1, user_id=2, endpoint="/api/v1/users/", method="GET", status_code=0)
 
+    def test_a_user_agent_past_what_a_row_keeps_is_still_refused_on_create(self):
+        with pytest.raises(ValidationError):
+            KeyUsageCreate(
+                api_key_id=1,
+                user_id=2,
+                endpoint="/api/v1/users/",
+                method="GET",
+                status_code=200,
+                user_agent="a" * (USER_AGENT_MAX_LENGTH + 1),
+            )
+
 
 @pytest.mark.parametrize(("described", "read"), [(APIKeyBase, APIKeyRead), (KeyUsageBase, KeyUsageRead)])
 def test_a_read_schema_keeps_the_descriptions_the_document_shows(described, read):
@@ -188,6 +200,7 @@ def test_a_read_schema_keeps_the_descriptions_the_document_shows(described, read
     [
         ("endpoint", "/api/v1/" + "p" * 400),
         ("ip_address", "x" * 60),
+        ("user_agent", "a" * (USER_AGENT_MAX_LENGTH + 64)),
         ("tokens_used", -1),
         ("cost_microcents", -5),
         ("response_time_ms", -2),

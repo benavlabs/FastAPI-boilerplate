@@ -30,7 +30,7 @@ from ...modules.user.crud import crud_users
 from ..dependencies import AsyncSessionDep
 from ..logging import get_logger
 from .dependencies import get_optional_principal, get_session_principal
-from .deps import OAuth2FormDep, body_a_database_can_hold
+from .deps import OAuth2FormDep, a_redirect_a_link_can_carry, body_a_database_can_hold
 from .setup import auth as crud_auth
 from .setup import session_transport
 
@@ -62,11 +62,11 @@ def _mount(source: APIRouter) -> None:
             target = session_only if api_route.path in SESSION_ONLY_PATHS else open_router
             target.routes.append(api_route)
 
-    body_text = Depends(body_a_database_can_hold)
+    guards = [Depends(body_a_database_can_hold), Depends(a_redirect_a_link_can_carry)]
     session = Depends(get_session_principal)
-    router.include_router(open_router, dependencies=[body_text])
-    router.include_router(session_only, dependencies=[body_text, session])
-    router.include_router(counted, dependencies=[body_text, session, Depends(_password_budget)])
+    router.include_router(open_router, dependencies=guards)
+    router.include_router(session_only, dependencies=[*guards, session])
+    router.include_router(counted, dependencies=[*guards, session, Depends(_password_budget)])
 
 
 _account_router = build_account_router(crud_auth, crud_auth.sessions)
@@ -80,7 +80,16 @@ _mount(build_session_management_router(crud_auth, crud_auth.sessions))
 if crud_auth.emails is not None:
     _mount(build_email_router(auth=crud_auth, service=crud_auth.emails))
 
-root_routers: tuple[APIRouter, ...] = (crud_auth.oauth_router,) if crud_auth.oauth is not None else ()
+
+def _with_the_redirect_guard(source: APIRouter) -> APIRouter:
+    """``source``'s routes, each behind the guard on where a flow may send the browser."""
+    guarded = APIRouter()
+    guarded.include_router(source, dependencies=[Depends(a_redirect_a_link_can_carry)])
+
+    return guarded
+
+
+root_routers: tuple[APIRouter, ...] = (_with_the_redirect_guard(crud_auth.oauth_router),) if crud_auth.oauth is not None else ()
 
 
 @router.post(

@@ -65,6 +65,46 @@ JSON_SUFFIX = "+json"
 THE_BODY = "the body"
 """What a refusal names when the text is a key rather than a field's value."""
 
+NOTHING = object()
+"""What a body the route parses as nothing reads as, which ``None`` is a parsed body of."""
+
+REDIRECT_FIELD = "redirect_to"
+"""The field a recovery request carries the destination in, which crudauth signs into its token."""
+
+REDIRECT_MAX_LENGTH = 2048
+"""How long that destination may be, the length a URL is held to everywhere else."""
+
+
+async def a_redirect_a_link_can_carry(request: Request) -> None:
+    """Refuse a request asking to be sent somewhere no link could hold.
+
+    crudauth takes ``redirect_to`` as a plain ``str`` and keeps it until the person comes
+    back: a recovery request has it signed into the token the emailed link carries, so a
+    megabyte of path is a megabyte of link in somebody's mailbox and a token of the same
+    size on the way back, and an OAuth sign-in has it stored with the flow's state until
+    the callback. The one arrives in the body and the other in the query, so both are
+    read here. The destination is dropped rather than refused where it is not a
+    same-origin path, which crudauth does, so the length is all this answers for.
+
+    Raises:
+        UnprocessableEntityException: The destination is longer than ``REDIRECT_MAX_LENGTH``.
+    """
+    _refuse_a_destination_too_long(request.query_params.get(REDIRECT_FIELD))
+
+    payload = await _json_payload(request)
+    if isinstance(payload, dict):
+        _refuse_a_destination_too_long(payload.get(REDIRECT_FIELD))
+
+
+def _refuse_a_destination_too_long(asked: Any) -> None:
+    """Answer ``422`` where ``asked`` is a destination longer than a link can hold.
+
+    Raises:
+        UnprocessableEntityException: ``asked`` is text longer than ``REDIRECT_MAX_LENGTH``.
+    """
+    if isinstance(asked, str) and len(asked) > REDIRECT_MAX_LENGTH:
+        raise UnprocessableEntityException(detail=f"{REDIRECT_FIELD} cannot be longer than {REDIRECT_MAX_LENGTH} characters.")
+
 
 async def body_a_database_can_hold(request: Request) -> None:
     """Refuse a JSON body holding text no column can store.
@@ -82,16 +122,8 @@ async def body_a_database_can_hold(request: Request) -> None:
     Raises:
         UnprocessableEntityException: A field holds text no column can store.
     """
-    if not _reaches_the_route_as_json(request):
-        return
-
-    body = await request.body()
-    if not body:
-        return
-
-    try:
-        payload = json.loads(body)
-    except ValueError:
+    payload = await _json_payload(request)
+    if payload is NOTHING:
         return
 
     if not isinstance(payload, dict):
@@ -101,6 +133,25 @@ async def body_a_database_can_hold(request: Request) -> None:
     _refuse_unstorable_text(THE_BODY, list(payload))
     for name, value in payload.items():
         _refuse_unstorable_text(str(name), value)
+
+
+async def _json_payload(request: Request) -> Any:
+    """What the route will parse this body as, or ``NOTHING`` where it parses nothing.
+
+    A body that is not JSON, is empty, or does not parse is left to the route, which
+    answers for it.
+    """
+    if not _reaches_the_route_as_json(request):
+        return NOTHING
+
+    body = await request.body()
+    if not body:
+        return NOTHING
+
+    try:
+        return json.loads(body)
+    except ValueError:
+        return NOTHING
 
 
 def _reaches_the_route_as_json(request: Request) -> bool:

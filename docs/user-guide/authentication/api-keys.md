@@ -193,7 +193,8 @@ Both the row and the key record the address the trusted-proxy boundary resolved
 than the proxy. A forwarding header is the client's to write, so the address is recorded only when
 it is one the column holds: anything else, and a request with no address at all, is recorded as
 nothing. A row the usage schema refuses is logged and dropped, so a request keeps the status its
-handler gave it.
+handler gave it. The user agent is a header, so it is the client's to write as well: the row keeps
+the first 512 characters of it, which is what the owner reads back.
 
 ## How long the usage rows are kept
 

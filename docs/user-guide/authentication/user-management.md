@@ -224,7 +224,12 @@ the OAuth identifiers and the verification flag are not part of it, so sending a
 422:
 
 ```python
-from .constants import NAME_MAX_LENGTH, USERNAME_MAX_LENGTH, USERNAME_PATTERN
+from .constants import (
+    NAME_MAX_LENGTH,
+    PROFILE_IMAGE_URL_MAX_LENGTH,
+    USERNAME_MAX_LENGTH,
+    USERNAME_PATTERN,
+)
 
 
 class UserUpdate(BaseModel):
@@ -237,9 +242,17 @@ class UserUpdate(BaseModel):
     ]
     profile_image_url: Annotated[
         str | None,
-        Field(pattern=r"^(https?|ftp)://[^\s/$.?#].[^\s]*$", default=None),
+        Field(
+            max_length=PROFILE_IMAGE_URL_MAX_LENGTH,
+            pattern=r"^(https?|ftp)://[^\s/$.?#].[^\s]*$",
+            default=None,
+        ),
     ]
 ```
+
+The avatar is served to every signed-in account that reads the profile, so it is held to the
+length of a URL (2048). A picture an OAuth provider hands over is held to the same length and
+left out where it is longer, rather than written and served.
 
 ## Deletion
 

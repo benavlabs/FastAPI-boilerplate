@@ -1,4 +1,4 @@
-"""The guard in front of crudauth's bodies: what it refuses, and which routes carry it."""
+"""The guards in front of crudauth's bodies: what they refuse, and which routes carry them."""
 
 import json
 from typing import Annotated, Any
@@ -8,7 +8,12 @@ from fastapi import Depends, FastAPI, Form
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 
-from src.infrastructure.auth.deps import body_a_database_can_hold
+from src.infrastructure.auth.deps import (
+    REDIRECT_FIELD,
+    REDIRECT_MAX_LENGTH,
+    a_redirect_a_link_can_carry,
+    body_a_database_can_hold,
+)
 from src.interfaces.main import app
 
 LONE_SURROGATE = '"\\ud800"'
@@ -19,11 +24,15 @@ A_TOKEN = f'{{"token": {LONE_SURROGATE}}}'
 
 @pytest.fixture
 def probe() -> TestClient:
-    """An app whose routes take whatever body they are given, behind the guard."""
-    application = FastAPI(dependencies=[Depends(body_a_database_can_hold)])
+    """An app whose routes take whatever body they are given, behind the guards."""
+    application = FastAPI(dependencies=[Depends(body_a_database_can_hold), Depends(a_redirect_a_link_can_carry)])
 
     @application.post("/anything")
     async def anything(payload: Any = None) -> dict[str, str]:
+        return {"detail": "taken"}
+
+    @application.get("/anywhere")
+    async def anywhere() -> dict[str, str]:
         return {"detail": "taken"}
 
     @application.post("/a-form")
@@ -154,9 +163,28 @@ def test_every_account_route_taking_a_body_carries_the_guard(route: APIRoute):
 
 
 @pytest.mark.parametrize("route", GUARDED_ROUTES, ids=lambda route: route.path)
+def test_every_account_route_taking_a_body_carries_the_redirect_guard(route: APIRoute):
+    assert a_redirect_a_link_can_carry in _dependency_calls(route)
+
+
+@pytest.mark.parametrize("route", GUARDED_ROUTES, ids=lambda route: route.path)
 def test_every_account_route_taking_a_body_asks_for_a_content_type(route: APIRoute):
     """A body with no content type reaches no field as text while this holds (fastapi/routing.py)."""
     assert route.strict_content_type is True
+
+
+OAUTH_ROUTES = [route for route in app.routes if isinstance(route, APIRoute) and "/oauth/" in route.path]
+"""The routes crudauth's OAuth router mounts, which take their destination in the query."""
+
+
+def test_the_project_mounts_the_oauth_routes():
+    """The sweep below says nothing where nothing is mounted."""
+    assert OAUTH_ROUTES
+
+
+@pytest.mark.parametrize("route", OAUTH_ROUTES, ids=lambda route: route.path)
+def test_every_oauth_route_carries_the_redirect_guard(route: APIRoute):
+    assert a_redirect_a_link_can_carry in _dependency_calls(route)
 
 
 def test_the_login_form_is_guarded_by_its_own_dependency():
@@ -166,3 +194,44 @@ def test_the_login_form_is_guarded_by_its_own_dependency():
 
     assert "credentials_a_database_can_hold" in names
     assert json.loads(LONE_SURROGATE)  # the escape only JSON carries
+
+
+def test_a_destination_no_link_could_carry_is_refused(probe: TestClient):
+    """It rides inside the signed token the recovery link holds, so the link holds it too."""
+    asked = json.dumps({REDIRECT_FIELD: "/" + "a" * REDIRECT_MAX_LENGTH})
+
+    answer = probe.post("/anything", content=asked, headers=JSON_HEADERS)
+
+    assert answer.status_code == 422
+    assert answer.json()["detail"] == f"{REDIRECT_FIELD} cannot be longer than {REDIRECT_MAX_LENGTH} characters."
+
+
+@pytest.mark.parametrize(
+    "asked",
+    [
+        {REDIRECT_FIELD: "/dashboard"},
+        {REDIRECT_FIELD: "a" * REDIRECT_MAX_LENGTH},
+        {REDIRECT_FIELD: None},
+        {REDIRECT_FIELD: 7},
+        {"token": "a" * (REDIRECT_MAX_LENGTH + 1)},
+    ],
+)
+def test_a_destination_a_link_can_carry_reaches_the_route(probe: TestClient, asked: dict[str, Any]):
+    """Only the destination is measured here; every other field is the route's to validate."""
+    answer = probe.post("/anything", content=json.dumps(asked), headers=JSON_HEADERS)
+
+    assert answer.status_code == 200
+
+
+def test_a_destination_in_the_query_no_link_could_carry_is_refused(probe: TestClient):
+    """An OAuth sign-in asks in the query, and the destination waits in the state store."""
+    answer = probe.get(f"/anywhere?{REDIRECT_FIELD}=/" + "a" * REDIRECT_MAX_LENGTH)
+
+    assert answer.status_code == 422
+    assert answer.json()["detail"] == f"{REDIRECT_FIELD} cannot be longer than {REDIRECT_MAX_LENGTH} characters."
+
+
+def test_a_destination_in_the_query_a_link_can_carry_reaches_the_route(probe: TestClient):
+    answer = probe.get(f"/anywhere?{REDIRECT_FIELD}=/" + "a" * (REDIRECT_MAX_LENGTH - 1))
+
+    assert answer.status_code == 200

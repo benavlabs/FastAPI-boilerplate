@@ -11,7 +11,7 @@ from starlette.responses import Response
 
 from ...infrastructure.database.session import local_session
 from ...infrastructure.logging import get_logger
-from .schemas import KeyUsageCreate
+from .schemas import USER_AGENT_MAX_LENGTH, KeyUsageCreate
 from .service import APIKeyService
 from .transport import UsedKey, used_key
 
@@ -90,6 +90,7 @@ class KeyUsageMiddleware(BaseHTTPMiddleware):
             return response
 
         recorded = used._replace(client_ip=_address(used.client_ip))
+        agent = request.headers.get("user-agent")
         try:
             usage = KeyUsageCreate(
                 api_key_id=recorded.api_key_id,
@@ -99,7 +100,7 @@ class KeyUsageMiddleware(BaseHTTPMiddleware):
                 status_code=response.status_code,
                 response_time_ms=int((time.perf_counter() - started) * 1000),
                 ip_address=recorded.client_ip,
-                user_agent=request.headers.get("user-agent"),
+                user_agent=agent[:USER_AGENT_MAX_LENGTH] if agent else None,
             )
         except Exception:
             logger.exception(f"Could not describe usage for API key {recorded.api_key_id}")

@@ -9,6 +9,7 @@ from ..common.schemas import EncodableText, PartialUpdate, PersistentDeletion, T
 from .constants import (
     EMAIL_MAX_LENGTH,
     NAME_MAX_LENGTH,
+    PROFILE_IMAGE_URL_MAX_LENGTH,
     USERNAME_MAX_LENGTH,
     USERNAME_PATTERN,
 )
@@ -124,6 +125,7 @@ class UserUpdate(EncodableText, PartialUpdate):
     profile_image_url: Annotated[
         str | None,
         Field(
+            max_length=PROFILE_IMAGE_URL_MAX_LENGTH,
             pattern=r"^(https?|ftp)://[^\s/$.?#].[^\s]*$",
             examples=["https://www.profileimageurl.com"],
         ),

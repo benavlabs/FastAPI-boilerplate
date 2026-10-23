@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.infrastructure.auth.oauth_profile import refresh_the_provider_profile
 from src.infrastructure.auth.setup import auth
-from src.modules.user.constants import DEFAULT_PROFILE_IMAGE_URL
+from src.modules.user.constants import DEFAULT_PROFILE_IMAGE_URL, PROFILE_IMAGE_URL_MAX_LENGTH
 from src.modules.user.models import User
 
 GOOGLE = OAuthUserInfo(
@@ -87,3 +87,13 @@ async def test_a_provider_that_sends_no_picture_leaves_the_placeholder(db_sessio
 
 def test_the_hook_is_registered():
     assert auth.hooks.on_oauth_login is refresh_the_provider_profile
+
+
+async def test_a_picture_no_link_could_hold_is_left_where_it_is(db_session: AsyncSession, account: dict):
+    """The provider's URL is served to everybody who reads this profile."""
+    await _with_the_placeholder_avatar(db_session, account)
+    oversized = GOOGLE.model_copy(update={"picture": "https://provider.example/" + "a" * PROFILE_IMAGE_URL_MAX_LENGTH})
+
+    await refresh_the_provider_profile(account, oversized, db=db_session, created=True, context=HookContext())
+
+    assert (await _stored(db_session, account["id"])).profile_image_url == DEFAULT_PROFILE_IMAGE_URL

@@ -4,6 +4,7 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.modules.user.constants import PROFILE_IMAGE_URL_MAX_LENGTH
 from src.modules.user.models import User
 
 from .test_create import generate_unique_user_data
@@ -106,6 +107,15 @@ async def test_an_explicit_null_is_refused_not_a_server_error(auth_client: Async
 async def test_a_nul_in_a_profile_field_is_refused(auth_client: AsyncClient, test_user: dict, field: str):
     """A NUL encodes, and Postgres then refuses the whole statement carrying it."""
     response = await auth_client.patch(f"/api/v1/users/{test_user['username']}", json={field: "a\u0000b"})
+
+    assert response.status_code == 422
+
+
+async def test_a_profile_image_url_no_link_could_hold_is_refused(auth_client: AsyncClient, test_user: dict):
+    """The URL is served to every signed-in account that reads the profile."""
+    asked = "https://example.com/" + "a" * PROFILE_IMAGE_URL_MAX_LENGTH
+
+    response = await auth_client.patch(f"/api/v1/users/{test_user['username']}", json={"profile_image_url": asked})
 
     assert response.status_code == 422
 

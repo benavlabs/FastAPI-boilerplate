@@ -140,6 +140,10 @@ class APIKeyResponse(APIKeyRead):
     api_key: str = Field(description="Full API key - only shown once during creation")
 
 
+USER_AGENT_MAX_LENGTH = 512
+"""How much of a client's user agent a usage row keeps."""
+
+
 class KeyUsageBase(BaseModel):
     """Base schema for key usage data."""
 
@@ -151,7 +155,7 @@ class KeyUsageBase(BaseModel):
     cost_microcents: int | None = Field(default=None, ge=0, description="Cost in microcents")
     response_time_ms: int | None = Field(default=None, ge=0, description="Response time in milliseconds")
     ip_address: str | None = Field(default=None, max_length=45, description="Client IP address")
-    user_agent: str | None = Field(default=None, description="Client user agent")
+    user_agent: str | None = Field(default=None, max_length=USER_AGENT_MAX_LENGTH, description="Client user agent")
     error_message: str | None = Field(default=None, description="Error details if any")
     usage_metadata: dict[str, Any] | None = Field(default=None, description="Additional usage metadata")
 

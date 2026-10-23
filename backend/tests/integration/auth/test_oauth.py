@@ -10,6 +10,7 @@ from httpx import AsyncClient
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.infrastructure.auth.deps import REDIRECT_MAX_LENGTH
 from src.infrastructure.auth.setup import auth
 from src.infrastructure.config.settings import settings
 from src.interfaces.main import app
@@ -197,6 +198,34 @@ async def test_an_email_longer_than_the_column_is_refused_cleanly(client: AsyncC
     assert response.status_code == 307
     assert parse_qs(urlparse(response.headers["location"]).query)["error"] == ["email_too_long"]
     assert (await db_session.execute(select(User).where(User.google_id == "google-999"))).scalar_one_or_none() is None
+
+
+async def test_a_destination_no_link_could_carry_starts_nothing(client: AsyncClient):
+    """It would wait in the state store until the callback, so its length is answered for here."""
+    response = await client.get(
+        "/api/v1/auth/oauth/google",
+        params={"redirect_to": "/" + "a" * REDIRECT_MAX_LENGTH},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 422
+    assert "set-cookie" not in response.headers
+
+
+async def test_a_destination_a_link_can_carry_is_honoured_on_the_callback(client: AsyncClient, monkeypatch):
+    _stub_google(
+        monkeypatch,
+        {"sub": "google-654", "email": "atthelimit@example.com", "email_verified": True, "name": "At The Limit"},
+    )
+    asked = "/" + "a" * (REDIRECT_MAX_LENGTH - 1)
+    state = await _start(client, redirect_to=asked)
+
+    response = await client.get(
+        "/api/v1/auth/oauth/callback/google", params={"code": "the-code", "state": state}, follow_redirects=False
+    )
+
+    assert response.status_code == 307
+    assert response.headers["location"] == asked
 
 
 async def test_an_offsite_redirect_target_falls_back_to_the_app(client: AsyncClient, monkeypatch):

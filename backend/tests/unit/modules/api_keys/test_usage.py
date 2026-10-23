@@ -14,7 +14,7 @@ from starlette.responses import Response
 from starlette.routing import Route
 
 import src.modules.api_keys.usage as usage_module
-from src.modules.api_keys.schemas import KeyUsageCreate
+from src.modules.api_keys.schemas import USER_AGENT_MAX_LENGTH, KeyUsageCreate
 from src.modules.api_keys.transport import UsedKey
 from src.modules.api_keys.usage import KeyUsageMiddleware, _address
 
@@ -55,9 +55,9 @@ def handed(monkeypatch) -> list[tuple[UsedKey, KeyUsageCreate, datetime]]:
     return collected
 
 
-async def _request(app: Starlette, method: str = "GET"):
+async def _request(app: Starlette, method: str = "GET", headers: dict[str, str] | None = None):
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        return await client.request(method, "/")
+        return await client.request(method, "/", headers=headers)
 
 
 @pytest.mark.parametrize(
@@ -155,3 +155,13 @@ async def test_a_task_the_route_set_cannot_cost_the_recording(handed):
         await _request(_app(sets=BackgroundTask(unreachable)))
 
     assert len(handed) == 1
+
+
+@pytest.mark.asyncio
+async def test_only_as_much_of_a_user_agent_as_a_row_keeps_is_recorded(handed):
+    """The header is the client's to write, the column takes any length, and the owner reads it back."""
+    answered = await _request(_app(), headers={"User-Agent": "a" * (USER_AGENT_MAX_LENGTH + 64)})
+
+    assert answered.status_code == 200
+    _, usage, _ = handed[0]
+    assert usage.user_agent == "a" * USER_AGENT_MAX_LENGTH

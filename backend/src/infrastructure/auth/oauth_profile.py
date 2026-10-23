@@ -21,7 +21,7 @@ from crudauth.oauth import OAuthUserInfo
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...modules.user.constants import DEFAULT_PROFILE_IMAGE_URL
+from ...modules.user.constants import DEFAULT_PROFILE_IMAGE_URL, PROFILE_IMAGE_URL_MAX_LENGTH
 from ...modules.user.crud import crud_users
 
 
@@ -46,9 +46,14 @@ async def refresh_the_provider_profile(
     created: bool,
     context: HookContext,
 ) -> None:
-    """Write what the provider owns onto the account that just signed in with it."""
+    """Write what the provider owns onto the account that just signed in with it.
+
+    A picture longer than the column's own callers may send is left out: the URL is served
+    to everybody who reads the profile.
+    """
     changes: dict[str, Any] = {} if created else {"oauth_updated_at": datetime.now(UTC)}
-    if info.picture and await _carries_the_placeholder_avatar(user["id"], db):
+    pictured = info.picture and len(info.picture) <= PROFILE_IMAGE_URL_MAX_LENGTH
+    if pictured and await _carries_the_placeholder_avatar(user["id"], db):
         changes["profile_image_url"] = info.picture
 
     if not changes:

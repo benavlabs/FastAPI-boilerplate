@@ -210,6 +210,13 @@ as a value, answers `422` naming the field. It reads the content type the way Fa
 `application/merge-patch+json` body is read as JSON too. Without it a `{"token": "\ud800"}` reached `jwt.decode`,
 which encodes the token as UTF-8 and raises, and answered `500` to anybody.
 
+They carry `a_redirect_a_link_can_carry` beside it: a `redirect_to` longer than 2048 characters
+answers `422`. The destination is signed into the token, so a megabyte of path is a megabyte of
+link in somebody's mailbox and a token of the same size on the way back. The OAuth routes carry
+the same guard, where the destination arrives in the query (`?redirect_to=`) and waits in the
+state store until the callback. crudauth drops a destination that is not a same-origin path, so
+the length is all this one answers for.
+
 ### Where the links point
 
 The boilerplate serves no pages, so the links are built for **your** frontend:

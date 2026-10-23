@@ -93,7 +93,8 @@ the reason and the path; the response says only what every other 422 says.
 
 Request bodies are refused by their schemas, which inherit `EncodableText`. The routes crudauth
 mounts carry models the library owns, so they are refused by `body_a_database_can_hold` instead,
-which answers 422 for a JSON body holding a lone surrogate or a NUL character.
+which answers 422 for a JSON body holding a lone surrogate or a NUL character, and by
+`a_redirect_a_link_can_carry`, which answers 422 for a `redirect_to` no link could hold.
 
 This means: **any uncaught `DomainError` raised in a service automatically becomes a properly-shaped HTTP response.** Routes do *not* wrap service calls in try/except — they just let exceptions propagate:
 

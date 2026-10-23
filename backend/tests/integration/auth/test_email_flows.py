@@ -14,6 +14,7 @@ from crudauth.email.constants import EmailKind
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.infrastructure.auth.deps import REDIRECT_MAX_LENGTH
 from src.infrastructure.auth.setup import email_config
 from src.infrastructure.config.settings import settings
 from src.interfaces.main import app
@@ -280,6 +281,35 @@ class TestTheBudgetBehindTheAddressChange:
         assert spent == [401, 401, 401, 401, 401]
         assert requested == 429
         assert delivered == []
+
+
+class TestADestinationTheLinkWouldCarry:
+    """``redirect_to`` is signed into the token, so the link in the mailbox holds it too."""
+
+    @pytest.mark.parametrize(
+        "path",
+        ["/api/v1/auth/email/verify-request", "/api/v1/auth/password/reset-request"],
+    )
+    async def test_one_no_link_could_hold_is_refused_and_nothing_is_sent(
+        self, client: AsyncClient, test_user: dict, delivered: list[dict[str, Any]], path: str
+    ):
+        asked = {"email": test_user["email"], "redirect_to": "/" + "a" * REDIRECT_MAX_LENGTH}
+
+        refused = await client.post(path, json=asked)
+
+        assert refused.status_code == 422
+        assert delivered == []
+
+    async def test_one_a_link_can_hold_is_sent_and_comes_back_on_the_confirm(
+        self, client: AsyncClient, test_user: dict, delivered: list[dict[str, Any]]
+    ):
+        asked = {"email": test_user["email"], "redirect_to": "/" + "a" * (REDIRECT_MAX_LENGTH - 1)}
+
+        requested = await client.post("/api/v1/auth/email/verify-request", json=asked)
+        confirmed = await client.post("/api/v1/auth/email/verify-confirm", json={"token": _token_of(delivered[0])})
+
+        assert requested.status_code == 200
+        assert confirmed.json()["redirect_to"] == asked["redirect_to"]
 
 
 class TestAnAddressWithNoAccount:
