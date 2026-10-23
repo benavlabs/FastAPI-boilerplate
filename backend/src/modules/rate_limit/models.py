@@ -1,4 +1,4 @@
-from sqlalchemy import ForeignKey, Integer, String
+from sqlalchemy import ForeignKey, Index, Integer, String, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ...infrastructure.database import Base
@@ -22,3 +22,13 @@ class RateLimit(Base, TimestampMixin, SoftDeleteMixin):
     path: Mapped[str] = mapped_column(String, nullable=False)
     limit: Mapped[int] = mapped_column(Integer, nullable=False)
     period: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    __table_args__ = (
+        Index(
+            "uq_rate_limits_tier_path",
+            "tier_id",
+            "path",
+            unique=True,
+            postgresql_where=text("is_deleted = false"),
+        ),
+    )

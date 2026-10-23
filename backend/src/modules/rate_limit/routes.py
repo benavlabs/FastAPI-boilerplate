@@ -129,7 +129,7 @@ async def get_rate_limit(
         400: {"description": "Invalid rate limit data"},
         403: {"description": "Not authorized - requires admin privileges"},
         404: {"description": "Rate limit not found"},
-        409: {"description": "New rate limit name already exists"},
+        409: {"description": "The new name, or the tier's limit for the new path, already exists"},
     },
     response_description="Success confirmation message",
 )

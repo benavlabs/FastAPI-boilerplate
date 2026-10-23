@@ -158,11 +158,27 @@ class RateLimit(Base, TimestampMixin, SoftDeleteMixin):
     path: str           # route template the rule applies to
     limit: int          # max requests per period
     period: int         # seconds
+
+    __table_args__ = (
+        Index(
+            "uq_rate_limits_tier_path",
+            "tier_id",
+            "path",
+            unique=True,
+            postgresql_where=text("is_deleted = false"),
+        ),
+    )
 ```
 
 `limit` and `period` are `Integer` columns, so both must be within `1..2147483647`: a create or a
 `PATCH` outside that answers `422`. A row seeded through SQL or `crud_rate_limits` stays inside the
 same range, since Postgres refuses the statement otherwise.
+
+A tier limits a path with one rule. The index refuses a second row for the same `tier_id` and
+`path`, because the limit a caller got was whichever row the lookup read first: two rows saying
+`10` and `1000` for `/api/v1/users/` made the limit a toss-up. A `PATCH` that moves a rule onto a
+path the tier already limits answers `409`, and so does `RateLimitService.create`. Soft-deleted
+rows are outside the index, so a path whose rule was deleted is free to configure again.
 
 ### What the API exposes
 
@@ -222,7 +238,8 @@ Run with `uv run --no-sync python -m scripts.setup_rate_limits` (from `backend/`
 
 A row whose `path` leaves the prefix out, or spells a concrete path such as `/api/v1/widgets/42`,
 is stored and then never matches anything. Read the templates off the app, as above, rather than
-typing them by hand.
+typing them by hand. A second row for a tier and path that already has a rule is refused by
+`uq_rate_limits_tier_path`, whichever of the three you use.
 
 ### Option 3: Add a SQLAdmin View
 

@@ -1,4 +1,4 @@
-"""Who may read the rate-limit configuration endpoints, and what a name collision answers."""
+"""Who may read the rate-limit configuration endpoints, and what a collision answers."""
 
 import pytest
 from httpx import AsyncClient
@@ -63,6 +63,20 @@ async def test_renaming_a_rate_limit_onto_a_taken_name_is_a_conflict(
     await db_session.flush()
 
     response = await superuser_auth_client.patch("/api/v1/rate-limits/renamed", json={"name": "taken"})
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "This resource already exists."
+
+
+async def test_moving_a_rate_limit_onto_a_configured_path_is_a_conflict(
+    superuser_auth_client: AsyncClient, db_session: AsyncSession, test_tier: dict
+):
+    """Two rows for one tier and path left the limit to whichever one the lookup read first."""
+    db_session.add(RateLimit(tier_id=test_tier["id"], name="users", path="/api/v1/users/", limit=10, period=60))
+    db_session.add(RateLimit(tier_id=test_tier["id"], name="tiers", path="/api/v1/tiers/", limit=10, period=60))
+    await db_session.flush()
+
+    response = await superuser_auth_client.patch("/api/v1/rate-limits/tiers", json={"path": "/api/v1/users/"})
 
     assert response.status_code == 409
     assert response.json()["detail"] == "This resource already exists."

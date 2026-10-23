@@ -1,10 +1,11 @@
 import uuid
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, NoReturn
 
 from fastcrud import JoinConfig
 from fastcrud.types import GetMultiResponseDict
 from sqlalchemy import and_
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..common.exceptions import (
@@ -50,8 +51,16 @@ class RateLimitService:
         if name_exists:
             raise ResourceExistsError(f"Rate limit with name '{rate_limit_dict['name']}' already exists")
 
+        if await self._path_is_limited(db, tier_id, rate_limit_dict["path"]):
+            raise ResourceExistsError(f"Tier with ID {tier_id} already limits '{rate_limit_dict['path']}'")
+
         rate_limit_internal = RateLimitCreateInternal(**rate_limit_dict, tier_id=tier_id)
-        created_rate_limit = await crud_rate_limits.create(db=db, object=rate_limit_internal, schema_to_select=RateLimitRead)
+        try:
+            created_rate_limit = await crud_rate_limits.create(
+                db=db, object=rate_limit_internal, schema_to_select=RateLimitRead
+            )
+        except IntegrityError as collision:
+            await self._refuse_a_row_that_landed_first(db, collision)
 
         if not created_rate_limit:
             raise PersistenceError("Rate limit row was not returned after insert")
@@ -106,9 +115,17 @@ class RateLimitService:
             if name_exists:
                 raise ResourceExistsError(f"Rate limit with name '{update_data['name']}' already exists")
 
+        path = update_data.get("path")
+        if path is not None and path != existing_rate_limit["path"]:
+            if await self._path_is_limited(db, existing_rate_limit["tier_id"], path):
+                raise ResourceExistsError(f"Tier with ID {existing_rate_limit['tier_id']} already limits '{path}'")
+
         internal_update = RateLimitUpdateInternal(**update_data, updated_at=datetime.now(UTC))
 
-        await crud_rate_limits.update(db=db, object=internal_update, name=name)
+        try:
+            await crud_rate_limits.update(db=db, object=internal_update, name=name)
+        except IntegrityError as collision:
+            await self._refuse_a_row_that_landed_first(db, collision)
 
     async def delete(self, name: str, db: AsyncSession) -> None:
         """Permanently delete a rate limit by name."""
@@ -180,3 +197,19 @@ class RateLimitService:
             raise UserNotFoundError(f"User with ID {user_id} not found")
 
         return result
+
+    @staticmethod
+    async def _path_is_limited(db: AsyncSession, tier_id: int, path: str) -> bool:
+        """Whether a live rate limit already applies to this path for this tier."""
+        return await crud_rate_limits.exists(db=db, tier_id=tier_id, path=path, is_deleted=False)
+
+    @staticmethod
+    async def _refuse_a_row_that_landed_first(db: AsyncSession, collision: IntegrityError) -> NoReturn:
+        """Undo the write and answer a row that landed since the checks as a conflict.
+
+        Raises:
+            ResourceExistsError: Always; the name or the tier's limit for the path is taken.
+        """
+        await db.rollback()
+
+        raise ResourceExistsError("Another rate limit holds this name, or this tier's limit for the path") from collision

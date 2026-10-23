@@ -780,6 +780,16 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   `404` rather than `500`. Only that one role queues: a write racing a change to the account's
   **other** roles is not covered, since those roles are not locked, so the stronger-account checks
   can still read roles another request is changing.
+- **A tier limits a path with one rate-limit rule.** Nothing stopped a second row for the same
+  `tier_id` and `path`, and the limit a caller got was whichever row the lookup read first, so two
+  rows saying `10` and `1000` for `/api/v1/users/` made the limit a toss-up that could land
+  differently after a restart. `rate_limits` now carries `uq_rate_limits_tier_path`, a unique index
+  over `(tier_id, path)` for the rows a soft delete has not taken out, so a path whose rule was
+  deleted is free to configure again. `PATCH /api/v1/rate-limits/{name}` answers `409` where the
+  new path is one the tier already limits, and `RateLimitService.create` the same, including where
+  another request got there first. A database that already holds two rows for one tier and path
+  cannot create the index: [Migrations](user-guide/database/migrations.md#alembic-migrations) has
+  the query that finds them.
 - **A queued account email carries no readable recovery link.** `email:send` was enqueued with the
   recipient, the subject, the rendered body and the link, so every verification and password-reset
   token sat in Redis or RabbitMQ in the clear until a worker picked it up, and in any backup or

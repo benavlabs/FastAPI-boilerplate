@@ -229,6 +229,7 @@ The boilerplate ships with these models (one per feature module):
 ### `RateLimit` — `modules/rate_limit/models.py`
 - Per-tier rate limits keyed by API path
 - Fields: `tier_id`, `name`, `path`, `limit`, `period`
+- One live rule per tier and path (`uq_rate_limits_tier_path`)
 - Mixins: `TimestampMixin`, `SoftDeleteMixin`
 - Table name: **`rate_limits`**
 

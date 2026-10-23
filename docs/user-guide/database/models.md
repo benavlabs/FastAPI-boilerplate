@@ -202,7 +202,7 @@ Key points:
 `modules/rate_limit/models.py` shows a no-relationship model with a foreign key:
 
 ```python
-from sqlalchemy import ForeignKey, Integer, String
+from sqlalchemy import ForeignKey, Index, Integer, String, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ...infrastructure.database import Base
@@ -221,9 +221,20 @@ class RateLimit(Base, TimestampMixin, SoftDeleteMixin):
     path: Mapped[str] = mapped_column(String, nullable=False)
     limit: Mapped[int] = mapped_column(Integer, nullable=False)
     period: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    __table_args__ = (
+        Index(
+            "uq_rate_limits_tier_path",
+            "tier_id",
+            "path",
+            unique=True,
+            postgresql_where=text("is_deleted = false"),
+        ),
+    )
 ```
 
 Each rate limit row says: "for tier X, requests to `path` are capped at `limit` per `period` seconds."
+The index is partial, so the one rule per tier and path is the one a soft delete has not taken out.
 
 ## Soft Deletion
 
