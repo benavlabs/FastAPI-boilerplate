@@ -1,6 +1,6 @@
 import re
+import uuid
 from collections.abc import Collection
-from datetime import UTC, datetime
 from typing import Any, NoReturn
 
 from crudauth import get_password_hash_async
@@ -38,6 +38,12 @@ logger = get_logger()
 
 ADDRESS_INDEXES = frozenset({"ix_user_email", "ix_user_email_lower"})
 """The indexes that hold an address, which a signup for a taken one is refused by."""
+
+USERNAME_INDEX = "ix_user_username"
+"""The index that holds a username, which a row taking one already held is refused by."""
+
+ANONYMIZATION_ATTEMPTS = 3
+"""How many names a deletion tries before it gives up on finding a free one."""
 
 NAMED_CONSTRAINT = re.compile(r'constraint "([^"]+)"')
 """What a refusal quotes the index as, where the driver's own name for it is missing."""
@@ -602,8 +608,6 @@ class UserService:
             if not existing_user:
                 raise UserNotFoundError(f"User with ID {user_id} not found")
 
-            timestamp = int(datetime.now(UTC).timestamp())
-
             logger.info(
                 "User anonymization requested",
                 extra={
@@ -612,24 +616,19 @@ class UserService:
                 },
             )
 
-            anonymized = {
-                "name": "[DELETED]",
-                "username": f"del_{user_id}_{timestamp % 10000}",
-                "hashed_password": "DELETED_INVALID_HASH",
-                "profile_image_url": "https://deleted.com/deleted.jpg",
-                "is_superuser": False,
-                "google_id": None,
-                "github_id": None,
-                "oauth_provider": None,
-                "email_verified": False,
-                "oauth_created_at": None,
-                "oauth_updated_at": None,
-            }
-            contributed = dict.fromkeys(UserAnonymize.model_fields.keys() - anonymized.keys())
-            anonymize_data = UserAnonymize.model_validate(anonymized | contributed)
+            for attempt in range(ANONYMIZATION_ATTEMPTS):
+                anonymize_data = self._anonymized_values(user_id)
+                try:
+                    await crud_users.update(db=db, object=anonymize_data, commit=False, id=user_id)
+                    await crud_users.delete(db=db, id=user_id)
+                    break
+                except IntegrityError as collision:
+                    await db.rollback()
+                    if _refused_index(collision) != USERNAME_INDEX:
+                        raise
 
-            await crud_users.update(db=db, object=anonymize_data, commit=False, id=user_id)
-            await crud_users.delete(db=db, id=user_id)
+                    if attempt == ANONYMIZATION_ATTEMPTS - 1:
+                        raise PersistenceError(f"No free name for the anonymized row of user {user_id}") from collision
 
             anonymized_fields = list(anonymize_data.model_dump(exclude_unset=True).keys())
             logger.info(
@@ -649,3 +648,31 @@ class UserService:
                 extra={"user_id": user_id, "action": "user_anonymization_failed", "reason": "user_not_found"},
             )
             raise UserNotFoundError(f"User with ID {user_id} not found")
+
+    @staticmethod
+    def _anonymized_username(user_id: int) -> str:
+        """A name for a deleted account: a marker, the account's id and random hex.
+
+        The hyphens put it outside ``USERNAME_PATTERN``, which every signup and rename is
+        held to, so the name cannot be taken before the deletion asks for it.
+        """
+        return f"deleted-{user_id}-{uuid.uuid4().hex[:12]}"
+
+    def _anonymized_values(self, user_id: int) -> UserAnonymize:
+        """The values a deleted account keeps, with the fields other features add left unset."""
+        anonymized = {
+            "name": "[DELETED]",
+            "username": self._anonymized_username(user_id),
+            "hashed_password": "DELETED_INVALID_HASH",
+            "profile_image_url": "https://deleted.com/deleted.jpg",
+            "is_superuser": False,
+            "google_id": None,
+            "github_id": None,
+            "oauth_provider": None,
+            "email_verified": False,
+            "oauth_created_at": None,
+            "oauth_updated_at": None,
+        }
+        contributed = dict.fromkeys(UserAnonymize.model_fields.keys() - anonymized.keys())
+
+        return UserAnonymize.model_validate(anonymized | contributed)

@@ -283,7 +283,7 @@ Service implementation:
 async def anonymize_user(self, user_id: int, db: AsyncSession) -> None:
     anonymize_data = UserAnonymize(
         name="[DELETED]",
-        username=f"del_{user_id}_{timestamp % 10000}",
+        username=f"deleted-{user_id}-{uuid.uuid4().hex[:12]}",
         hashed_password="DELETED_INVALID_HASH",
         profile_image_url="https://deleted.com/deleted.jpg",
         tier_id=None,
@@ -299,6 +299,13 @@ async def anonymize_user(self, user_id: int, db: AsyncSession) -> None:
     await crud_users.update(db=db, object=anonymize_data, commit=False, id=user_id)
     await crud_users.delete(db=db, id=user_id)
 ```
+
+The hyphens in that name are outside `USERNAME_PATTERN`, which every signup and rename is held
+to, so nobody can take the name a deletion is about to need. A name that is held anyway, which
+takes a superuser writing one through the admin panel, is tried again with fresh hex up to
+`ANONYMIZATION_ATTEMPTS` times, and the deletion answers `500` rather than reporting a row it
+did not anonymize. Only a write the username index refused is named again; any other refusal is
+raised as it is, since no other name for it would help.
 
 Email is intentionally retained for legal compliance purposes (audit trail, "right to be
 forgotten" doesn't always apply if the platform is required to keep records).

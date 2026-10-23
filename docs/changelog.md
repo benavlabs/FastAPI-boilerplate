@@ -790,6 +790,15 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   another request got there first. A database that already holds two rows for one tier and path
   cannot create the index: [Migrations](user-guide/database/migrations.md#alembic-migrations) has
   the query that finds them.
+- **An account's deletion can no longer be blocked by registering the name it would take.** The
+  anonymized row took `del_<id>_<seconds % 10000>`, a name inside `USERNAME_PATTERN` and drawn from
+  10,000 values: anybody who knew an account's id could sign up for that range and leave every
+  GDPR deletion of it answering `500` from the username index, since the anonymization is the
+  write that renames the row. The name is now `deleted-<id>-<12 hex>`, whose hyphens no signup or
+  rename can produce, and a name held anyway is tried again with fresh hex up to
+  `ANONYMIZATION_ATTEMPTS` times, where the username index is what refused the write. A deletion
+  that still finds no free name answers `500` rather than logging a completion over a row it left
+  as it was.
 - **A queued account email carries no readable recovery link.** `email:send` was enqueued with the
   recipient, the subject, the rendered body and the link, so every verification and password-reset
   token sat in Redis or RabbitMQ in the clear until a worker picked it up, and in any backup or
