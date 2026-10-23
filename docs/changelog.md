@@ -790,6 +790,15 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   another request got there first. A database that already holds two rows for one tier and path
   cannot create the index: [Migrations](user-guide/database/migrations.md#alembic-migrations) has
   the query that finds them.
+- **The tracing recipe no longer breaks the drill's own test.**
+  [Observability](user-guide/observability.md) had the reader add the Logfire installer to
+  `INSTALLERS` in `src/wiring/app.py`, which the removal drill generates:
+  `tests/unit/test_removal_drill.py` compares what the generator writes with what the project
+  committed, so following the guide left that test failing. The installer now
+  goes where the app is composed, `src/interfaces/main.py`, which nothing regenerates, as
+  `installers=(*INSTALLERS, tracing_install)`. Making observability a removable feature, with its
+  own `FEATURES` entry and its contribution to the generator, is still the other way round and the
+  guide still says so.
 - **The text a caller can leave for other people to read is bounded.** A profile image URL had a
   shape to match and no length, so a 2 MB one was stored and then served to every signed-in
   account that read the profile; it is now held to 2048 characters, the length a URL is held to

@@ -63,20 +63,29 @@ def install(app: FastAPI) -> None:
     logfire.instrument_fastapi(app, excluded_urls=["/health", "/health/ready"])
 ```
 
-Then wire it where the app is composed, in `src/wiring/app.py`:
+Then wire it where this app is composed, in `src/interfaces/main.py`:
 
 ```python
 from ..infrastructure.observability import configure_tracing, install as tracing_install
 
 configure_tracing()
 
-INSTALLERS: tuple[Callable[[FastAPI], None], ...] = (
-    accounts_install,
-    api_keys_install,
-    admin_install,
-    tracing_install,
+app = create_application(
+    router=router,
+    settings=settings,
+    lifespan=lifespan_with_security,
+    root_routers=ROOT_ROUTERS,
+    installers=(*INSTALLERS, tracing_install),
+    docs_guard=DOCS_GUARD,
 )
 ```
+
+Not `src/wiring/app.py`. The removal drill generates the wiring modules from
+`tools/removal_drill.py`, and `tests/unit/test_removal_drill.py` compares what it generates with
+what the project committed, so an installer written into `INSTALLERS` by hand fails that test.
+`main.py` is the composition root, and nothing regenerates it. A project that would rather have
+the generator know about this one makes it a feature
+([below](#if-you-turn-this-into-a-feature)).
 
 `send_to_logfire="if-token-present"` is what keeps it off: with no `LOGFIRE_TOKEN` in the
 environment, nothing leaves the process, which is the same rule every other optional thing in this
@@ -85,7 +94,7 @@ project follows — a setting that enables something is off when unset. `LOGFIRE
 are defaults a deployment can override without touching the code.
 
 !!! note "The worker is a second process"
-    `taskiq worker src.infrastructure.taskiq.worker:default_broker` never imports `wiring/app.py`,
+    `taskiq worker src.infrastructure.taskiq.worker:default_broker` never imports `main.py`,
     so none of the above runs there. Call `configure_tracing()` in
     `src/infrastructure/taskiq/worker.py` as well, with `service_name="worker"`, and the two
     processes report separately. A task enqueued by a request is not joined to that request's trace
@@ -153,7 +162,8 @@ A project that wants observability to be removable like the others gives it a `F
 | Refused-login audit hooks | `backend/src/infrastructure/auth/audit.py` |
 | API-key usage rows | `backend/src/modules/api_keys/usage.py` |
 | The catch-all handler and its support id | `backend/src/modules/common/utils/error_handler.py` |
-| Where an installer is wired | `backend/src/wiring/app.py` |
+| Where this recipe wires its installer | `backend/src/interfaces/main.py` |
+| Where a feature's installer is wired | `backend/src/wiring/app.py` |
 
 ---
 

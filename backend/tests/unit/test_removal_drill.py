@@ -205,3 +205,24 @@ def test_the_generator_rebuilds_what_this_project_committed():
             continue
 
         assert _without_formatting(getattr(drill, generator)(present)) == _without_formatting(committed.read_text()), name
+
+
+TRACING_RECIPE = BACKEND_ROOT.parent / "docs/user-guide/observability.md"
+"""The one guide that asks a reader to install something of their own on the app."""
+
+
+def test_a_rebuild_leaves_the_composition_root_as_it_is(tmp_path):
+    """That recipe wires its installer there, where no regeneration reaches it."""
+    project = drill.build("core-only", tmp_path)
+
+    rebuilt = project / "backend/src/interfaces/main.py"
+
+    assert rebuilt.read_text() == (BACKEND_ROOT / "src/interfaces/main.py").read_text()
+
+
+def test_the_tracing_recipe_wires_itself_outside_the_generated_wiring():
+    """Written into ``INSTALLERS`` instead, it would fail the comparison above."""
+    recipe = TRACING_RECIPE.read_text()
+
+    assert "installers=(*INSTALLERS, tracing_install)" in recipe
+    assert "INSTALLERS: tuple" not in recipe
