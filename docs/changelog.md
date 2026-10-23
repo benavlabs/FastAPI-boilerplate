@@ -800,7 +800,10 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   over `(tier_id, path)` for the rows a soft delete has not taken out, so a path whose rule was
   deleted is free to configure again. `PATCH /api/v1/rate-limits/{name}` answers `409` where the
   new path is one the tier already limits, and `RateLimitService.create` the same, including where
-  another request got there first. A database that already holds two rows for one tier and path
+  another request got there first. A rule for a tier deleted between the check and the insert
+  answers `404` for the tier rather than a conflict: which constraint refused the row is read off
+  the driver's error, by the same reader the signup race uses (`modules/common/collisions.py`).
+  A database that already holds two rows for one tier and path
   cannot create the index: [Migrations](user-guide/database/migrations.md#alembic-migrations) has
   the query that finds them.
 - **The tracing recipe no longer breaks the drill's own test.**

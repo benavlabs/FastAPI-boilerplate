@@ -180,6 +180,12 @@ A tier limits a path with one rule. The index refuses a second row for the same 
 path the tier already limits answers `409`, and so does `RateLimitService.create`. Soft-deleted
 rows are outside the index, so a path whose rule was deleted is free to configure again.
 
+A rule names its tier, and the tier is read before the row is written: one deleted in between
+leaves the foreign key to refuse the rule, which answers `404` for the tier rather than a
+conflict with another rule. Which constraint refused a row is read off the driver's own error
+(`modules/common/collisions.py`), and out of the quoted name in the message only where the
+driver gives none.
+
 ### What the API exposes
 
 | Method | Path                         | Auth        | Notes                                    |

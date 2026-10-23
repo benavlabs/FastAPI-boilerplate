@@ -4,6 +4,7 @@ Two of them left the limit a caller got to whichever row the lookup read first.
 """
 
 import pytest
+from sqlalchemy import delete
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -12,6 +13,8 @@ from src.modules.rate_limit.crud import crud_rate_limits
 from src.modules.rate_limit.models import RateLimit
 from src.modules.rate_limit.schemas import RateLimitCreate, RateLimitUpdate
 from src.modules.rate_limit.service import RateLimitService
+from src.modules.tier.exceptions import TierNotFoundError
+from src.modules.tier.models import Tier
 
 USERS = "/api/v1/users/"
 
@@ -116,3 +119,36 @@ async def test_a_rule_that_lands_after_the_check_is_a_conflict(
 
     monkeypatch.undo()
     assert await crud_rate_limits.count(db=db_session, path=USERS) == 1
+
+
+async def test_a_tier_that_went_away_before_the_insert_is_a_404(
+    rate_limit_service: RateLimitService,
+    db_session: AsyncSession,
+    test_db_engine,
+    test_tier: dict,
+    monkeypatch,
+):
+    """The tier is checked and then referenced, and its row can go in between.
+
+    The key the tier holds up refuses the rule, which is an answer about the tier rather
+    than a conflict with another rule.
+    """
+    sessions = async_sessionmaker(test_db_engine, class_=AsyncSession, expire_on_commit=False)
+    asked = crud_rate_limits.exists
+
+    async def answering_then_losing_the_tier(*, db: AsyncSession, **filters):
+        answer = await asked(db=db, **filters)
+        if "path" in filters:
+            async with sessions() as panel:
+                await panel.execute(delete(Tier).where(Tier.id == test_tier["id"]))
+                await panel.commit()
+
+        return answer
+
+    monkeypatch.setattr(crud_rate_limits, "exists", answering_then_losing_the_tier)
+
+    with pytest.raises(TierNotFoundError):
+        await rate_limit_service.create(RateLimitCreate(path=USERS, limit=10, period=60), test_tier["id"], db_session)
+
+    monkeypatch.undo()
+    assert await crud_rate_limits.count(db=db_session, path=USERS) == 0

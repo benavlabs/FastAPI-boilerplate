@@ -1,4 +1,3 @@
-import re
 import uuid
 from collections.abc import Collection
 from typing import Any, NoReturn
@@ -11,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...infrastructure.auth.setup import auth
 from ...infrastructure.logging import get_logger
+from ..common.collisions import refused_constraint
 from ..common.exceptions import (
     PermissionDeniedError,
     PersistenceError,
@@ -44,26 +44,6 @@ USERNAME_INDEX = "ix_user_username"
 
 ANONYMIZATION_ATTEMPTS = 3
 """How many names a deletion tries before it gives up on finding a free one."""
-
-NAMED_CONSTRAINT = re.compile(r'constraint "([^"]+)"')
-"""What a refusal quotes the index as, where the driver's own name for it is missing."""
-
-
-def _refused_index(collision: IntegrityError) -> str:
-    """The index a unique violation names, or ``""`` where nothing in it names one.
-
-    asyncpg names the constraint on the error the driver wrapped, which the dialect keeps
-    as the cause; the message is read only where that is missing, and read for the name it
-    quotes rather than searched for one. Either way the name is matched whole, so a later
-    index called something like ``ix_user_email_of_whatever`` is nobody's address index.
-    """
-    named = getattr(getattr(collision.orig, "__cause__", None), "constraint_name", None)
-    if named:
-        return str(named)
-
-    quoted = NAMED_CONSTRAINT.search(str(collision.orig))
-
-    return quoted.group(1) if quoted else ""
 
 
 class UserService:
@@ -158,7 +138,7 @@ class UserService:
         """
         await db.rollback()
 
-        if _refused_index(collision) in ADDRESS_INDEXES:
+        if refused_constraint(collision) in ADDRESS_INDEXES:
             raise EmailAlreadyRegisteredError("Email already registered") from collision
 
         raise UserExistsError("Username already taken") from collision
@@ -624,7 +604,7 @@ class UserService:
                     break
                 except IntegrityError as collision:
                     await db.rollback()
-                    if _refused_index(collision) != USERNAME_INDEX:
+                    if refused_constraint(collision) != USERNAME_INDEX:
                         raise
 
                     if attempt == ANONYMIZATION_ATTEMPTS - 1:

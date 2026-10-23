@@ -8,6 +8,7 @@ from sqlalchemy import and_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..common.collisions import refused_constraint
 from ..common.exceptions import (
     PersistenceError,
     ResourceExistsError,
@@ -30,6 +31,9 @@ from .schemas import (
     RateLimitUpdate,
     RateLimitUpdateInternal,
 )
+
+TIER_FOREIGN_KEY = "fk_rate_limits_tier_id_tiers"
+"""The key a rule's tier holds up, which refuses a rule for a tier that is no longer there."""
 
 
 class RateLimitService:
@@ -60,7 +64,7 @@ class RateLimitService:
                 db=db, object=rate_limit_internal, schema_to_select=RateLimitRead
             )
         except IntegrityError as collision:
-            await self._refuse_a_row_that_landed_first(db, collision)
+            await self._refuse_a_row_that_landed_first(db, tier_id, collision)
 
         if not created_rate_limit:
             raise PersistenceError("Rate limit row was not returned after insert")
@@ -125,7 +129,7 @@ class RateLimitService:
         try:
             await crud_rate_limits.update(db=db, object=internal_update, name=name)
         except IntegrityError as collision:
-            await self._refuse_a_row_that_landed_first(db, collision)
+            await self._refuse_a_row_that_landed_first(db, existing_rate_limit["tier_id"], collision)
 
     async def delete(self, name: str, db: AsyncSession) -> None:
         """Permanently delete a rate limit by name."""
@@ -204,12 +208,20 @@ class RateLimitService:
         return await crud_rate_limits.exists(db=db, tier_id=tier_id, path=path, is_deleted=False)
 
     @staticmethod
-    async def _refuse_a_row_that_landed_first(db: AsyncSession, collision: IntegrityError) -> NoReturn:
-        """Undo the write and answer a row that landed since the checks as a conflict.
+    async def _refuse_a_row_that_landed_first(db: AsyncSession, tier_id: int, collision: IntegrityError) -> NoReturn:
+        """Undo the write and answer for whichever constraint refused the row.
+
+        The tier is read and then referenced, so a tier deleted in between leaves the
+        foreign key to refuse the write: that is an answer about the tier, not a conflict
+        with another rule.
 
         Raises:
-            ResourceExistsError: Always; the name or the tier's limit for the path is taken.
+            TierNotFoundError: The foreign key refused the row, so the tier is gone.
+            ResourceExistsError: Otherwise; the name or the tier's limit for the path is taken.
         """
         await db.rollback()
+
+        if refused_constraint(collision) == TIER_FOREIGN_KEY:
+            raise TierNotFoundError(f"Tier with ID {tier_id} not found") from collision
 
         raise ResourceExistsError("Another rate limit holds this name, or this tier's limit for the path") from collision

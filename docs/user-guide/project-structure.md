@@ -123,6 +123,7 @@ infrastructure/
 ```text
 modules/
 ├── common/                   # Cross-module shared schemas, exceptions, utils
+│   ├── collisions.py         # Which constraint refused a row, read off the driver's error
 │   ├── constants.py
 │   ├── exceptions.py
 │   ├── schemas.py
