@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ...infrastructure.permissions import all_permissions
 from ..user.crud import crud_users
 from ..user.exceptions import UserNotFoundError
+from ..user.models import User
 from .delegation import (
     can_assign_role,
     can_change_roles_of,
@@ -130,6 +131,7 @@ class RoleService:
                 doesn't.
         """
         await self._locked_role(role_id, db)
+        await self._locked_holders(role_id, db)
         touched = set(permissions) | await self._registered_carried(role_id, db)
 
         if not can_delegate_permissions(principal, touched, held):
@@ -154,6 +156,7 @@ class RoleService:
                 doesn't.
         """
         await self._locked_role(role_id, db)
+        await self._locked_holders(role_id, db)
 
         if not can_delegate_permissions(principal, await self._registered_carried(role_id, db), held):
             raise PermissionDelegationError("The caller does not hold every permission this role carries")
@@ -177,10 +180,7 @@ class RoleService:
 
         if not await db.scalar(select(UserRole.user_id).where(UserRole.user_id == user_id, UserRole.role_id == role_id)):
             db.add(UserRole(user_id=user_id, role_id=role_id))
-            try:
-                await db.commit()
-            except IntegrityError as collision:
-                await self._refuse_an_account_that_went_away(db, user_id, collision)
+            await db.commit()
 
     async def unassign(self, role_id: int, user_id: int, principal: Principal, db: AsyncSession, held: Collection[str]) -> None:
         """Take a role away from a user.
@@ -214,21 +214,59 @@ class RoleService:
     async def _assignable(
         self, role_id: int, user_id: int, principal: Principal, db: AsyncSession, held: Collection[str]
     ) -> None:
-        """Hold the role still, and raise unless both exist and the caller may reach them.
+        """Hold the role and the account still, and raise unless the caller may reach them.
 
-        Every write path to a role takes the lock first, so two writes to one role queue
-        instead of racing.
+        The role's row is taken before the account's, which every write path does, so two
+        of them queue instead of deadlocking.
         """
         await self._locked_role(role_id, db)
-
-        if not await crud_users.exists(db=db, id=user_id, is_deleted=False):
-            raise UserNotFoundError(f"User with ID {user_id} not found")
+        await self._locked_account(user_id, db)
 
         if not await can_assign_role(db, principal, role_id, held):
             raise RoleAssignmentError("The caller does not hold every permission this role carries")
 
         if not await can_change_roles_of(db, principal, user_id, held):
             raise StrongerAccountError("The account holds something the caller does not")
+
+    @staticmethod
+    async def _locked_account(user_id: int, db: AsyncSession) -> None:
+        """Hold the account's row still until the caller's transaction ends.
+
+        The delegation checks read what the account holds, and a role is carried by rows
+        of its own: nothing about a grant touches this row. It is the one row every write
+        to the account's grants has in common, so it is what they queue on, and holding it
+        is what makes the checks that follow still true when the write lands.
+
+        ``FOR NO KEY UPDATE`` rather than ``FOR UPDATE``, so the key-share lock an
+        unrelated row with a foreign key to this account takes, an API key or a usage row,
+        is not made to wait for a role change.
+
+        Raises:
+            UserNotFoundError: No live account has that id.
+        """
+        locked = await db.scalar(
+            select(User.id).where(User.id == user_id, User.is_deleted.is_(False)).with_for_update(key_share=True)
+        )
+        if locked is None:
+            raise UserNotFoundError(f"User with ID {user_id} not found")
+
+    @staticmethod
+    async def _locked_holders(role_id: int, db: AsyncSession) -> None:
+        """Hold the rows of every account holding this role still, so none of them changes.
+
+        Taking the role away, or changing what it carries, is a change to the grants of
+        every account holding it, and the checks read what each of them holds. Shared,
+        because this reads those rows rather than writing them: two of these may run at
+        once, and an assignment to one of the accounts, which takes the row for itself,
+        waits. In account order, so two of them lock in the same order.
+        """
+        await db.execute(
+            select(User.id)
+            .join(UserRole, UserRole.user_id == User.id)
+            .where(UserRole.role_id == role_id, User.is_deleted.is_(False))
+            .order_by(User.id)
+            .with_for_update(read=True, of=User)
+        )
 
     async def _registered_carried(self, role_id: int, db: AsyncSession) -> set[str]:
         """What a role carries, less the names the registry no longer knows."""
@@ -251,20 +289,6 @@ class RoleService:
         await db.rollback()
 
         raise RoleExistsError(f"Role '{name}' already exists") from collision
-
-    @staticmethod
-    async def _refuse_an_account_that_went_away(db: AsyncSession, user_id: int, collision: IntegrityError) -> NoReturn:
-        """Undo the write and answer an account deleted since it was checked as a 404.
-
-        The role is locked and the assignment re-read under that lock, so the key the
-        account's row holds up is the only one left to refuse the write.
-
-        Raises:
-            UserNotFoundError: Always; a foreign key refused the row.
-        """
-        await db.rollback()
-
-        raise UserNotFoundError(f"User with ID {user_id} not found") from collision
 
     @staticmethod
     async def _locked_role(role_id: int, db: AsyncSession) -> Role:

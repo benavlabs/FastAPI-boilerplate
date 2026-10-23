@@ -33,6 +33,9 @@ pytestmark = [pytest.mark.asyncio, pytest.mark.usefixtures("fresh_login_lockout"
 
 MANAGING = ("role.read", "role.create", "role.update", "role.delete", "role.assign")
 
+WAITING_ON_A_ROW = 0.25
+"""How long a write held up by another transaction's row is given to prove it is waiting."""
+
 
 async def _carried(db: AsyncSession, role_id: int) -> list[str]:
     rows = await db.execute(select(RolePermission.permission_name).where(RolePermission.role_id == role_id))
@@ -48,6 +51,17 @@ async def _holders_of(db: AsyncSession, role_id: int) -> list[int]:
     held = await db.execute(select(UserRole.user_id).where(UserRole.role_id == role_id).order_by(UserRole.user_id))
 
     return list(held.scalars().all())
+
+
+async def _a_role(db: AsyncSession, name: str, *permissions: str) -> Role:
+    """A role carrying these permissions that nobody holds yet."""
+    role = Role(name=name)
+    db.add(role)
+    await db.flush()
+    db.add_all([RolePermission(role_id=role.id, permission_name=carried) for carried in permissions])
+    await db.commit()
+
+    return role
 
 
 async def _holds(db: AsyncSession, user_id: int, role_id: int) -> bool:
@@ -741,6 +755,21 @@ class TestAssigning:
 
         assert response.status_code == 404
 
+    async def test_an_account_a_soft_delete_took_out_is_a_404(
+        self, client: AsyncClient, db_session: AsyncSession, manager: dict[str, Any], test_user_2: dict
+    ):
+        """Its grants reach nobody, so there is no account there to hand a role to."""
+        role = await _grant(db_session, manager["user"]["id"], "editor", "user.read")
+        await db_session.execute(update(User).where(User.id == test_user_2["id"]).values(is_deleted=True))
+        await db_session.commit()
+
+        response = await client.post(
+            f"/api/v1/roles/{role.id}/users/{test_user_2['id']}", headers={"X-CSRF-Token": manager["csrf"]}
+        )
+
+        assert response.status_code == 404
+        assert not await _holds(db_session, test_user_2["id"], role.id)
+
     async def test_without_the_permission_assigning_is_refused(
         self, client: AsyncClient, db_session: AsyncSession, test_user: dict, test_user_2: dict
     ):
@@ -910,7 +939,203 @@ class TestWritesThatRace:
         else:
             assert await _role_named(db_session, "editor") is None
 
-    async def test_an_account_deleted_once_the_checks_have_passed_is_a_404(
+    @staticmethod
+    async def _started(write: Any) -> asyncio.Task[None]:
+        """Start ``write`` and hand it back once it has reached the database."""
+        reached = asyncio.Event()
+
+        async def asking() -> None:
+            reached.set()
+            await write()
+
+        started = asyncio.create_task(asking())
+        await reached.wait()
+
+        return started
+
+    async def test_an_account_is_not_given_a_stronger_role_while_one_is_being_assigned(
+        self,
+        client: AsyncClient,
+        db_session: AsyncSession,
+        manager: dict[str, Any],
+        test_user_2: dict,
+        test_superuser: dict,
+        monkeypatch,
+    ):
+        """The checks read what the account holds, so the account's row is held as well.
+
+        A superuser assigning something the manager cannot reach used to land between this
+        write's check and its insert, leaving the manager having changed the roles of an
+        account stronger than them. It now waits for this write and lands after it.
+        """
+        editor = await _grant(db_session, manager["user"]["id"], "editor", "user.read")
+        stronger = await _a_role(db_session, "deleters", "user.delete")
+        sessions = async_sessionmaker(bind=db_session.bind, class_=AsyncSession, expire_on_commit=False)
+        reachable = role_service.can_change_roles_of
+        superuser = Principal(user_id=test_superuser["id"], transport="session", is_superuser=True)
+        waiting: list[asyncio.Task[None]] = []
+
+        async def the_superuser_assigns_the_stronger_role() -> None:
+            async with sessions() as session:
+                await RoleService().assign(stronger.id, test_user_2["id"], superuser, session, ())
+
+        async def with_the_superuser_assigning(db: AsyncSession, principal: Principal, user_id: int, held: Any) -> bool:
+            allowed: bool = await reachable(db, principal, user_id, held)
+            waiting.append(await self._started(the_superuser_assigns_the_stronger_role))
+            await asyncio.sleep(WAITING_ON_A_ROW)
+
+            assert not waiting[0].done()
+
+            return allowed
+
+        monkeypatch.setattr(role_service, "can_change_roles_of", with_the_superuser_assigning)
+
+        response = await client.post(
+            f"/api/v1/roles/{editor.id}/users/{test_user_2['id']}", headers={"X-CSRF-Token": manager["csrf"]}
+        )
+        async with asyncio.timeout(10):
+            await waiting[0]
+
+        assert response.status_code == 201
+        assert await _holders_of(db_session, editor.id) == sorted([manager["user"]["id"], test_user_2["id"]])
+        assert await _holders_of(db_session, stronger.id) == [test_user_2["id"]]
+
+    @pytest.mark.parametrize(
+        ("method", "payload"),
+        [("delete", None), ("put", {"permissions": ["role.read"]})],
+        ids=["taking the role away", "replacing what it carries"],
+    )
+    async def test_a_holder_is_not_given_a_stronger_role_while_the_role_is_written_to(
+        self,
+        client: AsyncClient,
+        db_session: AsyncSession,
+        manager: dict[str, Any],
+        test_user_2: dict,
+        test_superuser: dict,
+        monkeypatch,
+        method: str,
+        payload: dict[str, Any] | None,
+    ):
+        """Both writes change the grants of every holder, so their rows are held too.
+
+        The same escalation the other way round: the checks read what each holder holds,
+        and a stronger role arriving in between would leave the manager having changed a
+        role held by an account they could not reach.
+        """
+        editor = await _grant(db_session, test_user_2["id"], "editor", "user.read")
+        stronger = await _a_role(db_session, "deleters", "user.delete")
+        sessions = async_sessionmaker(bind=db_session.bind, class_=AsyncSession, expire_on_commit=False)
+        reachable = role_service.can_change_roles_of_every_holder
+        superuser = Principal(user_id=test_superuser["id"], transport="session", is_superuser=True)
+        waiting: list[asyncio.Task[None]] = []
+
+        async def the_superuser_assigns_the_stronger_role() -> None:
+            async with sessions() as session:
+                await RoleService().assign(stronger.id, test_user_2["id"], superuser, session, ())
+
+        async def with_the_superuser_assigning(db: AsyncSession, principal: Principal, role_id: int, held: Any) -> bool:
+            allowed: bool = await reachable(db, principal, role_id, held)
+            waiting.append(await self._started(the_superuser_assigns_the_stronger_role))
+            await asyncio.sleep(WAITING_ON_A_ROW)
+
+            assert not waiting[0].done()
+
+            return allowed
+
+        monkeypatch.setattr(role_service, "can_change_roles_of_every_holder", with_the_superuser_assigning)
+
+        path = f"/api/v1/roles/{editor.id}" + ("/permissions" if method == "put" else "")
+        response = await client.request(method, path, json=payload, headers={"X-CSRF-Token": manager["csrf"]})
+        async with asyncio.timeout(10):
+            await waiting[0]
+
+        assert response.status_code == 200
+        assert (await _role_named(db_session, "editor") is None) == (method == "delete")
+        assert await _holders_of(db_session, stronger.id) == [test_user_2["id"]]
+
+    async def test_a_row_whose_key_names_the_account_is_not_made_to_wait(
+        self,
+        client: AsyncClient,
+        db_session: AsyncSession,
+        manager: dict[str, Any],
+        test_user_2: dict,
+        monkeypatch,
+    ):
+        """The account's row is taken ``FOR NO KEY UPDATE``, which a foreign key may read through.
+
+        A row that only names the account, an API key or a usage row in a project carrying
+        them, takes the weakest lock there is and lands while a role is being written.
+        """
+        editor = await _grant(db_session, manager["user"]["id"], "editor", "user.read")
+        unrelated = await _a_role(db_session, "unrelated", "role.read")
+        sessions = async_sessionmaker(bind=db_session.bind, class_=AsyncSession, expire_on_commit=False)
+        reachable = role_service.can_change_roles_of
+        landed: list[asyncio.Task[None]] = []
+
+        async def a_row_naming_the_account() -> None:
+            async with sessions() as session:
+                session.add(UserRole(user_id=test_user_2["id"], role_id=unrelated.id))
+                await session.commit()
+
+        async def with_the_row_arriving(db: AsyncSession, principal: Principal, user_id: int, held: Any) -> bool:
+            allowed: bool = await reachable(db, principal, user_id, held)
+            landed.append(await self._started(a_row_naming_the_account))
+            async with asyncio.timeout(5):
+                await landed[0]
+
+            return allowed
+
+        monkeypatch.setattr(role_service, "can_change_roles_of", with_the_row_arriving)
+
+        response = await client.post(
+            f"/api/v1/roles/{editor.id}/users/{test_user_2['id']}", headers={"X-CSRF-Token": manager["csrf"]}
+        )
+
+        assert response.status_code == 201
+        assert await _holders_of(db_session, unrelated.id) == [test_user_2["id"]]
+
+    async def test_two_roles_one_account_holds_are_written_to_at_once(
+        self,
+        client: AsyncClient,
+        db_session: AsyncSession,
+        manager: dict[str, Any],
+        test_user_2: dict,
+        monkeypatch,
+    ):
+        """Both writes only read the holder's row, so the second does not wait for the first.
+
+        The holders are taken ``FOR SHARE``: two managers taking away two roles the same
+        account holds queue on neither each other nor the account.
+        """
+        editor = await _grant(db_session, test_user_2["id"], "editor", "user.read")
+        reader = await _grant(db_session, test_user_2["id"], "reader", "role.read")
+        sessions = async_sessionmaker(bind=db_session.bind, class_=AsyncSession, expire_on_commit=False)
+        reachable = role_service.can_change_roles_of_every_holder
+        caller = Principal(user_id=manager["user"]["id"], transport="session")
+        landed: list[asyncio.Task[None]] = []
+
+        async def the_other_role_goes_too() -> None:
+            async with sessions() as session:
+                await RoleService().delete(reader.id, caller, session, (*MANAGING, "user.read", "role.read"))
+
+        async def with_the_other_deletion(db: AsyncSession, principal: Principal, role_id: int, held: Any) -> bool:
+            allowed: bool = await reachable(db, principal, role_id, held)
+            if role_id == editor.id:
+                landed.append(await self._started(the_other_role_goes_too))
+                async with asyncio.timeout(5):
+                    await landed[0]
+
+            return allowed
+
+        monkeypatch.setattr(role_service, "can_change_roles_of_every_holder", with_the_other_deletion)
+
+        response = await client.delete(f"/api/v1/roles/{editor.id}", headers={"X-CSRF-Token": manager["csrf"]})
+
+        assert response.status_code == 200
+        assert await _role_named(db_session, "editor") is None
+        assert await _role_named(db_session, "reader") is None
+
+    async def test_an_account_is_not_deleted_from_under_an_assignment_being_written(
         self,
         client: AsyncClient,
         db_session: AsyncSession,
@@ -920,19 +1145,27 @@ class TestWritesThatRace:
     ):
         """The admin panel deletes account rows, and an assignment's key needs one.
 
-        The check that the account is reachable answers truthfully, and the row is gone by
-        the time the assignment is written: the role's lock holds the role still, nothing
-        holds the account. The panel's own delete is what the second session runs here.
+        The row is held from the check to the write, so the panel's delete waits for the
+        assignment and takes it with the account afterwards. It used to land in between,
+        leaving the assignment to answer for an account that was there when it was checked.
+        The panel's own delete is what the second session runs here.
         """
         role_id = (await _grant(db_session, manager["user"]["id"], "editor", "user.read")).id
         reachable = role_service.can_change_roles_of
         sessions = async_sessionmaker(bind=db_session.bind, class_=AsyncSession, expire_on_commit=False)
+        panel: list[asyncio.Task[None]] = []
+
+        async def the_panel_deletes_the_account() -> None:
+            async with sessions() as session:
+                await session.execute(delete(User).where(User.id == test_user_2["id"]))
+                await session.commit()
 
         async def deleted_right_after(db: AsyncSession, principal: Principal, user_id: int, held: Any) -> bool:
             allowed: bool = await reachable(db, principal, user_id, held)
-            async with sessions() as panel:
-                await panel.execute(delete(User).where(User.id == user_id))
-                await panel.commit()
+            panel.append(await self._started(the_panel_deletes_the_account))
+            await asyncio.sleep(WAITING_ON_A_ROW)
+
+            assert not panel[0].done()
 
             return allowed
 
@@ -941,8 +1174,10 @@ class TestWritesThatRace:
         response = await client.post(
             f"/api/v1/roles/{role_id}/users/{test_user_2['id']}", headers={"X-CSRF-Token": manager["csrf"]}
         )
+        async with asyncio.timeout(10):
+            await panel[0]
 
-        assert response.status_code == 404
+        assert response.status_code == 201
         assert await _holders_of(db_session, role_id) == [manager["user"]["id"]]
 
 

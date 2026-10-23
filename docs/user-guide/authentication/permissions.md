@@ -183,10 +183,22 @@ permissions, a superuser included.
 Two writes to one role queue rather than race. Every write path takes the role's row first
 (`SELECT … FOR UPDATE`): two requests assigning one role to one account both answer `201`, two
 replacing what it carries leave it carrying one of the two sets rather than both, and whichever
-arrives after the role was deleted answers `404`. An account deleted between the check and the
-write, which the admin panel can do, answers `404` as well. Only that one role queues: a write
-racing a change to the account's **other** roles is not covered, so the stronger-account checks can
-still read roles another request is changing.
+arrives after the role was deleted answers `404`. An account a soft delete took out answers `404`
+as well, and one the admin panel deletes while an assignment is being written waits for it.
+
+The account the write is about is held too, since the stronger-account checks read what it holds.
+An assignment takes that row `FOR NO KEY UPDATE`, so a superuser handing the same account a role
+the caller cannot reach lands either side of the write rather than between its check and its own
+insert. Taking a role away, or replacing what it carries, is a change to every holder's grants, so
+those rows are held `FOR SHARE`: two of those run at once, while an assignment to one of the
+holders waits for them. The role's row is always taken before an account's, so the two orders
+never meet.
+
+What does wait is every write to an account's own row while a role write holds it: a profile edit,
+and the bookkeeping a sign-in writes there. Taking a role away holds the row of every account
+holding it until the delete commits. Both are the length of one role write, which reads a handful
+of rows and commits, and a row that only names the account — an API key, a usage row — waits for
+none of it.
 
 A `role_id` or a `user_id` outside `1..2147483647` answers `422`. No `Integer` column holds a value
 past that, so the lookup used to reach the database and fail there.

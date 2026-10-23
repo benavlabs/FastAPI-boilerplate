@@ -779,11 +779,20 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   asked for the other. An assignment landing as the role was deleted answered `500` from the foreign
   key, and a deletion landing as a stronger account was given the role took it away from an account
   the caller could not reach. Every write path now takes the role's row first (`SELECT … FOR
-  UPDATE`), so two writes to one role queue instead. A write that finds the role gone answers `404`,
-  and an account deleted between the check and the write, which the admin panel can do, answers
-  `404` rather than `500`. Only that one role queues: a write racing a change to the account's
-  **other** roles is not covered, since those roles are not locked, so the stronger-account checks
-  can still read roles another request is changing.
+  UPDATE`), so two writes to one role queue instead. A write that finds the role gone answers
+  `404`, and an account a soft delete took out answers `404` rather than `500`. The account the
+  write is about is held as well, `FOR NO KEY UPDATE`, because the stronger-account checks read
+  what it holds: a superuser handing that account a role the caller cannot reach used to land
+  between the check and the write, leaving the caller having changed the roles of an account
+  stronger than themselves, and the admin panel deleting the account used to leave the assignment
+  answering for a row that was there when it was checked. Both wait for the write now: the
+  assignment answers `201`, and the panel's delete lands after it and takes it with the account.
+  Taking a role away, or replacing what it carries, holds the rows of its holders `FOR SHARE` for
+  the same reason, so two of those still run at once while an assignment to one of the holders
+  waits. A role's row is always taken before an account's. What waits is every write to the
+  account's own row — a profile edit, the bookkeeping a sign-in writes — for as long as the role
+  transaction takes, and every holder's row while a role is taken away; a row that only names the
+  account, an API key or a usage row, waits for none of it.
 - **A tier limits a path with one rate-limit rule.** Nothing stopped a second row for the same
   `tier_id` and `path`, and the limit a caller got was whichever row the lookup read first, so two
   rows saying `10` and `1000` for `/api/v1/users/` made the limit a toss-up that could land
