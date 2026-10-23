@@ -636,6 +636,10 @@ matrix. The round that followed fixed what a re-review of the refactor found.
 - The legacy OpenAPI identity settings `CONTACT_NAME`, `CONTACT_EMAIL` and `LICENSE_NAME`, which
   the `API_CONTACT_*` and `API_LICENSE_*` settings replace.
 - The `env` option in the pytest config, which needed a plugin the project doesn't install.
+- The `check-docstring-first` pre-commit hook, which refused 40 of this project's files. A
+  module-level name documented with an attribute docstring under it reads to the hook as a second
+  module docstring, and that is how every constant here is documented, so running it needed an
+  exclude list the length of the project. `pre-commit run --all-files` passes again.
 
 #### Breaking Changes
 

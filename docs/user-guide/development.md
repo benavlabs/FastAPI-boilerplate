@@ -102,7 +102,7 @@ The repo's `.pre-commit-config.yaml` runs what CI runs, and nothing that fights 
 | `ruff-check --fix`, `ruff-format` | the same lint and format CI checks |
 | `pyupgrade` | rewrites to Python 3.11+ syntax |
 | `yesqa` | removes a `noqa` nothing needs any more |
-| hygiene hooks | final newlines, trailing whitespace, YAML, large files, private keys, merge markers, a docstring that isn't first |
+| hygiene hooks | final newlines, trailing whitespace, YAML, large files, private keys, merge markers |
 | `mypy_backend`, `mypy_cli` | local hooks, the same invocations CI uses |
 | `unit_test` | local, manual stage: `pytest tests/unit` |
 
@@ -113,6 +113,10 @@ integration suite, which starts Postgres through testcontainers, runs in CI and 
 There are no docstring- or markdown-formatting hooks: `ruff-format` owns formatting, and the two
 documentation hooks this repo used to carry damaged what they touched — `mdformat` broke MkDocs
 content tabs, and `blacken-docs` rewrote code samples into different code.
+
+`check-docstring-first` is left out for the same reason. This project documents a module-level
+name with an attribute docstring under it, which the hook reads as a second module docstring, so
+it refused 40 files.
 
 `pre-commit` ships in the `dev` extra, so `uv sync --all-packages --all-extras` installs it.
 Install the git hook once:
