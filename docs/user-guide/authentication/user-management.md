@@ -414,7 +414,7 @@ class User(Base, TimestampMixin, SoftDeleteMixin):
     email: Mapped[str] = mapped_column(String(50), unique=True, index=True)
     hashed_password: Mapped[str] = mapped_column(String(100))
     profile_image_url: Mapped[str] = mapped_column(
-        String, default="https://profileimageurl.com",
+        String(2048), default="https://profileimageurl.com",
     )
 
     tier_id: Mapped[int | None] = mapped_column(

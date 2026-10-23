@@ -80,6 +80,18 @@ Tracked, reviewable, reversible schema changes — what you want for anything be
     the stored addresses into the canonical form and adds the index, or names the colliding
     addresses and changes nothing.
 
+!!! warning "Avatar URLs stored before the column had a length"
+    `User.profile_image_url` is `String(2048)`, so the panel and a seeding script are held to the
+    length a caller is. The column had no length before, and the revision that adds one fails on a
+    database holding a longer value. Find them first:
+
+    ```sql
+    SELECT id FROM "user" WHERE length(profile_image_url) > 2048;
+    ```
+
+    Those rows hold a URL nothing can serve; shorten them, or put them back to the default
+    (`https://profileimageurl.com`), before applying the revision.
+
 !!! warning "Two rate-limit rules for one path"
     `RateLimit` declares `uq_rate_limits_tier_path`, a unique index over `(tier_id, path)` for the
     rows a soft delete has not taken out, so a tier limits a path with one rule. A database written

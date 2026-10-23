@@ -12,6 +12,7 @@ from fastapi import Request
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.modules.user.admin import UserAdmin
+from src.modules.user.constants import PROFILE_IMAGE_URL_MAX_LENGTH
 from src.modules.user.models import User
 from tests.unit.interfaces.admin.helpers import exported_rows
 
@@ -163,3 +164,14 @@ class TestTheCsvExport:
 
         assert "'=cmd|' /C calc'!A0" in row
         assert row[header.index("id")] == str(user.id)
+
+
+async def test_the_panel_refuses_a_profile_url_the_column_cannot_hold(db_session: AsyncSession, monkeypatch):
+    """The form is built from the columns, so the length reaches the field it is typed in."""
+    maker = async_sessionmaker(bind=db_session.bind, class_=AsyncSession, expire_on_commit=False)
+    monkeypatch.setattr(UserAdmin, "session_maker", maker, raising=False)
+    form_class = await UserAdmin().scaffold_form()
+
+    held_to = [rule.max for rule in form_class().profile_image_url.validators if hasattr(rule, "max")]
+
+    assert held_to == [PROFILE_IMAGE_URL_MAX_LENGTH]

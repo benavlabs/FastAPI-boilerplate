@@ -135,7 +135,7 @@ class UserUpdate(BaseModel):
     email: Annotated[EmailStr | None, Field(default=None)]
     profile_image_url: Annotated[
         str | None,
-        Field(pattern=r"^(https?|ftp)://[^\s/$.?#].[^\s]*$", default=None),
+        Field(max_length=2048, pattern=r"^(https?|ftp)://[^\s/$.?#].[^\s]*$", default=None),
     ]
 
 

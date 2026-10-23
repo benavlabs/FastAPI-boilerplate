@@ -815,7 +815,11 @@ matrix. The round that followed fixed what a re-review of the refactor found.
 - **The text a caller can leave for other people to read is bounded.** A profile image URL had a
   shape to match and no length, so a 2 MB one was stored and then served to every signed-in
   account that read the profile; it is now held to 2048 characters, the length a URL is held to
-  elsewhere, and an OAuth provider's picture is left out rather than written where it is longer. A
+  elsewhere, and an OAuth provider's picture is left out rather than written where it is longer.
+  The column carries that length as well (`String(2048)`), so the admin panel, which writes the
+  model rather than the schema, is held to it too and its form says so; a database holding a
+  longer URL has to shorten it before the revision that adds the length applies, and
+  [Migrations](user-guide/database/migrations.md#alembic-migrations) has the query that finds one. A
   `redirect_to` on a recovery request had no length either, and it is signed into the token the
   emailed link carries, so a megabyte of path was a megabyte of link in somebody's mailbox: the
   crudauth routes now carry `a_redirect_a_link_can_carry` beside the body guard, and one longer
