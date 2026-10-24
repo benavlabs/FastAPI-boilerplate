@@ -111,6 +111,7 @@ infrastructure/
 │   └── backends/
 ├── ratelimit/                # The API throttle dependency
 ├── redis.py                  # Shared Redis clients injected into crudauth and the cache
+├── handover.py               # Work run after the answer, which a shutdown drains
 ├── taskiq/                   # Async task queue (broker, its app lifecycle, worker and scheduler entry points)
 ├── security/                 # Production security validator
 └── logging/                  # Centralized logging configuration

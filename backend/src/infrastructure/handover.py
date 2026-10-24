@@ -4,16 +4,16 @@ import asyncio
 from collections.abc import Coroutine
 from typing import Any
 
-from ..config.settings import get_settings
-from ..logging import get_logger
-from .constants import BROKER_CONNECT_SECONDS
+from .composition import Lifecycle
+from .config.settings import get_settings
+from .logging import get_logger
 
 logger = get_logger()
 
 settings = get_settings()
 
-DRAIN_SECONDS = BROKER_CONNECT_SECONDS + settings.EMAIL_SMTP_TIMEOUT_SECONDS
-"""How long a shutdown waits: what one delivery may legitimately take, queue and mail server."""
+DRAIN_SECONDS = settings.EMAIL_SMTP_TIMEOUT_SECONDS
+"""How long a shutdown waits by default: what one delivery to a mail server may take."""
 
 _handed_over: set[asyncio.Task[None]] = set()
 """What has been handed over and not finished, held so nothing collects a task mid-flight."""
@@ -56,3 +56,7 @@ async def drain(within: float = DRAIN_SECONDS) -> None:
     _, unfinished = await asyncio.wait(waiting_on, timeout=within)
     if unfinished:
         logger.error(f"Gave up on {len(unfinished)} handed-over message(s) after {within}s of shutdown")
+
+
+lifecycle = Lifecycle("handover", shutdown=(drain,))
+"""Drains at shutdown, for a project whose senders hand over without a queue to drain first."""

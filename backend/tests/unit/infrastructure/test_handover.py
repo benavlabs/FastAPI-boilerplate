@@ -6,7 +6,7 @@ import logging
 import anyio
 import pytest
 
-from src.infrastructure.taskiq.handover import drain, hand_over
+from src.infrastructure.handover import drain, hand_over
 
 pytestmark = pytest.mark.asyncio
 

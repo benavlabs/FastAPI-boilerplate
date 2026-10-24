@@ -165,6 +165,36 @@ class TestTheTaskModulesAProjectRegisters:
         assert not (project / "backend/src/modules/api_keys").exists()
 
 
+class TestTheSenderAProjectIsWiredTo:
+    """The request never waits for a mail server, queue or no queue."""
+
+    def test_a_project_with_a_worker_queues_the_message(self):
+        wired = drill._wiring_email({"accounts", "taskiq"})
+
+        assert "EMAIL_SENDER: EmailSender = queued_sender" in wired
+
+    def test_a_project_without_one_hands_the_delivery_over(self):
+        """crudauth awaits the sender, so a sender that returns is what keeps the answer quick."""
+        wired = drill._wiring_email({"accounts"})
+
+        assert "from ..infrastructure.email.senders import HandingOverSender" in wired
+        assert "EMAIL_SENDER: EmailSender = HandingOverSender(build_sender())" in wired
+
+    def test_a_project_without_one_drains_at_shutdown(self):
+        """What was handed over is mail somebody asked for, so a deploy waits for it."""
+        wired = drill._wiring_app({"accounts"})
+
+        assert "from ..infrastructure.handover import lifecycle as handover_lifecycle" in wired
+        assert "handover_lifecycle" in wired.split("LIFECYCLES")[1]
+
+    def test_a_project_with_a_worker_drains_before_it_closes_the_broker(self):
+        """The worker's own lifecycle drains, where a message may still be on its way out."""
+        wired = drill._wiring_app({"accounts", "taskiq"})
+
+        assert "handover_lifecycle" not in wired
+        assert "taskiq_lifecycle" in wired.split("LIFECYCLES")[1]
+
+
 GENERATED_FILES = (
     ("src/wiring/settings.py", "_wiring_settings"),
     ("src/wiring/app.py", "_wiring_app"),

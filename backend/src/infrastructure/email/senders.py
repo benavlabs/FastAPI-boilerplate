@@ -9,6 +9,7 @@ from email.message import EmailMessage
 from crudauth import EmailContext, EmailSender
 from crudauth.email.constants import EmailKind
 
+from ..handover import hand_over
 from ..logging import get_logger
 
 logger = get_logger()
@@ -70,3 +71,25 @@ class SmtpSender(EmailSender):
             if self.user:
                 server.login(self.user, self.password)
             server.send_message(message)
+
+
+class HandingOverSender(EmailSender):
+    """Hands the message to the sender it wraps, and answers without waiting for it.
+
+    Every account email is best-effort to the caller that asked for one: a failure is
+    logged and the answer is the same either way. None of it happens before the answer,
+    because a recovery route sends only where the address has an account: a route that
+    waited for the mail server on that path alone would say which addresses hold one by
+    how long it took. Handed over instead, both paths answer in the time it takes to make
+    a task. The shutdown waits for what was handed over.
+    """
+
+    def __init__(self, sender: EmailSender) -> None:
+        self._sender = sender
+
+    async def send(self, *, to: str, subject: str, body: str, kind: EmailKind, context: EmailContext) -> None:
+        """Hand one message over to be delivered, without waiting for the delivery."""
+        hand_over(
+            self._sender.send(to=to, subject=subject, body=body, kind=kind, context=context),
+            name=f"email:send:{kind}",
+        )

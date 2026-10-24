@@ -14,12 +14,12 @@ from taskiq.state import TaskiqState
 from testcontainers.core.container import DockerContainer
 from testcontainers.core.wait_strategies import LogMessageWaitStrategy
 
+from src.infrastructure import handover
 from src.infrastructure.app_factory import lifespan_factory
 from src.infrastructure.config.enums import TaskiqBrokerType
 from src.infrastructure.config.settings import settings
 from src.infrastructure.taskiq import brokers, lifecycle
 from src.infrastructure.taskiq.constants import BROKER_CONNECT_SECONDS, BROKER_RETRY_TASK_NAME
-from src.infrastructure.taskiq.handover import drain
 from src.infrastructure.taskiq.health import broker_is_reachable
 from src.infrastructure.taskiq.lifecycle import start_broker
 from src.wiring.app import LIFECYCLES
@@ -192,7 +192,13 @@ def test_the_shutdown_drains_what_was_handed_over_before_it_closes_the_broker():
     ``lifespan_factory`` runs a lifecycle's shutdowns in the order the tuple gives them,
     which ``test_app_factory`` pins.
     """
-    assert lifecycle.lifecycle.shutdown == (drain, lifecycle.stop_broker)
+    assert lifecycle.lifecycle.shutdown == (lifecycle.drain_what_was_handed_over, lifecycle.stop_broker)
+
+
+def test_this_shutdown_waits_for_the_queue_leg_as_well_as_the_delivery():
+    """A message handed over here may spend the broker's budget and then the mail server's."""
+    assert lifecycle.DRAIN_SECONDS > handover.DRAIN_SECONDS
+    assert lifecycle.DRAIN_SECONDS == BROKER_CONNECT_SECONDS + handover.DRAIN_SECONDS
 
 
 async def test_an_enqueue_while_the_app_runs_reaches_the_broker(rabbitmq_broker: AsyncBroker):

@@ -321,6 +321,9 @@ def _wiring_app(chosen: set[str]) -> str:
     if "taskiq" in chosen:
         imports.append("from ..infrastructure.taskiq.lifecycle import lifecycle as taskiq_lifecycle")
         lifecycles.append("taskiq_lifecycle")
+    elif "accounts" in chosen:
+        imports.append("from ..infrastructure.handover import lifecycle as handover_lifecycle")
+        lifecycles.append("handover_lifecycle")
     if "admin" in chosen:
         imports.append("from ..interfaces.admin.initialize import install as admin_install")
         installers.append("admin_install")
@@ -409,13 +412,20 @@ def _wiring_tasks(chosen: set[str]) -> str:
 
 
 def _wiring_email(chosen: set[str]) -> str:
-    """The sender the account emails go out through: queued where there is a worker."""
+    """The sender the account emails go out through: queued where there is a worker.
+
+    Either way the request does not wait for it: without a queue the message is handed
+    over to be delivered after the answer.
+    """
     if {"accounts", "taskiq"} <= chosen:
         source = "from ..infrastructure.taskiq.email import queued_sender"
         sender = "queued_sender"
     else:
-        source = "from ..infrastructure.email.factory import build_sender"
-        sender = "build_sender()"
+        source = (
+            "from ..infrastructure.email.factory import build_sender\n"
+            "from ..infrastructure.email.senders import HandingOverSender"
+        )
+        sender = "HandingOverSender(build_sender())"
 
     return (
         '"""The sender the account emails go out through."""\n\n'

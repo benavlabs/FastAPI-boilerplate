@@ -1,5 +1,6 @@
 """What each sender does with a message crudauth composed."""
 
+import asyncio
 import logging
 import ssl
 import warnings
@@ -8,9 +9,11 @@ from typing import Any
 import httpx
 import pytest
 from crudauth import EmailContext, EmailSender
+from crudauth.email.constants import EmailKind
 from testcontainers.mailpit import MailpitContainer
 
-from src.infrastructure.email.senders import ConsoleSender, SmtpSender
+from src.infrastructure.email.senders import ConsoleSender, HandingOverSender, SmtpSender
+from src.infrastructure.handover import drain
 from tests.conftest import is_docker_running
 
 RECIPIENT = "owner@example.com"
@@ -95,3 +98,55 @@ async def test_starttls_will_not_talk_to_a_server_it_cannot_verify(mailpit: Mail
     """The container's certificate is self-signed, which is what a stranger's looks like."""
     with pytest.raises(ssl.SSLCertVerificationError):
         await _send_the_reset_email(_smtp_sender(mailpit, starttls=True))
+
+
+class _GatedSender(EmailSender):
+    """Delivers only once it is let go, and records what it delivered."""
+
+    def __init__(self, failing: bool = False) -> None:
+        self.let_go = asyncio.Event()
+        self.delivered: list[str] = []
+        self._failing = failing
+
+    async def send(self, *, to: str, subject: str, body: str, kind: EmailKind, context: EmailContext) -> None:
+        """Wait to be let go, then deliver or fail."""
+        await self.let_go.wait()
+        if self._failing:
+            raise RuntimeError("the mail server said no")
+
+        self.delivered.append(to)
+
+
+class TestHandingTheDeliveryOver:
+    """A project with no queue still answers before the mail server does."""
+
+    async def test_the_caller_does_not_wait_for_the_delivery(self):
+        """A recovery route sends only where the address has an account, so waiting says so.
+
+        Under a timeout because a sender that waits for the delivery would never answer:
+        the gate below is what the delivery is waiting on.
+        """
+        gated = _GatedSender()
+
+        async with asyncio.timeout(5):
+            await _send_the_reset_email(HandingOverSender(gated))
+
+        assert gated.delivered == []
+
+        gated.let_go.set()
+        await drain()
+
+        assert gated.delivered == [RECIPIENT]
+
+    async def test_a_delivery_that_fails_is_logged_and_reaches_no_caller(self, caplog):
+        """Every account email is best-effort: the answer is the same either way."""
+        gated = _GatedSender(failing=True)
+        gated.let_go.set()
+
+        with caplog.at_level(logging.ERROR):
+            await _send_the_reset_email(HandingOverSender(gated))
+            await drain()
+
+        assert gated.delivered == []
+        assert [record.levelname for record in caplog.records] == ["ERROR"]
+        assert "email:send:reset_password" in caplog.records[0].getMessage()

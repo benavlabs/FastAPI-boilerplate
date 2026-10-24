@@ -8,10 +8,10 @@ from crudauth.email.constants import EmailKind
 from cryptography.fernet import InvalidToken
 
 from ..email.factory import build_sender
+from ..handover import hand_over
 from ..logging import get_logger
 from .brokers import default_broker
 from .constants import BROKER_CONNECT_SECONDS
-from .handover import hand_over
 from .sealing import seal, unseal
 
 logger = get_logger()

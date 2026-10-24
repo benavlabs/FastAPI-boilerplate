@@ -7,11 +7,17 @@ from contextlib import suppress
 from taskiq_aio_pika import AioPikaBroker
 
 from ..composition import Lifecycle
+from ..config.settings import get_settings
+from ..handover import drain
 from . import brokers
-from .constants import BROKER_RETRY_SECONDS, BROKER_RETRY_TASK_NAME
-from .handover import drain
+from .constants import BROKER_CONNECT_SECONDS, BROKER_RETRY_SECONDS, BROKER_RETRY_TASK_NAME
 
 logger = logging.getLogger(__name__)
+
+settings = get_settings()
+
+DRAIN_SECONDS = BROKER_CONNECT_SECONDS + settings.EMAIL_SMTP_TIMEOUT_SECONDS
+"""How long this shutdown waits: what one delivery may take, queue and mail server."""
 
 _retrying: asyncio.Task[None] | None = None
 
@@ -96,4 +102,9 @@ async def stop_broker() -> None:
     await brokers.default_broker.shutdown()
 
 
-lifecycle = Lifecycle("taskiq", startup=start_broker, shutdown=(drain, stop_broker))
+async def drain_what_was_handed_over() -> None:
+    """Wait for the messages on their way to the queue, for as long as that may take."""
+    await drain(DRAIN_SECONDS)
+
+
+lifecycle = Lifecycle("taskiq", startup=start_broker, shutdown=(drain_what_was_handed_over, stop_broker))

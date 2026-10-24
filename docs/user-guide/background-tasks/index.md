@@ -47,14 +47,17 @@ something that can never succeed, so whatever was waiting is a verification or r
 receives.
 
 Nothing of that happens before the answer. The sender hands the message to a task of its own
-(`infrastructure/taskiq/handover.py`) and returns, because a recovery route sends only where the
+(`infrastructure/handover.py`) and returns, because a recovery route sends only where the
 address has an account: a route that waited for the publish would answer slowly for an address that
 exists and quickly for one that does not, which is the one thing those routes are careful not to
 say. The shutdown drains what has been handed over before it closes the broker, so a deploy does
-not drop a message on its way to the queue. **This is the taskiq feature's doing.** Without it
-there is no handover: crudauth awaits the configured sender itself, so a recovery request for a
-registered address still takes the mail server's time while one for an unknown address returns at
-once.
+not drop a message on its way to the queue.
+
+**A project without this feature answers the same way.** The handover is core, and the sender such
+a project is wired to is wrapped in `HandingOverSender` (`infrastructure/email/senders.py`), which
+hands the delivery over rather than waiting for the mail server; `infrastructure/handover.py`
+contributes the lifecycle that drains it at shutdown, which is the taskiq lifecycle's job here. The
+budgets differ by what each may take: one delivery there, the queue leg on top of it with a worker.
 
 A broker that cannot be reached is the exception: the handover logs a warning and delivers the
 message itself, which keeps the mail, because an account email is best-effort to the caller and a

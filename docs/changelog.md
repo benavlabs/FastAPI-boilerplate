@@ -760,9 +760,15 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   so both paths answer in the time it takes to make one. The shutdown waits `DRAIN_SECONDS` for
   what was handed over before closing the broker, so a deploy does not drop a message on its way to
   the queue, and logs how many it gave up on where a mail server never answered. A delivery that
-  fails in the handover is logged too, where before it was swallowed by the caller. A project
-  **without** the taskiq feature is unchanged: crudauth awaits the configured sender in the
-  request, so a registered address still costs the mail server's time there.
+  fails in the handover is logged too, where before it was swallowed by the caller.
+- **A project without the taskiq feature hands the delivery over as well.** crudauth awaited the
+  configured sender in the request there, so a recovery request for a registered address still
+  cost the mail server's time while one for an unknown address answered at once. The sender it is
+  wired to is now wrapped in `HandingOverSender`, which hands the delivery to a task of its own and
+  returns, and the project carries a lifecycle that drains what was handed over at shutdown. The
+  handover itself moved out of the taskiq feature to `infrastructure/handover.py`, so a project
+  with no queue still has it; the two shutdowns wait for what each may take, one delivery here and
+  the queue leg on top of it with a worker.
 - **A confirmed email change now ends every session the account had.** `email/change-confirm` moved
   the address and left the sessions running, so whoever confirmed the change kept one the previous
   owner's password no longer reaches, and the notice to the old address was all that owner got. The

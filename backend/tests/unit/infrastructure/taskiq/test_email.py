@@ -16,10 +16,10 @@ from crudauth.email.constants import EmailKind
 from cryptography.fernet import Fernet
 from taskiq import InMemoryBroker
 
+from src.infrastructure.handover import drain
 from src.infrastructure.taskiq import email as taskiq_email
 from src.infrastructure.taskiq import sealing
 from src.infrastructure.taskiq.email import EMAIL_TASK_NAME, queued_sender, send_email
-from src.infrastructure.taskiq.handover import drain
 from src.infrastructure.taskiq.sealing import seal
 
 RECIPIENT = "owner@example.com"
