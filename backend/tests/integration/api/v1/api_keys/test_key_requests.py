@@ -5,6 +5,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
+from fastapi.routing import APIRoute
 from httpx import AsyncClient
 from sqlalchemy import JSON, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -25,13 +26,21 @@ SESSION_ONLY_ROUTES = [
     ("POST", "/api/v1/auth/email/change-request", {"email": "moved@example.com", "current_password": "Password123!"}),
     ("POST", "/api/v1/auth/logout", None),
     ("POST", "/api/v1/auth/logout-all", None),
-    ("GET", "/api/v1/api-keys/", None),
-    ("POST", "/api/v1/api-keys/", {"name": "Minted By A Key"}),
-    ("GET", "/api/v1/api-keys/summary/user", None),
     ("POST", "/api/v1/auth/csrf/refresh", None),
     ("GET", "/api/v1/auth/sessions", None),
     ("DELETE", "/api/v1/users/{username}", None),
 ]
+
+KEY_ROUTES = sorted(
+    (method, route.path)
+    for route in app.routes
+    if isinstance(route, APIRoute) and route.path.startswith("/api/v1/api-keys")
+    for method in route.methods - {"HEAD", "OPTIONS"}
+)
+"""Every route the key router mounts, read off the app so a route added later is covered too."""
+
+KEY_ROUTE_BODIES = {"POST": {"name": "Minted By A Key"}, "PATCH": {"name": "Renamed By A Key"}}
+"""What each method needs in the body to get past validation and reach the gate."""
 
 
 async def _mint(db_session: AsyncSession, user_id: int, *, held: frozenset[str] = frozenset(), **fields: Any) -> dict[str, Any]:
@@ -225,6 +234,32 @@ async def test_a_session_only_route_refuses_a_key(
     response = await client.request(method, path.format(**test_user), json=body, headers=_with(key))
 
     assert response.status_code == 401, response.text
+
+
+async def test_every_key_route_is_swept():
+    """The sweep below says nothing if the routes stop being read off the app."""
+    assert {method for method, _ in KEY_ROUTES} == {"GET", "POST", "PATCH", "DELETE"}
+    assert len(KEY_ROUTES) == 8
+
+
+@pytest.mark.parametrize(("method", "path"), KEY_ROUTES)
+async def test_no_key_route_answers_a_key(client: AsyncClient, key: dict[str, Any], method: str, path: str):
+    """A key may not mint, read, rescope or revoke a key, its own included."""
+    asked = path.format(key_id=key["id"])
+
+    response = await client.request(method, asked, json=KEY_ROUTE_BODIES.get(method), headers=_with(key))
+
+    assert response.status_code == 401, response.text
+
+
+@pytest.mark.parametrize(("method", "path"), KEY_ROUTES)
+async def test_every_key_route_answers_a_real_session(signed_in: AsyncClient, key: dict[str, Any], method: str, path: str):
+    """The control: the gate is the credential, not the route."""
+    asked = path.format(key_id=key["id"])
+
+    response = await signed_in.request(method, asked, json=KEY_ROUTE_BODIES.get(method))
+
+    assert response.status_code != 401, response.text
 
 
 @pytest.mark.parametrize(("method", "path", "body"), SESSION_ONLY_ROUTES)
