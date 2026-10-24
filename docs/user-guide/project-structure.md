@@ -28,12 +28,14 @@ backend/
 │   ├── env.py
 │   ├── script.py.mako
 │   └── versions/
-├── scripts/                  # One-off setup scripts
+├── scripts/                  # Setup and maintenance scripts
 │   ├── canonicalize_emails.py
 │   ├── cleanup_api_key_json.py
 │   ├── create_first_superuser.py
 │   ├── create_first_tier.py
 │   ├── create_tables.py
+│   ├── prune_key_usage.py    # The usage prune, for a project with no worker to schedule it
+│   ├── revoke_scrypt_api_keys.py
 │   ├── seeders.py            # The seeders the selected features contribute
 │   ├── setup_initial_data.py
 │   └── unlock_account.py
@@ -201,7 +203,8 @@ scripts/
 ├── cleanup_api_key_json.py   # One-off repair for legacy API key rows
 ├── canonicalize_emails.py    # One-off repair for addresses stored with case or spaces
 ├── unlock_account.py         # Clears the login lockout one account is held in
-└── revoke_scrypt_api_keys.py # Names the API keys still stored as scrypt, revokes them on request
+├── revoke_scrypt_api_keys.py # Names the API keys still stored as scrypt, revokes them on request
+└── prune_key_usage.py        # Deletes the API-key usage rows past KEY_USAGE_RETENTION_DAYS
 ```
 
 The most common entry point is `setup_initial_data` which calls all three.
