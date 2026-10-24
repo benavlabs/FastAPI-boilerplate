@@ -52,6 +52,9 @@ Powered by [SQLAdmin](https://github.com/smithyhq/sqladmin) - a flexible admin i
 ### Rate Limiting
 - **[Rate Limiting](rate-limiting/index.md)** - Protect your API from abuse with Redis-based rate limiting
 
+### Operations
+- **[Observability](observability.md)** - What the project emits, and putting Logfire or any OpenTelemetry collector in front of it
+
 ## Prerequisites
 
 Before diving into this guide, ensure you have:

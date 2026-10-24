@@ -117,21 +117,21 @@ For development on your host machine. You provide PostgreSQL and Redis yourself.
     uv sync --all-packages --all-extras
     ```
 
-    This syncs the whole workspace — backend, CLI, and dev tools — into one `.venv/` at the repo root. From here on, `uv run <cmd>` works from any subdirectory.
+    This syncs the whole workspace — backend, CLI, and dev tools — into one `.venv/` at the repo root. From here on, `uv run --no-sync <cmd>` works from any subdirectory; the flag skips uv's implicit sync, so a command starts immediately and leaves the environment and the lockfile alone. Re-running a plain `uv sync` without `--all-extras` is what removes ruff, mypy and pytest again.
 
 3. **Set up environment variables**:
 
     ```bash
     cp backend/.env.example backend/.env
     # Edit backend/.env: point POSTGRES_SERVER and CACHE_REDIS_HOST at localhost,
-    # set a strong SECRET_KEY (or run `uv run bp env gen-secret`), etc.
+    # set a strong SECRET_KEY (or run `uv run --no-sync bp env gen-secret`), etc.
     ```
 
     The CLI ships a few helpers for this step — see [CLI → Commands](../cli/commands.md):
 
     ```bash
-    uv run bp env gen-secret      # print a fresh SECRET_KEY
-    uv run bp env validate        # audit the .env against the production validator
+    uv run --no-sync bp env gen-secret      # print a fresh SECRET_KEY
+    uv run --no-sync bp env validate        # audit the .env against the production validator
     ```
 
 4. **Set up PostgreSQL** (if not already configured):
@@ -148,25 +148,25 @@ For development on your host machine. You provide PostgreSQL and Redis yourself.
 
     ```bash
     cd backend
-    uv run alembic upgrade head
+    uv run --no-sync alembic upgrade head
     ```
 
 6. **Create the initial admin user and tier**:
 
     ```bash
-    uv run python -m scripts.setup_initial_data
+    uv run --no-sync python -m scripts.setup_initial_data
     ```
 
 7. **Start the app**:
 
     ```bash
-    uv run fastapi dev src/interfaces/main.py
+    uv run --no-sync fastapi dev src/interfaces/main.py
     ```
 
 8. **(Optional) Start a Taskiq worker** (in a second terminal):
 
     ```bash
-    uv run taskiq worker infrastructure.taskiq.worker:default_broker
+    uv run --no-sync taskiq worker src.infrastructure.taskiq.worker:default_broker
     ```
 
 ## Method 3: Development Setup
@@ -192,7 +192,7 @@ For contributors and anyone modifying the boilerplate itself.
 3. **Set up pre-commit hooks** (from the repo root):
 
     ```bash
-    uv run --project backend pre-commit install
+    uv run --no-sync pre-commit install
     ```
 
 4. **Set up the environment**:
@@ -204,7 +204,7 @@ For contributors and anyone modifying the boilerplate itself.
 5. **Run the test suite to verify your setup**:
 
     ```bash
-    uv run pytest
+    cd backend && uv run --no-sync pytest
     ```
 
 ## Configuration
@@ -221,7 +221,7 @@ ENVIRONMENT=development
 POSTGRES_USER=postgres
 POSTGRES_PASSWORD=postgres
 POSTGRES_DB=postgres
-POSTGRES_SERVER=db        # use "localhost" without Docker
+POSTGRES_SERVER=postgres  # use "localhost" without Docker
 POSTGRES_PORT=5432
 
 # Cache (Redis)

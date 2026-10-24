@@ -157,17 +157,11 @@ async def test_delete_cascade_effects(
     """Test cascade effects of user deletion."""
     username = test_user["username"]
 
-    tier_response = await auth_client.get(f"/api/v1/users/{username}/tier")
-    assert tier_response.status_code == 200
-
-    rate_limits_response = await auth_client.get(f"/api/v1/users/{username}/rate-limits")
-    assert rate_limits_response.status_code == 200
+    profile = await auth_client.get(f"/api/v1/users/{username}")
+    assert profile.status_code == 200
 
     delete_response = await auth_client.delete(f"/api/v1/users/{username}")
     assert delete_response.status_code == 200
 
-    tier_response = await superuser_auth_client.get(f"/api/v1/users/{username}/tier")
-    assert tier_response.status_code == 404
-
-    rate_limits_response = await superuser_auth_client.get(f"/api/v1/users/{username}/rate-limits")
-    assert rate_limits_response.status_code == 404
+    gone = await superuser_auth_client.get(f"/api/v1/users/{username}")
+    assert gone.status_code == 404

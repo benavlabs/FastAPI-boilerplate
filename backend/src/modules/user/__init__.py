@@ -11,7 +11,6 @@ from .schemas import (
     UserDelete,
     UserRead,
     UserRestoreDeleted,
-    UserTierUpdate,
     UserUpdate,
     UserUpdateInternal,
 )
@@ -28,7 +27,6 @@ __all__ = [
     "UserDelete",
     "UserRead",
     "UserRestoreDeleted",
-    "UserTierUpdate",
     "UserUpdate",
     "UserUpdateInternal",
 ]

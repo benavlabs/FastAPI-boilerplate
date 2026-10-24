@@ -11,7 +11,7 @@ All under `/api/v1/users/` (defined in `modules/user/routes.py`):
 | `POST` | `/api/v1/users/` | Create a new user | Open |
 | `GET` | `/api/v1/users/` | Paginated list of users | Superuser |
 | `GET` | `/api/v1/users/me` | Current user's profile | Session |
-| `GET` | `/api/v1/users/{username}` | Public profile by username (no email) | Session |
+| `GET` | `/api/v1/users/{username}` | Public profile by username (display fields only) | Session |
 | `GET` | `/api/v1/users/active-and-inactive/{username}` | Same as above, includes soft-deleted | Superuser |
 | `PATCH` | `/api/v1/users/{username}` | Update profile (own or admin) | Session |
 | `DELETE` | `/api/v1/users/{username}` | Soft-delete a user (own or admin) | Session |
@@ -37,19 +37,38 @@ curl -X POST http://localhost:8000/api/v1/users/ \
   }'
 ```
 
+**Every accepted signup answers the same**: `201` with a fixed message and nothing of the account.
+An address that already has one is answered exactly like an address that was free, and the account
+holding it is sent a notice instead, so this route cannot be used to find out who is registered.
+A taken **username** still answers `409`, because a username is public: a profile URL reveals it,
+and a signup form has to be able to say so. The created profile is not in the answer either: an
+answer carrying it would say whether the address was free. Read it from
+`GET /api/v1/users/{username}` once signed in.
+
 The route delegates to `UserService.create`, which:
 
-1. Checks `email` is unique → raises `UserExistsError` if not (→ 409)
-2. Checks `username` is unique → raises `UserExistsError` if not (→ 409)
-3. Hashes the password with bcrypt via `get_password_hash`
+1. Hashes the password with bcrypt via `get_password_hash_async`, **before** either credential is
+   looked up. bcrypt is the slowest thing a signup does, so hashing only where the address was free
+   would tell a caller by the clock what the answer deliberately does not
+2. Checks `email` is unique → raises `EmailAlreadyRegisteredError` if not, which the route answers
+   with the fixed message, leaving the notice to the address owner to a background task so that
+   path waits on no mail server either. Addresses are stored trimmed and lowercased, and
+   `ix_user_email_lower` keeps the database from holding the same address twice in different case
+   even when a write goes around the service
+3. Checks `username` is unique → raises `UserExistsError` if not (→ 409)
 4. Builds a `UserCreateInternal` (schema with `hashed_password` instead of `password`)
-5. Persists via `crud_users.create`
+5. Persists via `crud_users.create`. Where a unique constraint refuses the row rather than the
+   checks above, two signups racing for one address or an address stored before it was
+   canonicalised, the index that refused it decides the answer: `ix_user_email` or
+   `ix_user_email_lower` gives the fixed message, `ix_user_username` gives `409`. The index is read
+   from the name asyncpg puts on the error, matched whole, so a later index whose name merely looks
+   like one of those is not mistaken for it
 
 ```python
 # modules/user/service.py
 async def create(self, user: UserCreate, db: AsyncSession) -> dict[str, Any]:
     if await crud_users.exists(db=db, email=user.email):
-        raise UserExistsError("Email already registered")
+        raise EmailAlreadyRegisteredError("Email already registered")
     if await crud_users.exists(db=db, username=user.username):
         raise UserExistsError("Username already taken")
 
@@ -57,7 +76,11 @@ async def create(self, user: UserCreate, db: AsyncSession) -> dict[str, Any]:
     payload["hashed_password"] = get_password_hash(payload.pop("password"))
     user_internal = UserCreateInternal(**payload)
 
-    return await crud_users.create(db=db, object=user_internal, schema_to_select=UserRead)
+    try:
+        return await crud_users.create(db=db, object=user_internal, schema_to_select=UserRead)
+    except IntegrityError as collision:
+        await db.rollback()
+        raise UserExistsError("Email or username already taken") from collision
 ```
 
 The `UserCreate` schema enforces input validation:
@@ -138,7 +161,7 @@ Returns 404 if not found or soft-deleted. The admin-only `/active-and-inactive/{
 
 ### Update Profile
 
-Users can always update their own profile. Updating someone else's needs superuser, or the `user.update` permission. Tier updates are gated on a separate endpoint (see [Permissions](permissions.md)).
+Users can update their own profile. A credential that carries a scope, an API key among them, needs `user.update` for that too, so a key minted for reading cannot rename the account behind it. Updating someone else's needs superuser, or the `user.update` permission. Tier updates are gated on a separate endpoint (see [Permissions](permissions.md)).
 
 ```bash
 curl -X PATCH http://localhost:8000/api/v1/users/johndoe \
@@ -157,8 +180,11 @@ async def verify_update_permission(
     requester_user: dict[str, Any],
     target_username: str,
     permissions: Collection[str],
+    *,
+    is_superuser: bool,
+    scoped: bool,
 ) -> None:
-    if self.is_self_or_superuser(requester_user, target_username):
+    if not scoped and self.is_self_or_superuser(requester_user, target_username, is_superuser=is_superuser):
         return
 
     if UserPermission.UPDATE.value in permissions:
@@ -167,14 +193,43 @@ async def verify_update_permission(
     raise PermissionDeniedError("You don't have permission to update profile on this user")
 ```
 
-A `user.update` holder who isn't a superuser is then held to `verify_no_privilege_escalation`: the target must not be a superuser, must hold no permission the requester lacks, and its email address can't be changed — a verified provider email is how an OAuth login is matched to an account, so only a superuser may change someone else's. See [Permissions](permissions.md#resource-ownership).
+A `user.update` holder who isn't a superuser is then held to `verify_no_privilege_escalation`: the target must not be a superuser and must hold no permission the requester lacks. See [Permissions](permissions.md#resource-ownership).
 
-If the body changes `username` or `email`, the service also re-checks uniqueness.
+If the body changes `username`, the service re-checks uniqueness.
 
-The `UserUpdate` schema makes every field optional so clients can send partial updates. The OAuth identifiers and the verification flag are not part of it — they live on `UserAdminUpdate`, which the admin panel uses, so sending them here returns 422:
+#### Changing your email address
+
+Not here: the address is not a field of this route, and sending one answers `422`. An account moves
+its address through the confirmed flow, which emails the **new** address a link and tells the **old**
+one once it is used:
+
+```bash
+curl -X POST http://localhost:8000/api/v1/auth/email/change-request \
+  -b cookies.txt \
+  -H "Content-Type: application/json" \
+  -H "X-CSRF-Token: <token>" \
+  -d '{"new_email": "new@example.com", "password": "<current password>"}'
+```
+
+Confirming ends every session the account had, the one that asked for the change included: the
+address is what recovers an account, and the confirmation is a link from the new mailbox, so there
+is no session to keep. The owner signs in again, as their new address.
+
+See [Recovery Flows](index.md#recovery-flows-email). The admin panel is the other way in: its form
+is built from `UserAdminUpdate`, which does carry `email` (along with the OAuth identifiers and the
+verification flag), so an administrator can correct an address without the owner confirming it.
+
+The `UserUpdate` schema makes every field optional so clients can send partial updates. The address,
+the OAuth identifiers and the verification flag are not part of it, so sending any of them returns
+422:
 
 ```python
-from .constants import NAME_MAX_LENGTH, USERNAME_MAX_LENGTH, USERNAME_PATTERN
+from .constants import (
+    NAME_MAX_LENGTH,
+    PROFILE_IMAGE_URL_MAX_LENGTH,
+    USERNAME_MAX_LENGTH,
+    USERNAME_PATTERN,
+)
 
 
 class UserUpdate(BaseModel):
@@ -185,12 +240,19 @@ class UserUpdate(BaseModel):
         str | None,
         Field(min_length=2, max_length=USERNAME_MAX_LENGTH, pattern=USERNAME_PATTERN, default=None),
     ]
-    email: Annotated[EmailStr | None, Field(default=None)]
     profile_image_url: Annotated[
         str | None,
-        Field(pattern=r"^(https?|ftp)://[^\s/$.?#].[^\s]*$", default=None),
+        Field(
+            max_length=PROFILE_IMAGE_URL_MAX_LENGTH,
+            pattern=r"^(https?|ftp)://[^\s/$.?#].[^\s]*$",
+            default=None,
+        ),
     ]
 ```
+
+The avatar is served to every signed-in account that reads the profile, so it is held to the
+length of a URL (2048). A picture an OAuth provider hands over is held to the same length and
+left out where it is longer, rather than written and served.
 
 ## Deletion
 
@@ -210,6 +272,9 @@ Permission rules:
 
 - A user can soft-delete their own account
 - A superuser can soft-delete anyone
+- The caller must be signed in to a session; an API key is refused
+- With `FRESH_SIGN_IN_SECONDS` set, the sign-in must be no older than that window; unset, nothing is
+  asked ([asking for a fresh sign-in](sessions.md#asking-for-a-fresh-sign-in))
 
 ### Hard Delete (database)
 
@@ -231,7 +296,7 @@ Service implementation:
 async def anonymize_user(self, user_id: int, db: AsyncSession) -> None:
     anonymize_data = UserAnonymize(
         name="[DELETED]",
-        username=f"del_{user_id}_{timestamp % 10000}",
+        username=f"deleted-{user_id}-{uuid.uuid4().hex[:12]}",
         hashed_password="DELETED_INVALID_HASH",
         profile_image_url="https://deleted.com/deleted.jpg",
         tier_id=None,
@@ -248,7 +313,28 @@ async def anonymize_user(self, user_id: int, db: AsyncSession) -> None:
     await crud_users.delete(db=db, id=user_id)
 ```
 
-Email is intentionally retained for legal compliance purposes (audit trail, "right to be forgotten" doesn't always apply if the platform is required to keep records).
+The hyphens in that name are outside `USERNAME_PATTERN`, which every signup and rename is held
+to, so nobody can take the name a deletion is about to need. A name that is held anyway, which
+takes a superuser writing one through the admin panel, is tried again with fresh hex up to
+`ANONYMIZATION_ATTEMPTS` times, and the deletion answers `500` rather than reporting a row it
+did not anonymize. Only a write the username index refused is named again; any other refusal is
+raised as it is, since no other name for it would help.
+
+Email is intentionally retained for legal compliance purposes (audit trail, "right to be
+forgotten" doesn't always apply if the platform is required to keep records).
+
+Keeping it also **retires the address**: the row holds it, soft-deleted, so
+
+- signing up with it again creates nothing and answers what every signup answers — the row still
+  owns the address, and `ix_user_email_lower` owns it case-insensitively;
+- a verification or password-reset request for it sends nothing and answers exactly as it does for
+  an address with no account, because the row is inactive (`is_active` is `not is_deleted`);
+- an OAuth sign-in with it is refused with `account_inactive` and links nothing, so a provider
+  account can't claim the retired row.
+
+Nobody inherits the address, and nothing can be delivered to it. If a person has to be able to
+sign up again with the same address, clear the row's `email` yourself as part of the request — at
+which point the anonymized row no longer records who it was.
 
 ## Administrative Operations
 
@@ -297,7 +383,8 @@ curl -X PATCH http://localhost:8000/api/v1/users/johndoe/tier \
   -d '{"tier_id": 2}'
 ```
 
-The service verifies the tier exists before assigning it.
+The service verifies the tier exists before assigning it. A `tier_id` outside `1..2147483647`
+answers `422`, since the column cannot hold it.
 
 ### View a User's Rate Limits
 
@@ -314,6 +401,9 @@ The actual model lives in `modules/user/models.py`. Trimmed:
 ```python
 class User(Base, TimestampMixin, SoftDeleteMixin):
     __tablename__ = "user"
+    __table_args__ = (
+        Index("ix_user_email_lower", text("lower(email)"), unique=True),
+    )
 
     id: Mapped[int] = mapped_column(
         "id", autoincrement=True, nullable=False,
@@ -324,7 +414,7 @@ class User(Base, TimestampMixin, SoftDeleteMixin):
     email: Mapped[str] = mapped_column(String(50), unique=True, index=True)
     hashed_password: Mapped[str] = mapped_column(String(100))
     profile_image_url: Mapped[str] = mapped_column(
-        String, default="https://profileimageurl.com",
+        String(2048), default="https://profileimageurl.com",
     )
 
     tier_id: Mapped[int | None] = mapped_column(

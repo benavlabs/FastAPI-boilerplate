@@ -12,7 +12,7 @@ backend/src/modules/
 ├── role/models.py          # Role, RolePermission, UserRole
 ├── tier/models.py          # Tier
 ├── rate_limit/models.py    # RateLimit
-└── api_keys/models.py      # APIKey, KeyUsage, KeyPermission
+└── api_keys/models.py      # APIKey, KeyUsage
 ```
 
 The shared base class and reusable mixins live in `backend/src/infrastructure/database/`:
@@ -61,20 +61,23 @@ class MyModel(Base, TimestampMixin, SoftDeleteMixin):
 
 ## Auto-Discovery for Alembic
 
-Each module's models are imported in `backend/src/modules/__init__.py`:
+Nothing lists the models by hand. `src/modules/__init__.py` imports nothing at all, and the two
+walkers find whatever is on disk:
 
 ```python
-from .api_keys.models import APIKey, KeyPermission, KeyUsage
-from .rate_limit.models import RateLimit
-from .role.models import Role, RolePermission, UserRole
-from .role.permission_registry import discover_permissions
-from .tier.models import Tier
-from .user.models import User
-
-discover_permissions()
+# backend/src/infrastructure/database/registry.py
+def import_models(package_name: str = MODELS_PACKAGE) -> None:
+    package = importlib.import_module(package_name)
+    for _, module_name, _ in pkgutil.walk_packages(package.__path__, package.__name__ + "."):
+        importlib.import_module(module_name)
 ```
 
-When you add a new module, **add its models here** so Alembic's `--autogenerate` sees them. The same import is what triggers `discover_permissions()`, which imports every module's `permissions.py` — see [Permissions](../authentication/permissions.md#role-based-permissions).
+`import_models()` registers every model on `Base.metadata`, which is what Alembic's
+`--autogenerate` and `scripts/create_tables.py` read. `discover_permissions()`, in
+`infrastructure/permissions.py`, walks the same packages for each module's `permissions.py` — see
+[Permissions](../authentication/permissions.md#role-based-permissions).
+
+A module you add is found by both as soon as its files exist; there is no registry to edit.
 
 ## Relationships
 
@@ -163,7 +166,7 @@ class User(Base, TimestampMixin, SoftDeleteMixin):
     email: Mapped[str] = mapped_column(String(50), unique=True, index=True)
     hashed_password: Mapped[str] = mapped_column(String(100))
     profile_image_url: Mapped[str] = mapped_column(
-        String, default="https://profileimageurl.com",
+        String(2048), default="https://profileimageurl.com",
     )
 
     # Tier (foreign key + relationship)
@@ -199,7 +202,7 @@ Key points:
 `modules/rate_limit/models.py` shows a no-relationship model with a foreign key:
 
 ```python
-from sqlalchemy import ForeignKey, Integer, String
+from sqlalchemy import ForeignKey, Index, Integer, String, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ...infrastructure.database import Base
@@ -218,9 +221,20 @@ class RateLimit(Base, TimestampMixin, SoftDeleteMixin):
     path: Mapped[str] = mapped_column(String, nullable=False)
     limit: Mapped[int] = mapped_column(Integer, nullable=False)
     period: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    __table_args__ = (
+        Index(
+            "uq_rate_limits_tier_path",
+            "tier_id",
+            "path",
+            unique=True,
+            postgresql_where=text("is_deleted = false"),
+        ),
+    )
 ```
 
 Each rate limit row says: "for tier X, requests to `path` are capped at `limit` per `period` seconds."
+The index is partial, so the one rule per tier and path is the one a soft delete has not taken out.
 
 ## Soft Deletion
 
@@ -244,9 +258,9 @@ await crud_users.get_multi(db=db, is_deleted=False)
 1. **Create the module folder** (if it doesn't exist): `mkdir -p backend/src/modules/widgets`
 2. **Define the model** in `modules/widgets/models.py`
 3. **Register it** in `modules/__init__.py` so Alembic sees it
-4. **Generate a migration**: `cd backend && uv run alembic revision --autogenerate -m "add widgets"`
+4. **Generate a migration**: `cd backend && uv run --no-sync alembic revision --autogenerate -m "add widgets"`
 5. **Review the migration** in `migrations/versions/...` (autogenerate isn't always perfect)
-6. **Apply**: `uv run alembic upgrade head`
+6. **Apply**: `uv run --no-sync alembic upgrade head`
 
 ### Example: a `Widget` model
 

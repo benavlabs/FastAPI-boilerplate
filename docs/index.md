@@ -84,10 +84,10 @@ Get up and running in less than 5 minutes. Pick whichever fits your workflow:
 
     ```bash
     git clone https://github.com/benavlabs/fastapi-boilerplate
-    cd fastapi-boilerplate/backend
-    uv sync --extra dev
-    cp .env.example .env  # then edit values as needed
-    uv run fastapi dev src/interfaces/main.py
+    cd fastapi-boilerplate
+    uv sync --all-packages --all-extras
+    cp backend/.env.example backend/.env  # then edit values as needed
+    cd backend && uv run --no-sync fastapi dev src/interfaces/main.py
     ```
 
 === "Docker Compose"

@@ -1,19 +1,29 @@
 import uuid
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, NoReturn
 
+from fastcrud import JoinConfig
 from fastcrud.types import GetMultiResponseDict
+from sqlalchemy import and_
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..common.collisions import refused_constraint
 from ..common.exceptions import (
-    PermissionDeniedError,
     PersistenceError,
-    RateLimitNotFoundError,
     ResourceExistsError,
-    TierNotFoundError,
 )
 from ..tier.crud import crud_tiers
+from ..tier.exceptions import TierNotFoundError
+from ..tier.models import Tier
+from ..tier.schemas import TierRead
+from ..user.crud import crud_users
+from ..user.exceptions import UserNotFoundError
+from ..user.models import User
+from ..user.schemas import UserRead
 from .crud import crud_rate_limits
+from .exceptions import RateLimitNotFoundError
+from .models import RateLimit
 from .schemas import (
     RateLimitCreate,
     RateLimitCreateInternal,
@@ -22,13 +32,16 @@ from .schemas import (
     RateLimitUpdateInternal,
 )
 
+TIER_FOREIGN_KEY = "fk_rate_limits_tier_id_tiers"
+"""The key a rule's tier holds up, which refuses a rule for a tier that is no longer there."""
+
 
 class RateLimitService:
     """Service class for rate limit-related operations."""
 
     async def create(self, rate_limit: RateLimitCreate, tier_id: int, db: AsyncSession) -> dict[str, Any]:
         """Create a new rate limit for a tier."""
-        tier_exists = await crud_tiers.exists(db=db, id=tier_id)
+        tier_exists = await crud_tiers.exists(db=db, id=tier_id, is_deleted=False)
         if not tier_exists:
             raise TierNotFoundError(f"Tier with ID {tier_id} not found")
 
@@ -42,8 +55,16 @@ class RateLimitService:
         if name_exists:
             raise ResourceExistsError(f"Rate limit with name '{rate_limit_dict['name']}' already exists")
 
+        if await self._path_is_limited(db, tier_id, rate_limit_dict["path"]):
+            raise ResourceExistsError(f"Tier with ID {tier_id} already limits '{rate_limit_dict['path']}'")
+
         rate_limit_internal = RateLimitCreateInternal(**rate_limit_dict, tier_id=tier_id)
-        created_rate_limit = await crud_rate_limits.create(db=db, object=rate_limit_internal, schema_to_select=RateLimitRead)
+        try:
+            created_rate_limit = await crud_rate_limits.create(
+                db=db, object=rate_limit_internal, schema_to_select=RateLimitRead
+            )
+        except IntegrityError as collision:
+            await self._refuse_a_row_that_landed_first(db, tier_id, collision)
 
         if not created_rate_limit:
             raise PersistenceError("Rate limit row was not returned after insert")
@@ -52,7 +73,7 @@ class RateLimitService:
     async def get_all(self, db: AsyncSession, skip: int = 0, limit: int = 100) -> GetMultiResponseDict:
         """Get all rate limits with pagination."""
         return await crud_rate_limits.get_multi(
-            db=db, offset=skip, limit=limit, schema_to_select=RateLimitRead, is_deleted=False
+            db=db, offset=skip, limit=limit, schema_to_select=RateLimitRead, is_deleted=False, sort_columns="id"
         )
 
     async def get_by_id(self, rate_limit_id: int, db: AsyncSession) -> dict[str, Any]:
@@ -98,9 +119,17 @@ class RateLimitService:
             if name_exists:
                 raise ResourceExistsError(f"Rate limit with name '{update_data['name']}' already exists")
 
+        path = update_data.get("path")
+        if path is not None and path != existing_rate_limit["path"]:
+            if await self._path_is_limited(db, existing_rate_limit["tier_id"], path):
+                raise ResourceExistsError(f"Tier with ID {existing_rate_limit['tier_id']} already limits '{path}'")
+
         internal_update = RateLimitUpdateInternal(**update_data, updated_at=datetime.now(UTC))
 
-        await crud_rate_limits.update(db=db, object=internal_update, name=name)
+        try:
+            await crud_rate_limits.update(db=db, object=internal_update, name=name)
+        except IntegrityError as collision:
+            await self._refuse_a_row_that_landed_first(db, existing_rate_limit["tier_id"], collision)
 
     async def delete(self, name: str, db: AsyncSession) -> None:
         """Permanently delete a rate limit by name."""
@@ -110,7 +139,89 @@ class RateLimitService:
 
         await crud_rate_limits.db_delete(db=db, name=name)
 
-    async def verify_superuser(self, user: dict[str, Any], action: str = "manage rate limits") -> None:
-        """Verify that the user is a superuser."""
-        if not user.get("is_superuser", False):
-            raise PermissionDeniedError(f"Only superusers can {action}")
+    async def get_for_user(self, user_id: int, db: AsyncSession) -> dict[str, Any]:
+        """Get rate limits for a user through their tier assignment.
+
+        Retrieves all rate limits applicable to a user based on their tier
+        assignment. Uses database joins for efficient data retrieval.
+
+        Args:
+            user_id: ID of the user to get rate limits for.
+            db: Database session for the operation.
+
+        Returns:
+            Dictionary containing user data with nested rate limits.
+
+        Raises:
+            UserNotFoundError: If the user doesn't exist.
+
+        Note:
+            Rate limits are inherited from the user's tier. Users without
+            tier assignments have no rate limits. Uses advanced joins to
+            efficiently retrieve related data.
+
+        Example:
+            ```python
+            user_limits = await service.get_rate_limits(123, db)
+            for limit in user_limits.get("rate_limits", []):
+                print(f"Rate limit: {limit['resource']} - {limit['limit']}")
+            ```
+        """
+        user = await crud_users.get(db=db, id=user_id, is_deleted=False, schema_to_select=UserRead)
+        if not user:
+            raise UserNotFoundError(f"User with ID {user_id} not found")
+
+        if user["tier_id"] is None:
+            user["rate_limits"] = []
+            return user
+
+        joins_config = [
+            JoinConfig(
+                model=Tier,
+                join_on=and_(User.tier_id == Tier.id, Tier.is_deleted.is_(False)),
+                join_prefix="tier_",
+                schema_to_select=TierRead,
+                join_type="left",
+            ),
+            JoinConfig(
+                model=RateLimit,
+                join_on=and_(Tier.id == RateLimit.tier_id, RateLimit.is_deleted.is_(False)),
+                join_prefix="rate_limits_",
+                schema_to_select=RateLimitRead,
+                join_type="left",
+                relationship_type="one-to-many",
+            ),
+        ]
+
+        result = await crud_users.get_joined(
+            db=db, schema_to_select=UserRead, joins_config=joins_config, nest_joins=True, id=user_id
+        )
+
+        if not result:
+            raise UserNotFoundError(f"User with ID {user_id} not found")
+
+        return result
+
+    @staticmethod
+    async def _path_is_limited(db: AsyncSession, tier_id: int, path: str) -> bool:
+        """Whether a live rate limit already applies to this path for this tier."""
+        return await crud_rate_limits.exists(db=db, tier_id=tier_id, path=path, is_deleted=False)
+
+    @staticmethod
+    async def _refuse_a_row_that_landed_first(db: AsyncSession, tier_id: int, collision: IntegrityError) -> NoReturn:
+        """Undo the write and answer for whichever constraint refused the row.
+
+        The tier is read and then referenced, so a tier deleted in between leaves the
+        foreign key to refuse the write: that is an answer about the tier, not a conflict
+        with another rule.
+
+        Raises:
+            TierNotFoundError: The foreign key refused the row, so the tier is gone.
+            ResourceExistsError: Otherwise; the name or the tier's limit for the path is taken.
+        """
+        await db.rollback()
+
+        if refused_constraint(collision) == TIER_FOREIGN_KEY:
+            raise TierNotFoundError(f"Tier with ID {tier_id} not found") from collision
+
+        raise ResourceExistsError("Another rate limit holds this name, or this tier's limit for the path") from collision

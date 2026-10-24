@@ -1,0 +1,258 @@
+"""The drill's own manifest: a selection has to pull in everything it needs.
+
+The drill lives outside the backend package, so it is loaded from its path rather
+than imported.
+"""
+
+import ast
+import importlib.util
+import shutil
+import sys
+from pathlib import Path
+
+import pytest
+
+BACKEND_ROOT = Path(__file__).resolve().parents[2]
+DRILL_PATH = BACKEND_ROOT.parent / "tools" / "removal_drill.py"
+
+_spec = importlib.util.spec_from_file_location("removal_drill", DRILL_PATH)
+assert _spec is not None and _spec.loader is not None
+drill = importlib.util.module_from_spec(_spec)
+sys.modules[_spec.name] = drill
+_spec.loader.exec_module(drill)
+
+
+def test_a_selection_pulls_in_what_its_features_need_all_the_way_down():
+    """tier_limits needs tiers and ratelimit, and both of those need accounts."""
+    assert drill._selected_from(("tier_limits",)) == {"tier_limits", "tiers", "ratelimit", "accounts"}
+
+
+@pytest.mark.parametrize("preset", sorted(drill.PRESETS))
+def test_every_preset_is_closed_under_its_requirements(preset: str):
+    chosen = drill._selected(preset)
+
+    for feature in chosen:
+        assert set(drill.REQUIRES.get(feature, ())) <= chosen, feature
+
+
+def test_every_feature_the_wiring_knows_is_in_the_manifest():
+    """A feature missing here would never be removed by any preset."""
+    assert set(drill.FEATURES) >= set(drill.REQUIRES)
+    assert set(drill.PRESETS["everything"]) == set(drill.FEATURES)
+
+
+class TestReportingACheck:
+    """A failing preset has to say what failed: the drill is the only place that output exists."""
+
+    def test_a_failing_check_prints_what_it_printed(self):
+        failed = drill.Result(
+            "tests",
+            False,
+            "1 failed, 664 passed",
+            "FAILED tests/integration/test_x.py::test_y - assert 2 == 1\n1 failed, 664 passed",
+        )
+
+        report = drill._report(failed)
+
+        assert "FAIL" in report
+        assert "tests/integration/test_x.py::test_y" in report
+
+    def test_a_long_failure_prints_its_end_and_says_what_it_dropped(self):
+        """A ``-q`` run is mostly progress dots; the failure sits at the end of it."""
+        printed = "\n".join(f"line {number}" for number in range(100))
+
+        report = drill._report(drill.Result("tests", False, "line 99", printed))
+
+        assert "line 99" in report
+        assert "line 0" not in report
+        assert "60 earlier lines" in report
+
+    def test_a_build_that_raises_leaves_its_scratch_copy_behind(self, monkeypatch, capsys):
+        """Whatever the build tripped over is only visible in the copy it got to."""
+
+        def failing_build(preset: str, scratch: Path) -> Path:
+            raise RuntimeError("copy failed")
+
+        monkeypatch.setattr(drill, "build", failing_build)
+        monkeypatch.setattr(sys, "argv", ["removal_drill.py", "core-only"])
+
+        with pytest.raises(RuntimeError, match="copy failed"):
+            drill.main()
+
+        printed = capsys.readouterr().out
+
+        assert "scratch copies left in" in printed
+
+        left = Path(printed.split("scratch copies left in ")[1].strip())
+
+        assert left.exists()
+        shutil.rmtree(left, ignore_errors=True)
+
+    def test_a_passing_check_prints_its_last_line_only(self):
+        passed = drill.Result("tests", True, "665 passed", "a long run of dots\n665 passed")
+
+        report = drill._report(passed)
+
+        assert report.strip() == "PASS  tests        665 passed"
+
+
+def test_a_scratch_project_never_carries_the_repository_env_file(tmp_path):
+    """It would point a build at whatever the developer runs locally."""
+    source = tmp_path / "source"
+    (source / "backend").mkdir(parents=True)
+    (source / ".git").mkdir()
+    (source / "backend" / ".env").write_text("POSTGRES_PASSWORD=the-developers-own\n")
+    (source / ".env").write_text("SECRET_KEY=the-developers-own\n")
+    (source / "backend" / ".env.example").write_text("POSTGRES_PASSWORD=postgres\n")
+    (source / ".git" / "HEAD").write_text("ref: refs/heads/main\n")
+
+    drill.copy_repository(source, tmp_path / "project")
+
+    copied = sorted(path.relative_to(tmp_path / "project").as_posix() for path in (tmp_path / "project").rglob("*"))
+
+    assert copied == ["backend", "backend/.env.example"]
+
+
+def test_a_scratch_project_is_built_from_the_repository(tmp_path):
+    """The copy above is the one ``build`` makes, so build it once for real."""
+    project = drill.build("core-only", tmp_path)
+
+    assert (project / "backend" / ".env.example").exists()
+    assert [path for path in project.rglob("*") if path.name == ".env"] == []
+
+
+def _features_on_disk() -> set[str]:
+    """The features this project still carries, read from the source paths they own."""
+    repository = BACKEND_ROOT.parent
+    present = set()
+    for name, feature in drill.FEATURES.items():
+        sources = [path for path in feature.paths if path.startswith("backend/src")]
+        if sources and all((repository / path).exists() for path in sources):
+            present.add(name)
+
+    return present
+
+
+def _needs(*features: str) -> None:
+    """Skip where this project no longer carries the sources a preset is built from."""
+    missing = sorted(set(features) - _features_on_disk())
+    if missing:
+        pytest.skip(f"this project carries no {', '.join(missing)} to build from")
+
+
+class TestTheTaskModulesAProjectRegisters:
+    """A task module imports the feature it belongs to and the broker it registers on."""
+
+    @pytest.mark.parametrize("chosen", [{"accounts", "api_keys"}, {"accounts", "taskiq"}, {"taskiq"}, set()])
+    def test_the_usage_prune_is_registered_by_neither_feature_alone(self, chosen: set[str]):
+        assert "src.modules.api_keys.tasks" not in drill._wiring_tasks(chosen)
+
+    def test_the_usage_prune_is_registered_where_both_features_are_present(self):
+        assert "src.modules.api_keys.tasks" in drill._wiring_tasks({"accounts", "api_keys", "taskiq"})
+
+    def test_a_project_with_the_keys_and_no_worker_has_no_task_module(self, tmp_path):
+        _needs("accounts", "api_keys")
+        project = drill.build("accounts-api-keys", tmp_path)
+
+        assert (project / "backend/src/modules/api_keys/service.py").exists()
+        assert not (project / "backend/src/modules/api_keys/tasks.py").exists()
+
+    def test_a_project_with_a_worker_and_no_keys_has_no_task_module(self, tmp_path):
+        _needs("accounts", "taskiq")
+        project = drill.build("accounts-cache-taskiq", tmp_path)
+
+        assert (project / "backend/src/infrastructure/taskiq/worker.py").exists()
+        assert not (project / "backend/src/modules/api_keys").exists()
+
+
+class TestTheSenderAProjectIsWiredTo:
+    """The request never waits for a mail server, queue or no queue."""
+
+    def test_a_project_with_a_worker_queues_the_message(self):
+        wired = drill._wiring_email({"accounts", "taskiq"})
+
+        assert "EMAIL_SENDER: EmailSender = queued_sender" in wired
+
+    def test_a_project_without_one_hands_the_delivery_over(self):
+        """crudauth awaits the sender, so a sender that returns is what keeps the answer quick."""
+        wired = drill._wiring_email({"accounts"})
+
+        assert "from ..infrastructure.email.senders import HandingOverSender" in wired
+        assert "EMAIL_SENDER: EmailSender = HandingOverSender(build_sender())" in wired
+
+    def test_a_project_without_one_drains_at_shutdown(self):
+        """What was handed over is mail somebody asked for, so a deploy waits for it."""
+        wired = drill._wiring_app({"accounts"})
+
+        assert "from ..infrastructure.handover import lifecycle as handover_lifecycle" in wired
+        assert "handover_lifecycle" in wired.split("LIFECYCLES")[1]
+
+    def test_a_project_with_a_worker_drains_before_it_closes_the_broker(self):
+        """The worker's own lifecycle drains, where a message may still be on its way out."""
+        wired = drill._wiring_app({"accounts", "taskiq"})
+
+        assert "handover_lifecycle" not in wired
+        assert "taskiq_lifecycle" in wired.split("LIFECYCLES")[1]
+
+
+GENERATED_FILES = (
+    ("src/wiring/settings.py", "_wiring_settings"),
+    ("src/wiring/app.py", "_wiring_app"),
+    ("src/wiring/hooks.py", "_wiring_hooks"),
+    ("src/wiring/email.py", "_wiring_email"),
+    ("src/wiring/tasks.py", "_wiring_tasks"),
+    ("src/wiring/tables.py", "_wiring_tables"),
+    ("src/wiring/transports.py", "_wiring_transports"),
+    ("src/wiring/cache.py", "_wiring_cache"),
+    ("src/wiring/models.py", "_wiring_models"),
+    ("src/wiring/admin.py", "_wiring_admin"),
+    ("scripts/seeders.py", "_seeders"),
+    ("tests/wiring.py", "_tests_wiring"),
+)
+
+
+def _without_formatting(source: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """A module's imports and statements, as trees: no docstring, no comments, no layout."""
+    body = ast.parse(source).body
+    if body and isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant):
+        body = body[1:]
+
+    imports = sorted(ast.dump(node) for node in body if isinstance(node, ast.Import | ast.ImportFrom))
+    statements = [ast.dump(node) for node in body if not isinstance(node, ast.Import | ast.ImportFrom)]
+
+    return tuple(imports), tuple(statements)
+
+
+def test_the_generator_rebuilds_what_this_project_committed():
+    """The drill proves a regenerated project reproduces this one, which needs them equal."""
+    present = _features_on_disk()
+
+    assert (BACKEND_ROOT / "src/wiring/admin.py").exists() == ("admin" in present)
+
+    for name, generator in GENERATED_FILES:
+        committed = BACKEND_ROOT / name
+        if name == "src/wiring/admin.py" and "admin" not in present:
+            continue
+
+        assert _without_formatting(getattr(drill, generator)(present)) == _without_formatting(committed.read_text()), name
+
+
+TRACING_RECIPE = BACKEND_ROOT.parent / "docs/user-guide/observability.md"
+"""The one guide that asks a reader to install something of their own on the app."""
+
+
+def test_a_rebuild_leaves_the_composition_root_as_it_is(tmp_path):
+    """That recipe wires its installer there, where no regeneration reaches it."""
+    project = drill.build("core-only", tmp_path)
+
+    rebuilt = project / "backend/src/interfaces/main.py"
+
+    assert rebuilt.read_text() == (BACKEND_ROOT / "src/interfaces/main.py").read_text()
+
+
+def test_the_tracing_recipe_wires_itself_outside_the_generated_wiring():
+    """Written into ``INSTALLERS`` instead, it would fail the comparison above."""
+    recipe = TRACING_RECIPE.read_text()
+
+    assert "installers=(*INSTALLERS, tracing_install)" in recipe
+    assert "INSTALLERS: tuple" not in recipe

@@ -94,43 +94,6 @@ class BackendNotFoundError(CacheException):
         super().__init__(self.message)
 
 
-class CacheIdentificationInferenceError(CacheException):
-    """Raised when a resource ID cannot be inferred from function arguments.
-
-    This exception occurs in cache decorators when the system cannot
-    automatically determine the cache key from the function's arguments.
-    This typically happens with complex argument structures or when
-    the expected ID parameter is missing.
-
-    Args:
-        message: Detailed error message about the identification inference failure.
-
-    Note:
-        This exception typically indicates:
-        - Function arguments don't contain expected ID fields
-        - Complex argument structures that can't be automatically parsed
-        - Missing or incorrectly named parameters
-        - Need for explicit cache key specification
-
-    Example:
-        ```python
-        @cache_decorator(ttl=3600)
-        async def get_user_profile(user_data: dict):
-            # This might fail if user_data doesn't contain 'id' field
-            return process_user_data(user_data)
-
-        # Solution: Use explicit cache key
-        @cache_decorator(ttl=3600, key="user:{user_id}")
-        async def get_user_profile(user_id: int, user_data: dict):
-            return process_user_data(user_data)
-        ```
-    """
-
-    def __init__(self, message: str = "Could not infer resource ID from function arguments."):
-        self.message = message
-        super().__init__(self.message)
-
-
 class InvalidRequestError(CacheException):
     """Raised when an invalid request configuration is detected.
 

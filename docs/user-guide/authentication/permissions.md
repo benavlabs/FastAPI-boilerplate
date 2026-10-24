@@ -12,11 +12,11 @@ The boilerplate ships five overlapping mechanisms. Pick the one(s) that fit your
 | **Superuser flag** | `User.is_superuser` boolean | Admin-only operations |
 | **Resource ownership** | Service-layer permission checks | "Users can only edit their own X" |
 | **Tier-based limits** | `Tier` model + `RateLimit` rules | Subscription gating, rate limits |
-| **API key permissions** | `KeyPermission` model (resource + action) | Programmatic access control |
+| **API key scope** | `APIKey.permissions`, a list of registry permission names | What a key is allowed to do, once a key can authenticate a request |
 
 These compose. A typical request goes through:
 
-1. **Authentication** — session cookie (or API key) identifies *who*
+1. **Authentication** — the session cookie, or an API key, identifies *who*
 2. **Coarse access** — role permissions, or the superuser flag, for privileged endpoints
 3. **Fine-grained access** — service-layer ownership / tier checks
 4. **Rate limiting** — tier-based per-route limits (separate concern)
@@ -45,7 +45,7 @@ Each module owns its permission names in its own `permissions.py`, as a `StrEnum
 # modules/user/permissions.py
 from enum import StrEnum
 
-from ..role.permission_registry import register_permissions
+from ...infrastructure.permissions import register_permissions
 
 
 @register_permissions("user")
@@ -60,7 +60,7 @@ Registration is validated: the resource must match `^[a-z][a-z0-9_]*$`, every me
 
 `discover_permissions()` walks `src.modules.*.permissions` and imports each one; `modules/__init__.py` calls it at import time, so a new `permissions.py` needs no registration elsewhere.
 
-The registry in `modules/role/permission_registry.py` is what the rest of the app reads:
+The registry in `infrastructure/permissions.py` is what the rest of the app reads:
 
 | Function | Returns |
 |----------|---------|
@@ -76,7 +76,7 @@ Unregistered names can't be stored: `RolePermission` validates `permission_name`
 
 ```python
 # modules/user/routes.py
-from ...infrastructure.auth.dependencies import require_permissions
+from ...infrastructure.auth.authorization import require_permissions
 
 
 @router.get(
@@ -99,10 +99,10 @@ Unknown names are a programming error, not a runtime one: `require_permissions` 
 
 ### Reading the Caller's Permissions
 
-When the handler itself has to decide, take the permission set instead of a guard. `CurrentPermissionsDep` (from `infrastructure/dependencies.py`) is `get_current_permissions` as an `Annotated` alias; FastAPI resolves it once per request, so several guards and parameters share one query:
+When the handler itself has to decide, take the permission set instead of a guard. `CurrentPermissionsDep` (from `infrastructure/auth/deps.py`) is `get_current_permissions` as an `Annotated` alias; FastAPI resolves it once per request, so several guards and parameters share one query:
 
 ```python
-from ...infrastructure.dependencies import CurrentPermissionsDep
+from ...infrastructure.auth.deps import CurrentPermissionsDep
 
 
 @router.patch("/{username}")
@@ -136,8 +136,103 @@ db.add(UserRole(user_id=user_id, role_id=role.id))
 await db.commit()
 ```
 
-!!! info "Not shipped yet"
-    Role and permission CRUD endpoints, admin-panel views for roles, and narrowing an API key to a subset of its owner's permissions are follow-up work. This change ships the models, the registry, and the route guards.
+## Managing Roles
+
+The rbac feature mounts a role API under `/api/v1/roles`. Every route is gated by its own
+`role.*` permission **and** by the delegation checks: a caller can neither grant a permission nor
+assign a role carrying one unless they hold it themselves. Superusers pass both.
+
+| Route | Permission | Also checked |
+|---|---|---|
+| `GET /api/v1/roles/` | `role.read` | — |
+| `GET /api/v1/roles/{role_id}` | `role.read` | — |
+| `POST /api/v1/roles/` | `role.create` | the caller holds every permission the new role carries |
+| `PATCH /api/v1/roles/{role_id}` | `role.update` | the caller holds everything the role carries |
+| `PUT /api/v1/roles/{role_id}/permissions` | `role.update` | the caller holds every permission the change adds **or removes**, **and** no live account holding the role is a superuser or holds anything the caller doesn't |
+| `DELETE /api/v1/roles/{role_id}` | `role.delete` | the caller holds everything the role carries, **and** no live account holding the role is a superuser or holds anything the caller doesn't |
+| `POST /api/v1/roles/{role_id}/users/{user_id}` | `role.assign` | the caller holds everything the role carries, **and** the account is not a superuser and holds nothing the caller doesn't |
+| `DELETE /api/v1/roles/{role_id}/users/{user_id}` | `role.assign` | the same |
+| `GET /api/v1/users/{user_id}/roles` | `role.read` | — |
+
+```bash
+# Create a role carrying permissions you hold
+curl -X POST http://localhost:8000/api/v1/roles/ -b cookies.txt \
+  -H "Content-Type: application/json" -H "X-CSRF-Token: <token>" \
+  -d '{"name": "editor", "description": "Edits profiles", "permissions": ["user.read", "user.update"]}'
+
+# Hand it to somebody
+curl -X POST http://localhost:8000/api/v1/roles/3/users/42 -b cookies.txt -H "X-CSRF-Token: <token>"
+```
+
+Only registered permission names are accepted: anything else answers `422`, and the refusal doesn't
+echo what was sent. A refused delegation answers `403` and writes nothing — including the reverse
+cases: emptying or relabelling a role whose permissions the caller doesn't hold, and changing the
+roles of an account stronger than the caller's own. That last rule is the one a `user.update` holder
+is already held to when editing an account, because changing which roles an account holds is
+another way to take it over, and emptying or deleting a role is held to it for every account that
+holds the role, since either one takes the role's permissions away from all of them at once. An
+account a soft delete has taken out is not one of those: its grants reach nobody, while its
+assignment rows stay behind.
+
+A stored name the registry no longer knows counts for nothing, and is not held against the caller
+either: a role carrying a name nothing declares any more can still be renamed, emptied and deleted
+by whoever holds the registered permissions it carries, and setting its permissions is what drops
+the stale name. Otherwise removing a feature would strand every role that carried one of its
+permissions, a superuser included.
+
+Two writes to one role queue rather than race. Every write path takes the role's row first
+(`SELECT … FOR UPDATE`): two requests assigning one role to one account both answer `201`, two
+replacing what it carries leave it carrying one of the two sets rather than both, and whichever
+arrives after the role was deleted answers `404`. An account a soft delete took out answers `404`
+as well, and one the admin panel deletes while an assignment is being written waits for it.
+
+The account the write is about is held too, since the stronger-account checks read what it holds.
+An assignment takes that row `FOR NO KEY UPDATE`, so a superuser handing the same account a role
+the caller cannot reach lands either side of the write rather than between its check and its own
+insert. Taking a role away, or replacing what it carries, is a change to every holder's grants, so
+those rows are held `FOR SHARE`: two of those run at once, while an assignment to one of the
+holders waits for them. The role's row is always taken before an account's, so the two orders
+never meet.
+
+What does wait is every write to an account's own row while a role write holds it: a profile edit,
+and the bookkeeping a sign-in writes there. Taking a role away holds the row of every account
+holding it until the delete commits. Both are the length of one role write, which reads a handful
+of rows and commits, and a row that only names the account — an API key, a usage row — waits for
+none of it.
+
+A `role_id` or a `user_id` outside `1..2147483647` answers `422`. No `Integer` column holds a value
+past that, so the lookup used to reach the database and fail there.
+
+A role name is unique, and the unique constraint has the last word: two requests racing for one name
+give the loser a `409`, not a `500`.
+
+## Reading the Permissions
+
+Two routes read them, both needing a session (the rbac feature mounts them):
+
+```bash
+# Every permission the running project has, grouped by the resource that declared it —
+# what a UI offers when it builds a role, since a role may carry nothing else.
+curl http://localhost:8000/api/v1/permissions -b cookies.txt
+# → {"permissions": {"api_key": ["api_key.read", ...], "role": ["role.read", ...], ...}}
+
+# What the caller holds, from every source the project wired.
+curl http://localhost:8000/api/v1/permissions/me -b cookies.txt
+# → {"permissions": ["user.update"]}
+```
+
+A superuser's own listing is every registered permission. A stored grant whose name is no longer
+registered appears in neither: the registry is what makes a name mean anything.
+
+RBAC here is **global roles**: a role means the same thing everywhere in the project, and there is
+no per-tenant or per-object scoping. A permission answers "may this account do this kind of thing",
+not "may it do this to that row" — ownership checks stay in the services.
+
+With the admin feature the panel carries the same three tables — see
+[Admin Panel](../admin-panel/index.md#whats-included). The panel signs in with the `ADMIN_*`
+credentials rather than as an account, and those already let it set `is_superuser` on anybody, so
+there is no weaker operator for the delegation checks above to hold back there. What the panel does
+enforce is that a grant names a permission the registry knows.
 
 ## Superuser Authorization
 
@@ -182,7 +277,7 @@ The first superuser is created by `scripts/setup_initial_data.py` from `ADMIN_*`
 
 ```bash
 cd backend
-uv run python -m scripts.setup_initial_data
+uv run --no-sync python -m scripts.setup_initial_data
 ```
 
 To grant superuser to an existing user, flip the column directly via the admin UI (`/admin`) or a one-off SQL update.
@@ -219,14 +314,17 @@ async def update_user_profile(
     username: str,
     values: UserUpdate,
     current_user: CurrentUserDep,
+    principal: CurrentPrincipalDep,
     permissions: CurrentPermissionsDep,
     db: AsyncSessionDep,
     user_service: UserServiceDep,
 ) -> dict[str, str]:
-    await user_service.verify_update_permission(current_user, username, permissions)
+    await user_service.verify_update_permission(
+        current_user, username, permissions, is_superuser=principal.is_superuser, scoped=carries_a_scope(principal)
+    )
     user = await user_service.get_by_username(username, db)
 
-    if not user_service.is_self_or_superuser(current_user, user["username"]):
+    if not user_service.is_self_or_superuser(current_user, user["username"], is_superuser=principal.is_superuser):
         target_permissions = await load_permissions(db, user["id"])
         user_service.verify_no_privilege_escalation(user, values, permissions, target_permissions)
 
@@ -236,7 +334,7 @@ async def update_user_profile(
 
 The rules this enforces:
 
-- A user may always edit their own profile.
+- A user may edit their own profile, and a credential that carries a scope needs `user.update` to edit that profile too.
 - A superuser may edit anyone.
 - A `user.update` holder may edit *another* user only when that user is not a superuser and holds no permission the requester lacks — editing an account is a way to take it over, so it can't reach a stronger one.
 - Only a superuser may change another user's email address: a verified provider email is how an OAuth login is matched to an existing account.
@@ -326,108 +424,70 @@ curl -X POST http://localhost:8000/api/v1/rate-limits/ \
   }'
 ```
 
-## API Key Permissions
+## API Key Scope
 
-For programmatic access, API keys carry their own per-key permission model. Each key can have multiple `KeyPermission` rows, where a permission is `(resource, action, allow/deny, optional conditions)`.
-
-### Permission Model
+A key's scope is a list of registry permission names — the same vocabulary a role carries and
+`require_permissions` gates on — stored on the key row:
 
 ```python
 # modules/api_keys/models.py
-class KeyPermission(Base, TimestampMixin):
-    __tablename__ = "key_permissions"
+class APIKey(Base, TimestampMixin):
+    __tablename__ = "api_keys"
 
-    api_key_id: Mapped[int] = mapped_column(ForeignKey("api_keys.id", ondelete="CASCADE"))
-    resource: Mapped[KeyPermissionResource] = mapped_column(index=True)
-    action: Mapped[KeyPermissionAction] = mapped_column(index=True)
-    conditions: Mapped[dict[str, Any] | None] = mapped_column(JSON, default=None)
-    is_allowed: Mapped[bool] = mapped_column(Boolean, default=True)
+    permissions: Mapped[list[str]] = mapped_column(JSON, insert_default=list)
 ```
 
-### Resources and Actions
-
-The `KeyPermissionResource` and `KeyPermissionAction` enums in `modules/api_keys/enums.py` define the shape of a permission row:
-
-```python
-class KeyPermissionResource(StrEnum):
-    USER_PROFILE = "user_profile"
-    ANALYTICS = "analytics"
-    ADMIN = "admin"
-    BILLING = "billing"
-    API_KEYS = "api_keys"
-    WILDCARD = "*"
-    # ... plus a few legacy values inherited from the upstream template
-
-
-class KeyPermissionAction(StrEnum):
-    READ = "read"
-    WRITE = "write"
-    DELETE = "delete"
-    CREATE = "create"
-    UPDATE = "update"
-    LIST = "list"
-    ADMIN = "admin"
-    WILDCARD = "*"
-```
-
-`*` is a wildcard — `(resource="*", action="*")` is full access; `(resource="user_profile", action="*")` is full access to the user_profile resource.
-
-!!! info "Customize the enums"
-    The enum values are starting points. Edit `modules/api_keys/enums.py` to match the resources and actions your API actually exposes. The default values include some leftovers from the upstream template (e.g. `conversations`, `credits`) — feel free to drop them.
-
-### Granting Permissions on a New Key
-
-Permissions are passed at creation time:
+Create and update validate every name against the registry, so a scope can only name a permission
+the project declares. An unregistered name answers `422` without echoing what was sent, and the
+names come back deduplicated and sorted. A key created without `permissions` is **unscoped**: it
+names its owner and carries no permission at all.
 
 ```bash
 curl -X POST http://localhost:8000/api/v1/api-keys/ \
   -b cookies.txt \
   -H "Content-Type: application/json" \
   -H "X-CSRF-Token: <token>" \
-  -d '{
-    "name": "Read-only analytics integration",
-    "permissions": {
-      "analytics": ["read", "list"],
-      "user_profile": ["read"]
-    },
-    "usage_limits": {}
-  }'
+  -d '{"name": "Read-only integration", "permissions": ["user.read"], "usage_limits": {"requests_per_day": 10000}}'
 ```
 
-The service translates the dict into `KeyPermission` rows.
+A stored name the registry no longer knows is read back as it is and counts for nothing, the same
+way a role's stale grant does. A scope stored in a shape that is not a list of names, the object an
+older version wrote, is not read back at all: the key answers `401` with a warning naming it, until
+`scripts/cleanup_api_key_json.py` rewrites the row.
 
-### Checking Permissions in a Route
+### What a key holds
 
-When a request comes in via API key, you can guard endpoints by required `(resource, action)`. The boilerplate doesn't ship a built-in `require_permission(...)` decorator — the API key flow is left flexible so you can wire it however suits your app:
+A key-authenticated request holds **its owner's permissions, narrowed to the key's scope**. The scope
+never grants: a permission the owner loses disappears from the key at the next request, and a key
+scoped to nothing holds nothing — it names its owner and that is all. `GET /api/v1/permissions/me`
+answers with the narrowed set, so a client can read exactly what its key can do.
 
-```python
-async def require_key_permission(
-    resource: KeyPermissionResource,
-    action: KeyPermissionAction,
-    db: AsyncSession,
-    api_key: dict[str, Any],
-) -> None:
-    has_permission = await crud_key_permissions.exists(
-        db=db,
-        api_key_id=api_key["id"],
-        resource=resource,
-        action=action,
-        is_allowed=True,
-    )
-    # also check wildcards
-    if not has_permission:
-        has_wildcard = await crud_key_permissions.exists(
-            db=db,
-            api_key_id=api_key["id"],
-            resource=KeyPermissionResource.WILDCARD,
-            action=KeyPermissionAction.WILDCARD,
-            is_allowed=True,
-        )
-        if not has_wildcard:
-            raise PermissionDeniedError(f"API key lacks {resource}:{action}")
-```
+A key's scope may name only permissions its creator holds at the time: `POST /api/v1/api-keys/` and
+a `PATCH` that widens one answer `403` otherwise, so a key can never be minted stronger than the
+credential minting it.
 
-How API keys are authenticated (parsing the header, looking up the row, checking the status) is up to you — `KeyStatus` defines the lifecycle (`ACTIVE`, `INACTIVE`, `SUSPENDED`, `EXPIRED`, `REVOKED`).
+!!! warning "A key is never a superuser"
+    `is_superuser` grants what no scope can name — it bypasses the ownership checks in the services,
+    not just permission gates — so a credential carrying a scope is held to that scope whatever the
+    account is marked. A superuser's key scoped to `["user.read"]` holds `user.read`, passes a route
+    gated on it, and is refused by `require_permissions("role.read")` and by every superuser-only
+    route. The superuser's own session is unaffected.
+
+    This holds everywhere the flag was read: the delegation checks behind the role routes compare
+    against what the *credential* holds, so a superuser's key scoped to `role.assign` cannot assign
+    a role carrying anything its scope lacks; and editing another account, or reading its tier or
+    rate limits, goes by the acting credential's flag rather than the account's row.
+
+    Ownership is a separate axis: a scope narrows permissions, not what an account owns. It is no
+    licence on its own, though. Editing a profile takes `user.update` of a scoped credential even
+    where the profile is its owner's, so a key minted for reading cannot rename the account behind
+    it. The other self-service routes, the password, the address, closing the account and managing
+    keys, take a session and refuse a key outright
+    ([API keys](api-keys.md#what-a-key-cannot-do)).
+
+A key's lifecycle is `is_active` and `expires_at`: revoking is one way, and an expiry can be
+brought forward but never pushed back. [API Keys](api-keys.md#revoking-expiring-and-rotating) has
+the routes.
 
 ## Combining Patterns
 
@@ -441,17 +501,11 @@ async def delete_widget(
     db: Annotated[AsyncSession, Depends(async_session)],
     widget_service: Annotated[WidgetService, Depends(get_widget_service)],
 ) -> None:
-    try:
-        # Service handles:
-        #   2. Existence check
-        #   3. Ownership check (superuser bypass)
-        #   4. Tier feature gate (e.g. "delete requires Pro tier")
-        await widget_service.delete(widget_id, current_user, db)
-    except Exception as e:
-        http_exc = handle_exception(e)
-        if http_exc:
-            raise http_exc
-        raise HTTPException(status_code=500, detail="An unexpected error occurred")
+    # The service handles:
+    #   2. Existence check
+    #   3. Ownership check (superuser bypass)
+    #   4. Tier feature gate (e.g. "delete requires Pro tier")
+    await widget_service.delete(widget_id, current_user, db)
 ```
 
 The route stays trivial. Authorization rules accumulate in the service, where they're testable and reusable.

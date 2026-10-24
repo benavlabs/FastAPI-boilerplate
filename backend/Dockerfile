@@ -26,14 +26,8 @@ FROM python:3.11-slim AS base
 
 WORKDIR /app
 
-# Install uv for fast, secure package installation  
+# Install uv for fast, secure package installation
 COPY --from=ghcr.io/astral-sh/uv:0.9.9 /uv /usr/local/bin/uv
-
-# Install system dependencies needed for Python packages
-RUN apt-get update && apt-get install -y \
-    gcc \
-    && rm -rf /var/lib/apt/lists/* \
-    && apt-get clean
 
 # Copy and install production requirements with uv (fast + hash verification)
 COPY --from=requirements-stage /tmp/requirements-prod.txt .
@@ -41,11 +35,15 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install --system -r requirements-prod.txt && \
     rm requirements-prod.txt
 
-# Copy source code
+# Copy source code, with the migrations and their configuration the readiness check reads,
+# and the scripts an upgrade runs inside the container
 COPY backend/src ./src
+COPY backend/migrations ./migrations
+COPY backend/alembic.ini .
+COPY backend/scripts ./scripts
 
 # Set Python path
-ENV PYTHONPATH=/app/src
+ENV PYTHONPATH=/app:/app/src
 
 # ===================== Development Stage =====================
 FROM base AS dev
@@ -75,21 +73,12 @@ CMD ["fastapi", "dev", "interfaces/main.py", "--host", "0.0.0.0", "--port", "800
 # ===================== Migration Stage =====================
 FROM base AS migrate
 
-# Optional build arg for CI/CD pipelines
-ARG DATABASE_URL=""
-
-# Copy migration files
-COPY backend/migrations ./migrations
-COPY backend/alembic.ini .
-
 # Create non-root user for security
 RUN groupadd -r appuser && useradd -r -m -g appuser appuser
 RUN chown -R appuser:appuser /app
 USER appuser
 
-# Set build-time DATABASE_URL as environment variable if provided
-ENV DATABASE_URL=${DATABASE_URL}
-
+# The database URL is supplied when the container runs, never baked into the image
 # Default command runs migrations
 CMD ["alembic", "upgrade", "head"]
 
@@ -105,4 +94,4 @@ USER appuser
 
 # Production command with FastAPI CLI and configurable workers
 ENV WORKERS=1
-CMD ["sh", "-c", "fastapi run interfaces/main.py --host 0.0.0.0 --port 8000 --workers $WORKERS"] 
+CMD ["sh", "-c", "fastapi run interfaces/main.py --host 0.0.0.0 --port 8000 --workers $WORKERS"]

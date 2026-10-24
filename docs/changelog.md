@@ -8,6 +8,1153 @@ For the full narrative on each release — rationale, decisions, migration guide
 
 ___
 
+## Unreleased - Composable Features
+
+Every feature in the boilerplate can now be removed: its routes, models, settings, admin views,
+seeders and tests come out together, and the project still imports, lints, type-checks and passes
+the remaining tests. `tools/removal_drill.py` proves it for nine presets, and CI runs them as a
+matrix. The round that followed fixed what a re-review of the refactor found.
+
+---
+
+#### Added
+
+- **crudauth's account routes**, mounted under `/api/v1/auth`: `POST /change-password` (verifies the
+  current password, then revokes the account's other sessions) and `GET /me`. `set-password` is
+  deliberately not mounted, so an account that signs in with a provider still has no password.
+- **`src/wiring/`, the composition root.** `app.py`, `settings.py`, `hooks.py`, `models.py` and
+  `admin.py` list what this project selected; `backend/scripts/seeders.py` and
+  `backend/tests/wiring.py` do the same for seeders and fixtures. See
+  [Composable Features](user-guide/composable-features.md).
+- **Contribution shapes** in `infrastructure/composition.py`: `RouterMount`, `Lifecycle`,
+  `PermissionSource`, `RateLimitResolver`, `TierDeleteGuard`, `TierDeleteRelease`, `ReadinessCheck`.
+- **`tools/removal_drill.py`** — builds the repository without each feature and runs six checks
+  (the app imports, every module imports, ruff, mypy, tests, and a migration baseline that applies
+  to an empty database) per preset.
+- **`scripts/cleanup_api_key_json.py`** — a one-off repair for API key rows holding what no code can
+  read: a `permissions` value that isn't a list of names (a JSON null, or the object an older
+  version stored) becomes an empty scope, and a `usage_limits` value keeps the windows the limiter
+  counts and loses the rest.
+- **A test over the documentation's code samples** — `tests/unit/test_docs_imports.py` resolves
+  every `from src…` and relative import in a `python` block under `docs/` against `backend/src`
+  and fails on a name that isn't there, so a sample that can't be pasted into a project fails the
+  suite.
+- **`GET /health/ready`** — answers `503` while a dependency the project selected is unreachable:
+  the database, and the cache, the login lockout's Redis, the session store and the task broker for
+  the features it has. Checks run together, each with a two-second timeout; the report is reused for
+  a couple of seconds, and two checks pointed at one server are asked once. `GET /health` stays a
+  liveness probe that touches nothing.
+- **Retries for background tasks.** The worker loads Taskiq's `SimpleRetryMiddleware`, so a task
+  labelled `retry_on_error=True` is retried; `TASKIQ_DEFAULT_RETRY_COUNT` (default 3) is how many
+  times it runs in all, the first attempt included, and `0` turns retries off. A task that doesn't
+  ask for retries still runs once.
+- **A scheduler for background tasks**, as its own entry point:
+  `taskiq scheduler src.infrastructure.taskiq.scheduler:scheduler` runs the schedules tasks declare
+  in a `schedule` label, over Taskiq's `LabelScheduleSource` and the broker and task imports
+  `worker.py` already set up. `bp deploy generate` writes a `scheduler` service next to the worker —
+  and writes neither for a project without the taskiq feature. Exactly one scheduler may run: each
+  one fires every schedule it finds.
+- **The removal drill migrates.** Every preset now autogenerates its baseline against the models the
+  project kept and applies it to an empty database, so a feature that can be removed stays one
+  Alembic can describe.
+- **crudauth 0.8.2.** The account routes come from it. 0.8 keeps every session id and CSRF token
+  under an HMAC of its value keyed with `SECRET_KEY`, so read access to the session store yields
+  nothing that can sign in, and ends the session a browser presented when that browser signs in
+  again — a copied cookie dies at the account's next login. See Breaking Changes. The release also
+  carries the fixes the email flows and OAuth need: an inactive account is sent no recovery mail and
+  its outstanding links are refused (0.7.5), an OAuth sign-in refuses an inactive account before
+  linking or claiming it (0.7.4), and `repo.gated_register_fields()` names the privileged fields an
+  app's own signup schema must not offer (0.7.2) — a test holds this project's `UserCreate` to that.
+- **The `@cache` key covers the query string and the caller.** A cached response used to be keyed
+  by `prefix:resource_id` alone, so two pages of one listing shared an entry and an authenticated
+  route could serve one caller's response to another. The key is now
+  `prefix[:resource_id][:q=sorted query][:u=caller]`; a route whose response is the same for
+  everybody opts out with `per_caller=False`, and one that keeps the default but resolves no caller
+  is not cached at all. An empty answer (`[]`, `{}`, `""`) is now stored and served instead of
+  reading as a miss, and a write invalidates the entry for its resource rather than one keyed by its
+  own query string, and a cache it cannot reach is logged and stepped over instead of answering
+  `500`. `GET /api/v1/rate-limits/` ships cached, with its writes clearing every page; it takes the
+  decorator from `wiring/cache.py`, which hands a project without the cache feature one that caches
+  nothing.
+- **A role management API** under `/api/v1/roles`, with the rbac feature: list, read, create,
+  rename and delete roles, replace what a role carries, and assign or unassign it. Each route is
+  gated by its own `role.*` permission and runs the delegation checks, so a caller can neither grant
+  a permission nor assign a role carrying one that they don't hold themselves — including emptying or
+  relabelling a role stronger than they are, or changing the roles of an account that is a superuser
+  or holds something they don't, which is the rule a `user.update` holder is already held to. A refused delegation answers `403` and writes nothing; an unregistered
+  permission name answers `422` without echoing it. `GET /api/v1/users/{user_id}/roles` reads an
+  account's roles.
+- **An API-keys guide**, [API Keys](user-guide/authentication/api-keys.md): creating and scoping a
+  key, calling with `X-API-Key`, what a key holds and what it cannot do, the usage limits and the
+  rows every request writes, revoking and rotating, how a key is stored and why that storage is a
+  plain digest, and how to declare the header in the OpenAPI document if a project wants it in
+  `/docs`. The authentication overview keeps the two commands and points at it.
+- **Usage limits on an API key, enforced per key.** `usage_limits` takes a request count per
+  window — `requests_per_minute`, `requests_per_hour`, `requests_per_day` — counted per key id
+  through the limiter behind the login lockout, so several workers share one count on a shared
+  `RATE_LIMITER_BACKEND`. A filled window answers `429` with `Retry-After` from the transport, which
+  covers every route a key can reach rather than only the throttled ones, and counting fails open so
+  an unreachable limiter can't take the API down. A key with no limits is not counted.
+- **A usage row per key-authenticated request.** One `KeyUsage` row carrying the path, the method,
+  the status the client actually got, the elapsed milliseconds, the address and the user agent,
+  written as a background task after the response so no request waits for it. Refusals are recorded
+  too — the `429`s from a key's own limit, and the `500`s from a route that raised; a session
+  request records nothing. The api_keys feature contributes the middleware through the wiring's
+  installers, so a project without the feature records nothing and has no middleware.
+- **`last_used_ip` beside `last_used_at`**, both stamped by that same background task rather than
+  while the request is being authenticated, which now writes nothing at all. They carry the address
+  the trusted-proxy boundary resolved, as the login lockout does, so the key and its usage rows name
+  the client and not the proxy in front of it.
+- **A key holds its owner's permissions, narrowed to its scope.** A key-authenticated request holds
+  what its owner holds — every `PermissionSource`, and for a superuser every registered permission —
+  intersected with the key's own scope, so the scope only ever narrows: a permission the owner loses
+  disappears from the key, and a key scoped to nothing holds nothing beyond identity.
+  `GET /api/v1/permissions/me` reports the narrowed set. A credential carrying a scope is never a
+  superuser, because the flag grants what no scope can name: the transport cancels it on the
+  principal and records the account's flag in the credential's metadata, where only the narrowing
+  reads it. So every consumer gets it right without remembering — `require_permissions`, the
+  superuser-only routes, the delegation checks behind the role routes (which now compare against
+  what the credential holds rather than reloading the owner's grants), and the ownership checks
+  behind editing an account or reading its tier and rate limits.
+- **A key's scope may name only permissions its creator holds.** `POST /api/v1/api-keys/`, and a
+  `PATCH` that widens a scope, answer `403` when the scope names something the calling session
+  doesn't hold, and write nothing. An unscoped key needs no permission at all.
+- **A device list.** `GET /api/v1/auth/sessions` reports every session an account holds — device, IP,
+  when it signed in, when it was last active, and which one is the caller's — and
+  `DELETE /api/v1/auth/sessions/{handle}` signs one of them out. Both come from crudauth's
+  session-management router, both take a session principal and nothing else, and a session is named
+  by its handle rather than its id, so the listing is safe to render. A handle belonging to another
+  account answers `404`.
+- **`SESSION_BACKEND=database` and `RATE_LIMITER_BACKEND=database`**, which keep sessions, CSRF
+  tokens, the one-time tokens behind the email flows, the OAuth state and the rate-limit counters in
+  two tables of the project's own database — `crudauth_store` and `crudauth_counters` — so several
+  workers share them with no Redis to run. The counters matter as much as the sessions: with
+  `memory`, each of N workers counts login failures on its own and an attacker gets N times the
+  attempts. Either setting on its own builds the store, and each keeps its own backend, so sessions
+  on Redis with counters in the database is a valid pair. The tables are declared on the project's
+  `Base.metadata`, so `CREATE_TABLES_ON_STARTUP` creates them and `alembic revision --autogenerate`
+  writes them beside the project's own; selecting the backend is a schema change and wants one
+  migration.
+- **`SESSION_ABSOLUTE_TIMEOUT_HOURS`**, the most a session may live from sign-in however active it
+  stays, for a project that wants a periodic re-login. Unset by default, so the idle
+  `SESSION_TIMEOUT_MINUTES` stays the only timeout; a value below one hour is refused when the app
+  starts. A session past the cap is removed and its next request answers `401`.
+- **An `X-API-Key` transport**, with the api_keys feature: a request carrying a valid key is
+  authenticated as the key's owner, with `transport="apikey"` on the principal, no CSRF token
+  required and no cookie in the answer. A key that is unknown, malformed, revoked, expired or whose
+  owner a soft delete has taken out answers `401` — on a route that answers anonymous callers too,
+  since a credential that is present and wrong is not an absent one. The session transport is tried
+  first, so a request carrying both is its session. `src/wiring/transports.py` registers it, so a
+  project without the feature has no second transport, and the drill generates that file.
+- **Session-only routes.** `POST /api/v1/auth/change-password`, `POST /api/v1/auth/email/change-request`,
+  `POST /api/v1/auth/logout`, `POST /api/v1/auth/logout-all` and every `/api/v1/api-keys/` route take
+  a session principal and nothing else, so a key can neither escalate through them nor manage keys.
+  `DELETE /api/v1/users/{username}` takes one too, so a key cannot close the account that issued it.
+  `POST /api/v1/auth/refresh-csrf` already read the cookie directly, so a key has never reached it. A
+  password change still revokes only sessions: a key carries no password, and is revoked on its own.
+- **Admin-panel views for the RBAC tables**, with rbac **and** admin: roles, the grants that make
+  them up, and who holds them. The role listing shows the permissions each role carries, the grant
+  form offers only names the registry knows, and the holder listing, its count and its account
+  picker leave out accounts a soft delete has taken out. The panel signs in with the `ADMIN_*`
+  credentials, which already set `is_superuser` on anybody, so the API's delegation checks have no
+  weaker operator to hold back there.
+- **`GET /api/v1/permissions`** lists every registered permission grouped by resource, and
+  **`GET /api/v1/permissions/me`** lists what the caller effectively holds — from every
+  `PermissionSource` the project wired, every registered permission for a superuser, and never a
+  grant whose name the registry no longer knows. Both come with the rbac feature.
+- **GitHub sign-in**, beside Google. A provider is wired when both of its settings are set
+  (`OAUTH_GITHUB_CLIENT_ID` / `OAUTH_GITHUB_CLIENT_SECRET`), so a project can run either, both or
+  neither, and the settings that used to be read by nothing now wire up the routes. An address
+  GitHub has not verified is refused with `?error=email_unverified` and creates no account.
+- **A provider-only account can set its first password** through the reset link, which proves the
+  address first; `POST /set-password` stays unmounted, since a borrowed session must not be able to
+  put a password on such an account.
+- **The account recovery flows**, mounted from crudauth under `/api/v1/auth`: email verification
+  (`email/verify-request`, `email/verify-confirm`), password reset
+  (`password/reset-request`, `password/reset-confirm`) and a confirmed email change
+  (`email/change-request`, `email/change-confirm`). The request routes answer the same for an
+  address with no account, a token is single-use, a completed reset ends every session the account
+  had, a confirmed change notifies the old address, and an inactive account — a soft-deleted one
+  included — is sent nothing and has its outstanding links refused. `FRONTEND_URL` is where the
+  links point (your own pages, which POST the token to the matching confirm route); production
+  refuses an empty or `localhost` value.
+- **A sender for the account emails.** `EMAIL_BACKEND` picks it: `console` logs each message with
+  its link and sends nothing (the default, so a fresh project needs no mail server), `smtp` delivers
+  over `EMAIL_SMTP_*` with the server's certificate verified. With the taskiq feature present the
+  wiring hands delivery to the `email:send` task, so no request waits on the mail server; without it
+  the request sends directly. `EMAIL_BACKEND=smtp` without `EMAIL_SMTP_HOST` is refused when the app
+  starts, on either path, and production refuses `console`: it would log working reset links.
+- **`FORWARDED_ALLOW_IPS`** is now documented, and the generated nginx stack puts the containers on
+  a fixed subnet and trusts forwarded headers only from it
+  (`bp deploy generate nginx --internal-subnet …`).
+- **`LOG_FORMAT`** now decides the formatter, with each environment's format as the default.
+
+#### Changed
+
+- **The admin panel's login lockout has a key space of its own.** It counted failures on the API
+  login's policy, against the identifier `admin-panel:<address>`, and crudauth keys that half of
+  the lockout on whatever string arrives as a username: seven `POST /api/v1/auth/login` calls with
+  `username=admin-panel:<address>` locked the real operator at that address out of the panel, with
+  the correct password. Behind a wrong `TRUSTED_PROXY_HOPS`, where every admin shares the proxy's
+  address, one caller locked all of them out. The panel now counts on a `LockoutPolicy` of its own,
+  over a limiter backend built under the `admin-panel:rl:` prefix, so nothing the API writes can
+  reach it. The thresholds are still the `LOGIN_*` settings, and panel failures still lock the
+  panel.
+- **The admin panel's login has a budget every address shares.** Failures were counted per address
+  only, against the single `ADMIN_PASSWORD`, so a caller changing address guessed at it without
+  limit: each new address arrived with a full budget of its own. A second lockout now counts every
+  failure the panel refuses, whatever address sent it, against five times `LOGIN_MAX_ATTEMPTS` in
+  the same window (25 with the defaults), under the `admin-panel:rl:all:` prefix. Past it the panel
+  refuses every address for `LOGIN_LOCKOUT_BASE_SECONDS`, and since the failures keep counting for
+  the rest of the window, the first attempt after that lock ends locks it again for twice as long,
+  up to `LOGIN_LOCKOUT_MAX_SECONDS`; the rounds are kept for an hour and that hour starts again with
+  every lockout. So about 26 attempts can keep the panel shut for close to an hour, and every retry
+  while it is shut, the operator's own included, makes it longer. That is the trade for a password
+  that can be guessed at 25 times a window, and one more reason to keep the panel off the public
+  internet; [the panel's guide](user-guide/admin-panel/configuration.md#login-authentication) says
+  how to clear the counters and open it again. A login that succeeds gives back the one attempt it made and
+  leaves the failures that came from elsewhere counted.
+- **The admin panel refuses an unsafe method from another site.** sqladmin carries no CSRF token,
+  so `SameSite=Lax` was the whole defence: a sibling subdomain, or script on a same-site frontend,
+  could post to the panel with the operator's cookie and get a `302` and the row it asked for.
+  `SameOriginOnly` now stands in front of the panel's session and answers `403` to `POST`, `PUT`,
+  `PATCH` and `DELETE`, and to a `GET` of an action route (`/{identity}/action/{slug}`, where
+  sqladmin serves every `@action`), unless `Sec-Fetch-Site` says `same-origin` or `none`, or
+  `Origin` names the host the request arrived at. The admin cookie is `SameSite=Strict` as well, so
+  it travels on nothing another site starts; a link into the panel from elsewhere lands on the login
+  page, and opening it from the address bar signs you back in. `Strict` does not cover a sibling
+  subdomain, which is the same site to a browser, so the guard is what stands between
+  `other.example.com` and an action link. A request carrying neither header is allowed, so curl and
+  scripts keep working: no site can make a browser send a request with no origin.
+- **The two RBAC listings export their cells as text.** `UserRoleAdmin` and `RolePermissionAdmin`
+  carried no `TextCsvExportMixin`, and sqladmin exports every view unless the view says otherwise,
+  so `GET /admin/user-role/export/csv` wrote a role named `=1+1` and an account labelled
+  `=HYPERLINK("http://x","y")` into the file as they stood, for a spreadsheet to run on opening.
+  Both views carry the mixin now and state `can_export = True` rather than inheriting it, and a
+  test sweeps `ADMIN_VIEWS` so a view that exports without the mixin ahead of `ModelView` fails the
+  suite instead of shipping.
+- **An admin session is bounded by the login that created it.** The cookie's `Max-Age` was the only
+  bound, and Starlette starts that clock again whenever something writes to the session, which a
+  flashed message does, so an operator who kept working kept a session alive indefinitely. Nothing
+  tied a session to the credentials either: changing `ADMIN_PASSWORD` left a stolen cookie working
+  until it expired. A session now carries the time it was issued and a fingerprint of
+  `ADMIN_USERNAME:ADMIN_PASSWORD`, derived with scrypt and salted with `SECRET_KEY`, and the panel
+  refuses it eight hours after that login however active it has been, or as soon as either
+  credential changes, which is the panel's only way of revoking a session. The work factor is what
+  the cookie makes necessary: it is readable by whoever holds it, so a fast hash of a password an
+  operator chose would be one a word list could be run against by anybody who also had the key. The
+  derivation is made as the panel is built and kept for as long as the credentials it was made
+  from, so no request waits for it. A refused session is cleared, so the browser stops sending it.
+  Sessions from before this version carry neither field and are refused, so every operator signs in
+  once after it is deployed.
+- **Signing out of the panel takes a `POST`.** sqladmin serves logout on `GET` and links to it from
+  every page, so anything that made the operator's browser fetch `/admin/logout` signed them out,
+  with `SameSite=Lax` sending the cookie along. The route answers a `GET` with a one-button form now
+  and clears the session only on that form's `POST`, which the guard above holds to the panel's own
+  origin. The sidebar link still leads there; a bookmark reaches the form rather than signing
+  anybody out. A panel built on an sqladmin that serves no route by that name refuses to start,
+  rather than leaving a `GET` that signs out.
+- **A refused panel login is recorded.** The panel logged `Admin login failed`, which named neither
+  the caller nor what was tried, and `Admin login locked out for 300s`, which named no caller
+  either; neither reached the audit lines a refused API login writes through crudauth's
+  `on_login_failed` and `on_lockout` hooks. The panel writes those same lines now, naming the door
+  it refused at: `login refused at the admin panel: 'admin' from 203.0.113.7 (curl/8.4.0);
+  invalid_credentials`, and `login locked out at the admin panel (every address) for 300s, from …`
+  where the shared budget is what ran out. A username the panel has no account for is kept out of
+  the line, as one the API has no account for already was. The lines crudauth's hooks write now name
+  `the login api`, so a log holding both says which door each refusal arrived at.
+- **The image carries `backend/scripts`.** It copied `src`, `migrations`, `alembic.ini` and the
+  tests, so every documented command that runs a script inside a container answered
+  `No module named 'scripts'`: `docker compose exec api python -m scripts.setup_initial_data` from
+  the first-run guide, and the `cleanup_api_key_json` and `canonicalize_emails` repairs an upgrade
+  needs. The base stage copies the directory now, so the dev, migrate and prod stages all have it.
+  The documentation gives both forms for the two repairs, since the container's working directory
+  is `/app/src` while the scripts sit at `/app/scripts`: `python -m scripts.<name>` in there, and
+  `uv run --no-sync python scripts/<name>.py` from `backend/` on the host.
+- **`crudauth_store` and `crudauth_counters` are part of the schema, whatever the backends say.**
+  They were declared on `Base.metadata` only where `SESSION_BACKEND` or `RATE_LIMITER_BACKEND`
+  named `database`, so the schema depended on a runtime choice two ways: a baseline generated with
+  the default backends held neither table, leaving a later move to `SESSION_BACKEND=database` with
+  nowhere to write; and autogenerating with the default against a database-backed deployment wrote
+  a revision that **dropped** both. Both tables are now declared whenever the accounts feature is
+  present, which adds two empty tables to a project that keeps its sessions in Redis, and
+  `database_store` still stays `None` until a setting selects it. A deployment already on
+  migrations picks the two tables up in its next `alembic revision --autogenerate`, which creates
+  them: that revision is additive and harmless, and only has to be applied before switching either
+  setting to `database`.
+- **The production validator stops describing a Redis connection for a limiter that isn't on
+  Redis.** It listed `RATE_LIMITER_REDIS_*` whenever `RATE_LIMITER_ENABLED` was true, so a project
+  counting in memory (and now in the database) was warned about a Redis it never opened. It now
+  reads `RATE_LIMITER_BACKEND`.
+- **`POST /api/v1/auth/logout` runs through crudauth's `complete_logout`** instead of revoking the
+  session and clearing the cookies by hand. The answer is unchanged, and the route still takes a
+  session principal and nothing else, but every configured transport's cookies are now cleared and
+  the `on_after_logout` hook runs, naming the ended session by its handle. The hand-written version
+  ran no hook, so an `AuthHooks(on_after_logout=…)` an app registered saw every logout but this one.
+- **API keys are hashed with SHA-256**, as `sha256$<digest>` of the key. A key is 384 bits from
+  `secrets.token_urlsafe(48)`, not a password, so a salted work factor bought nothing and cost a scrypt
+  derivation per request — which anyone holding a key prefix, and listings show them, could make the
+  server pay on junk. A request now finds its row through one indexed lookup on `key_hash`. A key
+  stored with the old `scrypt$…` hash still authenticates, through the prefix lookup and the same
+  verification as before, and its row is rewritten as a digest on that first use. Until that
+  happens, every request carrying its prefix costs a derivation, not only the ones its owner makes.
+- **Emails are stored canonically** (lowercased, as crudauth looks them up), on signup, on update and
+  in the admin panel. `UserService.get_by_email` canonicalises its lookup, so seeding a superuser
+  with a mixed-case `ADMIN_EMAIL` is idempotent.
+- **Tier rate limits match the route template** the request hit (`/api/v1/users/{username}`), not the
+  concrete path, and soft-deleted rows no longer apply.
+- **Page sizes are bounded**: every listing takes `page` and `items_per_page` from one shared
+  dependency, capped at 100, and sorts with an id tie-break.
+- **An API key's `expires_at` must carry a UTC offset.**
+- **API-key routes answer through schemas** — creating a key no longer returns its hash.
+- **An explicit `null`** for a column the row requires is refused with `422`; the guarded names come
+  from the model, so a new column can't be forgotten.
+- **Creating tables imports every model first**, so `scripts/create_tables.py` and
+  `scripts/setup_initial_data.py` create the whole schema.
+- **`get_logger()` names the logger after its caller's module**, so per-module levels and the
+  structured `module` field work.
+- **Structured log lines escape quoted values**, so client text can't forge a field.
+- **The admin panel's session cookie** is its own middleware, scoped to the panel's own mount
+  (`ADMIN_BASE_URL`, plus whatever `root_path` the request arrived through), `Secure` outside local
+  and development, and valid for 8 hours. Changing a user's address in the panel clears
+  `email_verified`.
+- **The secret-key check** measures placeholders, hand-written words, repeated blocks (whole or with
+  a remainder), ordered runs, walks across neighbouring keyboard keys, and words anyone would
+  recognise, each against a share of the whole value, plus an entropy floor. No key was refused in 100,000
+  samples of each of `token_hex(16)`, `token_hex(32)`, `token_urlsafe(24)` and `token_urlsafe(32)`,
+  while `"12345678" * 4`,
+  `qwertyuiopasdfghjklzxcvbnm123456`, `1qaz2wsx3edc4rfv5tgb6yhn7ujm8ik,`, `"monkey" * 5 + "12"`,
+  `hunter2hunter2hunter2hunter2hunter22`, `Summer2026!Summer2026!Summer2026!!`,
+  `MyCompanyApiSigningKeyForProd2026` and `thisismysupersecurekeyforthisapp` never do.
+- **The API metadata defaults are empty**, so a generated project's OpenAPI document carries no
+  contact, licence or URL it didn't configure, and emits a licence `identifier` or `url`, never both.
+- **The database name, the RabbitMQ vhost and every Redis URL** are escaped or refused rather than
+  rendered raw.
+- **CI** lints and type-checks `backend/scripts` and `backend/migrations`, type-checks `tools`, pins
+  Python on the sync step, and runs the removal drills.
+- **The generated local stack publishes Postgres and Redis on `127.0.0.1` only**, and the Taskiq
+  Redis result backend stores results as JSON instead of pickles.
+- **`GET /health/ready` gates on the dependencies a request needs.** The wiring lists them in
+  `CRITICAL_READINESS_CHECKS` (the database, and the login lockout's Redis and the session store
+  with accounts) and `INFORMATIONAL_READINESS_CHECKS` (the cache and the task broker). A critical
+  check that fails answers `503`; an informational one is logged and leaves the answer `200`.
+- **The readiness body carries the overall status only**, and probes that arrive together share one
+  run of the checks. Which dependency answered what goes to the log, written by the probe that ran
+  them.
+- **`ADMIN_BASE_URL` decides where the panel is mounted**, and the admin session cookie is scoped to
+  the path each request arrived through, prefix included (`--root-path /svc` gives `/svc/admin`).
+  Moving the panel, or serving the app under a prefix, no longer leaves every admin request bouncing
+  back to the login form.
+- **The removal drill rebuilds the wiring this repository commits.** The generator produces the real
+  router order and the same imports, and a test regenerates `src/wiring/`, `scripts/seeders.py` and
+  `tests/wiring.py` for the features a project carries and compares the trees, so generator drift
+  fails the suite rather than going unnoticed. The drill's mypy step now covers
+  `src scripts migrations tests`, as CI does.
+- **A rate limit's `path` is validated as the route template it has to match.** The pattern is
+  anchored at both ends, so a trailing newline or space is refused; Starlette's converters
+  (`{id:int}`, `{id:uuid}`, `{p:path}`, `str`, `float`) are accepted, as are templates with literal
+  text around the placeholder (`/items/{id}.json`, `/v{version}/items`); an unknown converter and
+  two placeholders in one segment are refused. The documented paths now carry the trailing slash the
+  listing routes declare (`/api/v1/users/`).
+- **The generated nginx vhost replaces `X-Forwarded-For`** with the address it saw
+  (`$remote_addr`), rather than appending to whatever the client sent, and
+  `--internal-subnet` is refused unless it names a network address of `/8` or smaller for IPv4, or
+  `/48` or smaller for IPv6 - a wildcard, a `/0`, or a value with host bits set no longer reaches
+  the compose file. The subnet is quoted in
+  the generated YAML.
+- **The input that used to answer `500` now answers `422`.** `page` is capped at `2**31 - 1`, so the
+  offset stays a number the database can read; an API key's id is bounded to the range its `Integer`
+  column covers; an `expires_at` whose offset moves it past the dates a datetime can hold is refused;
+  and text that is not valid Unicode - a lone surrogate in a password or `current_password` - is
+  refused before it reaches a hash or a write. A NUL character is refused the same way now. Postgres
+  refuses the whole statement carrying one (`invalid byte sequence for encoding "UTF8": 0x00`), so
+  `POST /auth/login` with `username=a%00b`, a signup whose name holds one, and `GET /users/%00` all
+  answered 500 with a traceback, the first two to anybody. The guard covers this project's own
+  request bodies, its URLs and its login form: the write schemas refuse a NUL at any depth,
+  including inside a dict key; `NulCharacterMiddleware` answers before the router for a path or a
+  query carrying one; and the login form is refused before the identifier reaches a query.
+  `tests/unit/interfaces/test_request_text.py` sweeps the routes so a new body cannot forget the
+  guard. crudauth's own bodies take their fields as plain `str`, and a lone surrogate in one
+  answered 500 to anybody: `{"token": "\ud800"}` on `email/verify-confirm`, `email/change-confirm`
+  or `password/reset-confirm` reached `jwt.decode`, which encodes the token as UTF-8 and raises, and
+  a `new_password` carrying one reached the hash. Every crudauth route this project mounts now
+  carries `body_a_database_can_hold`, which refuses a lone surrogate or a NUL anywhere in a JSON
+  body, keys included, and answers 422 naming the field. It reads the content type the way
+  `fastapi.routing` does, so an `application/merge-patch+json` body is read as JSON as well, and a
+  body with no content type reaches no field while routes keep `strict_content_type`. Only a JSON escape can carry a lone
+  surrogate, since percent-decoding replaces one, so a path, a query and a form cannot.
+- **A soft-deleted tier keeps its soft-deleted users.** `TierService.delete` no longer clears
+  `user.tier_id` on rows a soft delete had already removed - only `permanent_delete` does, where the
+  foreign key requires it - and a soft-deleted user no longer blocks either delete. A soft-deleted
+  rate limit no longer blocks a tier delete either; a permanent delete removes those rows through
+  `TIER_DELETE_RELEASES`, a new contribution point in `src/wiring/hooks.py` for whatever a feature
+  keeps for a tier.
+- **The admin panel really refuses a deleted tier.** sqladmin hands the form's selection over as a
+  primary key, so the old check never fired: the panel now loads the tier and refuses a soft-deleted
+  one, the picker lists only live tiers, and the Tiers listing counts what it shows.
+- **A soft-deleted tier or rate limit no longer reaches `GET /api/v1/users/{username}/rate-limits`.**
+  Both joins exclude deleted rows, and a user left pointing at a deleted tier reports no tier and no
+  limits instead of the deleted one's.
+- **The readiness checks name their servers more carefully.** Two checks pointed at one server are
+  asked once whatever database index or password follows the port; a cache in the process
+  (`CACHE_BACKEND=memory`) names no server at all; the memcached check asks on a connection of its
+  own and closes it, rather than handing the app's pool back a connection with an unread reply; a
+  report answers only for the checks it was taken for; and a check whose target can't be named is
+  still asked, with the failure logged.
+- **The seed scripts run on their own.** `python scripts/create_first_superuser.py` and
+  `python scripts/create_first_tier.py` import the models before touching the ORM, and report a
+  failure as one line with exit code `1` - admin settings that don't describe an account, a password
+  the policy refuses, a taken username, or a database they can't reach. The message for a taken
+  `ADMIN_EMAIL` names the setting rather than the address.
+- **Creating an API key answers with its own schema.** The response carries the row as the read
+  schema reports it plus the full key, with `key_metadata` and `last_used_ip` excluded;
+  `GET /api/v1/api-keys/{id}` still reports both.
+- **Another user's public profile carries the display fields only.** `GET /api/v1/users/{username}`
+  answers with `id`, `name`, `username` and `profile_image_url`; the fields features add to the read
+  schemas, such as `tier_id`, stay on `/users/me`, on `/users/{username}/tier` for the owner or a
+  superuser, and on the superuser endpoints.
+- **The admin panel's CSV export writes formula-like cells as text.** Text starting with `=`, `+`,
+  `-`, `@`, a tab or a carriage return is prefixed with an apostrophe, so a name typed at signup
+  can't become a formula in a spreadsheet. Numbers, dates and `None` are written unchanged.
+- **Failed statements report their SQL without their values.** The engine is built with
+  `hide_parameters=True`, and the catch-all handler logs the method, path and support id without the
+  exception text, so a failing insert no longer writes a password hash to the log. An email address
+  longer than the column (50 characters) answers `422` instead of `500`.
+- **The guarded `/openapi.json` serves the schema the app builds.** In staging, or in production
+  with docs enabled, it was rebuilt from the title, version and description alone, so the contact,
+  licence, summary, terms of service and tags never reached a reader. Both paths now call
+  `app.openapi()`.
+- **A log line can't be forged from client text.** Every character `str.splitlines()` ends a line
+  on — CR, LF, `\x0b`, `\x0c`, `\x1c`–`\x1e`, `\x85`, `U+2028`, `U+2029` — and every other
+  control character, ANSI escapes included, is written out as an escape: in the `structured`
+  fields, in the `simple` and `detailed` messages, and in the `json` document, where `\x85`,
+  `U+2028` and `U+2029` used to be written raw. A `simple` or `detailed` traceback stays readable
+  over several lines, each of them indented, so nothing after a record's first line starts at
+  column 0. Printable text, accents and symbols included, is left as it is.
+- **`LOG_FORMAT` names the console format only**, and is validated when the settings load: a value
+  no formatter implements is refused by name instead of raising from the formatter the first time
+  anything logged. A log file keeps its environment's format, which is what a collector reading it
+  expects.
+- **The guarded docs follow the mount the request arrived through.** Behind `--root-path /svc` the
+  gated Swagger and ReDoc pages asked for `/openapi.json`, which answers `404` there; they now ask
+  for `/svc/openapi.json`, and the schema names `/svc` as its server, as the ungated docs already
+  did.
+- **`bp env gen-secret` draws again when the app's own rules would refuse the key.** Run inside a
+  project, it checks each draw against `is_weak_secret_key`: one hex key in 12.6 million runs
+  through eight consecutive digits, which production refuses at startup. Run outside a project,
+  where those rules aren't there to ask, it prints the first draw as before.
+- **A resource that already exists answers `409`.** `ResourceExistsError` mapped to fastcrud's
+  `DuplicateValueException`, which is a `422`, while the routes that raise it declare `409`: the
+  signup route, the profile update and the rate-limit rename. The mapping now uses a
+  `ConflictException` of this project's own, and the messages are unchanged.
+- **The admin panel's login is throttled.** Failures are counted in a lockout of the panel's own,
+  against the client address and the identifier `admin-panel:<address>`, and a locked address is
+  refused before its password is compared. One address therefore has separate budgets at the two
+  doors, and nothing sent to `/api/v1/auth/login` can lock the panel; the cost is that the panel is
+  no longer slowed by an address already failing at the API's door. The address comes from
+  `get_client_ip(request, TRUSTED_PROXY_HOPS)`, so behind a proxy the caller is counted rather than
+  the proxy.
+- **The login lockout's thresholds are stated, not inherited.** `LOGIN_MAX_ATTEMPTS=5`,
+  `LOGIN_ATTEMPT_WINDOW_SECONDS=900`, `LOGIN_LOCKOUT_BASE_SECONDS=300` and
+  `LOGIN_LOCKOUT_MAX_SECONDS=3600` reach crudauth as a `LockoutConfig`. The window was crudauth's
+  own default of 60 seconds, which five tries a minute never trip; counting over fifteen minutes is
+  what makes a paced attack accumulate, and a first lockout of five minutes makes resuming cost
+  more.
+- **The pre-commit hooks run what CI runs.** `docformatter`, `blacken-docs` and `mdformat` are
+  gone: `ruff-format` owns formatting, and the two documentation hooks damaged what they touched —
+  `mdformat` strips the indentation MkDocs content tabs need, and `blacken-docs` rewrote a sample's
+  keyword arguments into a different statement. The manual `unit_test` hook runs `pytest tests/unit`
+  instead of the whole suite, and a root `[tool.ruff.lint.isort]` with
+  `known-first-party = ["src", "scripts"]` makes ruff run from `backend/` over `../tools` sort
+  imports the way the run in CI does.
+- **The documentation and `.env.example` describe what the code does.** Settings that never
+  existed are gone (`DATABASE_ECHO`, `DATABASE_POOL_SIZE`); `OAUTH_GITHUB_*` says that nothing
+  reads it; the CORS text says that a `*` origin drops credentials rather than carrying cookies;
+  the admin pages say the session cookie is signed and that the edit form has no password field;
+  the pagination page shows the shared `PageDep` / `ItemsPerPageDep` bounds instead of a `le=1000`
+  that no route has; the Docker page describes the stack `bp deploy generate local` writes
+  (`api`, `worker`, `postgres`, `redis`) instead of a hand-written one naming `app` and `db`; the
+  testing page names `backend/tests`, says `pytest -m unit` selects nothing until you mark tests,
+  and says CI does run the integration tests; the `--no-sync` flag is explained as skipping uv's
+  implicit sync rather than saving the dev tools from removal; and the client-cache page no longer
+  claims `CACHE_ENABLED` gates the middleware.
+- **Thirty broken imports in the documentation's samples** now name what they import:
+  `require_permissions` comes from `auth.authorization`, the cache functions from
+  `cache.provider` and the decorator from `cache.decorator`, `default_broker` from
+  `taskiq.brokers` and `DBSession` from `taskiq.deps`, `Base` from `database.session`, and
+  `register_permissions` / `discover_permissions` from `infrastructure.permissions`. The
+  task-discovery sample points at the worker entry point instead of the deliberately import-free
+  package `__init__`, and `database/models.md` describes the two walkers that find models and
+  permissions instead of a hand-written list that no longer exists.
+- **The API-key read schemas describe a row, not a request.** `APIKeyRead` and `KeyUsageRead` no
+  longer inherit the create rules — the name's length, the expiry's offset, the HTTP method, the
+  status-code range — so a row an earlier version wrote is readable instead of answering `500`.
+  What a caller may send is unchanged, and the fields in each response are the same.
+- **`create_application` refuses `lifespan=` together with `lifecycles=`** with a `TypeError`. The
+  passed lifespan used to win silently, leaving every feature the wiring listed unstarted.
+- **The API process opens the task broker.** The taskiq feature contributes a `Lifecycle` that the
+  wiring lists, so the broker starts with the app and closes on shutdown. With
+  `TASKIQ_BROKER_TYPE=rabbitmq`, `.kiq()` from a request used to raise `SendTaskError` from taskiq's
+  `NoStartupError`, because nothing had run `broker.startup()` in that process. A broker that is
+  unreachable at startup doesn't stop the app: it logs a warning, serves, and reconnects in the
+  background.
+- **The RabbitMQ broker is built with no argument the library doesn't take.** `queue_name="default"`
+  is not an `AioPikaBroker` parameter in taskiq-aio-pika 0.6.0, so it was forwarded to the AMQP
+  connection while the queue kept the library's own name. The queue a worker reads is unchanged
+  (`taskiq`); the Redis broker's `queue_name="default"` is a real parameter and stays as it is.
+- **Readiness covers a RabbitMQ broker.** The `task_broker` check reads the live state of the
+  connection the app's lifespan holds — ready while it is up, unavailable while it is being opened
+  or reconnected after an outage — and names the broker it reports on either way. It stays
+  informational, so a broker outage never answers `503`.
+- **`API_PREFIX` now moves the whole API.** The OAuth routes and the `no-store` cache header are
+  derived from it instead of writing `/api` out, and a prefix the router cannot mount (`v2`, `/`,
+  `/api/`, empty) is refused by name when the settings load rather than raising an `AssertionError`
+  at import.
+- **`scripts/setup_initial_data.py` creates tables only where the project creates its own.** It
+  called `create_tables()` in every environment, so the documented first-deploy step wrote the
+  schema behind alembic's back, and a baseline applied afterwards failed with
+  `DuplicateTableError: relation "roles" already exists`. With `CREATE_TABLES_ON_STARTUP` off it
+  now seeds rows and says it created none, so it can be run after the migrations rather than
+  instead of them. It also refuses to seed into a database that has no schema, naming what is
+  missing and saying to run `alembic upgrade head` first, rather than failing inside a seeder.
+- **A documented upgrade path for databases that already have tables.**
+  [Migrations](user-guide/database/migrations.md#applying-a-baseline-to-a-database-that-already-has-tables)
+  spells out stamping the baseline's own revision id — `head` would mark the revisions after it
+  applied without running them — then `alembic upgrade head` for everything after the baseline, then
+  `alembic check`, which autogenerates and so refuses with `Target database is not up to date.`
+  while anything is pending. It also gives the order a deployment moving off auto-created tables
+  runs: the repair scripts, the baseline, the stamp, later revisions, the check, then the seeding
+  script.
+- **The documented way to generate a baseline now produces one.** The recipe ran
+  `alembic revision --autogenerate` against whatever `.env` pointed at, which in a dev setup is the
+  database `CREATE_TABLES_ON_STARTUP` already built with `create_all`: autogenerate compares the
+  models with that database, finds no difference, and writes a revision whose `upgrade()` is
+  `pass`. Applying it leaves a production database empty. The recipe now makes a throwaway database
+  and names it on the command line, and says why `POSTGRES_SERVER=postgres` out of `.env.example`
+  cannot work from your shell. `bp deploy generate`'s printed steps point at the page instead of
+  repeating the bare command.
+- **`alembic upgrade` refuses to run with no revisions.** It used to create `alembic_version`,
+  exit `0`, and leave a database with no schema, which is what a fresh production deploy got:
+  `CREATE_TABLES_ON_STARTUP` is off there, so the API then failed every request. The message names
+  the one command that has to run on an empty history, `alembic revision --autogenerate -m
+  baseline`, which is let through.
+- **A `schema` readiness check, critical.** `GET /health/ready` answers `503` unless the database
+  carries the schema this code was written against, and the log line says what it found.
+  Reachability alone reported an unmigrated database as ready, so a deploy that never ran its
+  migrations took traffic and failed every request that read a row. Where the project has
+  migrations the check compares the database's revision with their head, which also catches a
+  database that has every table and is missing a column; where it has none, or where
+  `CREATE_TABLES_ON_STARTUP` built the schema, it compares the declared tables with the existing
+  ones. It names no server, so it is asked rather than mirrored from the `database` check, and the
+  production image now carries `migrations/` and `alembic.ini` so it can read them.
+- **A key is refused once its owner's account has been recovered.** `user.token_version` is a new
+  column, and crudauth's bump of it now takes effect: it was a no-op while the model had no such
+  column, so nothing marked an account as recovered. crudauth bumps it when a password is changed,
+  a reset is completed, or an OAuth provider claims the account. `api_keys.owner_token_version`
+  records the generation a key was minted under, and the `X-API-Key` transport answers `401` for a
+  key from an older one, so a key minted from a stolen session dies when the owner resets their
+  password, and a key minted under someone else's address dies when they claim it. Ending sessions
+  still leaves keys working, since a key holds none.
+
+    The same column reaches sessions, which crudauth records with the generation they were created
+    under: a session from before a reset, a password change or a provider claim is now refused by
+    that check as well, on top of the explicit revocation crudauth already did at each of those
+    points. Both columns default to `0`, so accounts and keys that exist today match until the
+    first recovery.
+- **`FRESH_SIGN_IN_SECONDS`, and closing an account asks for one.**
+  `DELETE /api/v1/users/{username}` refuses a session that signed in longer ago than the window
+  with `403 Sign in again to continue.`, so a cookie someone else is holding cannot close the
+  account on its own. Unset, closing an account asks nothing, and crudauth's `/set-password` and
+  MFA-enrolment routes, where a project mounts them, keep crudauth's own 10-minute default; setting
+  it applies one window to all of them, and a value below one second is refused at startup.
+  `FreshSessionPrincipalDep` puts the same gate on a route of your own. Only a session knows when it
+  signed in, so no other credential is ever fresh.
+- **A refused sign-in is recorded.** crudauth's `on_login_failed` and `on_lockout` hooks are
+  registered with `record_a_refused_login` and `record_a_lockout`
+  (`infrastructure/auth/audit.py`), so every refused password login writes one `WARNING` with the
+  reason (`invalid_credentials` or `inactive`, which the `401` does not distinguish), the client
+  address `TRUSTED_PROXY_HOPS` resolves and the user agent — and a lockout writes how long it
+  refuses for. An identifier is written out only where an account has it: what arrives in the
+  username field may be a typo, a probe, someone else's address or a password typed one box too
+  high. The lockout line names no identifier, since nothing resolves one before it refuses. A
+  project that would rather write an audit table replaces those two functions.
+- **An OAuth sign-in keeps what the provider owns in step.** `refresh_the_provider_profile`
+  (`infrastructure/auth/oauth_profile.py`) is registered as crudauth's `on_oauth_login` hook, so
+  every sign-in that reaches an active account stamps `oauth_updated_at` — which nothing wrote on a
+  returning sign-in before — and takes the provider's picture into `profile_image_url` while the
+  account still carries the placeholder avatar it was created with. An avatar or display name the
+  account set is never overwritten. `DEFAULT_PROFILE_IMAGE_URL` in `modules/user/constants.py` is
+  now the one place that placeholder is written.
+- **A guide to migrating passwords**, `docs/user-guide/authentication/migrating-passwords.md`: why a
+  hash another library wrote with plain bcrypt never matches crudauth's own check (it bcrypts a
+  base64 SHA-256 digest of the password), how `legacy_verifiers` accepts those hashes at login and
+  rewrites each one as its owner signs in, what a verifier must refuse so a leaked unsalted digest
+  can't be typed as a password, that the password policy does not apply to an imported hash, and how
+  to finish and then drop the migration. `tests/integration/auth/test_legacy_passwords.py` holds the
+  sign-in, the rehash and the wrong-password refusal the page describes.
+- **A section on running a second crudauth app beside this API**, under
+  [Sessions](user-guide/authentication/sessions.md): what two apps collide over when they share one
+  Redis database or one `crudauth_store` — the per-user session index, which is keyed by user id
+  rather than by the HMAC the session records are under, so each app's device list, `logout-all` and
+  session cap reach the other's sessions for the same id, and with a shared `SECRET_KEY` a cookie
+  from one app signs in to the other; the cookie names overwriting each other in a browser; and the
+  lockout counters merging — with `storage_prefix`,
+  `csrf_storage_prefix`, `cookie_name`, `csrf_cookie_name` and the limiter's prefix against each.
+  It also records that `rate_limit_prefix` cannot be combined with the `rate_limiter=` this project
+  passes, so a prefix belongs in `build_rate_limiter`, and that the shipped sqladmin panel is not
+  such an app: its `admin_session` cookie and `admin-panel:<address>` lockout identifier already
+  stand apart.
+- **An observability guide**, `docs/user-guide/observability.md`: the signals the project already
+  emits (JSON logs, the support id on a failed request, the refused-login audit lines, readiness per
+  dependency, the `key_usage` rows) and the two gaps tracing fills — no request id on a log line and
+  no latency per route. Then a recipe for Logfire that stays off until `LOGFIRE_TOKEN` is set
+  (`send_to_logfire="if-token-present"`), wired through `INSTALLERS` in `src/wiring/app.py`, with the
+  worker configured separately because it never imports that module; what not to export (captured
+  headers carry the session cookie and `X-API-Key`; statement and parameter capture carry addresses,
+  hashes and session ids; pattern scrubbing cannot know an identifier is a username; the probes are
+  noise); sampling; and what the same recipe looks like against a plain OpenTelemetry collector.
+
+#### Removed
+
+- **`KeyType` and `KeyStatus`**, two API-key enums nothing read. `KeyType` named access levels
+  (`public`, `private`, `admin`, `service`, `webhook`) that no column stored and no route gated on;
+  `KeyStatus` named a lifecycle (`active`, `suspended`, `revoked`, …) that the routes express with
+  `is_active` and `expires_at`. A key's scope is what decides what it may do. `HTTPMethod` stays:
+  the usage schema validates against it. See Breaking Changes.
+- **The `key_permissions` table and its vocabulary**: the `KeyPermission` model, the
+  `KeyPermissionResource` / `KeyPermissionAction` enums, the four `KeyPermission*` schemas,
+  `APIKeyWithPermissions`, `crud_key_permissions` and `APIKeyService._check_permission`. An API
+  key's scope is `APIKey.permissions` alone. See Breaking Changes.
+- `CSRFException`, which nothing raised.
+- `TaskRegistry` / `register_task` (`infrastructure/taskiq/registry.py`), a second task registry
+  nothing wrote to. `default_broker.get_all_tasks()` is the one taskiq keeps.
+- Settings nothing read: `LOG_CORRELATION_ID`, `LOG_INCLUDE_STACKTRACE`, `LOG_PERFORMANCE_METRICS`,
+  `LOG_SQL_QUERIES`, `LOG_STRUCTURED_CONTEXT`, `DEFAULT_CACHE_EXPIRATION`,
+  `TASKIQ_WORKER_CONCURRENCY`, `TASKIQ_MAX_TASKS_PER_WORKER`, `POSTGRES_SYNC_PREFIX`,
+  `PRODUCTION_SECURITY_STRICT_MODE`, `TASKIQ_ENABLED`.
+- `handle_exception`: routes let domain errors propagate to the global handler.
+- The legacy OpenAPI identity settings `CONTACT_NAME`, `CONTACT_EMAIL` and `LICENSE_NAME`, which
+  the `API_CONTACT_*` and `API_LICENSE_*` settings replace.
+- The `env` option in the pytest config, which needed a plugin the project doesn't install.
+- The `check-docstring-first` pre-commit hook, which refused 40 of this project's files. A
+  module-level name documented with an attribute docstring under it reads to the hook as a second
+  module docstring, and that is how every constant here is documented, so running it needed an
+  exclude list the length of the project. `pre-commit run --all-files` passes again.
+
+#### Breaking Changes
+
+- **`POST /api/v1/auth/refresh-csrf` is now `POST /api/v1/auth/csrf/refresh`**, and
+  `POST /api/v1/auth/logout-all` answers `{"detail": …, "revoked": N}` where it answered
+  `{"message": …, "terminated_count": N}`. Both routes now come from crudauth's
+  session-management router, with the device list, rather than being written here: the CSRF refresh
+  gained a self-heal (a token that is still valid comes back unchanged) and a per-address rate
+  limit, and `logout-all` keeps its `keep_current` query. A client calling the old path gets `404`.
+- **Two new columns need a migration: `user.token_version` and `api_keys.owner_token_version`.**
+  Both carry a server default of `0`, so the next `alembic revision --autogenerate` adds them
+  without touching existing rows, and every account and key starts in the same generation. Apply
+  the migration before deploying this version: the models select both columns, so without them
+  every request that loads an account or a key fails.
+- **Minting an API key needs a verified address.** `POST /api/v1/api-keys/` answers `403` until the
+  account has confirmed its email, because an unverified address may belong to somebody else: it is
+  what lets an attacker register under a victim's address, mint a key, and keep API access after the
+  victim claims the account through a provider. Accounts that signed in with a provider are verified
+  already; a password signup confirms through
+  `POST /api/v1/auth/email/verify-request`. A deployment with unverified accounts that hold no keys
+  yet should expect those users to verify before they can mint one.
+- **`KeyType` and `KeyStatus` are no longer importable** from `src.modules.api_keys`. Neither was
+  read anywhere: a project using them for its own bookkeeping should copy the enum it wants into its
+  own module.
+- **An API key's `usage_limits` may name only a window the limiter counts.** The column took any
+  JSON object, so `{"requests_per_fortnight": 10}` stored cleanly and enforced nothing. It now takes
+  `requests_per_minute`, `requests_per_hour` and `requests_per_day`, each a positive whole number of
+  requests, and anything else answers `422`. A limit already stored under another name keeps reading
+  back as it is and counts for nothing — the way a stored permission the registry no longer knows
+  grants nothing. `python scripts/cleanup_api_key_json.py` now rewrites those rows too: it keeps the
+  windows the limiter counts and drops the rest, so a repaired row holds exactly what is enforced.
+- **An unknown `SESSION_BACKEND` is refused when the app starts.** A value crudauth has no store
+  for — `memcached`, say, left over from before sessions moved to crudauth — used to fall through to
+  memory sessions, which start fine and then lose every session on each deploy and share none
+  between workers. The app now fails at startup, naming the values it supports.
+- **Upgrading signs every user out once.** crudauth 0.8 looks a session up under an HMAC of its id
+  keyed with `SECRET_KEY`; sessions written by 0.7 are stored under the raw id and are no longer
+  found, so every signed-in user logs in again after the deploy. From now on, changing `SECRET_KEY`
+  does the same. Nothing else here is affected: `/set-password` and MFA, which 0.8.1 put behind a
+  fresh sign-in, are not mounted by this project.
+- **An API key's scope is a list of registry permission names.** `APIKey.permissions` held a
+  free-form JSON object, and a second copy of a key's scope lived in `key_permissions` rows keyed by
+  a vocabulary of their own (`conversations`, `credits`, `user_profile`, `*`, …) that no route could
+  check. Both are gone: `permissions` is now a `list[str]` of registered permission names —
+  the same names a role carries and `require_permissions` gates on — validated on create and
+  update, where an unregistered name answers `422`. `GET`/`POST`/`PATCH /api/v1/api-keys/` all
+  speak the list; a client sending the old object gets `422`.
+
+    Nothing translates the old vocabulary, since none of its values is a registered permission. Run
+    `python scripts/cleanup_api_key_json.py` once after upgrading: it empties every `permissions`
+    value that isn't a JSON array, so those keys are unscoped and keep working for identity, and
+    rescope them with the names your project registers. A row left holding an object makes the
+    owner's listing answer `500`.
+
+    A deployment that already has a `key_permissions` table still has it: the model is gone, so the
+    next `alembic revision --autogenerate` drops the table and every scope stored in it. Run the
+    cleanup script and rescope the keys that need it before serving from the new revision.
+
+    `APIKeyService.validate_api_key` no longer takes `resource` and `action` — it matches a key to
+    a live row and reports its owner and its scope. `APIKeyValidationRequest` lost the same two
+    fields.
+- **`PATCH /api/v1/users/{username}` no longer takes `email`** (or the `current_password` that
+  gated it); both now answer `422`. An account moves its address through
+  `POST /api/v1/auth/email/change-request`, which confirms the new address and notifies the old one,
+  and an administrator can still correct one from the admin panel, whose form carries the field. The
+  password-gated direct change is gone, with its `EmailChangeNeedsPasswordError` /
+  `ProviderAccountEmailChangeError` and the budget it counted against.
+- **`CREATE_TABLES_ON_STARTUP` is off outside local and development**, and production refuses `true`
+  with a startup error. A production deploy that relied on `Base.metadata.create_all` running on
+  boot has to generate the baseline against an empty database as
+  [Migrations](user-guide/database/migrations.md#alembic-migrations) describes, review it, commit
+  it, and apply it before the API starts — the generated compose stack has a `migrate` service for exactly that. Nothing waits
+  on that service any more either: run `docker compose --profile migrate run --rm migrate` and only
+  then `docker compose up -d`.
+- **Changing your own email address now requires the account's current password** in the `PATCH
+  /api/v1/users/{username}` body (`current_password`), and answers `403` without it. Every change
+  that needs the password counts against the same budget as `POST /api/v1/auth/change-password`,
+  correct passwords included: 5 per hour per account, then `429`. So an account can change its
+  address at most five times an hour. An account with no usable password (provider sign-in only)
+  can't change its address at all. A superuser changing someone else's address is unchanged: no
+  password, no limit. The address change still clears `email_verified`, which is what made a stolen
+  session enough to take an account over through a provider login.
+- **The caller-resolving dependency aliases moved** from `infrastructure/dependencies.py` to
+  `infrastructure/auth/deps.py`: `CurrentUserDep`, `CurrentSuperUserDep`, `OptionalUserDep`,
+  `CurrentPrincipalDep`, `CurrentPermissionsDep`, `OAuth2FormDep`. `AsyncSessionDep` stays.
+- **An empty `CORS_ORIGINS` now allows no cross-origin request**, where it used to mean "any origin".
+  A `*` origin never gets credentials, and is refused outright in production.
+- **Rate-limit rows that name a concrete path stop matching.** Rewrite them as the route template
+  the router declares (`/api/v1/users/{username}`); a row for `/api/v1/users/42` will never apply.
+- **`items_per_page` above 100 answers `422`** on every listing, including the API-key usage history,
+  which allowed 1000, and `page` above `2147483647` answers `422` as well.
+- **An API key's id outside `1..2147483647` answers `422`**, where the request used to reach the
+  database and fail there.
+- **A credential the API throttle cannot resolve now spends the budget its address would have
+  spent carrying none.** A junk `X-API-Key` or bearer token used to answer `401` as often as it was
+  sent, unmetered, while the same requests without a header were throttled after the limit.
+- **A signup no longer says whether an address is registered.** `POST /api/v1/users/` answered
+  `409 Conflict` for a taken email, so anybody could ask it which addresses hold accounts, one
+  request at a time, while the password-reset and verification routes were careful to answer
+  uniformly. It now answers `201` with a fixed message whether the address was free or not, creates
+  nothing in the second case, and tells the account that holds the address that somebody tried to
+  sign up with it (crudauth's `notify_existing_account`, which is what its own register route
+  does). A mail server that is down does not change the answer. **The created profile is no longer
+  in the response**: a body carrying it would say the address was free, so a client that read
+  `response.json()["id"]` has to read the account from `GET /api/v1/users/{username}` after signing
+  in. A taken **username** still answers `409`: a username is public, a profile URL reveals it, and
+  a signup form has to be able to say so. A race decided by the database answers by the index that
+  refused the row, read from the name asyncpg puts on the error, so a lost race for an address is
+  uniform too. The clock says nothing either: the password is hashed before either credential is
+  looked up, since bcrypt is the slowest thing a signup does, and the notice to an existing owner
+  runs as a background task, so neither path waits on a mail server.
+- **With the taskiq feature, a recovery request no longer takes longer when the address exists.**
+  `password/reset-request`, the verification request and the email-change request send only where
+  the address has an account, and the sender was awaited in the request: the publish to the broker
+  on one path and nothing at all on the other, which a caller could time to find out who is
+  registered. With a broker that was down the difference was the whole `BROKER_CONNECT_SECONDS`,
+  and the SMTP fallback on top. The sender now hands the message to a task of its own and returns,
+  so both paths answer in the time it takes to make one. The shutdown waits `DRAIN_SECONDS` for
+  what was handed over before closing the broker, so a deploy does not drop a message on its way to
+  the queue, and logs how many it gave up on where a mail server never answered. A delivery that
+  fails in the handover is logged too, where before it was swallowed by the caller.
+- **A project without the taskiq feature hands the delivery over as well.** crudauth awaited the
+  configured sender in the request there, so a recovery request for a registered address still
+  cost the mail server's time while one for an unknown address answered at once. The sender it is
+  wired to is now wrapped in `HandingOverSender`, which hands the delivery to a task of its own and
+  returns, and the project carries a lifecycle that drains what was handed over at shutdown. The
+  handover itself moved out of the taskiq feature to `infrastructure/handover.py`, so a project
+  with no queue still has it; the two shutdowns wait for what each may take, one delivery here and
+  the queue leg on top of it with a worker.
+- **A confirmed email change now ends every session the account had.** `email/change-confirm` moved
+  the address and left the sessions running, so whoever confirmed the change kept one the previous
+  owner's password no longer reaches, and the notice to the old address was all that owner got. The
+  address is what recovers an account, and a completed password reset already ends every session, so
+  this is treated as the same kind of change. The confirmation is a link clicked from the new
+  mailbox and carries no session, so there is none to keep and the one that asked for the change
+  goes with the rest: the owner signs in again, as their new address. API keys are untouched, since
+  nothing about an address moves the generation they were minted under.
+- **Two writes to one role no longer race.** `POST /roles/{id}/users/{user}` looked for the
+  assignment and then inserted it, so two at once answered `201` and `500`: the loser's insert hit
+  the primary key of `user_roles`. `PUT /roles/{id}/permissions` was quieter and worse. Each
+  replacement deletes what the role carries and inserts its own, and neither saw the other, so the
+  role came out carrying the permissions of **both** requests, one set of them from a caller who had
+  asked for the other. An assignment landing as the role was deleted answered `500` from the foreign
+  key, and a deletion landing as a stronger account was given the role took it away from an account
+  the caller could not reach. Every write path now takes the role's row first (`SELECT … FOR
+  UPDATE`), so two writes to one role queue instead. A write that finds the role gone answers
+  `404`, and an account a soft delete took out answers `404` rather than `500`. The account the
+  write is about is held as well, `FOR NO KEY UPDATE`, because the stronger-account checks read
+  what it holds: a superuser handing that account a role the caller cannot reach used to land
+  between the check and the write, leaving the caller having changed the roles of an account
+  stronger than themselves, and the admin panel deleting the account used to leave the assignment
+  answering for a row that was there when it was checked. Both wait for the write now: the
+  assignment answers `201`, and the panel's delete lands after it and takes it with the account.
+  Taking a role away, or replacing what it carries, holds the rows of its holders `FOR SHARE` for
+  the same reason, so two of those still run at once while an assignment to one of the holders
+  waits. A role's row is always taken before an account's. What waits is every write to the
+  account's own row — a profile edit, the bookkeeping a sign-in writes — for as long as the role
+  transaction takes, and every holder's row while a role is taken away; a row that only names the
+  account, an API key or a usage row, waits for none of it.
+- **A tier limits a path with one rate-limit rule.** Nothing stopped a second row for the same
+  `tier_id` and `path`, and the limit a caller got was whichever row the lookup read first, so two
+  rows saying `10` and `1000` for `/api/v1/users/` made the limit a toss-up that could land
+  differently after a restart. `rate_limits` now carries `uq_rate_limits_tier_path`, a unique index
+  over `(tier_id, path)` for the rows a soft delete has not taken out, so a path whose rule was
+  deleted is free to configure again. `PATCH /api/v1/rate-limits/{name}` answers `409` where the
+  new path is one the tier already limits, and `RateLimitService.create` the same, including where
+  another request got there first. A rule for a tier deleted between the check and the insert
+  answers `404` for the tier rather than a conflict: which constraint refused the row is read off
+  the driver's error, by the same reader the signup race uses (`modules/common/collisions.py`).
+  A database that already holds two rows for one tier and path
+  cannot create the index: [Migrations](user-guide/database/migrations.md#alembic-migrations) has
+  the query that finds them.
+- **The tracing recipe no longer breaks the drill's own test.**
+  [Observability](user-guide/observability.md) had the reader add the Logfire installer to
+  `INSTALLERS` in `src/wiring/app.py`, which the removal drill generates:
+  `tests/unit/test_removal_drill.py` compares what the generator writes with what the project
+  committed, so following the guide left that test failing. The installer now
+  goes where the app is composed, `src/interfaces/main.py`, which nothing regenerates, as
+  `installers=(*INSTALLERS, tracing_install)`. Making observability a removable feature, with its
+  own `FEATURES` entry and its contribution to the generator, is still the other way round and the
+  guide still says so.
+- **The text a caller can leave for other people to read is bounded.** A profile image URL had a
+  shape to match and no length, so a 2 MB one was stored and then served to every signed-in
+  account that read the profile; it is now held to 2048 characters, the length a URL is held to
+  elsewhere, and an OAuth provider's picture is left out rather than written where it is longer.
+  The column carries that length as well (`String(2048)`), so the admin panel, which writes the
+  model rather than the schema, is held to it too and its form says so; a database holding a
+  longer URL has to shorten it before the revision that adds the length applies, and
+  [Migrations](user-guide/database/migrations.md#alembic-migrations) has the query that finds one. A
+  `redirect_to` on a recovery request had no length either, and it is signed into the token the
+  emailed link carries, so a megabyte of path was a megabyte of link in somebody's mailbox: the
+  crudauth routes now carry `a_redirect_a_link_can_carry` beside the body guard, and one longer
+  than 2048 characters answers `422`. The OAuth routes carry it too: there the destination arrives
+  as `?redirect_to=`, bounded only by the server's request line, and waits in the state store
+  until the callback. A usage row keeps the first 512 characters of the user agent
+  the request sent, where it kept whatever the header held. Rows already stored keep what they
+  hold: the read schemas describe a row rather than policing it.
+- **An account's deletion can no longer be blocked by registering the name it would take.** The
+  anonymized row took `del_<id>_<seconds % 10000>`, a name inside `USERNAME_PATTERN` and drawn from
+  10,000 values: anybody who knew an account's id could sign up for that range and leave every
+  GDPR deletion of it answering `500` from the username index, since the anonymization is the
+  write that renames the row. The name is now `deleted-<id>-<12 hex>`, whose hyphens no signup or
+  rename can produce, and a name held anyway is tried again with fresh hex up to
+  `ANONYMIZATION_ATTEMPTS` times, where the username index is what refused the write. A deletion
+  that still finds no free name answers `500` rather than logging a completion over a row it left
+  as it was.
+- **A queued account email carries no readable recovery link.** `email:send` was enqueued with the
+  recipient, the subject, the rendered body and the link, so every verification and password-reset
+  token sat in Redis or RabbitMQ in the clear until a worker picked it up, and in any backup or
+  export of that queue afterwards. The message is now sealed with Fernet under a key taken from
+  `SECRET_KEY` and opened in the worker, so the queue holds one opaque string; a payload nothing
+  sealed, or one changed since, is refused rather than delivered, and a message this worker cannot
+  open is logged once and dropped rather than retried, since no retry will open it. The seal
+  carries the time it was made and is opened against the lifetime of the link inside it, so a
+  message that waited out its link, after an outage say, is dropped as well: the recipient would
+  otherwise get a page saying only that the link has expired. The key is derived for this one use,
+  so a feature that reaches for `SECRET_KEY` later cannot arrive at the same one. `cryptography` is
+  declared as a dependency of its own, having arrived through `crudauth[all]` until now. **Drain
+  the queue before deploying this**, since a message enqueued by the previous version carries six
+  arguments the new task does not take, **and before changing `SECRET_KEY`** from now on, since a
+  message sealed under the old key is mail nobody receives.
+- **Readiness tells two checks on one host apart when they reach it as different users.** The probe
+  asks each server once and mirrors that answer onto the rest, and a server was its scheme, host and
+  port alone. So a cache pointed at the limiter's Redis with the wrong password was reported ready,
+  mirrored from the limiter that got in: `GET /health/ready` answered `200` for a dependency no
+  request could reach. The credentials are part of what identifies a server now, as a digest rather
+  than in the clear, and only the database a Redis URL names is still dropped, since two databases
+  of one server answer together. The derivation carries a work factor and is read once per pair of
+  credentials, so what identifies a server is nothing a word list could be run against.
+- **The production validator refuses four more things, and staging is checked at all.** It accepted
+  `SESSION_BACKEND=memory` (each process keeping its own sessions, so a restart signs everybody out
+  and a sibling worker knows none of them), `RATE_LIMITER_BACKEND=memory` (every limit multiplied by
+  the worker count: that backend carries the login lockout, the account-change budgets and an API
+  key's windows, whatever the ratelimit feature is doing), RabbitMQ's `guest`/`guest` (anybody who
+  reaches the broker can enqueue a task the worker runs), and an `http://` `FRONTEND_URL` (every
+  recovery link carrying its token in the clear). All four are refused in production. Staging ran no
+  checks at all, so it accepted the default `SECRET_KEY`, the console mail backend and
+  `CREATE_TABLES_ON_STARTUP=true`; those three are refused there as well, since staging answers on
+  the internet and often against a copy of production's data. The rest stays production's, so
+  staging can still run on one worker with a throwaway database password.
+- **A project with no accounts is no longer refused production over the email settings.**
+  `EMAIL_BACKEND` and `FRONTEND_URL` live in the core settings, so a core-only project reads
+  `console` and `http://localhost:3000` the same as any other, and the production validator refused
+  to start over a backend nothing delivers through and an address nothing builds a link from. Both
+  checks now run only where the accounts feature is present, which is what gives a project an
+  account to email. Every other check is unchanged, the secret key and the schema-on-boot refusals
+  included.
+- **A retry can wait, with `TASKIQ_RETRY_DELAY_SECONDS`.** Retries were immediate and nothing else
+  was on offer: a task tripped up by a dependency that is down for a minute spent all three of its
+  attempts in the first milliseconds, and the queue's own `SmartRetryMiddleware` delays nothing on a
+  Redis broker, which ignores the `delay` label. Set the seconds and each retry is written to a
+  `ListRedisScheduleSource` instead, waits that long, waits longer with each attempt up to
+  `RETRY_MAX_DELAY_SECONDS`, and carries jitter so a queue of them does not come back in step. The
+  scheduler is what enqueues them when they are due, so a project that sets a delay runs one next to
+  its worker; at `0`, the default, nothing changes and no scheduler is needed. A delay set with
+  `TASKIQ_BROKER_TYPE=rabbitmq` is refused where the broker is configured, since there is no Redis
+  to hold the retry in.
+- **An account email the broker will not take is delivered in the request rather than lost.**
+  `QueuedSender` enqueued and nothing caught the failure, and crudauth delivers every account email
+  best-effort: it logs what a channel raises and answers the same either way, so with the broker
+  down a password reset answered `200` and no link was ever sent. The enqueue is now tried first and
+  delivery falls back to the request, through the same sender the worker would have used, with a
+  warning naming the kind of mail. A request that falls back waits for the mail server, which is
+  what the message is worth. Reaching that fallback takes an enqueue that fails rather than one that
+  hangs, so the Redis broker is built with the `socket_connect_timeout` redis-py leaves unset, and
+  the call is given `BROKER_CONNECT_SECONDS` of its own, which covers a broker that connects and
+  then stalls and a RabbitMQ connection that is reconnecting. The socket's read timeout stays unset
+  on purpose: the worker waits for its next job in a `brpop` with no timeout of its own, so a socket
+  that stopped waiting would raise out of the listener on the first idle minute. A message that
+  lands just as the sender's time runs out is delivered as well as queued and read twice, which
+  beats a recovery link nobody is sent.
+- **A task's result expires after an hour instead of being kept for good.** The Redis result backend
+  was built with no expiry, so every result it ever wrote stayed in the database the queue itself
+  runs on: `TTL` on a result key answered `-1`, and the only way to reclaim the space was to delete
+  the keys by hand. Results are written with `result_ex_time` now, `RESULT_KEPT_SECONDS`, so one
+  nothing came back for leaves on its own. A result is still there to be awaited for an hour after
+  the task ran, which is far longer than the `wait_result` the docs describe.
+- **A cached entry is keyed by what the route declares, escaped, and by the credential that asked.**
+  The query went into the key as it came, joined with the same `&` and `=` it was being split on, so
+  `?items_per_page%3D20%26page=1` is one parameter whose name reads back as the two it spells: a
+  request for anything at all was stored under the entry a real request for that page is served
+  from. The query part is now `urlencode` of the parameters the route declares, sorted, so a value
+  holding a delimiter cannot spell another request and a parameter the route never reads stores no
+  entry of its own. Three more things the key got wrong: a listing with no `resource_id_name`
+  inferred one from the first int argument, which was `page`, so the id part held a page number;
+  the caller was looked for in whatever argument happened to carry a `user_id`; and a credential
+  that carries a scope shared its owner's entries, so a response made for a session could be served
+  to an API key that holds less. A per-caller route now names its caller with `caller_from=` and
+  raises `ValueError` where it is declared if it does not, the argument it names must hold a
+  `Principal` (an account read any other way says nothing about which credential asked, and leaves
+  the route uncached), nothing is inferred, and a scoped credential is keyed apart from the account
+  and from its other scopes. The declared parameters are read from the route rather than from the
+  arguments it was called with, so an alias, a parameter a dependency reads and the fields of a
+  query model are all part of the key, and a request with no route to read keeps every parameter it
+  carried rather than none. `resource_id_type`, `infer_resource_id` and `CacheIdentificationInferenceError`
+  are gone with the inference. The shipped `rate_limits` listing changes key shape, so its entries
+  are read afresh once after this deploys. A write still clears only the entry of the caller that
+  wrote, which [Cache Strategies](user-guide/caching/cache-strategies.md#per-caller-vs-shared-caches)
+  now spells out.
+- **A credential that carries a scope needs `user.update` to edit its owner's own profile.**
+  Ownership was checked before the scope was consulted, so an API key scoped to nothing at all, or
+  to reading, could `PATCH /api/v1/users/{username}` for the account that minted it and change its
+  name or its username. A key made for reading is not a licence to rename the account behind it, so
+  a scoped credential now holds `user.update` as well or reaches no profile at all, its owner's
+  included. A session is unchanged: an account editing its own profile needs no permission. The
+  other self-service routes already refuse a key outright. Worth knowing before a `403` surprises
+  anybody: a scope names only permissions its owner holds, and the rbac feature is this project's
+  only source of one, so with rbac an owner needs a role carrying `user.update`, and with no
+  permission source at all only a superuser's keys can edit a profile.
+- **A key stored as scrypt moves over in a write of its own, not in the request's transaction.**
+  The rewrite set the new hash on the row the request's session was tracking and committed that
+  session, which is the one the route writes through: a route that failed afterwards could not roll
+  back, and whatever it had written so far was committed by a write it never asked for.
+  Authenticating now reads through that session and nothing else, and the digest goes through a
+  session of its own, guarded on the hash that was verified, so of two requests racing with one key
+  exactly one row moves over. A rewrite that fails is logged and leaves the key as valid as it was,
+  with the next request it carries trying again.
+- **A key stored as scrypt is derived against only while a request could authenticate with it.**
+  The lookup behind the old hash took every row carrying the presented prefix and a `scrypt$` hash
+  and ran the derivation against each, revoked and expired rows included. Such a row is never used
+  again, so it holds that hash for good, and a key's prefix is in its owner's listing: whoever held
+  one could make the server derive on junk, as often as they liked, for as long as a single row like
+  that survived. The lookup now reads only rows that are active and unexpired, so revoking a key or
+  letting it expire ends what it costs. `uv run --no-sync python scripts/revoke_scrypt_api_keys.py`
+  names the keys still stored that way, and `--revoke` deactivates them. A revoked or expired key of
+  that kind now answers `Invalid API key` rather than being rewritten as a digest and then refused
+  as inactive.
+- **A key's windows are counted shortest first, so a refused request keeps its longer budgets.**
+  The windows were counted in the order the limits were written in, which is the client's order, so
+  a key carrying `{"requests_per_day": 10, "requests_per_minute": 1}` spent a day's worth of quota
+  on nine refusals inside a minute: ten requests, one answered, and the day exhausted. The shortest
+  window is now counted first and refuses before any longer one is touched, whatever order the
+  limits were stored in. A refusal reads the longer windows it spent nothing in, so `Retry-After`
+  names the time until the last window the key is still full in rolls rather than the window that
+  refused it: a key that has spent its day is no longer sent back a minute later, once a minute,
+  until the day rolls.
+- **A key held at its limit records one refused request a window, not all of them.** Every `429` a
+  key's own `usage_limits` answered used to write a usage row and stamp `last_used_at`, which made a
+  refused request the most expensive one a key could make: five requests against
+  `{"requests_per_minute": 1}` left five rows and five updates. The first refusal each window
+  answers is still recorded, so an owner can still see a key being throttled, and the rest cost the
+  limiter alone. `last_used_at` is the time the request arrived rather than the time its write
+  landed, and a key stamped later than that keeps what it has, so of two requests whose writes land
+  out of order the key names the later one, its address included. The stamp and the row are also
+  written separately now, so one of them failing no longer takes the other with it.
+- **Key usage rows are kept for `KEY_USAGE_RETENTION_DAYS` days, 90 by default, and pruned after
+  that.** One row per key-authenticated request carries the caller's address and user agent, and
+  nothing used to delete any of them. `0` keeps every row. With the taskiq feature the prune is a
+  scheduled task (`api_keys:prune_usage`, 03:00 UTC, so it needs a scheduler running); without it,
+  `scripts/prune_key_usage.py` does the same from a system cron. The analytics `days` is read down
+  to the retained window, and the user summary's `total_requests` and `total_cost_microcents` are
+  totals over that window rather than over a key's life, so a project billing from these rows has to
+  aggregate them before they are pruned. `key_usage` gained an index on `created_at` for the cutoff.
+- **`src/modules/api_keys/__init__.py` exports nothing any more.** Import from the submodules
+  (`.models`, `.schemas`, `.service`, `.retention`, `.settings`), as the tier module already does:
+  the feature's settings mixin is imported while the settings compose, and a package init that
+  reaches app code closes that circle.
+- **`key_metadata` is capped at 16 levels of nesting and 8 KB stored**, on a create and on a
+  `PATCH`, and anything past either answers `422`. A value nested deeper was accepted and then made
+  every validated read of that key answer `500` (the listing, the single key and the summary), with
+  no way to edit the row back through the API; a 5 MB value was accepted as well. The depth is read
+  without recursion and before anything serializes the value, since serializing is what used to
+  raise.
+- **`scripts/unlock_account.py` clears the login lockout one account is held in.** The
+  per-identifier half of the lockout counts failures from every address and applies before the
+  password is checked, so anybody who knows a username can keep that account out, and nothing but
+  time cleared it. The script takes a username or an address, clears the count, the lock and the
+  escalation rounds under both of the account's identifiers, and leaves the counters of the
+  addresses those failures came from alone. It reads the lock back afterwards and exits non-zero
+  while the limiter still holds it or cannot be reached, so a run that reports success is one the
+  account can sign in after.
+  [Login lockout](user-guide/authentication/index.md#login-lockout) documents the trade-off.
+- **`POST /api/v1/auth/email/change-request` now counts against the account's change-password
+  budget**, 5 an hour and shared with `POST /api/v1/auth/change-password`, correct passwords
+  included. crudauth caps that route per client address only, and the password it checks feeds no
+  lockout, so a session holder could guess an account's password from one address after another:
+  three answers per address, then a fresh three from the next. An account whose budget is spent now
+  gets `429` there and nothing is checked or sent.
+- **A broker that accepts connections and says nothing no longer holds up startup.** The RabbitMQ
+  broker now hands aio-pika a `BROKER_CONNECT_SECONDS` connect timeout
+  (`infrastructure/taskiq/constants.py`, 5 seconds), so such an attempt fails and the app falls into
+  its retry loop instead of waiting on the handshake. A blackholed host used to block startup for
+  over two minutes and a silent one indefinitely, and until startup finished not even `GET /health`
+  answered. A worker builds the same broker, so its own startup is bounded by the same timeout.
+- **A role carrying a permission the registry no longer knows can be edited again.** Its stored
+  names went into the delegation check as they were, and that check refuses an unregistered name
+  before it short-circuits for a superuser, so a role stranded by a removed feature answered `403`
+  on `PATCH`, on `PUT /api/v1/roles/{role_id}/permissions` and on `DELETE`, to every caller, a
+  superuser included. The check now reads only the names the registry still knows, as role
+  assignment already did, and a `PUT` drops the stale ones. A name the request itself asks for is
+  still refused with `422`.
+- **Deleting or emptying a role answers `403` while an account stronger than the caller holds it.**
+  Both routes used to check only the permissions the role carries, so a caller who was refused
+  `DELETE /api/v1/roles/{role_id}/users/{user_id}` for an account could take the same permissions
+  away from it by deleting the role, or by emptying it with `PUT /api/v1/roles/{role_id}/permissions`.
+  Each holder is now held to the rule the assign routes already applied: not a superuser, and
+  holding nothing the caller doesn't. An account a soft delete has taken out is not a holder for
+  this, since its grants reach nobody while its assignment rows stay behind. Superusers reach every
+  role as before, without the lookup.
+- **A key whose row holds a column no schema can read answers `401`**, where every request it made
+  used to answer `500`: a scope an older version stored as an object, or a `permissions` or
+  `usage_limits` holding a JSON null. The refusal is logged as a warning naming the key. The owner's
+  listing still answers `500` for that row, so `python scripts/cleanup_api_key_json.py` is still how
+  the row is repaired.
+- **A forwarded address a usage row cannot hold no longer answers `500`.** With `TRUSTED_PROXY_HOPS`
+  set, an `X-Forwarded-For` entry longer than an address, or one that is not an address at all, used
+  to fail the usage row's validation after the handler had committed its work: the client got a
+  plain `500` and no row was written. A key's usage row and its `last_used_ip` now hold the resolved
+  address when it is one and nothing when it is not, and a row the usage schema refuses is logged
+  and dropped rather than raised.
+- **A signup that loses a race for an address answers `409`**, where the second request used to
+  reach the unique index and answer `500`. An address stored before it was canonicalised is a
+  conflict too, rather than a `500` nobody could sign up past. (Both answer the fixed signup
+  confirmation from the entry below, rather than a conflict, since no answer says whether an
+  address is taken.)
+- **A role id, an account id in a role path and a `tier_id` outside `1..2147483647` answer `422`**,
+  where the request used to reach the database and fail there with a `500`. A rate limit's `limit`
+  and `period` are bounded the same way, on a create and on a `PATCH`.
+- **An `expires_at` that cannot be expressed in UTC answers `422`**, and so does string input that is
+  not valid Unicode.
+- **API key rows that hold a JSON null need one repair run.** A version before this one stored
+  `null` in `permissions` or `usage_limits` when a request sent it, and every validated read of
+  such a row — the listing, the single key, a patch, the summary — now answers `500`. Run
+  `python scripts/cleanup_api_key_json.py` from `backend/` once after upgrading; it sets those
+  columns to `{}` wherever they hold a null, reports how many rows it touched, and is safe to run
+  again.
+- **One account per address, case-insensitively.** `User` now declares `ix_user_email_lower`, a
+  unique index over `lower(email)`, so two rows can no longer hold the same address in different
+  case — including through the admin panel, which writes through SQLAlchemy rather than the signup
+  schema. A database written by an older version may hold such a pair, and creating the index on it
+  fails: run `python scripts/canonicalize_emails.py` from `backend/` first. It rewrites every
+  address into the trimmed, lowercased form every lookup uses and adds the index, or, while two
+  accounts hold one address, names them and changes nothing. Safe to run again.
+- **The legacy OpenAPI identity settings are gone.** Rename `CONTACT_NAME`, `CONTACT_EMAIL` and
+  `LICENSE_NAME` in your environment to `API_CONTACT_NAME`, `API_CONTACT_EMAIL` and
+  `API_LICENSE_NAME`; the old names are now read by nothing, so a project that keeps them publishes
+  no contact and no licence.
+- **The template's identity is no longer the default.** `VERSION` defaults to `0.1.0` instead of the
+  boilerplate's own release, and `APP_DESCRIPTION` defaults to empty instead of the boilerplate's
+  feature list, so a generated project's OpenAPI document describes itself or says nothing. Set
+  `VERSION` and `APP_DESCRIPTION` (or `API_VERSION` and `API_DESCRIPTION`) to your own values.
+- **A duplicate signup answers `409`, not `422`.** `POST /api/v1/users/` with a taken email or
+  username answers `409 Conflict` with the same body it used to send
+  (`"A user with this email or username already exists."`), which is what the route always
+  declared. A client that treats `422` as "already registered" has to read `409` as well. The same
+  applies to the profile update and to renaming a rate limit onto a taken name. (A taken address no
+  longer answers at all: see the entry below.)
+- **An empty `API_PREFIX` no longer serves the API from the root.** `API_PREFIX=` used to mount the
+  routes at `/v1/...`; it is now refused at startup, together with any prefix that does not start
+  with `/` or that ends with `/`. Set a prefix such as `/api`.
+- **A naive `expires_at` on an API key answers `422`.** Send an offset (`2030-01-01T00:00:00+00:00`).
+- **Emails are stored lowercased, and rows written before this change are not found.** The
+  uniqueness check and every lookup use the canonical form, while the unique index stays
+  case-sensitive, so a legacy `Legacy@Example.com` row is invisible to them: a signup as
+  `legacy@example.com` succeeds and creates a second account, a Google sign-in creates another one,
+  and the owner of the legacy row can sign in by username but not by email. Lowercasing existing
+  rows, and a unique index on `lower(email)`, is a data-migration decision and not part of this
+  change.
+- **Every `API_*` document setting defaults to empty**: `API_TITLE`, `API_SUMMARY`,
+  `API_DESCRIPTION`, `API_VERSION`, `API_TERMS_OF_SERVICE`, `API_CONTACT_NAME`,
+  `API_CONTACT_EMAIL`, `API_CONTACT_URL`, `API_LICENSE_NAME`, `API_LICENSE_IDENTIFIER` and
+  `API_LICENSE_URL`. Set them to put your own identity in the OpenAPI document. `API_TITLE`,
+  `API_DESCRIPTION` and `API_VERSION` fall back to `APP_NAME`, `APP_DESCRIPTION` and `VERSION`, so
+  the document always carries a title and a version — those two have non-empty defaults — and a
+  description only once one of the pair is set. The summary, terms of service, contact and licence
+  fields are left out of the document while they are empty.
+- **`HTTPException` and friends** import from `infrastructure/http_exceptions.py`
+  (was `infrastructure/auth/http_exceptions.py`).
+- **The settings listed under Removed are gone.** An `.env` that still sets them is ignored; nothing
+  read them.
+- **`POSTGRES_DB` may not contain `/`, `?`, `#` or `@`.** SQLAlchemy reads the name literally, so such
+  a name would have connected somewhere else; set `DATABASE_URL` instead.
+- **`GET /health/ready` answers `{"status": "ready"}` or `{"status": "not ready"}` and no longer
+  lists the dependencies.** A dashboard that read `dependencies` from the body reads the log instead;
+  the probe that runs the checks names whatever it found unreachable.
+- **`READINESS_CHECKS` is now two tuples**, `CRITICAL_READINESS_CHECKS` and
+  `INFORMATIONAL_READINESS_CHECKS` (`src/wiring/hooks.py`). A project that added its own check
+  lists it in whichever group fits. A cache or broker outage no longer answers `503`, so an alert
+  that watched `/health/ready` for one needs to watch the log line or the reported dependencies
+  instead.
+- **Task results are stored as JSON**, not pickles. The Redis result backend no longer unpickles what
+  it reads, so a result key written by an older worker can't be read back. Drain the queue and clear
+  the result keys before deploying both sides.
+- **A stricter `SECRET_KEY` check can stop a production deploy that used to start.** A key that
+  repeats a block, walks the keyboard, or reads as ordinary words is now refused, where before only
+  whole repeats and placeholders were. Generate one with `bp env gen-secret` (or
+  `python -c 'import secrets; print(secrets.token_urlsafe(32))'`) and roll it before deploying -
+  rotating `SECRET_KEY` invalidates existing sessions and admin logins.
+- **Operators are signed out of the admin panel once.** Its session cookie is now scoped to the
+  panel's mount instead of `/`, so the cookie a browser already holds is not sent to the new path.
+  Signing in again is all it takes.
+- **Logger names changed.** `get_logger()` walked one frame too far, so a module-level
+  `logger = get_logger()` came out named `importlib._bootstrap` — the import machinery — rather than
+  the module that asked for it. Every logger is now named after its own module. Per-logger
+  configuration (a level, a filter, a handler keyed by name) has to name the module, and the
+  `module` field of a `structured` or `json` line carries it.
+- **`TASKIQ_RABBITMQ_VHOST` is written literally, not pre-escaped.** The value is escaped when the
+  broker URL is built, so `%2F` now names a vhost called `%2F`
+  (`amqp://…:5672/%252F`). Write `/` for the default vhost, or the name itself (`tasks`); a leading
+  slash is dropped either way.
+- **Regenerate an nginx stack** (`bp deploy generate nginx`) to get the `X-Forwarded-For` change.
+  Until then a client can send its own `X-Forwarded-For`, and uvicorn - trusting the compose
+  network - reports it as `request.client`.
+- **Regenerate a local stack** (`bp deploy generate local`) to publish Postgres and Redis on
+  `127.0.0.1` only. An existing `docker-compose.yml` keeps offering a password-less database to
+  everyone on the network.
+- **`POST /api/v1/api-keys/` no longer returns `key_metadata` or `last_used_ip`.** Read them from
+  `GET /api/v1/api-keys/{id}`; a key that has just been created has no `last_used_ip` anyway.
+- **`GET /api/v1/users/{username}` no longer returns `tier_id`.** A user's tier is now visible only
+  to that user, through `/users/me` or `GET /api/v1/users/{username}/tier`, and to superusers, who
+  can read any user's tier through the same route. A client that read another user's tier from their
+  profile can no longer see it.
+
+___
+
 ## 0.19.0 - June 23, 2026 - The crudauth Migration
 
 Three changes since v0.18.0: route dependency injection moved to centralized `Annotated[...]` type aliases ([#261](https://github.com/benavlabs/FastAPI-boilerplate/pull/261)), the app metadata (`APP_NAME` / `APP_DESCRIPTION` / `VERSION`) became environment-configurable, and — the headline — the vendored authentication stack was replaced with the [`crudauth`](https://pypi.org/project/crudauth/) library.
@@ -123,7 +1270,7 @@ For the full migration guide and per-section detail, see the [full release notes
 
 - **Production security validator** by [@igorbenav](https://github.com/igorbenav)
   - Startup gate that refuses to boot prod with insecure defaults
-  - Checks `SECRET_KEY`, DB credentials, CORS policy, session flags, debug mode, `CREATE_TABLES_ON_STARTUP`
+  - Checks `SECRET_KEY`, DB credentials, CORS policy, session flags, debug mode, admin credentials and Redis passwords
   - `bp env validate` runs the same checks against any config
 
 - **Server-side sessions** by [@igorbenav](https://github.com/igorbenav)
@@ -237,7 +1384,7 @@ For the full migration guide and per-section detail, see the [full release notes
 | API key hash format | Existing keys won't validate | Users must regenerate |
 | Settings composition | Env var names mostly stable; a few moved | Diff `.env.example` |
 | Sync command | `cd backend && uv sync --extra dev` produces broken venv | Use `uv sync --all-packages --all-extras` from repo root |
-| Deployment scaffolder | `./setup.py local` removed | `uv run bp deploy generate {local,prod,nginx}` |
+| Deployment scaffolder | `./setup.py local` removed | `uv run --no-sync bp deploy generate {local,prod,nginx}` |
 
 For brand-new projects, v0.18.0 is the better starting point. For existing apps with significant custom code on v0.17.0, **pinning to v0.17.0 may be the right call** — that tag stays supported.
 

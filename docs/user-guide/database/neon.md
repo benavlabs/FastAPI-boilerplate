@@ -68,9 +68,9 @@ CREATE_TABLES_ON_STARTUP=false
 
 ```bash
 cd backend
-uv run alembic upgrade head
-uv run python -m scripts.setup_initial_data   # first admin user + default tier
-uv run fastapi dev src/interfaces/main.py
+uv run --no-sync alembic upgrade head
+uv run --no-sync python -m scripts.setup_initial_data   # first admin user + default tier
+uv run --no-sync fastapi dev src/interfaces/main.py
 ```
 
 Alembic reads the same `settings.DATABASE_URL` the app does (`backend/migrations/env.py`), so there's no second connection string to maintain.
@@ -91,7 +91,7 @@ ep-cool-darkness-123456.us-east-2.aws.neon.tech          # direct — straight t
 ```bash
 # One-off override for the migration only
 DATABASE_URL="postgresql+asyncpg://neondb_owner:npg_xxxxxxxx@ep-cool-darkness-123456.us-east-2.aws.neon.tech/neondb?ssl=require" \
-  uv run alembic upgrade head
+  uv run --no-sync alembic upgrade head
 ```
 
 ## Handling scale-to-zero
@@ -131,7 +131,7 @@ services:
         condition: service_healthy
 ```
 
-Redis still runs locally — Neon replaces Postgres only. Regenerating with `uv run bp deploy generate local` brings the Postgres service back, so keep the edit in mind after a regen.
+Redis still runs locally — Neon replaces Postgres only. Regenerating with `uv run --no-sync bp deploy generate local` brings the Postgres service back, so keep the edit in mind after a regen.
 
 ## Database branching for previews
 

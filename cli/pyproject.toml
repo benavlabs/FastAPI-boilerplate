@@ -16,6 +16,12 @@ dependencies = [
     "fastapi-boilerplate",
 ]
 
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3.5",
+    "pyyaml>=6.0.2",
+]
+
 [project.scripts]
 bp = "cli.app:app"
 
@@ -32,6 +38,11 @@ include = ["*"]
 [tool.setuptools.package-data]
 "*" = ["*.j2", "*.toml", "*.conf", "py.typed"]
 
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+python_files = ["test_*.py"]
+
 [tool.ruff]
 line-length = 128
 
@@ -47,7 +58,3 @@ python_version = "3.11"
 warn_return_any = true
 warn_unused_configs = true
 warn_unused_ignores = true
-
-[[tool.mypy.overrides]]
-module = "infrastructure.*"
-ignore_missing_imports = true

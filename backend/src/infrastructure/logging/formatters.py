@@ -15,9 +15,62 @@ import json
 import logging
 import traceback
 from datetime import UTC, datetime
+from types import TracebackType
+
+_ExcInfo = tuple[type[BaseException], BaseException, TracebackType | None] | tuple[None, None, None]
+
+_WHITESPACE_ESCAPES = {"\n": "\\n", "\r": "\\r", "\t": "\\t"}
+
+_FIELD_ESCAPES = {"\\": "\\\\", '"': '\\"'}
+
+_JSON_UNESCAPED_BREAKS = {"\x85": "\\u0085", "\u2028": "\\u2028", "\u2029": "\\u2029"}
 
 
-class SimpleFormatter(logging.Formatter):
+def _printable(value: str) -> str:
+    """``value`` on one line, with every character a terminal would act on written out."""
+    written = []
+    for character in value:
+        if character in _WHITESPACE_ESCAPES:
+            written.append(_WHITESPACE_ESCAPES[character])
+        elif character.isprintable():
+            written.append(character)
+        else:
+            written.append(f"\\u{ord(character):04x}")
+
+    return "".join(written)
+
+
+def _escaped(value: str) -> str:
+    """``value`` as the text of a quoted field, with the quote and the backslash escaped too."""
+    return _printable("".join(_FIELD_ESCAPES.get(character, character) for character in value))
+
+
+def _quoted(value: str) -> str:
+    """``value`` as a quoted field, with the characters that would end it escaped."""
+    return f'"{_escaped(value)}"'
+
+
+def _indented(text: str) -> str:
+    """``text`` as continuation lines of the record above it, none of them at column 0."""
+    return "\n".join(f"    {_printable(line)}" for line in text.splitlines())
+
+
+class _EscapedMessageFormatter(logging.Formatter):
+    """A formatter whose message stays on the line it was written to, its traceback indented."""
+
+    def formatMessage(self, record: logging.LogRecord) -> str:
+        record.message = _printable(record.message)
+
+        return super().formatMessage(record)
+
+    def formatException(self, ei: _ExcInfo) -> str:
+        return _indented(super().formatException(ei))
+
+    def formatStack(self, stack_info: str) -> str:
+        return _indented(super().formatStack(stack_info))
+
+
+class SimpleFormatter(_EscapedMessageFormatter):
     """Simple formatter for basic console output.
 
     Provides clean, readable output for development environments
@@ -31,7 +84,7 @@ class SimpleFormatter(logging.Formatter):
         super().__init__(fmt="[%(levelname)s] %(name)s: %(message)s", datefmt="%H:%M:%S")
 
 
-class DetailedFormatter(logging.Formatter):
+class DetailedFormatter(_EscapedMessageFormatter):
     """Detailed formatter with timestamp and context information.
 
     Provides comprehensive information for debugging and development,
@@ -59,7 +112,7 @@ class StructuredFormatter(logging.Formatter):
             f"timestamp={timestamp}",
             f"level={record.levelname}",
             f"module={record.name}",
-            f'message="{record.getMessage()}"',
+            f"message={_quoted(record.getMessage())}",
         ]
 
         if hasattr(record, "__dict__"):
@@ -87,17 +140,13 @@ class StructuredFormatter(logging.Formatter):
                     "exc_text",
                     "stack_info",
                 ]:
-                    if isinstance(value, str):
-                        parts.append(f'{key}="{value}"')
-                    elif isinstance(value, int | float | bool):
+                    if isinstance(value, int | float | bool):
                         parts.append(f"{key}={value}")
                     else:
-                        parts.append(f'{key}="{str(value)}"')
+                        parts.append(f"{key}={_quoted(str(value))}")
 
         if record.exc_info:
-            exc_text = self.formatException(record.exc_info)
-            exc_text_escaped = exc_text.replace("\n", "\\n")
-            parts.append(f'exception="{exc_text_escaped}"')
+            parts.append(f"exception={_quoted(self.formatException(record.exc_info))}")
 
         return " ".join(parts)
 
@@ -159,7 +208,11 @@ class JSONFormatter(logging.Formatter):
                 "traceback": traceback.format_exception(*record.exc_info),
             }
 
-        return json.dumps(log_data, ensure_ascii=False)
+        dumped = json.dumps(log_data, ensure_ascii=False)
+        for character, escape in _JSON_UNESCAPED_BREAKS.items():
+            dumped = dumped.replace(character, escape)
+
+        return dumped
 
 
 def get_formatter(format_type: str) -> logging.Formatter:

@@ -8,7 +8,7 @@ from fastapi.encoders import jsonable_encoder
 from ..logging import get_logger
 from .exceptions import CacheException, InvalidRequestError
 from .provider import cache_provider
-from .utils import format_extra_data, format_prefix, infer_resource_id
+from .utils import build_cache_key, caller_marks, declared_query_names, format_extra_data, format_prefix, format_query
 
 
 class PatternMatchingNotSupportedError(CacheException):
@@ -35,32 +35,44 @@ def cache(
     key_prefix: str,
     resource_id_name: Any = None,
     expiration: int = 3600,
-    resource_id_type: type | tuple[type, ...] = int,
     to_invalidate_extra: dict[str, Any] | None = None,
     pattern_to_invalidate_extra: list[str] | None = None,
     backend_name: str | None = None,
+    per_caller: bool = True,
+    caller_from: str | None = None,
 ) -> Callable[[T], T]:
     """Cache decorator for FastAPI endpoints.
 
     Args:
         key_prefix: A unique prefix to identify the cache key.
-        resource_id_name: The name of the resource ID argument. If None, it will be inferred.
+        resource_id_name: The name of the resource ID argument. Without one, the key names
+            no resource: a listing is its parameters, not a row.
         expiration: The expiration time for the cached data in seconds. Default is 3600 (1 hour).
-        resource_id_type: The expected type of the resource ID. Default is int.
         to_invalidate_extra: Additional cache keys to invalidate.
         pattern_to_invalidate_extra: Patterns for additional cache keys to invalidate.
         backend_name: The name of the cache backend to use. If None, the default is used.
+        per_caller: Keep one entry per caller, which is the default. A route whose response
+            is the same for everyone passes ``False``; a route that keeps the default and
+            resolves no caller is not cached at all.
+        caller_from: The name of the argument the caller is read from, which holds a
+            ``Principal``. A per-caller route names it: which argument identifies the
+            caller is the route's to say, not something to go looking for.
 
     Returns:
         A decorator function for FastAPI endpoint functions.
 
+    Raises:
+        ValueError: A per-caller route names no argument to read the caller from.
+
     Example:
         @app.get("/users/{user_id}")
-        @cache(key_prefix="user", resource_id_name="user_id", expiration=600)
-        async def get_user(request: Request, user_id: int):
+        @cache(key_prefix="user", resource_id_name="user_id", expiration=600, caller_from="principal")
+        async def get_user(request: Request, user_id: int, principal: CurrentPrincipalDep):
             # Your logic here
             return {"id": user_id, "name": "John Doe"}
     """
+    if per_caller and caller_from is None:
+        raise ValueError(f"A per-caller cached route must name the argument its caller is read from: {key_prefix}")
 
     def wrapper(func: T) -> T:
         @functools.wraps(func)
@@ -71,51 +83,58 @@ def cache(
                 logger.warning(f"Cache backend not available: {str(e)}")
                 return cast(Response, await func(request, *args, **kwargs))
 
-            if resource_id_name:
-                resource_id = kwargs[resource_id_name]
-            else:
-                try:
-                    resource_id = infer_resource_id(kwargs=kwargs, resource_id_type=resource_id_type)
-                except Exception:
-                    logger.warning("Could not infer resource ID, skipping cache")
-                    return cast(Response, await func(request, *args, **kwargs))
+            resource_id = kwargs[resource_id_name] if resource_id_name else None
+            caller_id = caller_marks(kwargs.get(caller_from)) if caller_from is not None and per_caller else None
+            if per_caller and caller_id is None:
+                logger.warning(f"No principal on a per-caller cached route ('{key_prefix}'), skipping cache")
+                return cast(Response, await func(request, *args, **kwargs))
 
             formatted_key_prefix = format_prefix(key_prefix, kwargs)
-            cache_key = f"{formatted_key_prefix}:{resource_id}"
+            query = format_query(request.query_params, declared_query_names(request))
+            read_key = build_cache_key(formatted_key_prefix, resource_id, query, caller_id)
+            written_over_key = build_cache_key(formatted_key_prefix, resource_id, "", caller_id)
 
             if request.method == "GET":
                 if to_invalidate_extra is not None or pattern_to_invalidate_extra is not None:
                     raise InvalidRequestError("Cache invalidation not allowed on GET requests")
 
-                cached_data = await backend.get(cache_key)
-                if cached_data:
+                try:
+                    cached_data = await backend.get(read_key)
+                except Exception as error:
+                    logger.warning(f"Cache unavailable while reading '{read_key}': {type(error).__name__}")
+                    return cast(Response, await func(request, *args, **kwargs))
+
+                if cached_data is not None:
                     return cast(Response, cached_data)
 
             result = await func(request, *args, **kwargs)
 
-            if request.method == "GET":
-                serializable_data = jsonable_encoder(result)
-                await backend.set(cache_key, serializable_data, expiration)
+            try:
+                if request.method == "GET":
+                    serializable_data = jsonable_encoder(result)
+                    await backend.set(read_key, serializable_data, expiration)
 
-            else:
-                await backend.delete(cache_key)
+                else:
+                    await backend.delete(written_over_key)
 
-                if to_invalidate_extra is not None:
-                    formatted_extra = format_extra_data(to_invalidate_extra, kwargs)
-                    for prefix, id in formatted_extra.items():
-                        extra_cache_key = f"{prefix}:{id}"
-                        await backend.delete(extra_cache_key)
+                    if to_invalidate_extra is not None:
+                        formatted_extra = format_extra_data(to_invalidate_extra, kwargs)
+                        for prefix, id in formatted_extra.items():
+                            extra_cache_key = f"{prefix}:{id}"
+                            await backend.delete(extra_cache_key)
 
-                if pattern_to_invalidate_extra is not None:
-                    for pattern in pattern_to_invalidate_extra:
-                        try:
-                            formatted_pattern = format_prefix(pattern, kwargs)
-                            await backend.delete_pattern(formatted_pattern)
-                        except (
-                            PatternMatchingNotSupportedError,
-                            MemcachedPatternMatchingNotSupportedError,
-                        ) as e:
-                            logger.error(str(e))
+                    if pattern_to_invalidate_extra is not None:
+                        for pattern in pattern_to_invalidate_extra:
+                            try:
+                                formatted_pattern = format_prefix(pattern, kwargs)
+                                await backend.delete_pattern(formatted_pattern)
+                            except (
+                                PatternMatchingNotSupportedError,
+                                MemcachedPatternMatchingNotSupportedError,
+                            ) as e:
+                                logger.error(str(e))
+            except Exception as error:
+                logger.warning(f"Cache unavailable while writing '{read_key}': {type(error).__name__}")
 
             return cast(Response, result)
 

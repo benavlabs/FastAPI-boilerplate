@@ -92,14 +92,14 @@ The entry-point key (`fly`) becomes the sub-command name. The value (`bp_deploy_
 
 ```bash
 uv pip install bp-deploy-fly
-uv run bp --help
+uv run --no-sync bp --help
 # ╭─ Commands ────────────────────────────────────────────────╮
 # │ deploy  Generate deployment artifacts ...                 │
 # │ env     Inspect and prepare the runtime environment.      │
 # │ fly     Deploy this app to Fly.io.            ← new       │
 # ╰───────────────────────────────────────────────────────────╯
 
-uv run bp fly deploy --region ord --yes
+uv run --no-sync bp fly deploy --region ord --yes
 ```
 
 ### Best Practices for Command Plugins
@@ -273,7 +273,7 @@ Note `include-package-data = true` and the `package-data` glob — without these
 ```bash
 uv pip install bp-feature-audit-log
 # Once `bp feature` ships:
-# uv run bp feature add audit-log --retention-days 90
+# uv run --no-sync bp feature add audit-log --retention-days 90
 ```
 
 ### Best Practices for Feature Plugins
@@ -291,16 +291,16 @@ uv pip install bp-feature-audit-log
 
 ```bash
 # In-tree + plugin commands
-uv run bp --help
+uv run --no-sync bp --help
 
 # (Once shipped) — list features:
-# uv run bp feature list
+# uv run --no-sync bp feature list
 ```
 
 ### Inspecting Entry Points
 
 ```bash
-uv run python -c "
+uv run --no-sync python -c "
 from importlib.metadata import entry_points
 for ep in entry_points(group='bp.commands'):
     print(f'command  {ep.name:>15s}  ->  {ep.value}')
