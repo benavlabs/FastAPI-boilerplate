@@ -40,6 +40,13 @@ def test_the_image_carries_the_scripts_and_the_migrations():
     assert "COPY backend/alembic.ini ." in stage
 
 
+def test_alembic_finds_its_configuration_from_the_working_directory_the_stages_use():
+    """``docker compose exec api alembic upgrade head`` runs from ``/app/src``, where there is none."""
+    stage = _base_stage()
+
+    assert "ENV ALEMBIC_CONFIG=/app/alembic.ini" in stage
+
+
 def _carried_by_this_project(module: str) -> bool:
     """Whether this project still has the script, rather than having removed its feature.
 

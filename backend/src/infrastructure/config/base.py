@@ -35,10 +35,13 @@ env_paths = [
     "/.env",
 ]
 
-env_path = next((path for path in env_paths if os.path.isfile(path)), env_paths[0])
+env_path = next((path for path in env_paths if os.path.isfile(path)), None)
 
 running_under_pytest = "PYTEST_VERSION" in os.environ or "PYTEST_CURRENT_TEST" in os.environ
-if running_under_pytest:
+if running_under_pytest or env_path is None:
+    if not running_under_pytest:
+        logger.info("No environment file found; settings are read from the environment.")
+
     config = Config()
 else:
     logger.info(f"Using environment file at: {env_path}")

@@ -44,6 +44,7 @@ COPY backend/scripts ./scripts
 
 # Set Python path
 ENV PYTHONPATH=/app:/app/src
+ENV ALEMBIC_CONFIG=/app/alembic.ini
 
 # ===================== Development Stage =====================
 FROM base AS dev
