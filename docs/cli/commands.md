@@ -151,7 +151,8 @@ Critical (2):
 The command:
 
 1. Imports the same `ProductionSecurityValidator` the application uses at startup
-2. Forces `_is_production() = True` so the checks run regardless of `ENVIRONMENT`
+2. Audits a copy of your settings whose `ENVIRONMENT` reads `production`, so the checks run whatever
+   the configured environment is and a finding that names an environment names the one audited for
 3. Captures critical errors and warnings, prints them grouped, and exits non-zero if any critical issues exist
 
 Exit codes:

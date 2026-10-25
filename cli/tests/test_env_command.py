@@ -21,23 +21,33 @@ def _backend_settings(**overrides):
     their defaults describe a development environment, not the production one these stand for.
     """
     module = env._app_module("src.infrastructure.config.settings")
+    fields = {
+        "ENVIRONMENT": "production",
+        "CREATE_TABLES_ON_STARTUP": False,
+        "EMAIL_BACKEND": "smtp",
+        "FRONTEND_URL": "https://app.example.com",
+    }
 
-    return module.Settings(
-        ENVIRONMENT="production",
-        CREATE_TABLES_ON_STARTUP=False,
-        EMAIL_BACKEND="smtp",
-        FRONTEND_URL="https://app.example.com",
-        **overrides,
-    )
+    return module.Settings(**(fields | overrides))
+
+
+def _settings_module_answering(settings) -> SimpleNamespace:
+    """The settings module as the command uses it: the settings it asks for, and the enum it reads."""
+    module = env._app_module("src.infrastructure.config.settings")
+
+    return SimpleNamespace(get_settings=lambda: settings, EnvironmentOption=module.EnvironmentOption)
 
 
 @pytest.fixture
 def audited(monkeypatch):
-    """Answer the command with a validator whose audit we control."""
+    """Answer the command with a validator whose audit we control, and collect what it was handed."""
 
-    def audit_returning(errors: list[str], warnings: list[str]):
+    def audit_returning(errors: list[str], warnings: list[str]) -> list:
+        handed: list = []
+
         class _Validator:
             def __init__(self, settings):
+                handed.append(settings)
                 self.settings = settings
 
             def audit(self):
@@ -47,11 +57,12 @@ def audited(monkeypatch):
                 return True
 
         module = SimpleNamespace(ProductionSecurityValidator=_Validator)
-        monkeypatch.setattr(
-            env,
-            "_app_module",
-            lambda name: module if "production_validator" in name else SimpleNamespace(get_settings=lambda: object()),
-        )
+        settings = SimpleNamespace(ENVIRONMENT="development")
+        settings.model_copy = lambda update: SimpleNamespace(**(vars(settings) | update))
+        answered = _settings_module_answering(settings)
+        monkeypatch.setattr(env, "_app_module", lambda name: module if "production_validator" in name else answered)
+
+        return handed
 
     return audit_returning
 
@@ -83,6 +94,16 @@ def test_a_clean_configuration_says_so(audited):
 
     assert result.exit_code == 0
     assert "No issues found" in result.output
+
+
+def test_the_audited_settings_carry_the_environment_as_the_app_reads_it(audited):
+    """The app factory and the logger read ``ENVIRONMENT.value``, which a plain string has not."""
+    handed = audited([], [])
+
+    result = runner.invoke(env.app, ["validate"])
+
+    assert result.exit_code == 0
+    assert handed[0].ENVIRONMENT.value == "production"
 
 
 def test_gen_secret_produces_a_key_the_validator_accepts():
@@ -149,12 +170,8 @@ def real_validator(monkeypatch):
     validator_module = env._app_module("src.infrastructure.security.production_validator")
 
     def with_settings(**overrides):
-        settings = _backend_settings(**overrides)
-        monkeypatch.setattr(
-            env,
-            "_app_module",
-            lambda name: validator_module if "production_validator" in name else SimpleNamespace(get_settings=lambda: settings),
-        )
+        answered = _settings_module_answering(_backend_settings(**overrides))
+        monkeypatch.setattr(env, "_app_module", lambda name: validator_module if "production_validator" in name else answered)
 
     return with_settings
 
@@ -168,6 +185,16 @@ def test_validate_runs_the_real_validator_against_a_weak_configuration(real_vali
     assert result.exit_code == 1
     assert "SECRET_KEY" in result.output
     assert "Database is using default credentials" in result.output
+
+
+def test_every_finding_names_the_environment_being_audited_for(real_validator):
+    """The command audits as production, so a finding that names a development one is a lie."""
+    real_validator(ENVIRONMENT="development", EMAIL_BACKEND="console", CREATE_TABLES_ON_STARTUP=True)
+
+    result = runner.invoke(env.app, ["validate"])
+
+    assert "in production" in result.output
+    assert "in development" not in result.output
 
 
 def test_validate_reports_a_strong_configuration_as_clean(real_validator):

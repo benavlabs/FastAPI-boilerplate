@@ -106,13 +106,18 @@ def validate() -> None:
     """Run the production security validator against the current settings.
 
     Reports what production would refuse whatever ``ENVIRONMENT`` says, so a dev
-    or staging config can be audited the same way prod is gated.
+    or staging config can be audited the same way prod is gated. The settings are
+    audited as a copy that says ``production``, so a finding that names the
+    environment names the one being audited for.
     """
-    settings = _app_module("src.infrastructure.config.settings").get_settings()
+    settings_module = _app_module("src.infrastructure.config.settings")
+    settings = settings_module.get_settings()
     validator_module = _app_module("src.infrastructure.security.production_validator")
     ProductionSecurityValidator = validator_module.ProductionSecurityValidator
 
-    critical_errors, captured_warnings = ProductionSecurityValidator(settings).audit()
+    production = settings_module.EnvironmentOption.PRODUCTION
+    as_production = settings.model_copy(update={"ENVIRONMENT": production})
+    critical_errors, captured_warnings = ProductionSecurityValidator(as_production).audit()
 
     if not critical_errors and not captured_warnings:
         success("No issues found. Configuration would pass production validation.")
