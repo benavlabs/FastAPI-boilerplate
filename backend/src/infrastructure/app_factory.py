@@ -170,9 +170,9 @@ def create_application(
         except json.JSONDecodeError:
             pass
 
-    _docs_url = docs_url if docs_url is not None else settings.DOCS_URL
-    _redoc_url = redoc_url if redoc_url is not None else settings.REDOC_URL
-    _openapi_url = openapi_url if openapi_url is not None else settings.OPENAPI_URL
+    _docs_url = (docs_url if docs_url is not None else settings.DOCS_URL) or None
+    _redoc_url = (redoc_url if redoc_url is not None else settings.REDOC_URL) or None
+    _openapi_url = (openapi_url if openapi_url is not None else settings.OPENAPI_URL) or None
 
     metadata["docs_url"] = _docs_url
     metadata["redoc_url"] = _redoc_url
@@ -236,30 +236,36 @@ def create_application(
         _environment = settings.ENVIRONMENT.value
         application.add_middleware(SecurityHeadersMiddleware, environment=_environment)
 
-    if show_docs:
+    if show_docs and not serve_builtin_docs:
         docs_router = APIRouter()
 
         if docs_dependency is not None:
             docs_router = APIRouter(dependencies=[Depends(docs_dependency)])
 
-        @docs_router.get(_docs_url, include_in_schema=False)
-        async def get_swagger_documentation(request: Request) -> fastapi.responses.HTMLResponse:
-            root_path: str = request.scope.get("root_path", "").rstrip("/")
-            return get_swagger_ui_html(openapi_url=root_path + _openapi_url, title="docs")
+        if _docs_url and _openapi_url:
 
-        @docs_router.get(_redoc_url, include_in_schema=False)
-        async def get_redoc_documentation(request: Request) -> fastapi.responses.HTMLResponse:
-            root_path: str = request.scope.get("root_path", "").rstrip("/")
-            return get_redoc_html(openapi_url=root_path + _openapi_url, title="redoc")
+            @docs_router.get(_docs_url, include_in_schema=False)
+            async def get_swagger_documentation(request: Request) -> fastapi.responses.HTMLResponse:
+                root_path: str = request.scope.get("root_path", "").rstrip("/")
+                return get_swagger_ui_html(openapi_url=root_path + _openapi_url, title="docs")
 
-        @docs_router.get(_openapi_url, include_in_schema=False)
-        async def openapi(request: Request) -> dict[str, Any]:
-            root_path: str = request.scope.get("root_path", "").rstrip("/")
-            served_urls = {server.get("url") for server in application.servers}
-            if root_path and application.root_path_in_servers and root_path not in served_urls:
-                application.servers.insert(0, {"url": root_path})
+        if _redoc_url and _openapi_url:
 
-            return application.openapi()
+            @docs_router.get(_redoc_url, include_in_schema=False)
+            async def get_redoc_documentation(request: Request) -> fastapi.responses.HTMLResponse:
+                root_path: str = request.scope.get("root_path", "").rstrip("/")
+                return get_redoc_html(openapi_url=root_path + _openapi_url, title="redoc")
+
+        if _openapi_url:
+
+            @docs_router.get(_openapi_url, include_in_schema=False)
+            async def openapi(request: Request) -> dict[str, Any]:
+                root_path: str = request.scope.get("root_path", "").rstrip("/")
+                served_urls = {server.get("url") for server in application.servers}
+                if root_path and application.root_path_in_servers and root_path not in served_urls:
+                    application.servers.insert(0, {"url": root_path})
+
+                return application.openapi()
 
         application.include_router(docs_router)
 

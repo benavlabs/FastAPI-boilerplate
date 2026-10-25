@@ -613,6 +613,13 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   headers carry the session cookie and `X-API-Key`; statement and parameter capture carry addresses,
   hashes and session ids; pattern scrubbing cannot know an identifier is a username; the probes are
   noise); sampling; and what the same recipe looks like against a plain OpenTelemetry collector.
+- **An empty `DOCS_URL`, `REDOC_URL` or `OPENAPI_URL` switches that page off**, which is what the
+  production checklist and the development guide have always said it does. The empty string was
+  passed to FastAPI as a path, so outside production the app refused to start at all with
+  `Prefix and path cannot be both empty`; in production it worked only because the environment
+  already forces all three off. The same block registered the three paths a second time where
+  FastAPI was already serving them, so `/docs`, `/redoc` and `/openapi.json` each had two routes in
+  local and development; the gated router is now built only where it is the one serving.
 - **A generated compose stack takes the database credentials from the environment file.** The
   `postgres` service mapped `POSTGRES_USER`, `POSTGRES_PASSWORD` and `POSTGRES_DB` through
   `${VAR:-postgres}` in its `environment` block. Compose interpolates those from the shell or a

@@ -534,3 +534,23 @@ async def test_the_gated_schema_is_the_one_the_app_builds():
     assert served["info"]["contact"] == {"name": "Acme Support", "email": "ops@acme.example.com"}
     assert served["info"]["license"] == {"name": "MIT"}
     assert served["tags"] == [{"name": "users", "description": "Accounts"}]
+
+
+@pytest.mark.parametrize(
+    ("emptied", "no_longer_served"),
+    [("DOCS_URL", "/docs"), ("REDOC_URL", "/redoc"), ("OPENAPI_URL", "/openapi.json")],
+)
+def test_an_empty_docs_path_serves_nothing_there(emptied: str, no_longer_served: str):
+    """`production.md` and `development.md` both say to empty one of these to switch that page off.
+
+    Passed through as an empty string, FastAPI refused to build the app at all: "Prefix and path
+    cannot be both empty".
+    """
+    settings = Settings(ENVIRONMENT=EnvironmentOption.DEVELOPMENT).model_copy(update={emptied: ""})
+
+    app = app_factory.create_application(router=APIRouter(), settings=settings)
+
+    served = [route.path for route in app.routes if hasattr(route, "path")]
+    assert "" not in served
+    assert no_longer_served not in served
+    assert sorted(set(served)) == sorted(served), "a path is registered twice"
