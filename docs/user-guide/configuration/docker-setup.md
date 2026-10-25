@@ -8,7 +8,7 @@ This page walks through running the boilerplate in containers. The Python projec
 !!! info "The compose file is generated, not shipped"
     No compose file is committed. `bp deploy generate local` writes one at the repository root,
     where it is gitignored, so regenerating it never conflicts with the repo. `prod` and `nginx`
-    write the other two stacks. See [CLI commands](../../cli/commands.md#bp-deploy-generate).
+    write the other two stacks. See [CLI commands](../../cli/commands.md#bp-deploy-generate-mode).
 
 ## Quick Start
 
