@@ -2,8 +2,11 @@
 
 import logging
 import re
+from pathlib import Path
 
 import pytest
+from crudauth import PasswordPolicy
+from crudauth.password import PasswordContext
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import scripts.create_first_superuser as script
@@ -105,9 +108,10 @@ async def test_a_mixed_case_address_held_by_a_plain_user_is_refused(
 
 
 async def test_a_weak_password_is_reported_without_a_traceback(admin_environment, monkeypatch):
+    """The reader has to know which file to edit, since the value came from one."""
     monkeypatch.setattr(settings, "ADMIN_PASSWORD", "short")
 
-    with pytest.raises(SeedError, match="ADMIN_PASSWORD doesn't meet the password policy") as failure:
+    with pytest.raises(SeedError, match=r"ADMIN_PASSWORD in backend/\.env .*change it and run the seed again") as failure:
         await create_first_superuser()
 
     assert "Traceback" not in str(failure.value)
@@ -197,3 +201,25 @@ class TestWhatMainReportsForAFailure:
         assert exit_code.value.code == 1
         assert "Traceback" not in logged.text
         assert re.search(r"Could not seed the superuser: \w+Error", logged.text)
+
+
+async def test_the_shipped_admin_password_meets_the_policy_shipped_beside_it():
+    """A reader copies `.env.example` and runs the seed, so the two have to agree.
+
+    The policy is built from that file rather than from the running settings, since what
+    the reader gets is whatever the example turns on.
+    """
+    shipped = dict(
+        line.split("=", 1)
+        for line in (Path(__file__).resolve().parents[3] / ".env.example").read_text().splitlines()
+        if line.startswith(("ADMIN_PASSWORD=", "PASSWORD_"))
+    )
+    as_shipped = PasswordPolicy(
+        min_length=int(shipped["PASSWORD_MIN_LENGTH"]),
+        require_uppercase=shipped["PASSWORD_REQUIRE_UPPERCASE"] == "true",
+        require_lowercase=shipped["PASSWORD_REQUIRE_LOWERCASE"] == "true",
+        require_digit=shipped["PASSWORD_REQUIRE_DIGIT"] == "true",
+        require_special=shipped["PASSWORD_REQUIRE_SPECIAL"] == "true",
+    )
+
+    assert await as_shipped.check(shipped["ADMIN_PASSWORD"], PasswordContext(source="register")) == []

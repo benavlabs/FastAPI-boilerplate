@@ -17,6 +17,7 @@ Docker Compose handles every service for you (Postgres + Redis + the app).
 
 - [Docker](https://docs.docker.com/get-docker/) (20.10+)
 - [Docker Compose](https://docs.docker.com/compose/install/) (v2+)
+- [uv](https://docs.astral.sh/uv/getting-started/installation/), which runs the CLI that writes the compose file
 
 ### Steps
 
@@ -24,23 +25,41 @@ Docker Compose handles every service for you (Postgres + Redis + the app).
 
     ```bash
     git clone https://github.com/benavlabs/fastapi-boilerplate
-    cd fastapi-boilerplate/backend
+    cd fastapi-boilerplate
     ```
 
-2. **Set up the environment file**:
+2. **Install the workspace**:
 
     ```bash
-    cp .env.example .env
-    # Edit .env: set SECRET_KEY, change default DB password, etc.
+    uv sync --all-packages --all-extras
     ```
 
-3. **Bring up the stack**:
+3. **Generate the compose file**:
+
+    ```bash
+    uv run --no-sync bp deploy generate local
+    ```
+
+    `docker-compose.yml` is written at the repo root and is not committed, because the stack
+    you want depends on how you deploy. `local` is the hot-reload stack: API, Taskiq worker,
+    scheduler, Postgres and Redis. The other modes are `prod` and `nginx`, covered in
+    [CLI → Commands](../cli/commands.md).
+
+4. **Set up the environment file**:
+
+    ```bash
+    cp backend/.env.example backend/.env
+    # Edit backend/.env: set SECRET_KEY (`uv run --no-sync bp env gen-secret` prints one),
+    # change ADMIN_PASSWORD and the default DB password.
+    ```
+
+5. **Bring up the stack**, from the repo root:
 
     ```bash
     docker compose up
     ```
 
-4. **Verify it's running**:
+6. **Verify it's running**:
 
     ```bash
     curl http://localhost:8000/health
@@ -236,7 +255,7 @@ SECRET_KEY=insecure-change-this-in-production
 ADMIN_NAME=Admin User
 ADMIN_EMAIL=admin@example.com
 ADMIN_USERNAME=admin
-ADMIN_PASSWORD=your-secure-password
+ADMIN_PASSWORD=Change-Me-Now-1!
 ```
 
 See [Environment Variables](../user-guide/configuration/environment-variables.md) for the complete reference.
@@ -291,8 +310,9 @@ redis-server
 
 ### Docker — Clean Reset
 
+From the repository root, where `docker-compose.yml` is:
+
 ```bash
-cd backend
 docker compose down       # stop containers
 docker compose down -v    # also delete volumes (⚠️ wipes data)
 docker compose build --no-cache

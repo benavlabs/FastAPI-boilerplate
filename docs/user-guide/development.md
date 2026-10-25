@@ -20,7 +20,7 @@ uv run --no-sync fastapi dev src/interfaces/main.py
 
 `--reload` watches the filesystem and restarts on Python file changes. Use it for development; **never** in production.
 
-If you're using Docker:
+If you're using Docker, from the repository root:
 
 ```bash
 docker compose up -d                # API + Postgres + Redis

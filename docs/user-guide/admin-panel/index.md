@@ -17,7 +17,7 @@ Authentication is **separate from your app's session auth**. Admin login uses si
 
 ```env
 ADMIN_USERNAME=admin
-ADMIN_PASSWORD=your-secure-password
+ADMIN_PASSWORD=Change-Me-Now-1!
 SECRET_KEY=<used for admin session encryption>
 ```
 

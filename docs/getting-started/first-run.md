@@ -1,6 +1,6 @@
 # First Run Guide
 
-This guide walks you through verifying your installation, creating the admin user, and testing the main features.
+This guide walks you through verifying your installation, creating the admin user, and testing the main features. It picks up where [Installation](installation.md) leaves off, with the app already running: the commands below reach a stack that is up, rather than starting one.
 
 ## Verification Checklist
 
@@ -250,8 +250,9 @@ uv run --no-sync alembic upgrade head
 
 ### Reset Everything (Docker)
 
+From the repository root, where `docker-compose.yml` is:
+
 ```bash
-cd backend
 docker compose down -v   # ⚠️ wipes the database volume
 docker compose up
 ```

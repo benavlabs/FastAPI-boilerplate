@@ -94,7 +94,10 @@ Get up and running in less than 5 minutes. Pick whichever fits your workflow:
 
     ```bash
     git clone https://github.com/benavlabs/fastapi-boilerplate
-    cd fastapi-boilerplate/backend
+    cd fastapi-boilerplate
+    uv sync --all-packages --all-extras
+    uv run --no-sync bp deploy generate local  # writes docker-compose.yml at the repo root
+    cp backend/.env.example backend/.env  # then edit values as needed
     docker compose up
     ```
 

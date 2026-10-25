@@ -10,7 +10,7 @@ ADMIN_ENABLED=true
 
 # Admin login credentials — must BOTH be set, otherwise login always fails
 ADMIN_USERNAME=admin
-ADMIN_PASSWORD=your-secure-password
+ADMIN_PASSWORD=Change-Me-Now-1!
 
 # Used for admin session encryption (same SECRET_KEY as the rest of the app)
 SECRET_KEY=<openssl rand -hex 32>
@@ -227,7 +227,7 @@ The default `.env.example` is already development-ready:
 ENVIRONMENT=development
 ADMIN_ENABLED=true
 ADMIN_USERNAME=admin
-ADMIN_PASSWORD=your-secure-password
+ADMIN_PASSWORD=Change-Me-Now-1!
 SECRET_KEY=insecure-secret-key-change-this-in-production
 ```
 

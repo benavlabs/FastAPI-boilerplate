@@ -104,7 +104,7 @@ The `setup_initial_data` script reads these on first run:
 ADMIN_NAME=Admin User
 ADMIN_EMAIL=admin@example.com
 ADMIN_USERNAME=admin
-ADMIN_PASSWORD=your-secure-password
+ADMIN_PASSWORD=Change-Me-Now-1!
 ```
 
 Then run:

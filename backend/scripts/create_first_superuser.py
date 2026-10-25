@@ -98,7 +98,10 @@ async def _seed_superuser(name: str, email: str, username: str, password: str) -
                 UserCreate(name=name, email=email, username=username, password=password), session
             )
         except PasswordPolicyException as error:
-            raise SeedError(f"ADMIN_PASSWORD doesn't meet the password policy: {_policy_failures(error)}") from error
+            raise SeedError(
+                f"ADMIN_PASSWORD in backend/.env doesn't meet the password policy ({_policy_failures(error)}): "
+                "change it and run the seed again."
+            ) from error
         except DomainError as error:
             raise SeedError(f"Could not seed the superuser: {error}") from error
 

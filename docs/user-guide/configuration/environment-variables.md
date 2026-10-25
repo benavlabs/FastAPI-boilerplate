@@ -333,7 +333,7 @@ These are read by `python -m scripts.setup_initial_data`:
 ADMIN_NAME=Admin User
 ADMIN_EMAIL=admin@example.com
 ADMIN_USERNAME=admin
-ADMIN_PASSWORD=your-secure-password
+ADMIN_PASSWORD=Change-Me-Now-1!
 ```
 
 The default tier name is also configurable (defaults to `free`):
