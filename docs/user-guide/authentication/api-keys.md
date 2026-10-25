@@ -3,7 +3,7 @@
 A key is for a program: a script, a server, an integration calling the API without a browser and
 without a password. It belongs to an account, carries a scope of its own, and can be revoked on its
 own. Keys come with the api_keys feature; a project without that feature has no key routes, no
-`X-API-Key` transport and no usage tables.
+`X-API-Key` transport and no usage tables. See [Composable Features](../composable-features.md).
 
 ## Creating a key
 

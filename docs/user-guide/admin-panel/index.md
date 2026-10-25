@@ -2,6 +2,8 @@
 
 The boilerplate ships a built-in admin panel powered by [SQLAdmin](https://github.com/smithyhq/sqladmin). It gives you a web interface for browsing and editing the database without writing custom CRUD endpoints.
 
+The panel is the `admin` feature. A project without it has no `/admin` mount, no `wiring/admin.py` and no admin views, and each feature's views leave with the feature: see [Composable Features](../composable-features.md).
+
 !!! tip "Building a full SaaS?"
     The admin panel is part of the free foundation. **[FastroAI](https://fastro.ai)** bundles it with Stripe payments, entitlements, transactional email, a frontend, and AI agents - all wired together and production-ready. [Ship your SaaS faster →](https://fastro.ai)
 

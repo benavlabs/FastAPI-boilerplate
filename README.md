@@ -37,9 +37,10 @@
 
 ## Features
 
+* **Nine removable features** - accounts, rbac, tiers, tier_limits, ratelimit, api_keys, admin, cache and taskiq, each leaving with its routes, models, settings, admin views, seeders and tests ([guide](https://benavlabs.github.io/FastAPI-boilerplate/user-guide/composable-features/))
 * Fully async FastAPI + SQLAlchemy 2.0
 * Pydantic v2 models & validation
-* Server-side sessions + CSRF via [crudauth](https://pypi.org/project/crudauth/); OAuth (Google wired); API keys
+* Server-side sessions + CSRF via [crudauth](https://pypi.org/project/crudauth/); OAuth (Google and GitHub wired); API keys
 * Annotated type aliases for all FastAPI dependencies
 * Rate limiter with per-tier, per-path rules
 * FastCRUD for efficient CRUD & pagination

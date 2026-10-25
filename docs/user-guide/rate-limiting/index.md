@@ -4,6 +4,11 @@ The boilerplate ships crudauth's rate limiter with per-tier, per-path limits bac
 routes are protected by default; authenticated requests key by user ID and anonymous requests by
 trusted-proxy-aware client IP.
 
+Two features carry this: `ratelimit` is the throttle itself, and `tier_limits` adds the per-tier rules
+and the routes that configure them. A project with neither throttles nothing and answers no `429`; one
+with `ratelimit` alone applies the default limit to every caller. See
+[Composable Features](../composable-features.md).
+
 !!! tip "Building a full SaaS?"
     Rate limiting is part of the free foundation. **[FastroAI](https://fastro.ai)** bundles it with Stripe payments, entitlements, transactional email, a frontend, and AI agents - all wired together and production-ready. [Ship your SaaS faster →](https://fastro.ai)
 

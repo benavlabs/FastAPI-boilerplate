@@ -2,6 +2,10 @@
 
 Authentication answers "who are you?". Authorization answers "what can you do?". This page covers the boilerplate's authorization patterns: role permissions, superuser flags, resource ownership, tier-based limits, and API key permissions.
 
+Roles are the `rbac` feature, and the permission registry is core. A project without `rbac` keeps the
+registry and every `require_permissions` check, which then pass for superusers only: see
+[Composable Features](../composable-features.md).
+
 ## Authorization Patterns
 
 The boilerplate ships five overlapping mechanisms. Pick the one(s) that fit your use case.

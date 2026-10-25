@@ -2,6 +2,8 @@
 
 The boilerplate ships a flexible caching system supporting **Redis or Memcached** server-side, plus configurable client-side cache headers. Same decorator and provider API regardless of the backend.
 
+Caching is the `cache` feature. A project without it has no `cached` decorator to import, no cache settings and no cache entry in the readiness report: see [Composable Features](../composable-features.md).
+
 !!! tip "Building a full SaaS?"
     Caching is part of the free foundation. **[FastroAI](https://fastro.ai)** bundles it with Stripe payments, entitlements, transactional email, a frontend, and AI agents - all wired together and production-ready. [Ship your SaaS faster →](https://fastro.ai)
 
