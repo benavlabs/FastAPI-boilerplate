@@ -1,6 +1,6 @@
 """Fixture modules of the selected features, loaded by ``tests/conftest.py``.
 
-Hand-maintained until the generator exists.
+Written by the generator in `tools/removal_drill.py`, which a test compares this file against.
 """
 
 PYTEST_PLUGINS: list[str] = [

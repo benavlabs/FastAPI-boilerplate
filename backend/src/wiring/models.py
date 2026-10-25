@@ -1,6 +1,6 @@
 """Extension points of the user model: what other features add to ``User``.
 
-Hand-maintained until the generator exists.
+Written by the generator in `tools/removal_drill.py`, which a test compares this file against.
 """
 
 from ..modules.role.contrib import UserRoleColumns

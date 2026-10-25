@@ -1,7 +1,7 @@
 """The composition root: what the app mounts, starts and installs.
 
-Hand-maintained until the generator exists: imports and literals only, so ruff,
-mypy and an IDE see exactly what is wired.
+Written by the generator in `tools/removal_drill.py`, which a test compares this file against:
+imports and literals only, so ruff, mypy and an IDE see exactly what is wired.
 """
 
 from collections.abc import Callable

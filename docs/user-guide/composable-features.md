@@ -18,7 +18,12 @@ plain objects at stable paths, and one package collects them.
 | `settings.py` | each feature's settings mixin, with the core last |
 | `hooks.py` | `PERMISSION_SOURCES`, `RATE_LIMIT_RESOLVERS`, `TIER_DELETE_GUARDS`, `TIER_DELETE_RELEASES`, `CRITICAL_READINESS_CHECKS`, `INFORMATIONAL_READINESS_CHECKS` |
 | `models.py` | `UserModelExtensions`, `UserSchemaExtensions` |
-| `admin.py` | `ADMIN_VIEWS` |
+| `admin.py` | `ADMIN_VIEWS`, and the file itself is absent from a project without the admin feature |
+| `email.py` | `EMAIL_SENDER`, the sender account mail goes out through: its own module because the senders import the accounts feature that `hooks.py` reaches |
+| `tasks.py` | `TASK_MODULES`, the modules whose background tasks the worker registers |
+| `tables.py` | `TABLE_MODULES`, the modules outside `src/modules` that declare tables on `Base.metadata` |
+| `transports.py` | `EXTRA_TRANSPORTS`, the authentication transports registered beside the session one |
+| `cache.py` | `cached`, the decorator a route caches its response with, re-exported so a route never imports the cache feature |
 
 Two more live beside the code they drive: `backend/scripts/seeders.py` lists
 `SEEDERS`, and `backend/tests/wiring.py` lists the fixture modules pytest loads.
@@ -29,9 +34,11 @@ here, so ruff, mypy and an IDE see exactly what a project wired. Anything
 conditional — whether the OAuth router exists, for instance — belongs to the
 feature that owns it, which exposes the answer for the wiring to list.
 
-!!! note "Hand-maintained for now"
-    A generator that writes these files from a catalog is planned. Until it exists,
-    adding a feature means adding its entries here by hand.
+!!! note "The generator writes these files"
+    `tools/removal_drill.py` writes all twelve from the feature manifest, and
+    `tests/unit/test_removal_drill.py` compares what it writes for this project's features
+    against what is committed here, tree by tree. So adding a feature means teaching the
+    generator as well as the committed file: an entry in one and not the other fails that test.
 
 ## The shapes a feature contributes
 

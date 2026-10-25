@@ -1,6 +1,6 @@
 """The model views the admin panel registers.
 
-Hand-maintained until the generator exists.
+Written by the generator in `tools/removal_drill.py`, which a test compares this file against.
 """
 
 from ..modules.role.admin import RoleAdmin, RolePermissionAdmin, UserRoleAdmin

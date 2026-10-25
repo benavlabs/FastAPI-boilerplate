@@ -171,10 +171,15 @@ wiring/
 ├── settings.py               # Each feature's settings mixin, core last
 ├── hooks.py                  # PERMISSION_SOURCES, RATE_LIMIT_RESOLVERS, TIER_DELETE_GUARDS, the readiness checks
 ├── models.py                 # What features add to the User model and its schemas
-└── admin.py                  # ADMIN_VIEWS
+├── email.py                  # EMAIL_SENDER, the sender account mail goes out through
+├── tasks.py                  # TASK_MODULES, whose background tasks the worker registers
+├── tables.py                 # TABLE_MODULES, declaring tables outside src/modules
+├── transports.py             # EXTRA_TRANSPORTS, registered beside the session transport
+├── cache.py                  # cached, the decorator a route caches its response with
+└── admin.py                  # ADMIN_VIEWS (absent without the admin feature)
 ```
 
-These files are imports and names only — no decisions — so ruff, mypy and your IDE see exactly what the project wired. Removing a feature means deleting its folders and its lines here. [Composable Features](composable-features.md) covers the contribution shapes and the removal drill.
+These files are imports and names only — no decisions — so ruff, mypy and your IDE see exactly what the project wired. They are what `tools/removal_drill.py` writes for the features this project selected, and a test compares the two, so removing a feature means deleting its folders and regenerating these lines rather than only editing them. [Composable Features](composable-features.md) covers the contribution shapes and the removal drill.
 
 ## Migrations (`backend/migrations/`)
 

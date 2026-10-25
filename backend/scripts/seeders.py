@@ -1,6 +1,6 @@
 """The initial-data steps ``scripts/setup_initial_data.py`` runs, in order.
 
-Hand-maintained until the generator exists.
+Written by the generator in `tools/removal_drill.py`, which a test compares this file against.
 """
 
 from collections.abc import Awaitable, Callable

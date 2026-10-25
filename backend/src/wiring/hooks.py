@@ -1,6 +1,7 @@
 """The contributions features make to each other's extension points.
 
-Hand-maintained until the generator exists: imports and literals only.
+Written by the generator in `tools/removal_drill.py`, which a test compares this file against:
+imports and literals only.
 """
 
 from ..infrastructure.auth.health import limiter_readiness, sessions_readiness
