@@ -10,6 +10,7 @@ import pytest
 from pydantic import ValidationError
 
 from src.infrastructure.config.settings import EnvironmentOption, Settings, get_settings
+from tests.settings_defaults import declared_default
 
 _MOUNTED_PATHS = """
 from src.interfaces.api import router
@@ -33,27 +34,8 @@ def _mounted_api_paths(**environment: str) -> list[str]:
     return [path for path in line.removeprefix("PATHS:").split(",") if path]
 
 
-_CREATE_TABLES_DEFAULT = """
-from src.infrastructure.config.settings import Settings
-
-print("DEFAULT:" + str(Settings.model_fields["CREATE_TABLES_ON_STARTUP"].default))
-"""
-
-
 def _creates_tables_by_default(**environment: str) -> bool:
-    """The declared default, read in an interpreter whose environment doesn't set it."""
-    inherited = {name: value for name, value in os.environ.items() if name != "CREATE_TABLES_ON_STARTUP"}
-    result = subprocess.run(
-        [sys.executable, "-c", _CREATE_TABLES_DEFAULT],
-        cwd=Path(__file__).resolve().parents[4],
-        capture_output=True,
-        text=True,
-        check=True,
-        env={**inherited, **environment},
-    )
-    line = next(line for line in result.stdout.splitlines() if line.startswith("DEFAULT:"))
-
-    return line.removeprefix("DEFAULT:") == "True"
+    return declared_default("CREATE_TABLES_ON_STARTUP", **environment) == "True"
 
 
 class TestCreatingTablesOnStartup:

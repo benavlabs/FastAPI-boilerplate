@@ -7,10 +7,13 @@ The boilerplate ships a built-in admin panel powered by [SQLAdmin](https://githu
 
 ## Accessing the Admin Panel
 
-The admin panel is mounted at `/admin`. It's enabled by default — toggle it with:
+The admin panel is mounted at `/admin`. It is off until you ask for it, and is not mounted at all
+without the credentials it signs you in with:
 
 ```env
-ADMIN_ENABLED=true   # set to false to disable entirely
+ADMIN_ENABLED=true   # unset or false leaves /admin unmounted
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=Change-Me-Now-1!
 ```
 
 Authentication is **separate from your app's session auth**. Admin login uses simple username/password credentials read from environment variables:

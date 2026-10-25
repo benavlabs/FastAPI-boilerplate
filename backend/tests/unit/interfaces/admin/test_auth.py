@@ -37,10 +37,14 @@ async def panel(monkeypatch):
         (("", "s3cret"), {"username": "", "password": "s3cret"}),
     ],
 )
-async def test_login_is_disabled_until_both_credentials_are_configured(panel, configured, form):
+async def test_login_is_disabled_until_both_credentials_are_configured(panel, monkeypatch, configured, form):
+    """A panel with no credentials is not mounted, so this empties them after it is."""
+    mounted = panel()
     username, password = configured
+    monkeypatch.setattr(settings, "ADMIN_USERNAME", username)
+    monkeypatch.setattr(settings, "ADMIN_PASSWORD", password)
 
-    status, cookie = await admin_login(panel(username=username, password=password), **form)
+    status, cookie = await admin_login(mounted, **form)
 
     assert status == 400
     assert "admin_session" not in cookie

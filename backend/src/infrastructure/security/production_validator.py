@@ -241,8 +241,8 @@ class ProductionSecurityValidator:
         ):
             errors.append(
                 "Admin interface is enabled (ADMIN_ENABLED=true) but ADMIN_USERNAME and/or "
-                "ADMIN_PASSWORD are not set. Set both to strong, unique values or set "
-                "ADMIN_ENABLED=false for production."
+                "ADMIN_PASSWORD are not set, so the panel will not be mounted and /admin will "
+                "answer 404. Set both to strong, unique values, or set ADMIN_ENABLED=false."
             )
 
         if self._has_accounts_to_email() and self._is_frontend_url_local():

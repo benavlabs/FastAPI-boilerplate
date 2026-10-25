@@ -5,10 +5,10 @@ The admin panel has a deliberately small surface area: it's a [SQLAdmin](https:/
 ## Environment Variables
 
 ```env
-# Toggle the admin panel (default: true)
+# Toggle the admin panel (default: false)
 ADMIN_ENABLED=true
 
-# Admin login credentials — must BOTH be set, otherwise login always fails
+# Admin login credentials — must BOTH be set, otherwise the panel is not mounted
 ADMIN_USERNAME=admin
 ADMIN_PASSWORD=Change-Me-Now-1!
 
@@ -28,11 +28,12 @@ The variables map to two settings classes in `src/infrastructure/config/settings
 ## What Happens at Startup
 
 1. The app factory calls the admin feature's `install(app)`, which the wiring lists among its installers
-2. If `ADMIN_ENABLED=false`, the function returns `None` and the admin panel is **not mounted**
-3. Otherwise, an `AdminAuth` backend is constructed using `SECRET_KEY`
-4. A SQLAdmin `Admin` instance is created against the app's existing database `engine`
-5. The views listed in `src/wiring/admin.py` are registered: `UserAdmin`, `TierAdmin` and the three role views, each shipped by its own feature
-6. The admin app is mounted at `/admin`
+2. If `ADMIN_ENABLED` is unset or false, the function returns `None` and the admin panel is **not mounted**
+3. If either `ADMIN_USERNAME` or `ADMIN_PASSWORD` is empty, it writes a warning naming them and returns `None`: a panel nobody can sign in to serves a login form and nothing else
+4. Otherwise, an `AdminAuth` backend is constructed using `SECRET_KEY`
+5. A SQLAdmin `Admin` instance is created against the app's existing database `engine`
+6. The views listed in `src/wiring/admin.py` are registered: `UserAdmin`, `TierAdmin` and the three role views, each shipped by its own feature
+7. The admin app is mounted at `/admin`
 
 ## Login Authentication
 
@@ -265,7 +266,7 @@ The admin panel itself doesn't change behavior between `local` / `development` /
 ## Troubleshooting
 
 ### `/admin` returns 404
-Check `ADMIN_ENABLED`. If it's `false` (or unset and Pydantic resolves to a falsy value), the admin app isn't mounted. Verify with:
+Check `ADMIN_ENABLED`, which is off unless you set it, and then `ADMIN_USERNAME` and `ADMIN_PASSWORD`: with either one empty the panel is not mounted, and the log says so at startup. Verify with:
 
 ```bash
 cd backend

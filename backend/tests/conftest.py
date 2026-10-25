@@ -13,6 +13,9 @@ os.environ.setdefault("OAUTH_GITHUB_CLIENT_SECRET", "test-github-client-secret")
 # Secure-only or httpx won't send them back on follow-up requests.
 os.environ.setdefault("SESSION_SECURE_COOKIES", "false")
 os.environ.setdefault("SECRET_KEY", "test_secret_key_for_tests_with_32_bytes_at_least")
+os.environ.setdefault("ADMIN_ENABLED", "true")
+os.environ.setdefault("ADMIN_USERNAME", "admin")
+os.environ.setdefault("ADMIN_PASSWORD", "s3cret")
 os.environ.setdefault("SQLITE_URI", ":memory:")
 os.environ.setdefault("SQLITE_ASYNC_PREFIX", "sqlite+aiosqlite:///")
 
