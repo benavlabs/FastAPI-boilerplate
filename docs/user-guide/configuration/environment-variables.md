@@ -1,6 +1,6 @@
 # Environment Variables Reference
 
-This page is the complete reference for every environment variable the boilerplate reads. The source of truth is `backend/.env.example` — this page mirrors it with descriptions.
+This page is the complete reference for every environment variable the boilerplate reads. `backend/.env.example` ships the ones a new project usually sets, with the same defaults; the rest are here, and a variable a project never sets keeps the default named below.
 
 All variables are loaded from `backend/.env` at application startup via Pydantic `BaseSettings` classes in `src/infrastructure/config/settings.py`.
 
@@ -209,12 +209,29 @@ SECRET_KEY=insecure-secret-key-change-this-in-production
 
 # Production security validation (enabled by default in production)
 PRODUCTION_SECURITY_VALIDATION_ENABLED=true
+
+# Response security headers: HSTS outside local and development, plus the frame,
+# content-type and referrer headers
+SECURITY_HEADERS_ENABLED=true
 ```
 
 Generate a strong key:
 
 ```bash
 python -c "import secrets; print(secrets.token_urlsafe(64))"
+```
+
+### Password Policy
+
+Enforced by crudauth wherever a password is set: registration, a reset and a change. The seed refuses
+an `ADMIN_PASSWORD` these reject, naming what failed.
+
+```env
+PASSWORD_MIN_LENGTH=8
+PASSWORD_REQUIRE_UPPERCASE=true
+PASSWORD_REQUIRE_LOWERCASE=true
+PASSWORD_REQUIRE_DIGIT=true
+PASSWORD_REQUIRE_SPECIAL=true
 ```
 
 ### Sessions
@@ -237,6 +254,20 @@ SESSION_REDIS_DB=2               # on the cache Redis, apart from the cache DB s
 # resolve the real client IP (from X-Forwarded-For) for login lockout.
 # 0 = no proxy; set 1 behind a single nginx/Caddy, 2 if Cloudflare is also in front.
 TRUSTED_PROXY_HOPS=0
+
+# SESSION_ABSOLUTE_TIMEOUT_HOURS=   # cap on a session's total life, however active it stays; unset means no cap
+# FRESH_SIGN_IN_SECONDS=            # how recently a caller must have signed in to close an account,
+                                    # and to reach crudauth's set-password and MFA routes where a project
+                                    # mounts them; unset asks nothing, and a value below 1 is refused
+```
+
+A dedicated session Redis is named either as a URL or host by host. `SESSION_REDIS_URL` wins where it
+is set; otherwise these are used with `SESSION_REDIS_DB`:
+
+```env
+SESSION_REDIS_HOST=redis
+SESSION_REDIS_PORT=6379
+SESSION_REDIS_PASSWORD=
 ```
 
 ### Forwarded Headers
@@ -296,8 +327,19 @@ APP_DESCRIPTION=Modular FastAPI starter
 VERSION=0.1.0
 API_CONTACT_NAME=Support
 API_CONTACT_EMAIL=support@example.com
+API_CONTACT_URL=
 API_LICENSE_NAME=MIT
+API_LICENSE_IDENTIFIER=
+API_LICENSE_URL=
+API_SUMMARY=
+API_TERMS_OF_SERVICE=
+API_TAGS_METADATA=[]
 ```
+
+`API_SUMMARY` is the one-line summary beside the description, `API_TERMS_OF_SERVICE`,
+`API_CONTACT_URL` and `API_LICENSE_URL` take URLs, `API_LICENSE_IDENTIFIER` takes an SPDX identifier
+such as `MIT`, and `API_TAGS_METADATA` takes a JSON array of OpenAPI tag objects, which is left out of
+the document when it does not parse.
 
 `API_TITLE`, `API_DESCRIPTION` and `API_VERSION` override `APP_NAME`, `APP_DESCRIPTION` and
 `VERSION` in the OpenAPI document. A field left empty is left out of it, so a new project names no
@@ -309,6 +351,7 @@ contact and no licence until it sets its own.
 # API_PREFIX=/api
 # DOCS_URL=/docs
 # REDOC_URL=/redoc
+# OPENAPI_URL=/openapi.json   # set empty to serve no schema, which also takes /docs and /redoc with it
 ```
 
 `API_PREFIX` must start with `/` and must not end with `/`; anything else is refused when the
