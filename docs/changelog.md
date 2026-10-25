@@ -8,6 +8,18 @@ For the full narrative on each release — rationale, decisions, migration guide
 
 ___
 
+## Unreleased
+
+#### Changed
+
+- **`virtualenv` 21.14.13 and `filelock` 4.2.4**, for eighteen advisories published against the
+  versions the lock held. Both arrive through `pre-commit`, which lives in the `dev` extra, so the
+  image installs neither and a deployment is unaffected: the advisories are about the environments
+  a hook runs in and the lock files it takes, on the machines that run the hooks. `pre-commit run
+  --all-files` passes on the new versions.
+
+___
+
 ## 0.20.0 - October 25, 2026 - Composable Features
 
 Every feature in the boilerplate can now be removed: its routes, models, settings, admin views,
