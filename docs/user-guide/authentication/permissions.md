@@ -6,6 +6,11 @@ Roles are the `rbac` feature, and the permission registry is core. A project wit
 registry and every `require_permissions` check, which then pass for superusers only: see
 [Composable Features](../composable-features.md).
 
+<p align="center">
+  <img src="../../assets/credential-narrowing-light.png#only-light" alt="A credential's effective permissions are what the account holds, narrowed to what the credential carries" width="100%">
+  <img src="../../assets/credential-narrowing-dark.png#only-dark" alt="A credential's effective permissions are what the account holds, narrowed to what the credential carries" width="100%">
+</p>
+
 ## Authorization Patterns
 
 The boilerplate ships five overlapping mechanisms. Pick the one(s) that fit your use case.

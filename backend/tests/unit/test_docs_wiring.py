@@ -2,7 +2,8 @@
 
 The two pages that enumerate `src/wiring/` drew five of its ten modules for as long as the
 other five existed: a reader following either one would not know that the sender, the task
-modules, the tables, the transports and the cache decorator are wired there too.
+modules, the tables, the transports and the cache decorator are wired there too. The diagram
+beside them is generated from a script, which is text, so it is held to the same list.
 """
 
 import re
@@ -14,6 +15,7 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 WIRING = REPO_ROOT / "backend" / "src" / "wiring"
 STRUCTURE = REPO_ROOT / "docs" / "user-guide" / "project-structure.md"
 COMPOSABLE = REPO_ROOT / "docs" / "user-guide" / "composable-features.md"
+DIAGRAMS = REPO_ROOT / "docs" / "assets" / "build-diagrams.cjs"
 
 DRAWN_TREE = re.compile(r"```text\n(.*?)```", re.DOTALL)
 
@@ -54,3 +56,20 @@ def test_the_sweep_reads_what_it_claims_to():
     assert "app.py" in modules
     assert "__init__.py" not in modules
     assert "app.py" in _tree_drawing_the_wiring()
+
+
+def test_the_diagram_draws_every_module_of_the_composition_root():
+    """The picture is generated from this script, so the script is what holds the list."""
+    drawn = DIAGRAMS.read_text()
+
+    assert [name for name in _wiring_modules() if name not in drawn] == []
+
+
+def test_the_diagram_names_every_preset_the_drill_runs():
+    """A preset added to the matrix and not to the picture is a diagram that has aged."""
+    drill = (REPO_ROOT / "tools" / "removal_drill.py").read_text()
+    presets = re.findall(r'^    "([a-z0-9-]+)": \(', drill, re.M)
+    drawn = DIAGRAMS.read_text()
+
+    assert presets, "no presets found in the drill"
+    assert [preset for preset in presets if "-" in preset and preset not in drawn] == []

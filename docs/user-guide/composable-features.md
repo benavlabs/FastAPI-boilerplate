@@ -10,6 +10,11 @@ plain objects at stable paths, and one package collects them.
 
 ## The composition root
 
+<p align="center">
+  <img src="../assets/composition-root-light.png#only-light" alt="Features contribute lists to src/wiring/, and the app reads them; no feature imports another" width="100%">
+  <img src="../assets/composition-root-dark.png#only-dark" alt="Features contribute lists to src/wiring/, and the app reads them; no feature imports another" width="100%">
+</p>
+
 `backend/src/wiring/` is the only place features meet:
 
 | File | What it lists |
@@ -78,6 +83,11 @@ accounts **and** admin, `modules/tier/admin.py` only with tiers **and** admin, a
 `modules/role/admin.py` only with rbac **and** admin.
 
 ## Checking that removal still works
+
+<p align="center">
+  <img src="../assets/removal-drill-light.png#only-light" alt="Copy the repo, delete the paths left out, regenerate the wiring, then run six checks, once per preset" width="100%">
+  <img src="../assets/removal-drill-dark.png#only-dark" alt="Copy the repo, delete the paths left out, regenerate the wiring, then run six checks, once per preset" width="100%">
+</p>
 
 `tools/removal_drill.py` builds a copy of the repository for a set of features,
 deletes the paths of the ones left out, regenerates the wiring, and then checks
