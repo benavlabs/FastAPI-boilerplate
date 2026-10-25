@@ -8,7 +8,7 @@ For the full narrative on each release — rationale, decisions, migration guide
 
 ___
 
-## Unreleased - Composable Features
+## 0.20.0 - October 25, 2026 - Composable Features
 
 Every feature in the boilerplate can now be removed: its routes, models, settings, admin views,
 seeders and tests come out together, and the project still imports, lints, type-checks and passes
@@ -1188,6 +1188,9 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   to that user, through `/users/me` or `GET /api/v1/users/{username}/tier`, and to superusers, who
   can read any user's tier through the same route. A client that read another user's tier from their
   profile can no longer see it.
+
+**Full release notes**: https://github.com/benavlabs/FastAPI-boilerplate/releases/tag/v0.20.0
+**Full changelog**: https://github.com/benavlabs/FastAPI-boilerplate/compare/v0.19.0...v0.20.0
 
 ___
 
