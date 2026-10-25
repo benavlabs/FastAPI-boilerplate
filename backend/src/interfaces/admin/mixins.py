@@ -39,13 +39,13 @@ class TextCsvExportMixin:
             can_export = True
     """
 
-    async def export_data(self, data: list[Any], export_type: str = "csv") -> StreamingResponse:
+    async def export_data(self, data: list[Any], export_type: str = "csv", request: Request | None = None) -> StreamingResponse:
         """Stream ``data`` as CSV, or hand any other format to sqladmin."""
         if export_type != "csv":
-            return await super().export_data(data, export_type=export_type)  # type: ignore[misc,no-any-return]
+            return await super().export_data(data, export_type=export_type, request=request)  # type: ignore[misc,no-any-return]
 
         if self.use_pretty_export:  # type: ignore[attr-defined]
-            return await super().export_data(data, export_type=export_type)  # type: ignore[misc,no-any-return]
+            return await super().export_data(data, export_type=export_type, request=request)  # type: ignore[misc,no-any-return]
 
         names = self.get_export_columns()  # type: ignore[attr-defined]
 

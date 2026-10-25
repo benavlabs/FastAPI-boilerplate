@@ -109,8 +109,11 @@ async def signed_in_panel(app: FastAPI, address: str = CLIENT) -> AsyncIterator[
 
 
 async def exported_rows(view: Any, rows: list[Any]) -> list[list[str]]:
-    """Return the parsed lines of ``view``'s CSV export of ``rows``, header first."""
-    response = await view.export_data(rows, export_type="csv")
+    """Return the parsed lines of ``view``'s CSV export of ``rows``, header first.
+
+    Called as sqladmin's export endpoint calls it, the request passed by keyword.
+    """
+    response = await view.export_data(rows, export_type="csv", request=None)
     streamed = [chunk async for chunk in response.body_iterator]
     text = "".join(chunk.decode() if isinstance(chunk, bytes) else chunk for chunk in streamed)
 

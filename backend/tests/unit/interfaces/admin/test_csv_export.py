@@ -1,5 +1,6 @@
 """Which cells the admin CSV export writes as text, and which views write them."""
 
+import inspect
 from datetime import UTC, date, datetime
 from decimal import Decimal
 
@@ -50,3 +51,13 @@ def test_every_view_that_exports_writes_its_cells_as_text(view: type[ModelView])
     """
     assert provider_of(view, "export_data") is TextCsvExportMixin
     assert provider_of(view, "custom_export_cell") is TextCsvExportMixin
+
+
+@pytest.mark.parametrize("name", ["export_data", "custom_export_cell"])
+def test_each_override_takes_what_sqladmin_hands_it(name: str):
+    """sqladmin's endpoint calls these by keyword, so a parameter it gained and the override
+    did not is a TypeError on every export rather than a type error at build time."""
+    ours = inspect.signature(getattr(TextCsvExportMixin, name))
+    theirs = inspect.signature(getattr(ModelView, name))
+
+    assert list(ours.parameters) == list(theirs.parameters)

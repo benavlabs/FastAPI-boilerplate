@@ -613,6 +613,17 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   headers carry the session cookie and `X-API-Key`; statement and parameter capture carry addresses,
   hashes and session ids; pattern scrubbing cannot know an identifier is a username; the probes are
   noise); sampling; and what the same recipe looks like against a plain OpenTelemetry collector.
+- **Every dependency carrying a published advisory moved to a patched release**: aiohttp 3.14.5,
+  anyio 4.15.1, certifi 2026.10.23, Mako 1.4.3, multidict 7.2.1, pydantic-settings 2.16.1,
+  PyJWT 2.15.1, python-multipart 0.0.32, sqladmin 0.32.0, starlette 1.10.0 and urllib3 2.8.0, which
+  is what the lock resolves on every Python the project supports and what the image installs. The
+  floors this project declares moved with them where the package is one of its own dependencies
+  (`sqladmin>=0.28.0`, `pydantic-settings>=2.14.2`), and `anyio>=4.15.1` and `starlette>=1.3.1` are
+  declared for the first time, since the task groups, middleware, requests and responses the project
+  imports come from them rather than through FastAPI. sqladmin takes a `request` in `export_data` as
+  of 0.28, which the CSV export mixin accepts and passes on, and which the floor is set to: on 0.27
+  the mixin's own call would have raised `TypeError`. The export tests call it the way sqladmin's
+  endpoint does, and a parameter it gains that the mixin does not fails them.
 
 #### Removed
 
@@ -643,6 +654,12 @@ matrix. The round that followed fixed what a re-review of the refactor found.
 
 #### Breaking Changes
 
+- **The admin panel is off until a project asks for it.** `ADMIN_ENABLED` defaults to `false`
+  where it defaulted to `true`, and the panel is not mounted at all when `ADMIN_USERNAME` or
+  `ADMIN_PASSWORD` is empty: the startup log says which one is missing. A deployment that reached
+  `/admin` without setting `ADMIN_ENABLED` has to set it, along with both credentials, and gets a
+  `404` until it does. Mounted without credentials, the panel served a login form that nothing
+  could pass, to anyone who asked for it.
 - **`POST /api/v1/auth/refresh-csrf` is now `POST /api/v1/auth/csrf/refresh`**, and
   `POST /api/v1/auth/logout-all` answers `{"detail": …, "revoked": N}` where it answered
   `{"message": …, "terminated_count": N}`. Both routes now come from crudauth's
