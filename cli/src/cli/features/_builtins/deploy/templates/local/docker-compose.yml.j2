@@ -80,17 +80,12 @@ services:
     image: {{ postgres_image }}
     env_file:
       - {{ env_file }}
-    environment:
-      # Map the boilerplate's POSTGRES_* vars to the official image's expected names.
-      POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
-      POSTGRES_DB: ${POSTGRES_DB:-postgres}
     volumes:
       - postgres-data:/var/lib/postgresql/data
     ports:
       - "127.0.0.1:5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER:-postgres}\""]
       interval: 5s
       timeout: 3s
       retries: 10

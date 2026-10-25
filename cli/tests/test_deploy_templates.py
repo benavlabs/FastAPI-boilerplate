@@ -137,3 +137,23 @@ def test_nothing_depends_on_a_service_behind_a_profile(mode: str):
 
     for name, service in services.items():
         assert behind_a_profile.isdisjoint(service.get("depends_on", {})), name
+
+
+@pytest.mark.parametrize("mode", ["local", "prod", "nginx"])
+def test_the_database_takes_its_credentials_from_the_environment_file(mode: str):
+    """Compose interpolates ``${VAR}`` from the shell, never from ``env_file``, and
+    ``environment`` wins over it: a password set in ``backend/.env``, which is where every page
+    says to set it, was replaced in the container by the literal fallback.
+    """
+    postgres = _compose(mode)["services"]["postgres"]
+
+    assert postgres["env_file"] == ["./backend/.env"]
+    assert "${" not in yaml.safe_dump(postgres.get("environment", {}))
+
+
+@pytest.mark.parametrize("mode", ["local", "prod", "nginx"])
+def test_the_database_probe_reads_the_user_inside_the_container(mode: str):
+    """A probe interpolated by compose asks for ``postgres`` whatever ``POSTGRES_USER`` says."""
+    probe = " ".join(_compose(mode)["services"]["postgres"]["healthcheck"]["test"])
+
+    assert "$${POSTGRES_USER" in probe

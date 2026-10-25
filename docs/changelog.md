@@ -613,6 +613,18 @@ matrix. The round that followed fixed what a re-review of the refactor found.
   headers carry the session cookie and `X-API-Key`; statement and parameter capture carry addresses,
   hashes and session ids; pattern scrubbing cannot know an identifier is a username; the probes are
   noise); sampling; and what the same recipe looks like against a plain OpenTelemetry collector.
+- **A generated compose stack takes the database credentials from the environment file.** The
+  `postgres` service mapped `POSTGRES_USER`, `POSTGRES_PASSWORD` and `POSTGRES_DB` through
+  `${VAR:-postgres}` in its `environment` block. Compose interpolates those from the shell or a
+  root `.env`, never from the `env_file` the service also names, and `environment` overrides
+  `env_file`, so a password set in `backend/.env`, which is where every page says to set it, was
+  replaced inside the container by the literal `postgres`: the database initialised with the
+  well-known default and the API could not connect with the password it had been given. The three
+  names are the ones the official image already reads, so the block is gone and `env_file` supplies
+  them; the readiness probe reads `POSTGRES_USER` inside the container rather than through compose,
+  so a project that renames the user is still probed correctly. `local`, `prod` and `nginx` were all
+  affected: regenerate with `bp deploy generate <mode>`, and recreate the database volume if it was
+  initialised with the default password.
 - **Every dependency carrying a published advisory moved to a patched release**: aiohttp 3.14.5,
   anyio 4.15.1, certifi 2026.10.23, Mako 1.4.3, multidict 7.2.1, pydantic-settings 2.16.1,
   PyJWT 2.15.1, python-multipart 0.0.32, sqladmin 0.32.0, starlette 1.10.0 and urllib3 2.8.0, which
