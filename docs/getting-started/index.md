@@ -27,8 +27,11 @@ Pick whichever workflow fits you:
     ### 2. Install Dependencies
 
     ```bash
-    uv sync --extra dev
+    uv sync --all-packages --all-extras
     ```
+
+    From the repository root: `--all-packages` installs both workspace members and
+    `--all-extras` adds the dev tools (ruff, mypy, pytest).
 
     ### 3. Environment Setup
 
@@ -43,7 +46,7 @@ Pick whichever workflow fits you:
     ### 4. Run the Server
 
     ```bash
-    uv run fastapi dev src/interfaces/main.py
+    uv run --no-sync fastapi dev src/interfaces/main.py
     ```
 
 === "Docker Compose"
@@ -52,22 +55,36 @@ Pick whichever workflow fits you:
 
     - [Docker](https://docs.docker.com/get-docker/) (20.10+)
     - [Docker Compose](https://docs.docker.com/compose/install/) (v2+)
+    - [uv](https://docs.astral.sh/uv/getting-started/installation/) (0.4+), which runs the CLI that writes the compose file
 
     ### 1. Get the Template
 
     ```bash
     git clone https://github.com/yourusername/your-project-name
-    cd your-project-name/backend
+    cd your-project-name
     ```
 
-    ### 2. Environment Setup
+    ### 2. Generate the Compose File
 
     ```bash
-    cp .env.example .env
-    # then edit .env to set your DB password, SECRET_KEY, etc.
+    uv sync --all-packages --all-extras
+    uv run --no-sync bp deploy generate local
     ```
 
-    ### 3. Start Everything
+    `docker-compose.yml` is written at the repository root and is not committed, because the
+    stack you want depends on how you deploy. `local` is the hot-reload stack; the other modes
+    are `prod` and `nginx`, covered in [CLI → Commands](../cli/commands.md).
+
+    ### 3. Environment Setup
+
+    ```bash
+    cp backend/.env.example backend/.env
+    # then edit backend/.env to set your DB password, SECRET_KEY, etc.
+    ```
+
+    ### 4. Start Everything
+
+    From the repository root:
 
     ```bash
     docker compose up

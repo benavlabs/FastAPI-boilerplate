@@ -1,7 +1,5 @@
-from .dependencies import get_current_superuser, get_current_user, get_optional_user
+"""Accounts: crudauth sessions, CSRF, login lockout and OAuth.
 
-__all__ = [
-    "get_current_user",
-    "get_optional_user",
-    "get_current_superuser",
-]
+Kept import-free, like the rest of the settings import path. Import from the
+submodules: ``.dependencies``, ``.setup``, ``.routes``, ``.settings``.
+"""

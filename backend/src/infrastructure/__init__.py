@@ -1,10 +1,6 @@
-"""Infrastructure module for the application."""
+"""The infrastructure layer.
 
-from .config import get_settings
-from .database.session import async_session, create_tables
-
-__all__ = [
-    "async_session",
-    "create_tables",
-    "get_settings",
-]
+Kept import-free: the settings composition imports feature settings modules from
+inside this package, so anything imported here would run while the settings object
+is still being built. Import the submodule you need.
+"""

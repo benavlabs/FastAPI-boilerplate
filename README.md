@@ -37,9 +37,10 @@
 
 ## Features
 
+* **Nine removable features** - accounts, rbac, tiers, tier_limits, ratelimit, api_keys, admin, cache and taskiq, each leaving with its routes, models, settings, admin views, seeders and tests ([guide](https://benavlabs.github.io/FastAPI-boilerplate/user-guide/composable-features/))
 * Fully async FastAPI + SQLAlchemy 2.0
 * Pydantic v2 models & validation
-* Server-side sessions + CSRF via [crudauth](https://pypi.org/project/crudauth/); OAuth (Google wired); API keys
+* Server-side sessions + CSRF via [crudauth](https://pypi.org/project/crudauth/); OAuth (Google and GitHub wired); API keys
 * Annotated type aliases for all FastAPI dependencies
 * Rate limiter with per-tier, per-path rules
 * FastCRUD for efficient CRUD & pagination
@@ -131,17 +132,17 @@ uv sync --all-packages --all-extras           # one venv at the root, both membe
 Generate a compose file for the deployment shape you want:
 
 ```bash
-uv run bp deploy generate local               # hot-reload dev stack
-# or: uv run bp deploy generate prod          # production single-host
-# or: uv run bp deploy generate nginx         # production behind nginx
+uv run --no-sync bp deploy generate local               # hot-reload dev stack
+# or: uv run --no-sync bp deploy generate prod          # production single-host
+# or: uv run --no-sync bp deploy generate nginx         # production behind nginx
 ```
 
 Configure your env (the CLI helps with secrets and validation):
 
 ```bash
 cp backend/.env.example backend/.env
-uv run bp env gen-secret                      # print a fresh SECRET_KEY
-uv run bp env validate                        # audit .env against the production validator
+uv run --no-sync bp env gen-secret                      # print a fresh SECRET_KEY
+uv run --no-sync bp env validate                        # audit .env against the production validator
 ```
 
 Bring it up:
@@ -155,10 +156,10 @@ docker compose up --build
 
 ```bash
 cd backend
-uv run alembic upgrade head
-uv run python -m scripts.setup_initial_data   # creates the first admin user + default tier
-uv run fastapi dev src/interfaces/main.py     # API
-uv run taskiq worker infrastructure.taskiq.worker:default_broker  # in a second terminal
+uv run --no-sync alembic upgrade head
+uv run --no-sync python -m scripts.setup_initial_data   # creates the first admin user + default tier
+uv run --no-sync fastapi dev src/interfaces/main.py     # API
+uv run --no-sync taskiq worker src.infrastructure.taskiq.worker:default_broker  # in a second terminal
 ```
 
 > Full setup, env-var reference, and per-environment deployment guides live in the [docs](https://benavlabs.github.io/FastAPI-boilerplate/getting-started/installation/).
@@ -167,16 +168,16 @@ uv run taskiq worker infrastructure.taskiq.worker:default_broker  # in a second 
 
 ```bash
 # generate a fresh production-ready compose file
-uv run bp deploy generate prod --workers 8
+uv run --no-sync bp deploy generate prod --workers 8
 
 # audit your .env against the production security validator
-uv run bp env validate
+uv run --no-sync bp env validate
 
 # run Alembic migrations
-cd backend && uv run alembic revision --autogenerate -m "<msg>" && uv run alembic upgrade head
+cd backend && uv run --no-sync alembic revision --autogenerate -m "<msg>" && uv run --no-sync alembic upgrade head
 
 # run tests
-cd backend && uv run pytest
+cd backend && uv run --no-sync pytest
 
 # install bp as a global tool (optional)
 uv tool install --editable ./cli
@@ -209,7 +210,7 @@ This project was inspired by a few projects, it's based on them with things chan
 - [`Full Stack FastAPI and PostgreSQL`](https://github.com/tiangolo/full-stack-fastapi-postgresql) by @tiangolo himself
 - [`FastAPI Microservices`](https://github.com/Kludex/fastapi-microservices) by @kludex which heavily inspired this boilerplate
 - [`Async Web API with FastAPI + SQLAlchemy 2.0`](https://github.com/rhoboro/async-fastapi-sqlalchemy) for sqlalchemy 2.0 ORM examples
-- [`FastaAPI Rocket Boilerplate`](https://github.com/asacristani/fastapi-rocket-boilerplate/tree/main) for docker compose
+- [`FastAPI Rocket Boilerplate`](https://github.com/asacristani/fastapi-rocket-boilerplate/tree/main) for docker compose
 
 ## License
 

@@ -1,0 +1,143 @@
+# Composable Features
+
+Every feature in this boilerplate can be removed. Not "commented out" or "left
+unused" — deleted, along with its routes, models, settings, admin views, seeders and
+tests, leaving a project that imports, lints, type-checks and passes its remaining
+tests.
+
+That works because features never import each other to plug in. A feature exposes
+plain objects at stable paths, and one package collects them.
+
+## The composition root
+
+<p align="center">
+  <img src="../assets/composition-root-light.png#only-light" alt="Features contribute lists to src/wiring/, and the app reads them; no feature imports another" width="100%">
+  <img src="../assets/composition-root-dark.png#only-dark" alt="Features contribute lists to src/wiring/, and the app reads them; no feature imports another" width="100%">
+</p>
+
+`backend/src/wiring/` is the only place features meet:
+
+| File | What it lists |
+|------|---------------|
+| `app.py` | `ROUTER_MOUNTS`, `ROOT_ROUTERS`, `API_THROTTLE`, `LIFECYCLES`, `INSTALLERS`, `DOCS_GUARD` |
+| `settings.py` | each feature's settings mixin, with the core last |
+| `hooks.py` | `PERMISSION_SOURCES`, `RATE_LIMIT_RESOLVERS`, `TIER_DELETE_GUARDS`, `TIER_DELETE_RELEASES`, `CRITICAL_READINESS_CHECKS`, `INFORMATIONAL_READINESS_CHECKS` |
+| `models.py` | `UserModelExtensions`, `UserSchemaExtensions` |
+| `admin.py` | `ADMIN_VIEWS`, and the file itself is absent from a project without the admin feature |
+| `email.py` | `EMAIL_SENDER`, the sender account mail goes out through: its own module because the senders import the accounts feature that `hooks.py` reaches |
+| `tasks.py` | `TASK_MODULES`, the modules whose background tasks the worker registers |
+| `tables.py` | `TABLE_MODULES`, the modules outside `src/modules` that declare tables on `Base.metadata` |
+| `transports.py` | `EXTRA_TRANSPORTS`, the authentication transports registered beside the session one |
+| `cache.py` | `cached`, the decorator a route caches its response with, re-exported so a route never imports the cache feature |
+
+Two more live beside the code they drive: `backend/scripts/seeders.py` lists
+`SEEDERS`, and `backend/tests/wiring.py` lists the fixture modules pytest loads.
+
+Every one of these files is imports and names: each entry is either a value a
+feature exposes or a literal naming where to mount it. No decisions are taken
+here, so ruff, mypy and an IDE see exactly what a project wired. Anything
+conditional — whether the OAuth router exists, for instance — belongs to the
+feature that owns it, which exposes the answer for the wiring to list.
+
+!!! note "The generator writes these files"
+    `tools/removal_drill.py` writes all twelve from the feature manifest, and
+    `tests/unit/test_removal_drill.py` compares what it writes for this project's features
+    against what is committed here, tree by tree. So adding a feature means teaching the
+    generator as well as the committed file: an entry in one and not the other fails that test.
+
+## The shapes a feature contributes
+
+`backend/src/infrastructure/composition.py` holds the types:
+
+- `RouterMount(router, prefix, throttled)` — a router to mount under the API prefix.
+- `Lifecycle(name, startup, shutdown)` — startup and shutdown work, run in wiring
+  order and torn down in reverse.
+- `PermissionSource` — answers which permissions a user holds.
+- `RateLimitResolver` — answers the limit for a request, or `None` to decline.
+- `TierDeleteGuard` — answers why a tier can't be deleted, or `None` to allow it.
+- `TierDeleteRelease` — removes the rows a feature keeps for a tier that a soft delete already took
+  out, before the tier is permanently deleted.
+- `ReadinessCheck(name, check)` — a dependency the app needs before it can serve.
+
+A feature that wants to extend the `User` model contributes a mixin instead: see
+`modules/tier/contrib.py`, which adds `tier_id` and `tier` without the user module
+knowing that tiers exist.
+
+## What each feature owns
+
+| Feature | Needs | Owns |
+|---------|-------|------|
+| core | – | everything not listed below, including the permission registry |
+| accounts | – | `infrastructure/auth/`, `modules/user/`, the first-superuser seeder |
+| rbac | accounts | `modules/role/` |
+| ratelimit | accounts | `infrastructure/ratelimit/` |
+| tiers | accounts | `modules/tier/`, the default-tier seeder |
+| tier_limits | tiers, ratelimit | `modules/rate_limit/` |
+| api_keys | accounts | `modules/api_keys/` |
+| admin | accounts | `interfaces/admin/`, `wiring/admin.py` |
+| cache | – | `infrastructure/cache/` |
+| taskiq | – | `infrastructure/taskiq/` |
+
+A few files belong to a *combination*: `modules/user/admin.py` exists only with
+accounts **and** admin, `modules/tier/admin.py` only with tiers **and** admin, and
+`modules/role/admin.py` only with rbac **and** admin.
+
+## Checking that removal still works
+
+<p align="center">
+  <img src="../assets/removal-drill-light.png#only-light" alt="Copy the repo, delete the paths left out, regenerate the wiring, then run six checks, once per preset" width="100%">
+  <img src="../assets/removal-drill-dark.png#only-dark" alt="Copy the repo, delete the paths left out, regenerate the wiring, then run six checks, once per preset" width="100%">
+</p>
+
+`tools/removal_drill.py` builds a copy of the repository for a set of features,
+deletes the paths of the ones left out, regenerates the wiring, and then checks
+that the app imports, that every module imports, that ruff and mypy pass over
+`src scripts migrations tests`, and that the remaining tests pass.
+
+The generator is held to the wiring this repository commits:
+`tests/unit/test_removal_drill.py` regenerates `src/wiring/`, `scripts/seeders.py` and
+`tests/wiring.py` for the features a project carries and compares the result tree by
+tree, ignoring docstrings and formatting. A contribution added to any of those files by
+hand and not to the generator fails there.
+
+A failing check prints the end of what it printed — the failing test, the ruff rule, the
+mypy error — and the scratch copy of that project is left on disk to run things in by hand.
+A build that raises leaves its copy behind too.
+
+It runs on the interpreter that invoked it, so run it through uv (the checks need
+the project's dependencies) and with Docker up (the tests use a Postgres container, and a
+RabbitMQ one where the taskiq feature is present):
+
+```sh
+uv run --no-sync python tools/removal_drill.py                 # every preset
+uv run --no-sync python tools/removal_drill.py accounts-only   # one of them
+uv run --no-sync python tools/removal_drill.py --keep          # keep the scratch copies
+```
+
+The presets run in CI as a matrix:
+
+| Preset | What it proves |
+|--------|----------------|
+| `core-only` | every feature can go at once |
+| `core-taskiq` | the worker runs with no accounts feature, so it registers no account mail |
+| `accounts-only` | permission checks fall back to superuser-only without rbac |
+| `accounts-rbac` | permissions work without tiers, throttling, cache or taskiq |
+| `accounts-admin` | the panel registers only the views the project's features own |
+| `accounts-api-keys` | keys authenticate, narrow and count without rbac, tiers or the cache |
+| `accounts-rbac-tiers` | tiers and the API throttle work without per-tier limits |
+| `accounts-cache-taskiq` | the infrastructure features stand alone |
+| `everything` | a regenerated wiring reproduces this repository |
+
+The drill is also how a misplaced test gets caught: a test that quietly depends on
+a feature it doesn't own fails in the preset that removes it.
+
+## Writing a feature that can be removed
+
+1. Keep everything the feature owns under its own paths, and add those paths to the
+   drill's manifest.
+2. Import another feature only if the table above says you need it.
+3. To reach into another feature, contribute to a hook rather than importing it.
+4. Put the feature's settings in its own `settings.py` and its fixtures in
+   `tests/fixtures/`, then list both in the wiring.
+5. Run the drill. If a preset that excludes your feature fails, something of yours
+   is in a path the drill doesn't delete.

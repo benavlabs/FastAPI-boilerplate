@@ -47,6 +47,11 @@ Postgres is the only hard requirement of those you have to provide — run the b
 
 ## Key Features
 
+### Composable Features
+- Nine features you can delete: accounts, rbac, tiers, tier_limits, ratelimit, api_keys, admin, cache and taskiq
+- Each leaves with its routes, models, settings, admin views, seeders, fixtures and tests
+- `tools/removal_drill.py` builds the project without each one and proves it still imports, lints, type-checks and passes its tests. See **[Composable Features](user-guide/composable-features.md)**
+
 ### Performance & Scalability
 - Fully async architecture
 - Pydantic V2 for ultra-fast data validation
@@ -55,7 +60,7 @@ Postgres is the only hard requirement of those you have to provide — run the b
 
 ### Security & Authentication
 - Server-side session authentication with secure HTTP-only cookies
-- OAuth 2.0 sign-in (Google wired; add others via crudauth's `OAuthCredentials`) using PKCE
+- OAuth 2.0 sign-in with PKCE (Google and GitHub wired; add others via crudauth's `OAuthCredentials`)
 - API keys with per-key permissions and usage tracking
 - CSRF protection and login rate limiting
 - Role-based access control with user tiers
@@ -84,17 +89,20 @@ Get up and running in less than 5 minutes. Pick whichever fits your workflow:
 
     ```bash
     git clone https://github.com/benavlabs/fastapi-boilerplate
-    cd fastapi-boilerplate/backend
-    uv sync --extra dev
-    cp .env.example .env  # then edit values as needed
-    uv run fastapi dev src/interfaces/main.py
+    cd fastapi-boilerplate
+    uv sync --all-packages --all-extras
+    cp backend/.env.example backend/.env  # then edit values as needed
+    cd backend && uv run --no-sync fastapi dev src/interfaces/main.py
     ```
 
 === "Docker Compose"
 
     ```bash
     git clone https://github.com/benavlabs/fastapi-boilerplate
-    cd fastapi-boilerplate/backend
+    cd fastapi-boilerplate
+    uv sync --all-packages --all-extras
+    uv run --no-sync bp deploy generate local  # writes docker-compose.yml at the repo root
+    cp backend/.env.example backend/.env  # then edit values as needed
     docker compose up
     ```
 

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "fastapi-boilerplate"
-version = "0.19.0"
+version = "0.20.0"
 description = "Modular FastAPI starter — vertical slices, swappable infrastructure, plugin-ready."
 authors = [{ name = "Benav Labs", email = "contact@benav.io" }]
 license = { text = "MIT" }
@@ -14,8 +14,10 @@ dependencies = [
     "aiomcache>=0.8.2",
     "aiosqlite>=0.21.0",
     "alembic>=1.16.4",
+    "anyio>=4.15.1",
     "asyncpg>=0.30.0",
-    "crudauth[all]>=0.7.1,<0.8.0",
+    "crudauth[all]>=0.8.2,<0.9.0",
+    "cryptography>=42.0.0",
     "faker>=37.1.0",
     "fastapi[standard]>=0.115.8",
     "fastcrud>=0.21.0",
@@ -24,10 +26,11 @@ dependencies = [
     "itsdangerous>=2.2.0",
     "jinja2>=3.1.6",
     "pydantic>=2.10.6",
-    "pydantic-settings>=2.7.1",
+    "pydantic-settings>=2.14.2",
     "redis>=6.1.0",
-    "sqladmin>=0.22.0",
+    "sqladmin>=0.28.0",
     "sqlalchemy>=2.0.37",
+    "starlette>=1.3.1",
     "taskiq>=0.11.20",
     "taskiq-redis>=1.1.2",
     "taskiq-aio-pika>=0.4.3",
@@ -44,6 +47,7 @@ dev = [
     "testcontainers[postgres]>=4.10.0",
     "pytest-xdist[psutil]>=3.8.0",
     "taskiq[reload]>=0.11.20",
+    "pre-commit>=4.0.0",
 ]
 
 [tool.setuptools.packages.find]
@@ -51,14 +55,12 @@ where = ["src"]
 include = ["*"]
 
 [tool.pytest.ini_options]
-pythonpath = ["src"]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_functions = ["test_*"]
 python_classes = ["Test*"]
 asyncio_mode = "auto"
-addopts = ["-v", "--strict-markers", "--tb=short", "--disable-warnings"]
-env = ["ENVIRONMENT=pytest", "PYTEST_CURRENT_TEST=true"]
+addopts = ["-v", "--strict-markers", "--tb=short"]
 markers = [
     "unit: Unit tests that don't require external dependencies",
     "integration: Integration tests that may require external services",
@@ -67,6 +69,7 @@ markers = [
 ]
 
 [tool.mypy]
+plugins = ["pydantic.mypy"]
 python_version = "3.11"
 warn_return_any = true
 warn_unused_configs = true
@@ -84,6 +87,10 @@ namespace_packages = true
 explicit_package_bases = true
 
 [[tool.mypy.overrides]]
+module = "src.wiring.settings"
+disable_error_code = ["misc"]
+
+[[tool.mypy.overrides]]
 module = "aiomcache"
 ignore_missing_imports = true
 
@@ -93,6 +100,10 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = "sqladmin"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "testcontainers.*"
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]

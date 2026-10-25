@@ -32,7 +32,7 @@ In `backend/.env`:
 
 ```env
 ADMIN_USERNAME=admin
-ADMIN_PASSWORD=your-secure-password
+ADMIN_PASSWORD=Change-Me-Now-1!
 SECRET_KEY=<openssl rand -hex 32>
 ```
 

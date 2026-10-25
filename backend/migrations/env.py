@@ -1,16 +1,18 @@
 import asyncio
-import importlib
 import os
-import pkgutil
 from logging.config import fileConfig
 
 from alembic import context
+from alembic.script import ScriptDirectory
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
-from src.infrastructure.config.settings import settings
+from src.infrastructure.config.base import ini_value
+from src.infrastructure.config.settings import EnvironmentOption, settings
+from src.infrastructure.database.registry import import_models
 from src.infrastructure.database.session import Base
+from src.infrastructure.security.secret_key import is_weak_secret_key
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -19,10 +21,12 @@ config = context.config
 
 # Production safety checks
 def validate_production_migration():
-    """Validate production migration safety."""
-    environment = os.getenv("ENVIRONMENT", "development")
+    """Refuse to migrate production unless the caller said so deliberately.
 
-    if environment == "production":
+    The environment comes from settings rather than the process environment, so a
+    production ``.env`` still trips the gate.
+    """
+    if settings.ENVIRONMENT == EnvironmentOption.PRODUCTION:
         print("🚨 PRODUCTION MIGRATION DETECTED")
 
         # Require explicit confirmation
@@ -33,11 +37,8 @@ def validate_production_migration():
                 "This ensures you understand you're migrating production data."
             )
 
-        # Check for required production environment variables
-        required_vars = ["DATABASE_URL", "SECRET_KEY"]
-        missing_vars = [var for var in required_vars if not os.getenv(var)]
-        if missing_vars:
-            raise Exception(f"Missing required production environment variables: {missing_vars}")
+        if is_weak_secret_key(settings.SECRET_KEY):
+            raise Exception("SECRET_KEY is missing, a placeholder, or too weak to migrate production with.")
 
         # Warn about production migration
         print("✅ Production migration confirmed")
@@ -45,25 +46,40 @@ def validate_production_migration():
         print("⚠️  This operation will modify production data!")
 
 
-# Build the database URL from settings - use the built-in DATABASE_URL property
-config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
+def refuse_an_upgrade_with_no_revisions():
+    """Refuse to "apply" a history that doesn't exist yet.
 
-# Run production safety checks
+    ``alembic upgrade head`` with no revisions creates ``alembic_version`` and nothing
+    else, exits 0, and leaves a database with no schema behind an app that will fail
+    every request. Generating the first revision is the one command that runs with an
+    empty history, so it is let through, recognised by the flag alembic's CLI sets.
+    Generating one through alembic's Python API instead passes no ``cmd_opts``, so it is
+    refused as well: run the command.
+    """
+    if getattr(config.cmd_opts, "autogenerate", False):
+        return
+
+    if ScriptDirectory.from_config(config).get_heads():
+        return
+
+    raise SystemExit(
+        "No migration revisions exist, so this would create only alembic_version and leave the "
+        "database without a schema. Generate the first one against an empty database "
+        "(`alembic revision --autogenerate -m baseline`), review it, and commit it."
+    )
+
+
+config.set_main_option("sqlalchemy.url", ini_value(settings.DATABASE_URL))
+
 validate_production_migration()
+refuse_an_upgrade_with_no_revisions()
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 
-def import_models(package_name):
-    """Automatically import all models from a package and its subpackages."""
-    package = importlib.import_module(package_name)
-    for _, module_name, _ in pkgutil.walk_packages(package.__path__, package.__name__ + "."):
-        importlib.import_module(module_name)
-
-
 # Import all models to ensure they're registered with SQLAlchemy
-import_models("src.modules")
+import_models()
 target_metadata = Base.metadata
 
 

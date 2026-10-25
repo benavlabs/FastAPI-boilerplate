@@ -4,13 +4,23 @@ This module provides comprehensive security validation for production environmen
 checking for common misconfigurations that could lead to security vulnerabilities.
 """
 
-import re
+from typing import Any
 from urllib.parse import unquote, urlsplit
 
+from ..config.enums import EmailBackend, RateLimiterBackend, SessionBackend, TaskiqBrokerType
 from ..config.settings import EnvironmentOption, Settings
 from ..logging import get_logger
+from .secret_key import is_weak_secret_key
 
 logger = get_logger()
+
+LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", "0.0.0.0"})
+
+ACCOUNTS_SETTING = "SESSION_TIMEOUT_MINUTES"
+"""A setting only the accounts feature brings, which is how its presence is read."""
+
+BROKER_DEFAULT_CREDENTIALS = ("guest", "guest")
+"""The user and password every RabbitMQ installation starts with."""
 
 
 class ProductionSecurityError(Exception):
@@ -119,23 +129,54 @@ class ProductionSecurityValidator:
                 sys.exit(1)
             ```
         """
-        if not self._is_production():
-            self.logger.debug("Not in production environment, skipping security validation")
+        if not self._is_production() and not self._is_staging():
+            self.logger.debug("Not in production or staging, skipping security validation")
             return
 
-        self.logger.info("Running production security validation...")
+        environment = self.settings.ENVIRONMENT
+        self.logger.info(f"Running {environment} security validation...")
 
-        critical_errors = self._validate_critical_security()
+        critical_errors = self._validate_critical_security() if self._is_production() else self._validate_staging_security()
         if critical_errors:
-            error_msg = "Critical security issues detected in production:\n" + "\n".join(
+            error_msg = f"Critical security issues detected in {environment}:\n" + "\n".join(
                 f"  • {error}" for error in critical_errors
             )
             self.logger.error(error_msg)
             raise ProductionSecurityError(error_msg)
 
-        self._validate_warning_security()
+        if self._is_production():
+            self._validate_warning_security()
 
-        self.logger.info("Production security validation completed successfully")
+        self.logger.info(f"{environment.capitalize()} security validation completed successfully")
+
+    def _feature_setting(self, name: str, default: Any) -> Any:
+        """A setting a feature contributes, or ``default`` when the project didn't select it.
+
+        The validator runs whatever features a project has, so a check for one it
+        doesn't carry has to read as "nothing to warn about" rather than raise.
+        """
+        return getattr(self.settings, name, default)
+
+    def _has_accounts_to_email(self) -> bool:
+        """Whether the project selected the feature that sends an account anything.
+
+        ``EmailSettings`` is core, so a project with no accounts reads the same defaults as
+        one that recovers them by email. Checking those there would refuse a deployment
+        over an address nothing builds a link from and a backend nothing delivers through.
+        """
+        return hasattr(self.settings, ACCOUNTS_SETTING)
+
+    def _is_frontend_url_local(self) -> bool:
+        """Whether ``FRONTEND_URL`` is empty, or names a host only this machine can reach."""
+        url = self.settings.FRONTEND_URL.strip()
+        if not url:
+            return True
+
+        return (urlsplit(url).hostname or "") in LOCAL_HOSTS
+
+    def _is_staging(self) -> bool:
+        """Whether this is the staging deployment, which is held to a subset of the checks."""
+        return self.settings.ENVIRONMENT == EnvironmentOption.STAGING
 
     def _is_production(self) -> bool:
         """Check if the application is running in production environment.
@@ -179,14 +220,7 @@ class ProductionSecurityValidator:
             - ADMIN_ENABLED without ADMIN_USERNAME/ADMIN_PASSWORD
             - CORS_ORIGINS containing '*'
         """
-        errors = []
-
-        if self._is_insecure_secret_key():
-            errors.append(
-                "SECRET_KEY is using default or insecure value. "
-                "This compromises session security, CSRF protection, and JWT tokens. "
-                "Generate a strong, unique secret key for production."
-            )
+        errors = self._validate_staging_security()
 
         if self._is_database_using_default_credentials():
             errors.append(
@@ -202,17 +236,56 @@ class ProductionSecurityValidator:
                 "Set a strong password for production."
             )
 
-        if self.settings.ADMIN_ENABLED and (not self.settings.ADMIN_USERNAME or not self.settings.ADMIN_PASSWORD):
+        if self._feature_setting("ADMIN_ENABLED", False) and (
+            not self._feature_setting("ADMIN_USERNAME", "") or not self._feature_setting("ADMIN_PASSWORD", "")
+        ):
             errors.append(
                 "Admin interface is enabled (ADMIN_ENABLED=true) but ADMIN_USERNAME and/or "
-                "ADMIN_PASSWORD are not set. Set both to strong, unique values or set "
-                "ADMIN_ENABLED=false for production."
+                "ADMIN_PASSWORD are not set, so the panel will not be mounted and /admin will "
+                "answer 404. Set both to strong, unique values, or set ADMIN_ENABLED=false."
+            )
+
+        if self._has_accounts_to_email() and self._is_frontend_url_local():
+            errors.append(
+                f"FRONTEND_URL is {self.settings.FRONTEND_URL!r} in production. The verification, "
+                "password-reset and email-change links are built from it, so every one of them "
+                "would point at a host the recipient cannot open. Set it to the project's own "
+                "frontend."
+            )
+
+        if self._has_accounts_to_email() and self._is_frontend_url_plaintext():
+            errors.append(
+                f"FRONTEND_URL is {self.settings.FRONTEND_URL!r} in production, which is not HTTPS. "
+                "Every verification, password-reset and email-change link is built from it, so each "
+                "one would carry its token over a connection anybody on the path can read."
+            )
+
+        if self._keeps_sessions_in_the_process():
+            errors.append(
+                "SESSION_BACKEND is 'memory' in production. Each process keeps its own sessions, so "
+                "a sign-in is unknown to the next worker, a restart signs everybody out, and ending "
+                "a session elsewhere leaves it working. Use 'redis' or 'database'."
+            )
+
+        if self._counts_rate_limits_in_the_process():
+            errors.append(
+                "RATE_LIMITER_BACKEND is 'memory' in production. Each process counts on its own, so "
+                "every limit is as many times the configured one as there are workers, and the login "
+                "lockout, the account-change budgets and an API key's windows each hold in whichever "
+                "worker saw the requests. Use 'redis' or 'database'."
+            )
+
+        if self._broker_uses_default_credentials():
+            errors.append(
+                "TASKIQ_RABBITMQ_USER and TASKIQ_RABBITMQ_PASSWORD are RabbitMQ's 'guest' defaults "
+                "in production. Anybody who reaches the broker can enqueue a task the worker runs "
+                "and read the messages waiting in it. Set credentials of the project's own."
             )
 
         if self._is_cors_too_permissive():
             credentials_note = (
-                " Combined with CORS_ALLOW_CREDENTIALS=true, this lets any browser origin "
-                "make authenticated cross-origin requests with the user's session cookie."
+                " The app drops CORS_ALLOW_CREDENTIALS while '*' is listed, so a page on another "
+                "origin cannot read a response to a call it made with the user's cookies."
                 if getattr(self.settings, "CORS_ALLOW_CREDENTIALS", True)
                 else ""
             )
@@ -222,6 +295,81 @@ class ProductionSecurityValidator:
             )
 
         return errors
+
+    def _validate_staging_security(self) -> list[str]:
+        """The checks a staging deployment is held to as well as a production one.
+
+        Staging answers on the internet, often against a copy of production's data, so the
+        three things that make a deployment unsafe to expose at all are refused there too: a
+        secret key anybody can guess, a mail backend that writes recovery links into the log
+        rather than sending them, and a boot that builds the schema behind Alembic's back.
+        The rest is production's to refuse, so staging can run on one worker with a
+        throwaway database password.
+        """
+        errors = []
+
+        if self._is_insecure_secret_key():
+            errors.append(
+                "SECRET_KEY is using default or insecure value. "
+                "This compromises session security, CSRF protection, and JWT tokens. "
+                f"Generate a strong, unique secret key for {self.settings.ENVIRONMENT}."
+            )
+
+        if self._has_accounts_to_email() and self.settings.EMAIL_BACKEND == EmailBackend.CONSOLE.value:
+            errors.append(
+                f"EMAIL_BACKEND is 'console' in {self.settings.ENVIRONMENT}. That backend logs every "
+                "message in full, so password-reset and verification links would be written to the "
+                "logs instead of being delivered. Set EMAIL_BACKEND=smtp and configure EMAIL_SMTP_*."
+            )
+
+        if self.settings.CREATE_TABLES_ON_STARTUP:
+            errors.append(
+                f"CREATE_TABLES_ON_STARTUP is enabled in {self.settings.ENVIRONMENT}. A boot would "
+                "build the schema from the models, behind Alembic's back. Run 'alembic upgrade head' "
+                "instead and set CREATE_TABLES_ON_STARTUP=false."
+            )
+
+        return errors
+
+    def _is_frontend_url_plaintext(self) -> bool:
+        """Whether ``FRONTEND_URL`` names a scheme that carries a link in the clear."""
+        url = self.settings.FRONTEND_URL.strip()
+
+        return bool(url) and urlsplit(url).scheme != "https"
+
+    def _keeps_sessions_in_the_process(self) -> bool:
+        """Whether sessions live in the process that created them."""
+        return bool(self._feature_setting("SESSION_BACKEND", SessionBackend.REDIS.value) == SessionBackend.MEMORY.value)
+
+    def _counts_rate_limits_in_the_process(self) -> bool:
+        """Whether the limiter counts in the process that saw the request.
+
+        ``RATE_LIMITER_BACKEND`` is the whole switch. It belongs to the accounts feature,
+        and the limiter it builds carries the login lockout, the account-change budgets and
+        an API key's own windows whether or not the ratelimit feature is selected, let alone
+        switched on with ``RATE_LIMITER_ENABLED``. Its absence is what says there are no
+        accounts to count for.
+        """
+        counting = self._feature_setting("RATE_LIMITER_BACKEND", RateLimiterBackend.REDIS.value)
+
+        return bool(counting == RateLimiterBackend.MEMORY.value)
+
+    def _broker_uses_default_credentials(self) -> bool:
+        """Whether the task queue reaches RabbitMQ as the user every installation ships with."""
+        if self._feature_setting("TASKIQ_BROKER_TYPE", "") != TaskiqBrokerType.RABBITMQ.value:
+            return False
+
+        carried = (self._feature_setting("TASKIQ_RABBITMQ_USER", ""), self._feature_setting("TASKIQ_RABBITMQ_PASSWORD", ""))
+
+        return carried == BROKER_DEFAULT_CREDENTIALS
+
+    def audit(self) -> tuple[list[str], list[str]]:
+        """Every critical error and every warning this configuration produces.
+
+        Both lists are always computed: a caller reporting on a configuration
+        wants the warnings even when a critical error would stop startup.
+        """
+        return self._validate_critical_security(), self._collect_warnings()
 
     def _validate_warning_security(self) -> None:
         """Log warnings for security concerns that don't prevent startup.
@@ -247,6 +395,19 @@ class ProductionSecurityValidator:
             - Session timeout too long
             - Weak admin usernames or passwords
         """
+        warnings = self._collect_warnings()
+
+        for warning in warnings:
+            self.logger.warning(f"PRODUCTION SECURITY WARNING: {warning}")
+
+        if warnings:
+            self.logger.warning(
+                f"Found {len(warnings)} production security warnings. "
+                "While not critical, these should be reviewed for optimal security."
+            )
+
+    def _collect_warnings(self) -> list[str]:
+        """The security concerns worth raising that don't prevent startup."""
         warnings = []
 
         redis_warnings = self._check_redis_security()
@@ -275,14 +436,7 @@ class ProductionSecurityValidator:
         admin_warnings = self._check_admin_credentials()
         warnings.extend(admin_warnings)
 
-        for warning in warnings:
-            self.logger.warning(f"PRODUCTION SECURITY WARNING: {warning}")
-
-        if warnings:
-            self.logger.warning(
-                f"Found {len(warnings)} production security warnings. "
-                "While not critical, these should be reviewed for optimal security."
-            )
+        return warnings
 
     def _is_insecure_secret_key(self) -> bool:
         """Check if SECRET_KEY is insecure or uses default values.
@@ -294,77 +448,10 @@ class ProductionSecurityValidator:
             True if the secret key is insecure, False otherwise.
 
         Note:
-            The validation checks for:
-            - Empty or missing secret keys
-            - Common default values and patterns
-            - Insufficient length (< 32 characters)
-            - Predictable patterns and repetition
-            - Common weak strings
-
-            A secure secret key should be:
-            - At least 32 characters long
-            - Randomly generated
-            - Unique to the application
-            - Free of predictable patterns
+            The rules live in ``is_weak_secret_key``, which the Alembic
+            production gate uses too.
         """
-        secret = self.settings.SECRET_KEY
-
-        if not secret:
-            return True
-
-        insecure_patterns = [
-            "insecure-secret-key-change-this",
-            "change-me",
-            "change-this",
-            "default",
-            "secret",
-            "password",
-            "secretkey",
-            "key",
-            "123456",
-            "abc123",
-            "test",
-            "dev",
-            "development",
-        ]
-
-        secret_lower = secret.lower()
-        if any(pattern in secret_lower for pattern in insecure_patterns):
-            return True
-
-        if len(secret) < 32:
-            return True
-
-        if self._has_predictable_pattern(secret):
-            return True
-
-        return False
-
-    def _has_predictable_pattern(self, secret: str) -> bool:
-        """Check if secret has predictable patterns that reduce security.
-
-        Args:
-            secret: The secret string to analyze for patterns.
-
-        Returns:
-            True if predictable patterns are found, False otherwise.
-
-        Note:
-            Predictable patterns include:
-            - Repeated characters (e.g., "aaaa", "1111")
-            - Sequential characters (e.g., "1234", "abcd")
-            - Common keyboard patterns (e.g., "qwerty")
-
-            These patterns reduce the entropy of the secret key and
-            make it more susceptible to brute force attacks.
-        """
-        if re.search(r"(.)\1{3,}", secret):
-            return True
-
-        if "1234" in secret or "abcd" in secret.lower() or "qwerty" in secret.lower():
-            return True
-
-        return False
+        return is_weak_secret_key(self.settings.SECRET_KEY)
 
     def _is_admin_access_completely_open(self) -> bool:
         """Check if admin interface has no access restrictions.
@@ -514,32 +601,32 @@ class ProductionSecurityValidator:
         """
         configs = []
 
-        if self.settings.CACHE_BACKEND == "redis":
+        if self._feature_setting("CACHE_BACKEND", "") == "redis":
             configs.append(
                 {
                     "service": "cache",
-                    "host": self.settings.CACHE_REDIS_HOST,
-                    "port": self.settings.CACHE_REDIS_PORT,
-                    "db": self.settings.CACHE_REDIS_DB,
-                    "password": self.settings.CACHE_REDIS_PASSWORD,
+                    "host": self._feature_setting("CACHE_REDIS_HOST", ""),
+                    "port": self._feature_setting("CACHE_REDIS_PORT", 0),
+                    "db": self._feature_setting("CACHE_REDIS_DB", 0),
+                    "password": self._feature_setting("CACHE_REDIS_PASSWORD", None),
                     "ssl": False,
                 }
             )
 
-        if self.settings.RATE_LIMITER_ENABLED:
+        if self._feature_setting("RATE_LIMITER_BACKEND", "") == "redis":
             configs.append(
                 {
                     "service": "rate_limiter",
-                    "host": self.settings.RATE_LIMITER_REDIS_HOST,
-                    "port": self.settings.RATE_LIMITER_REDIS_PORT,
-                    "db": self.settings.RATE_LIMITER_REDIS_DB,
-                    "password": self.settings.RATE_LIMITER_REDIS_PASSWORD,
+                    "host": self._feature_setting("RATE_LIMITER_REDIS_HOST", ""),
+                    "port": self._feature_setting("RATE_LIMITER_REDIS_PORT", 0),
+                    "db": self._feature_setting("RATE_LIMITER_REDIS_DB", 0),
+                    "password": self._feature_setting("RATE_LIMITER_REDIS_PASSWORD", None),
                     "ssl": False,
                 }
             )
 
-        if self.settings.SESSION_BACKEND == "redis":
-            configs.append(self._redis_configuration_from_url("sessions", self.settings.SESSION_REDIS_URL))
+        if self._feature_setting("SESSION_BACKEND", "") == "redis":
+            configs.append(self._redis_configuration_from_url("sessions", self._feature_setting("SESSION_REDIS_URL", "")))
 
         return configs
 
@@ -655,21 +742,21 @@ class ProductionSecurityValidator:
         """
         warnings: list[str] = []
 
-        if not self.settings.SESSION_SECURE_COOKIES:
+        if not self._feature_setting("SESSION_SECURE_COOKIES", True):
             warnings.append(
                 "SESSION_SECURE_COOKIES is disabled. This allows session cookies to be "
                 "transmitted over unencrypted HTTP connections, making them vulnerable "
                 "to interception. Enable secure cookies in production."
             )
 
-        if self.settings.SESSION_TIMEOUT_MINUTES > 120:
+        if self._feature_setting("SESSION_TIMEOUT_MINUTES", 0) > 120:
             warnings.append(
-                f"Session timeout is set to {self.settings.SESSION_TIMEOUT_MINUTES} minutes "
+                f"Session timeout is set to {self._feature_setting('SESSION_TIMEOUT_MINUTES', 0)} minutes "
                 f"(more than 2 hours). Long session timeouts increase security risk if "
                 f"a session is compromised. Consider reducing the timeout for production."
             )
 
-        if not self.settings.CSRF_ENABLED:
+        if not self._feature_setting("CSRF_ENABLED", True):
             warnings.append(
                 "CSRF protection is disabled. This makes your application vulnerable to "
                 "Cross-Site Request Forgery attacks. Enable CSRF protection in production."
@@ -694,20 +781,20 @@ class ProductionSecurityValidator:
         """
         warnings: list[str] = []
 
-        if not self.settings.ADMIN_ENABLED:
+        if not self._feature_setting("ADMIN_ENABLED", False):
             return warnings
 
-        if not self.settings.ADMIN_USERNAME or not self.settings.ADMIN_PASSWORD:
+        if not self._feature_setting("ADMIN_USERNAME", "") or not self._feature_setting("ADMIN_PASSWORD", ""):
             return warnings
 
         weak_usernames = ["admin", "administrator", "root", "user", "test", "demo"]
-        if self.settings.ADMIN_USERNAME.lower() in weak_usernames:
+        if str(self._feature_setting("ADMIN_USERNAME", "")).lower() in weak_usernames:
             warnings.append(
-                f"Admin username '{self.settings.ADMIN_USERNAME}' is predictable. "
+                f"Admin username '{self._feature_setting('ADMIN_USERNAME', '')}' is predictable. "
                 f"Consider using a less obvious username for better security."
             )
 
-        password = self.settings.ADMIN_PASSWORD
+        password = self._feature_setting("ADMIN_PASSWORD", "")
         if len(password) < 12:
             warnings.append(
                 "Admin password is shorter than 12 characters. Use a longer, "

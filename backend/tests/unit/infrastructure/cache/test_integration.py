@@ -24,12 +24,12 @@ def app(mock_redis_backend):
         app = FastAPI()
 
         @app.get("/users/{user_id}")
-        @cache(key_prefix="user", resource_id_name="user_id")
+        @cache(key_prefix="user", resource_id_name="user_id", per_caller=False)
         async def get_user(request: Request, user_id: int):
             return {"id": user_id, "name": f"User {user_id}"}
 
         @app.post("/users/{user_id}")
-        @cache(key_prefix="user", resource_id_name="user_id")
+        @cache(key_prefix="user", resource_id_name="user_id", per_caller=False)
         async def update_user(request: Request, user_id: int, name: str | None = None):
             return {"id": user_id, "name": name, "updated": True}
 
@@ -38,6 +38,7 @@ def app(mock_redis_backend):
             key_prefix="org_user",
             resource_id_name="user_id",
             to_invalidate_extra={"user": "user_id", "org": "org_id"},
+            per_caller=False,
         )
         async def update_org_user(request: Request, org_id: int, user_id: int):
             return {"org_id": org_id, "user_id": user_id, "updated": True}

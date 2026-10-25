@@ -13,7 +13,7 @@
 [data-md-color-scheme="slate"] .md-header__button.md-logo img,
 [data-md-color-scheme="slate"] .md-nav__button.md-logo img {
     filter: brightness(0) invert(1);
-} 
+}
 
 :root {
     --md-primary-fg-color: #0d9488;

@@ -4,7 +4,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from sqlalchemy.pool import NullPool
@@ -52,6 +52,19 @@ class TestBuildEngine:
         assert kwargs["poolclass"] is NullPool
         assert "pool_size" not in kwargs
         assert "max_overflow" not in kwargs
+
+    def test_hides_statement_parameters(self):
+        """A failed statement reports its SQL without the values it carried."""
+        with patch("src.infrastructure.database.session.create_async_engine") as create:
+            build_engine()
+
+        assert create.call_args.kwargs["hide_parameters"] is True
+
+    def test_a_url_argument_replaces_the_configured_one(self):
+        with patch("src.infrastructure.database.session.create_async_engine") as create:
+            build_engine("postgresql+asyncpg://user:pw@elsewhere:5432/other")
+
+        assert create.call_args.args[0] == "postgresql+asyncpg://user:pw@elsewhere:5432/other"
 
     def test_overrides_win_over_defaults(self):
         """Callers can replace any default."""
@@ -109,7 +122,7 @@ class TestLegacyEngineAttribute:
 
     def test_resolves_to_the_shared_engine(self, no_engine):
         """``session.engine`` is the engine ``get_engine()`` hands out."""
-        sentinel = object()
+        sentinel = MagicMock()
         session_module._engine = sentinel
 
         assert session_module.engine is sentinel

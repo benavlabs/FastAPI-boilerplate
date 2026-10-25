@@ -8,6 +8,7 @@ This guide covers all aspects of working with the FastAPI Boilerplate:
 
 ### Project Understanding
 - **[Project Structure](project-structure.md)** - Navigate the codebase organization and understand architectural decisions
+- **[Composable Features](composable-features.md)** - What each feature owns, how a feature contributes to another without importing it, and how to remove one
 - **[Configuration](configuration/index.md)** - Configure your application for different environments
 
 ### Core Components
@@ -51,6 +52,9 @@ Powered by [SQLAdmin](https://github.com/smithyhq/sqladmin) - a flexible admin i
 
 ### Rate Limiting
 - **[Rate Limiting](rate-limiting/index.md)** - Protect your API from abuse with Redis-based rate limiting
+
+### Operations
+- **[Observability](observability.md)** - What the project emits, and putting Logfire or any OpenTelemetry collector in front of it
 
 ## Prerequisites
 
