@@ -94,7 +94,19 @@ PASSWORD_REQUIRE_DIGIT=true
 PASSWORD_REQUIRE_SPECIAL=true
 ```
 
-Login lockout is handled by `crudauth` itself: it applies an escalating per-IP / per-identifier lockout and returns `429 Too Many Requests` with a `Retry-After` header. There are no `LOGIN_MAX_ATTEMPTS` / `LOGIN_WINDOW_MINUTES` knobs to set.
+Login lockout is applied by `crudauth`, per client IP and per submitted identifier at once, and answers
+`429 Too Many Requests` with a `Retry-After` header. Four settings tune it, passed to crudauth's
+`LockoutConfig` in `infrastructure/auth/setup.py`:
+
+```env
+LOGIN_MAX_ATTEMPTS=5              # failures allowed inside the window
+LOGIN_ATTEMPT_WINDOW_SECONDS=900  # how long failures keep counting
+LOGIN_LOCKOUT_BASE_SECONDS=300    # first lockout, doubling each round
+LOGIN_LOCKOUT_MAX_SECONDS=3600    # cap on the escalation
+```
+
+Because both dimensions are counted, an attacker rotating identifiers from one address runs out of
+attempts on the address, and one spread across addresses runs out on the identifier.
 
 ### First Admin User
 
