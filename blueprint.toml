@@ -1,0 +1,80 @@
+[blueprint]
+name = "fastro"
+version = "0.20.0"
+schema = 1
+requires_fastro = ">=0.1.0.dev0,<0.2"
+python_root = "backend"
+import_root = "src"
+blueprint_only = [
+  ".github/",
+  "CODE_OF_CONDUCT.md",
+  "CONTRIBUTING.md",
+  "backend/tests/unit/test_blueprint_catalog.py",
+  "backend/tests/unit/test_docs_imports.py",
+  "backend/tests/unit/test_docs_recipes.py",
+  "backend/tests/unit/test_docs_scripts.py",
+  "backend/tests/unit/test_docs_wiring.py",
+  "backend/tests/unit/test_image_contents.py",
+  "blueprint/",
+  "blueprint.toml",
+  "cli/",
+  "docs/",
+  "fastro.toml",
+  "tools/",
+  "uv.lock",
+  "zensical.toml",
+]
+
+[blueprint.dependencies]
+runtime = [
+  "aiomcache>=0.8.2",
+  "aiosqlite>=0.21.0",
+  "alembic>=1.16.4",
+  "anyio>=4.15.1",
+  "asyncpg>=0.30.0",
+  "crudauth[all]>=0.8.2,<0.9.0",
+  "cryptography>=42.0.0",
+  "faker>=37.1.0",
+  "fastapi[standard]>=0.115.8",
+  "fastcrud>=0.21.0",
+  "greenlet>=3.1.1",
+  "httpx>=0.28.1",
+  "itsdangerous>=2.2.0",
+  "jinja2>=3.1.6",
+  "pydantic>=2.10.6",
+  "pydantic-settings>=2.14.2",
+  "redis>=6.1.0",
+  "sqladmin>=0.28.0",
+  "sqlalchemy>=2.0.37",
+  "starlette>=1.3.1",
+  "taskiq>=0.11.20",
+  "taskiq-redis>=1.1.2",
+  "taskiq-aio-pika>=0.4.3",
+  "user-agents>=2.2.0",
+]
+dev = [
+  "mypy>=1.14.1",
+  "ruff>=0.9.4",
+  "pytest>=8.3.5",
+  "pytest-asyncio>=0.25.3",
+  "pytest-mock>=3.14.0",
+  "testcontainers[postgres]>=4.10.0",
+  "pytest-xdist[psutil]>=3.8.0",
+  "taskiq[reload]>=0.11.20",
+  "pre-commit>=4.0.0",
+]
+
+[presets]
+minimal = ["accounts"]
+standard = ["accounts", "rbac", "ratelimit", "tiers", "tier_limits", "admin", "cache"]
+full = ["accounts", "rbac", "ratelimit", "tiers", "tier_limits", "api_keys", "admin", "cache", "taskiq"]
+
+[verify.sets]
+core-only = []
+core-taskiq = ["taskiq"]
+accounts-only = ["accounts"]
+accounts-rbac = ["accounts", "rbac"]
+accounts-admin = ["accounts", "admin"]
+accounts-api-keys = ["accounts", "api_keys"]
+accounts-rbac-tiers = ["accounts", "rbac", "tiers", "ratelimit"]
+accounts-cache-taskiq = ["accounts", "cache", "taskiq"]
