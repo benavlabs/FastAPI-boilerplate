@@ -39,7 +39,8 @@ backend/
 │   ├── revoke_scrypt_api_keys.py
 │   ├── seeders.py            # The seeders the selected features contribute
 │   ├── setup_initial_data.py
-│   └── unlock_account.py
+│   ├── unlock_account.py
+│   └── validate_env.py       # Audits the environment the way production would
 ├── src/                      # Application source (the three layers below)
 └── tests/                    # Test suite (unit + integration)
 ```
@@ -210,6 +211,7 @@ scripts/
 ├── canonicalize_emails.py    # One-off repair for addresses stored with case or spaces
 ├── unlock_account.py         # Clears the login lockout one account is held in
 ├── gen_secret.py             # Prints a SECRET_KEY the project's own rules accept
+├── validate_env.py           # Audits the environment the way production would
 ├── revoke_scrypt_api_keys.py # Names the API keys still stored as scrypt, revokes them on request
 └── prune_key_usage.py        # Deletes the API-key usage rows past KEY_USAGE_RETENTION_DAYS
 ```
