@@ -414,3 +414,404 @@ def test_every_selection_keeps_the_files_the_drill_keeps():
 
     for chosen in _selections(manifest):
         assert _kept_by_the_catalog(features, chosen) == _kept_by_the_drill(manifest, chosen), sorted(chosen)
+
+
+POINTS: dict[str, tuple[str, str]] = {
+    "routers": ("_wiring_app", "ROUTER_MOUNTS"),
+    "root_routers": ("_wiring_app", "ROOT_ROUTERS"),
+    "api_throttle": ("_wiring_app", "API_THROTTLE"),
+    "lifecycles": ("_wiring_app", "LIFECYCLES"),
+    "installers": ("_wiring_app", "INSTALLERS"),
+    "docs_guard": ("_wiring_app", "DOCS_GUARD"),
+    "settings": ("_wiring_settings", "Settings"),
+    "permission_sources": ("_wiring_hooks", "PERMISSION_SOURCES"),
+    "rate_limit_resolvers": ("_wiring_hooks", "RATE_LIMIT_RESOLVERS"),
+    "tier_delete_guards": ("_wiring_hooks", "TIER_DELETE_GUARDS"),
+    "tier_delete_releases": ("_wiring_hooks", "TIER_DELETE_RELEASES"),
+    "critical_readiness": ("_wiring_hooks", "CRITICAL_READINESS_CHECKS"),
+    "informational_readiness": ("_wiring_hooks", "INFORMATIONAL_READINESS_CHECKS"),
+    "user_model": ("_wiring_models", "UserModelExtensions"),
+    "user_schema": ("_wiring_models", "UserSchemaExtensions"),
+    "admin_views": ("_wiring_admin", "ADMIN_VIEWS"),
+    "email_sender": ("_wiring_email", "EMAIL_SENDER"),
+    "cache_decorator": ("_wiring_cache", "cached"),
+    "task_modules": ("_wiring_tasks", "TASK_MODULES"),
+    "table_modules": ("_wiring_tables", "TABLE_MODULES"),
+    "extra_transports": ("_wiring_transports", "EXTRA_TRANSPORTS"),
+    "seeders": ("_seeders", "SEEDERS"),
+    "test_plugins": ("_tests_wiring", "PYTEST_PLUGINS"),
+}
+"""Where the drill writes each point: the generator, and the name it assigns or defines."""
+
+FALLBACKS = {
+    "root_routers": "()",
+    "docs_guard": "None",
+    "email_sender": "HandingOverSender(build_sender())",
+    "user_schema": "BaseModel",
+}
+"""What a point renders as when nothing contributes to it, which is no contribution at all."""
+
+APPENDED = {"settings": "CoreSettings"}
+"""A base the slot always adds last, after everything contributed."""
+
+
+def _true(condition: str, chosen: set[str]) -> bool:
+    """Whether a spec 1.3 condition holds for this selection."""
+    tokens = re.findall(r"\(|\)|[^\s()]+", condition)
+    position = 0
+
+    def expression() -> bool:
+        value = conjunction()
+        nonlocal position
+        while position < len(tokens) and tokens[position] == "or":
+            position += 1
+            value = conjunction() or value
+
+        return value
+
+    def conjunction() -> bool:
+        value = negation()
+        nonlocal position
+        while position < len(tokens) and tokens[position] == "and":
+            position += 1
+            value = negation() and value
+
+        return value
+
+    def negation() -> bool:
+        nonlocal position
+        if tokens[position] == "not":
+            position += 1
+
+            return not negation()
+
+        return atom()
+
+    def atom() -> bool:
+        nonlocal position
+        token = tokens[position]
+        position += 1
+        if token == "(":
+            value = expression()
+            assert tokens[position] == ")", condition
+            position += 1
+
+            return value
+
+        if "=" in token:
+            raise NotImplementedError(f"{token!r} names an option; this test only selects features.")
+
+        return token in chosen
+
+    held = expression()
+    assert position == len(tokens), condition
+
+    return held
+
+
+def _tables(entries: Any) -> list[dict[str, Any]]:
+    """Spec 1.5: a contribution is a bare ref or a table, and reads the same either way."""
+    return [{"ref": entry} if isinstance(entry, str) else dict(entry) for entry in entries]
+
+
+def _contributed(catalog: dict[str, Any], point: str, chosen: set[str]) -> list[dict[str, Any]]:
+    """What reaches a point for this selection, in the order spec 2.7 sorts it."""
+    collected = [(index, -1, 0, table) for index, table in enumerate(_tables(catalog["core"]["contributes"].get(point, ())))]
+
+    for index, (name, feature) in enumerate(catalog["features"].items()):
+        if name not in chosen:
+            continue
+
+        entries = list(feature.get("contributes", {}).get(point, ()))
+        for block in feature.get("when", ()):
+            if _true(block["if"], chosen):
+                entries.extend(block.get("contributes", {}).get(point, ()))
+
+        for position, table in enumerate(_tables(entries)):
+            if "if" in table and not _true(table["if"], chosen):
+                continue
+
+            collected.append((table.get("order", (index + 1) * 100 + position), index, position, table))
+
+    return [table for *_, table in sorted(collected, key=lambda entry: entry[:3])]
+
+
+def _named(entry: dict[str, Any]) -> Any:
+    """The local name a contribution binds, or the literal it contributes."""
+    if "value" in entry:
+        return entry["value"]
+
+    return _ref(entry["ref"])[2]
+
+
+def _defined(source: str, name: str) -> ast.AST | None:
+    """The value assigned to ``name``, or the class defined under it."""
+    for node in ast.parse(source).body:
+        if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name) and node.target.id == name:
+            return node.value
+        if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == name for t in node.targets):
+            return node.value
+        if isinstance(node, ast.ClassDef) and node.name == name:
+            return node
+
+    return None
+
+
+def _leading_name(element: ast.AST) -> Any:
+    """What a rendered item is built around: ``RouterMount(users_router, …)`` is ``users_router``."""
+    if isinstance(element, ast.Constant):
+        return element.value
+    if isinstance(element, ast.Name):
+        return element.id
+    if isinstance(element, ast.Call):
+        return _leading_name(element.args[0]) if element.args else _leading_name(element.func)
+
+    raise AssertionError(ast.unparse(element))
+
+
+def _rendered(source: str, point: str, name: str) -> list[Any]:
+    """The names the drill rendered into this point, in the order it wrote them."""
+    if point == "cache_decorator":
+        bound = [module for module, _, alias in _bindings(source) if alias == name]
+
+        return [] if bound == ["..infrastructure.uncached"] else [name]
+
+    defined = _defined(source, name)
+    assert defined is not None, name
+
+    if isinstance(defined, ast.ClassDef):
+        bases = [base.id for base in defined.bases if isinstance(base, ast.Name)]
+        if point in APPENDED:
+            assert bases[-1] == APPENDED[point], bases
+            bases = bases[:-1]
+
+        return [] if bases == [FALLBACKS.get(point)] else bases
+
+    if isinstance(defined, ast.Tuple | ast.List):
+        return [_leading_name(element) for element in defined.elts]
+
+    return [] if ast.unparse(defined) == FALLBACKS[point] else [_leading_name(defined)]
+
+
+def _written_for(manifest: Any, generator: str, chosen: set[str]) -> str:
+    written: str = getattr(manifest, generator)(chosen)
+
+    return written
+
+
+def _constant(node: ast.expr) -> Any:
+    """The value of a rendered literal, such as a mount's prefix or its throttle flag."""
+    assert isinstance(node, ast.Constant), ast.unparse(node)
+
+    return node.value
+
+
+def test_every_declared_point_is_one_the_drill_writes_somewhere():
+    """A point missing from this table would skip the comparison below without saying so."""
+    assert set(POINTS) == set(_catalog()["points"])
+
+
+@pytest.mark.parametrize("point", sorted(POINTS))
+def test_every_point_is_written_by_a_generator_the_drill_has(point: str):
+    generator, _ = POINTS[point]
+
+    assert hasattr(_drill(), generator)
+
+
+def test_every_declared_point_is_contributed_to_or_filled_by_core():
+    """A point no feature and no core contribution reaches would render empty for every project."""
+    catalog = _catalog()
+    reached = set(catalog["core"]["contributes"])
+    for feature in catalog["features"].values():
+        reached.update(feature.get("contributes", {}))
+        for block in feature.get("when", ()):
+            reached.update(block.get("contributes", {}))
+
+    assert set(catalog["points"]) == reached
+
+
+def test_every_contribution_names_something_that_exists():
+    """Spec 1.4: a ref's attribute has to be defined at the top level of its module."""
+    catalog = _catalog()
+    everything = set(catalog["features"])
+
+    for point in catalog["points"]:
+        for entry in _contributed(catalog, point, everything):
+            if "value" in entry:
+                continue
+
+            module, attribute, _ = _ref(entry["ref"])
+            assert _defines(module, attribute), entry
+
+
+def test_a_point_a_project_fills_once_never_receives_two_contributions():
+    """Spec 2.6: a second contribution to a `value` slot is an error rather than a last-wins."""
+    catalog = _catalog()
+    single = {name for name, point in catalog["points"].items() if point["cardinality"] == "one"}
+
+    for chosen in _selections(_drill()):
+        for point in single:
+            assert len(_contributed(catalog, point, chosen)) <= 1, (point, sorted(chosen))
+
+
+@pytest.mark.parametrize("point", sorted(POINTS))
+def test_the_catalog_says_what_the_drill_renders(point: str):
+    """For every selection a project could carry, what reaches a point is what the drill wrote.
+
+    All 164 of them, not the verify sets: a set builds and tests a project, so the sets are
+    few, and a generator is a function of the selection alone, so it costs nothing to ask it
+    about combinations no set builds.
+    """
+    catalog = _catalog()
+    manifest = _drill()
+    generator, name = POINTS[point]
+
+    for chosen in _selections(manifest):
+        expected = [_named(entry) for entry in _contributed(catalog, point, chosen)]
+        if generator == "_wiring_admin" and "admin" not in chosen:
+            assert expected == [], sorted(chosen)
+            continue
+
+        assert _rendered(_written_for(manifest, generator, chosen), point, name) == expected, sorted(chosen)
+
+
+def test_every_mounted_router_is_mounted_where_the_drill_mounts_it():
+    """The prefix and the throttle are the catalog's to carry now, so they are compared too."""
+    catalog = _catalog()
+    manifest = _drill()
+
+    for chosen in _selections(manifest):
+        declared = [(_named(entry), entry["prefix"], entry["throttled"]) for entry in _contributed(catalog, "routers", chosen)]
+        mounts = _defined(_written_for(manifest, "_wiring_app", chosen), "ROUTER_MOUNTS")
+        assert isinstance(mounts, ast.Tuple)
+
+        rendered = [
+            (
+                _leading_name(element.args[0]),
+                _constant(element.args[1]),
+                next(_constant(word.value) for word in element.keywords if word.arg == "throttled"),
+            )
+            for element in mounts.elts
+            if isinstance(element, ast.Call)
+        ]
+
+        assert rendered == declared, sorted(chosen)
+
+
+def test_every_contribution_is_imported_the_way_the_drill_imports_it():
+    """A ref that kept the local name and changed the module would render the same line."""
+    catalog = _catalog()
+    manifest = _drill()
+    everything = set(manifest.FEATURES)
+
+    for point, (generator, _) in POINTS.items():
+        source = _written_for(manifest, generator, everything)
+        bound = _bindings(source)
+        for entry in _contributed(catalog, point, everything):
+            if "value" in entry:
+                continue
+
+            module, attribute, alias = _binding(entry["ref"])
+            assert (module.replace("..scripts.", "scripts."), attribute, alias) in bound, (point, entry)
+
+
+def test_a_transport_that_is_constructed_says_so():
+    """Spec 1.5: `call` is what renders `APIKeyTransport()` rather than the class itself."""
+    catalog = _catalog()
+    everything = set(catalog["features"])
+    entry = _contributed(catalog, "extra_transports", everything)[0]
+    rendered = _defined(_written_for(_drill(), "_wiring_transports", everything), "EXTRA_TRANSPORTS")
+
+    assert entry["call"] is True
+    assert isinstance(rendered, ast.Tuple) and isinstance(rendered.elts[0], ast.Call)
+
+
+@pytest.mark.parametrize(
+    "condition",
+    sorted(
+        {block["if"] for feature in _catalog()["features"].values() for block in feature.get("when", ())}
+        | {
+            entry["if"]
+            for feature in _catalog()["features"].values()
+            for entries in feature.get("contributes", {}).values()
+            for entry in _tables(entries)
+            if "if" in entry
+        }
+    ),
+)
+def test_every_condition_is_one_this_test_can_evaluate(condition: str):
+    """An option atom would need a selection to carry option values, which this test doesn't."""
+    assert _true(condition, set(_catalog()["features"])) in {True, False}
+
+
+@pytest.mark.parametrize(
+    ("feature", "option"),
+    sorted((name, option) for name, feature in _catalog()["features"].items() for option in feature.get("options", {})),
+)
+def test_every_option_is_declared_the_way_the_spec_asks(feature: str, option: str):
+    """Spec 2.5: named choices, listed once, with the default among them."""
+    declared = _catalog()["features"][feature]["options"][option]
+
+    assert FEATURE_NAME.match(option)
+    assert declared["choices"] == sorted(set(declared["choices"]), key=declared["choices"].index)
+    assert all(choice and not re.search(r"[\s()=]", choice) for choice in declared["choices"])
+    assert declared["default"] in declared["choices"]
+    assert all(re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", name) for name in declared.get("env", {}))
+
+
+EXTRA_SERVICES = {
+    ("cache", "backend"): {"memcached": ["memcached"]},
+    ("taskiq", "broker"): {"rabbitmq": ["rabbitmq"]},
+}
+"""The service each choice needs on top of what a project already runs, which is redis."""
+
+
+@pytest.mark.parametrize(("feature", "option"), sorted(EXTRA_SERVICES))
+def test_every_extra_service_an_option_asks_for_belongs_to_one_of_its_choices(feature: str, option: str):
+    """Spec 2.5: the key is the value that needs the service, so a typo would ask for nothing."""
+    declared = _catalog()["features"][feature]["options"][option]
+    services = declared.get("services", {})
+
+    assert set(services) <= set(declared["choices"])
+    assert services == EXTRA_SERVICES[(feature, option)]
+    assert declared["default"] not in services
+
+
+OPTION_SOURCES = {
+    ("cache", "backend"): ("src/infrastructure/cache/initialize.py", "CacheBackend"),
+    ("taskiq", "broker"): ("src/infrastructure/taskiq/settings.py", "TaskiqBrokerType"),
+}
+"""Where each option's choices are acted on, and the enum whose members name them."""
+
+
+@pytest.mark.parametrize(("feature", "option"), sorted(OPTION_SOURCES))
+def test_every_option_offers_the_values_its_feature_acts_on(feature: str, option: str):
+    """`CacheBackend` also names an in-memory backend that nothing starts, so it isn't offered."""
+    module, enum = OPTION_SOURCES[(feature, option)]
+    acted_on = re.findall(rf"{enum}\.([A-Z_]+)\.value", (REPO_ROOT / "backend" / module).read_text())
+
+    assert sorted(set(acted_on)) == sorted(
+        choice.upper() for choice in _catalog()["features"][feature]["options"][option]["choices"]
+    )
+
+
+@pytest.mark.parametrize(("feature", "option"), sorted(OPTION_SOURCES))
+def test_every_option_defaults_to_what_the_project_already_ships(feature: str, option: str):
+    """The question `fastro new` asks pre-picks the value a clone of this repo runs with."""
+    declared = _catalog()["features"][feature]["options"][option]
+    example = (REPO_ROOT / "backend" / ".env.example").read_text()
+
+    for variable in declared["env"]:
+        assert f"\n{variable}={declared['default']}\n" in example
+
+
+@pytest.mark.parametrize(("feature", "option"), sorted(OPTION_SOURCES))
+def test_every_option_marks_the_line_it_rewrites(feature: str, option: str):
+    """Spec 6.1: the marker sits on its own line directly above the VAR line it speaks for."""
+    declared = _catalog()["features"][feature]["options"][option]
+    lines = (REPO_ROOT / "backend" / ".env.example").read_text().splitlines()
+
+    for variable in declared["env"]:
+        marked = [index for index, line in enumerate(lines) if line == f"# @fastro option={feature}.{option}"]
+        assert len(marked) == 1
+        assert lines[marked[0] + 1].startswith(f"{variable}=")

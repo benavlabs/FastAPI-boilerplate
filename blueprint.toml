@@ -198,12 +198,34 @@ paths = [
   "backend/tests/unit/scripts/test_unlock_account.py",
 ]
 
+[features.accounts.contributes]
+routers = [
+  { ref = "src.modules.user.routes:router as users_router", prefix = "/users", throttled = true, order = 10 },
+  { ref = "src.infrastructure.auth.routes:router as auth_router", prefix = "/auth", throttled = false, order = 22 },
+]
+root_routers = ["src.infrastructure.auth.routes:root_routers as accounts_root_routers"]
+lifecycles = [
+  "src.infrastructure.auth.setup:lifecycle as accounts_lifecycle",
+  { ref = "src.infrastructure.handover:lifecycle as handover_lifecycle", if = "not taskiq", order = 950 },
+]
+installers = ["src.infrastructure.auth.install:install as accounts_install"]
+docs_guard = ["src.infrastructure.auth.dependencies:get_current_superuser"]
+settings = ["src.infrastructure.auth.settings:AccountsSettings"]
+critical_readiness = [
+  "src.infrastructure.auth.health:limiter_readiness",
+  "src.infrastructure.auth.health:sessions_readiness",
+]
+table_modules = [{ value = "src.infrastructure.auth.store" }]
+seeders = [{ ref = "scripts.create_first_superuser:create_first_superuser", order = 11 }]
+test_plugins = [{ value = "tests.fixtures.accounts" }]
+
 [[features.accounts.when]]
 if = "admin"
 paths = [
   "backend/src/modules/user/admin.py",
   "backend/tests/unit/modules/user/test_admin.py",
 ]
+contributes.admin_views = [{ ref = "src.modules.user.admin:UserAdmin", order = 10 }]
 
 [features.rbac]
 summary = "Roles and permissions"
@@ -215,11 +237,25 @@ paths = [
   "backend/tests/unit/modules/role/",
 ]
 
+[features.rbac.contributes]
+routers = [
+  { ref = "src.modules.role.routes:user_roles_router", prefix = "/users", throttled = true, order = 13 },
+  { ref = "src.modules.role.routes:permissions_router", prefix = "/permissions", throttled = true, order = 24 },
+  { ref = "src.modules.role.routes:router as roles_router", prefix = "/roles", throttled = true, order = 25 },
+]
+permission_sources = ["src.modules.role.sources:role_permissions"]
+user_model = ["src.modules.role.contrib:UserRoleColumns"]
+
 [[features.rbac.when]]
 if = "admin"
 paths = [
   "backend/src/modules/role/admin.py",
   "backend/tests/unit/modules/role/test_admin.py",
+]
+contributes.admin_views = [
+  { ref = "src.modules.role.admin:RoleAdmin", order = 12 },
+  { ref = "src.modules.role.admin:RolePermissionAdmin", order = 13 },
+  { ref = "src.modules.role.admin:UserRoleAdmin", order = 14 },
 ]
 
 [features.ratelimit]
@@ -231,6 +267,10 @@ paths = [
   "backend/tests/integration/ratelimit/",
   "backend/tests/unit/infrastructure/ratelimit/",
 ]
+
+[features.ratelimit.contributes]
+api_throttle = ["src.infrastructure.ratelimit.dependency:api_rate_limit_dependency"]
+settings = ["src.infrastructure.ratelimit.settings:RateLimitSettings"]
 
 [features.tiers]
 summary = "User tiers other features key off"
@@ -244,12 +284,24 @@ paths = [
   "backend/tests/unit/modules/tier/",
 ]
 
+[features.tiers.contributes]
+routers = [
+  { ref = "src.modules.tier.routes:user_tier_router", prefix = "/users", throttled = true, order = 11 },
+  { ref = "src.modules.tier.routes:router as tiers_router", prefix = "/tiers", throttled = true, order = 20 },
+]
+settings = ["src.modules.tier.settings:TierSettings"]
+user_model = ["src.modules.tier.contrib:UserTierColumns"]
+user_schema = ["src.modules.tier.contrib:UserTierFields"]
+seeders = [{ ref = "scripts.create_first_tier:create_first_tier", order = 10 }]
+test_plugins = [{ value = "tests.fixtures.tiers" }]
+
 [[features.tiers.when]]
 if = "admin"
 paths = [
   "backend/src/modules/tier/admin.py",
   "backend/tests/unit/modules/tier/test_admin.py",
 ]
+contributes.admin_views = [{ ref = "src.modules.tier.admin:TierAdmin", order = 11 }]
 
 [features.tier_limits]
 summary = "Per-tier rate limits"
@@ -260,6 +312,15 @@ paths = [
   "backend/tests/integration/tier_limits/",
   "backend/tests/unit/modules/rate_limit/",
 ]
+
+[features.tier_limits.contributes]
+routers = [
+  { ref = "src.modules.rate_limit.routes:user_rate_limits_router", prefix = "/users", throttled = true, order = 12 },
+  { ref = "src.modules.rate_limit.routes:router as rate_limits_router", prefix = "/rate-limits", throttled = true, order = 21 },
+]
+rate_limit_resolvers = ["src.modules.rate_limit.hooks:tier_rate_limit"]
+tier_delete_guards = ["src.modules.rate_limit.hooks:rate_limits_reference_tier"]
+tier_delete_releases = ["src.modules.rate_limit.hooks:release_deleted_rate_limits"]
 
 [features.api_keys]
 summary = "API keys: create, revoke, meter"
@@ -273,6 +334,14 @@ paths = [
   "backend/tests/integration/api/v1/api_keys/",
   "backend/tests/unit/modules/api_keys/",
 ]
+
+[features.api_keys.contributes]
+routers = [
+  { ref = "src.modules.api_keys.routes:router as api_keys_router", prefix = "/api-keys", throttled = true, order = 23 },
+]
+installers = ["src.modules.api_keys.install:install as api_keys_install"]
+settings = ["src.modules.api_keys.settings:APIKeySettings"]
+extra_transports = [{ ref = "src.modules.api_keys.transport:APIKeyTransport", call = true }]
 
 [[features.api_keys.when]]
 if = "ratelimit"
@@ -292,6 +361,7 @@ paths = [
   "backend/src/modules/api_keys/tasks.py",
   "backend/tests/unit/modules/api_keys/test_tasks.py",
 ]
+contributes.task_modules = [{ value = "src.modules.api_keys.tasks", order = 11 }]
 
 [[features.api_keys.when]]
 if = "tier_limits"
@@ -308,6 +378,10 @@ paths = [
   "backend/tests/unit/interfaces/admin/",
 ]
 
+[features.admin.contributes]
+installers = ["src.interfaces.admin.initialize:install as admin_install"]
+settings = ["src.interfaces.admin.settings:SQLAdminSettings"]
+
 [features.cache]
 summary = "@cache over Redis or Memcached"
 group = "Operations"
@@ -316,13 +390,37 @@ paths = [
   "backend/tests/unit/infrastructure/cache/",
 ]
 
+[features.cache.contributes]
+lifecycles = ["src.infrastructure.cache.initialize:lifecycle as cache_lifecycle"]
+settings = ["src.infrastructure.cache.settings:CacheSettings"]
+informational_readiness = ["src.infrastructure.cache.health:readiness as cache_readiness"]
+cache_decorator = ["src.infrastructure.cache.decorator:cache as cached"]
+
+[features.cache.options.backend]
+choices = ["redis", "memcached"]
+default = "redis"
+env = { CACHE_BACKEND = "{value}" }
+services = { memcached = ["memcached"] }
+
 [features.taskiq]
 summary = "Background tasks on Redis or RabbitMQ"
 group = "Operations"
+services = ["worker", "scheduler"]
 paths = [
   "backend/src/infrastructure/taskiq/",
   "backend/tests/unit/infrastructure/taskiq/",
 ]
+
+[features.taskiq.contributes]
+lifecycles = ["src.infrastructure.taskiq.lifecycle:lifecycle as taskiq_lifecycle"]
+settings = ["src.infrastructure.taskiq.settings:TaskiqSettings"]
+informational_readiness = ["src.infrastructure.taskiq.health:readiness as broker_readiness"]
+
+[features.taskiq.options.broker]
+choices = ["redis", "rabbitmq"]
+default = "redis"
+env = { TASKIQ_BROKER_TYPE = "{value}" }
+services = { rabbitmq = ["rabbitmq"] }
 
 [[features.taskiq.when]]
 if = "accounts"
@@ -330,4 +428,6 @@ paths = [
   "backend/src/infrastructure/taskiq/email.py",
   "backend/tests/unit/infrastructure/taskiq/test_email.py",
 ]
+contributes.email_sender = ["src.infrastructure.taskiq.email:queued_sender"]
+contributes.task_modules = [{ value = "src.infrastructure.taskiq.email", order = 10 }]
 
