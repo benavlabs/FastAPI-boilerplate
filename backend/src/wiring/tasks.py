@@ -5,4 +5,7 @@ imports and literals only. A task the worker reports as unknown drops its messag
 declaring one belongs in this list.
 """
 
-TASK_MODULES: tuple[str, ...] = ("src.infrastructure.taskiq.email", "src.modules.api_keys.tasks")
+TASK_MODULES: tuple[str, ...] = (
+    "src.infrastructure.taskiq.email",
+    "src.modules.api_keys.tasks",
+)

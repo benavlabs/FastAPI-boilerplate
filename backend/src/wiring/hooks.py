@@ -6,13 +6,7 @@ imports and literals only.
 
 from ..infrastructure.auth.health import limiter_readiness, sessions_readiness
 from ..infrastructure.cache.health import readiness as cache_readiness
-from ..infrastructure.composition import (
-    PermissionSource,
-    RateLimitResolver,
-    ReadinessCheck,
-    TierDeleteGuard,
-    TierDeleteRelease,
-)
+from ..infrastructure.composition import PermissionSource, RateLimitResolver, ReadinessCheck, TierDeleteGuard, TierDeleteRelease
 from ..infrastructure.database.health import readiness as database_readiness
 from ..infrastructure.database.health import schema_readiness
 from ..infrastructure.taskiq.health import readiness as broker_readiness
