@@ -159,16 +159,31 @@ def _ref(text: str) -> tuple[str, str, str]:
     return module, attribute, alias or attribute
 
 
-def _import_line(entry: str) -> str:
-    """The import a wiring file under ``src/wiring/`` gets for this ref.
+def _binding(entry: str) -> tuple[str, str, str]:
+    """What a wiring file under ``src/wiring/`` binds for this ref: (module, attribute, name).
 
-    Spec 2.8: a file under the import root imports relatively, so ``src.a.b:name`` is
-    written ``from ..a.b import name``, and an alias keeps its own statement.
+    Spec 2.8: a file under the import root imports relatively, so ``src.a.b:name`` is read
+    from ``..a.b``.
     """
     module, attribute, alias = _ref(entry)
-    imported = attribute if alias == attribute else f"{attribute} as {alias}"
 
-    return f"from ..{module.removeprefix('src.')} import {imported}"
+    return ".." + module.removeprefix("src."), attribute, alias
+
+
+def _bindings(source: str) -> set[tuple[str, str, str]]:
+    """Every (module, attribute, local name) the imports in ``source`` bind.
+
+    Read with ``ast`` rather than by matching text: the drill merges names from one module
+    into a single statement and wraps long ones over several lines, and neither shape
+    contains the single-name line a substring check would look for.
+    """
+    bindings: set[tuple[str, str, str]] = set()
+    for node in ast.parse(source).body:
+        if isinstance(node, ast.ImportFrom):
+            module = "." * node.level + (node.module or "")
+            bindings.update((module, alias.name, alias.asname or alias.name) for alias in node.names)
+
+    return bindings
 
 
 def _defines(module: str, attribute: str) -> bool:
@@ -226,7 +241,7 @@ def test_the_database_checks_belong_to_no_feature():
 @pytest.mark.parametrize("entry", _catalog()["core"]["contributes"]["critical_readiness"])
 def test_every_core_contribution_is_imported_the_way_the_drill_imports_it(entry: str):
     """The names alone would accept a ref that kept the alias and changed the module."""
-    assert _import_line(entry) in _drill()._wiring_hooks(set())
+    assert _binding(entry) in _bindings(_drill()._wiring_hooks(set()))
 
 
 @pytest.mark.parametrize("entry", _catalog()["core"]["contributes"]["critical_readiness"])
@@ -235,3 +250,18 @@ def test_every_core_contribution_names_something_that_exists(entry: str):
     module, attribute, _ = _ref(entry)
 
     assert _defines(module, attribute), entry
+
+
+def test_the_import_reader_sees_a_name_the_drill_merges():
+    """Two names from one module become one statement, whose second name no line contains."""
+    bindings = _bindings(_drill()._wiring_hooks({"accounts"}))
+
+    assert ("..infrastructure.auth.health", "limiter_readiness", "limiter_readiness") in bindings
+    assert ("..infrastructure.auth.health", "sessions_readiness", "sessions_readiness") in bindings
+
+
+def test_the_import_reader_sees_a_name_the_drill_wraps():
+    """The composition import is written over several lines, so no single line holds it."""
+    bindings = _bindings(_drill()._wiring_hooks(set()))
+
+    assert ("..infrastructure.composition", "ReadinessCheck", "ReadinessCheck") in bindings
