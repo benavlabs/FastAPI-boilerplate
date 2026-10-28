@@ -12,7 +12,9 @@ import functools
 import importlib
 import importlib.util
 import inspect
+import ipaddress
 import itertools
+import keyword
 import re
 import sys
 import tomllib
@@ -33,9 +35,6 @@ BLUEPRINT_NAME = re.compile(r"^[a-z][a-z0-9-]*$")
 
 SET_NAME = re.compile(r"^[a-z][a-z0-9_-]*$")
 """Spec 1.2. A preset or a verify set may carry a hyphen, which a feature name may not."""
-
-NOT_YET_WRITTEN = {"fastro.toml"}
-"""`fastro.toml` is declared in the catalog before it exists."""
 
 
 @functools.cache
@@ -105,7 +104,7 @@ def test_every_blueprint_only_path_is_written_the_way_the_spec_reads_them(entry:
     assert entry.endswith("/") == (REPO_ROOT / entry).is_dir()
 
 
-@pytest.mark.parametrize("entry", sorted(set(_catalog()["blueprint"]["blueprint_only"]) - NOT_YET_WRITTEN))
+@pytest.mark.parametrize("entry", sorted(_catalog()["blueprint"]["blueprint_only"]))
 def test_every_blueprint_only_path_is_one_this_repo_has(entry: str):
     """A path that no longer exists keeps a file out of projects that nobody meant to keep out."""
     assert (REPO_ROOT / entry).exists()
@@ -1128,3 +1127,162 @@ def test_a_collection_of_more_than_one_is_written_one_entry_to_a_line(path: str,
     exploded = (defined.end_lineno or defined.lineno) > defined.lineno
 
     assert exploded == (len(defined.elts) >= (1 if slot["kind"] == "list" else 2))
+
+
+PROJECT_FILE = REPO_ROOT / "fastro.toml"
+
+GENERATOR_NAME = re.compile(r"^[a-z][a-z0-9-]*$")
+"""Spec 2.9. It becomes the word after `fastro make`, and `fastro make` takes no underscore."""
+
+COMMAND_WORD = re.compile(r"^[a-z][a-z0-9-]*$")
+
+PARAM_TYPES = {"int", "str", "bool", "cidr", "choice"}
+
+PYTHON_TYPES: dict[str, type] = {"int": int, "str": str, "bool": bool, "cidr": str, "choice": str}
+
+
+@functools.cache
+def _project() -> dict[str, Any]:
+    with PROJECT_FILE.open("rb") as handle:
+        return tomllib.load(handle)
+
+
+def _owned_paths() -> set[str]:
+    return {path for feature in _catalog()["features"].values() for path, _ in _declared(feature)}
+
+
+@pytest.mark.parametrize("name", sorted(_catalog()["generators"]))
+def test_every_generator_is_named_the_way_fastro_make_reads_it(name: str):
+    assert GENERATOR_NAME.match(name)
+    assert "register" not in _catalog()["generators"][name] or name == "module"
+    assert "types" not in _catalog()["generators"][name] or name == "module"
+
+
+@pytest.mark.parametrize("name", sorted(_catalog()["generators"]))
+def test_every_generators_templates_are_a_directory_this_repo_has(name: str):
+    """Spec 2.9: subdirectories when the generator has modes, which is one tree per mode."""
+    generator = _catalog()["generators"][name]
+    templates = REPO_ROOT / generator["templates"]
+
+    assert templates.is_dir()
+    assert any(child.is_dir() for child in templates.iterdir())
+
+
+def test_the_deploy_modes_are_the_ones_this_repo_can_generate():
+    """A mode with no template tree would be offered and then fail; a tree with no mode is dead."""
+    templates = REPO_ROOT / _catalog()["generators"]["deploy"]["templates"]
+    offered = re.findall(r"^    (\w+) = \"\w+\"$", (REPO_ROOT / "cli/src/cli/commands/deploy.py").read_text(), re.M)
+
+    assert sorted(child.name for child in templates.iterdir() if child.is_dir()) == sorted(offered)
+
+
+@pytest.mark.parametrize(
+    ("generator", "param"),
+    sorted((name, param) for name, declared in _catalog()["generators"].items() for param in declared["params"]),
+)
+def test_every_param_is_declared_the_way_the_spec_asks(generator: str, param: str):
+    """Spec 2.9: a type and a default of that type, and the keys each type allows."""
+    declared = _catalog()["generators"][generator]["params"][param]
+
+    assert FEATURE_NAME.match(param)
+    assert declared["type"] in PARAM_TYPES
+    assert isinstance(declared["default"], PYTHON_TYPES[declared["type"]])
+    assert declared["type"] == "bool" or not isinstance(declared["default"], bool), "a bool is an int to isinstance"
+    assert declared["help"].strip() == declared["help"]
+    assert ("choices" in declared) == (declared["type"] == "choice")
+    for key in ("private_only", "max_prefix"):
+        assert key not in declared or declared["type"] == "cidr"
+
+
+def test_the_subnet_default_is_a_network_with_no_host_bits_set():
+    """Spec 2.9: `10.0.0.1/24` is not a network, and the tool would refuse the catalog for it."""
+    declared = _catalog()["generators"]["deploy"]["params"]["internal_subnet"]
+
+    assert str(ipaddress.ip_network(declared["default"], strict=True)) == declared["default"]
+    assert 0 <= declared["max_prefix"] <= 128
+
+
+def test_every_param_the_templates_read_is_a_param_the_catalog_declares():
+    """Both ways: an undeclared param is a StrictUndefined crash, a declared one nothing reads is dead."""
+    generator = _catalog()["generators"]["deploy"]
+    templates = REPO_ROOT / generator["templates"]
+    read = {name for template in templates.rglob("*.j2") for name in re.findall(r"params\.([a-z_]+)", template.read_text())}
+
+    assert read == set(generator["params"])
+
+
+def test_the_defaults_are_what_this_repos_own_generator_already_uses():
+    """`fastro make deploy` has to write what `bp deploy generate` writes, or the first run changes."""
+    params = _catalog()["generators"]["deploy"]["params"]
+    source = (REPO_ROOT / "cli/src/cli/commands/deploy.py").read_text()
+    subnet = (REPO_ROOT / "cli/src/cli/features/_builtins/deploy/feature.py").read_text()
+
+    assert f'typer.Option({params["api_port"]["default"]}, "--api-port"' in source
+    assert f'typer.Option({params["workers"]["default"]}, "--workers"' in source
+    assert f'DEFAULT_INTERNAL_SUBNET = "{params["internal_subnet"]["default"]}"' in subnet
+
+
+@pytest.mark.parametrize("words", sorted(_catalog()["commands"]))
+def test_every_command_is_spelled_the_way_the_spec_reads_it(words: str):
+    """Spec 2.9: the words become the command path, one space apart."""
+    command = _catalog()["commands"][words]
+
+    assert all(COMMAND_WORD.match(word) for word in words.split(" "))
+    assert "  " not in words
+    assert all(part.isidentifier() and not keyword.iskeyword(part) for part in command["module"].split("."))
+    assert command["help"].strip() == command["help"]
+    assert "\n" not in command["help"]
+    assert command.get("outside_project", "error") in {"error", "token_hex"}
+
+
+@pytest.mark.parametrize("words", sorted(_catalog()["commands"]))
+def test_every_command_runs_a_module_this_repo_can_run(words: str):
+    """It is run as `python -m <module>`, which needs the entry point that makes that work."""
+    module = _catalog()["commands"][words]["module"]
+    path = REPO_ROOT / _catalog()["blueprint"]["python_root"] / Path(*module.split(".")).with_suffix(".py")
+
+    assert path.is_file()
+    assert '__name__ == "__main__"' in path.read_text()
+
+
+@pytest.mark.parametrize("words", sorted(_catalog()["commands"]))
+def test_every_command_runs_a_script_no_feature_takes_away(words: str):
+    """A command carries no condition (spec 2.9), so one naming a feature's script would break.
+
+    `scripts/unlock_account.py` goes with accounts, and `fastro users unlock` in a project
+    without accounts would be a command pointing at a module that isn't there.
+    """
+    module = _catalog()["commands"][words]["module"]
+    script = f"{_catalog()['blueprint']['python_root']}/{Path(*module.split('.')).with_suffix('.py')}"
+
+    assert script not in _owned_paths(), script
+
+
+def test_the_blueprint_repo_says_it_is_the_blueprint():
+    """Spec 3: `source = true` only in a blueprint repo, where generated files are committed."""
+    assert _project()["source"] is True
+    assert _project()["blueprint"] == {"name": _catalog()["blueprint"]["name"], "version": _catalog()["blueprint"]["version"]}
+
+
+def test_the_blueprint_repo_carries_every_feature():
+    """It has to: the committed wiring is the `everything` selection, and the tests cover all nine."""
+    assert _project()["features"] == list(_catalog()["features"])
+
+
+def test_the_blueprint_repo_runs_every_option_at_its_default():
+    """Spec 6.1: the `.env.example` lines the options rewrite are the ones this repo ships."""
+    declared = {
+        f"{name}.{option}": option_table["default"]
+        for name, feature in _catalog()["features"].items()
+        for option, option_table in feature.get("options", {}).items()
+    }
+
+    assert _project()["options"] == declared
+
+
+def test_the_project_is_named_the_way_its_python_package_is():
+    """`project.name` is what the deploy templates name the compose project after (spec 6.2)."""
+    with BACKEND_PYPROJECT.open("rb") as handle:
+        backend = tomllib.load(handle)
+
+    assert _project()["project"]["name"] == backend["project"]["name"]

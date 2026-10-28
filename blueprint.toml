@@ -659,3 +659,39 @@ name = "PYTEST_PLUGINS"
 point = "test_plugins"
 annotation = "list[str]"
 literal = true
+
+[generators.deploy]
+templates = "blueprint/templates/deploy"
+
+[generators.deploy.params.api_port]
+type = "int"
+default = 8000
+help = "Host port to publish the API on."
+
+[generators.deploy.params.workers]
+type = "int"
+default = 4
+help = "Number of API workers, for the prod and nginx modes."
+
+[generators.deploy.params.internal_subnet]
+type = "cidr"
+default = "172.31.240.0/24"
+max_prefix = 8
+help = "The compose network, and the only peers uvicorn takes forwarded headers from, in nginx mode."
+
+[commands."env gen-secret"]
+module = "scripts.gen_secret"
+help = "Print a secret key the project's own rules accept."
+outside_project = "token_hex"
+
+[commands."env validate"]
+module = "scripts.validate_env"
+help = "Audit this environment the way production would."
+
+[commands."db tables"]
+module = "scripts.create_tables"
+help = "Create the tables the models declare, without alembic."
+
+[commands."db seed"]
+module = "scripts.setup_initial_data"
+help = "Run the initial-data steps of the selected features, in order."
