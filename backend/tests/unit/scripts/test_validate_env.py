@@ -145,12 +145,14 @@ def _run(environment: dict[str, str]) -> subprocess.CompletedProcess[str]:
     )
 
 
-@pytest.mark.parametrize(
-    ("secret", "code"),
-    [("insecure-secret-key-change-this", 1), (secrets.token_hex(32), 0)],
-)
-def test_it_runs_as_a_module_and_exits_on_what_it_found(secret: str, code: int):
-    """``python -m scripts.validate_env`` is what the blueprint declares as a command."""
+@pytest.mark.parametrize(("key", "code"), [("placeholder", 1), ("drawn", 0)])
+def test_it_runs_as_a_module_and_exits_on_what_it_found(key: str, code: int):
+    """``python -m scripts.validate_env`` is what the blueprint declares as a command.
+
+    The key is drawn here rather than in the parameter list, where it would land in the
+    test's id: ``pytest -n auto`` refuses a run whose workers collected different ids.
+    """
+    secret = secrets.token_hex(32) if key == "drawn" else "insecure-secret-key-change-this"
     environment = {
         "PYTHONPATH": str(BACKEND),
         "ENVIRONMENT": "development",
