@@ -27,6 +27,9 @@ FEATURE_NAME = re.compile(r"^[a-z][a-z0-9_]*$")
 
 BLUEPRINT_NAME = re.compile(r"^[a-z][a-z0-9-]*$")
 
+SET_NAME = re.compile(r"^[a-z][a-z0-9_-]*$")
+"""Spec 1.2. A preset or a verify set may carry a hyphen, which a feature name may not."""
+
 NOT_YET_WRITTEN = {"fastro.toml"}
 """`fastro.toml` is declared in the catalog before it exists."""
 
@@ -119,10 +122,18 @@ def test_the_docs_reading_tests_stay_in_the_blueprint():
 
 
 def test_the_verify_sets_are_the_drills_presets():
-    """`everything` is implied by the spec, so the named sets are the other eight."""
+    """`everything` is implied by the spec, and declaring it is an error, so the sets are the other eight."""
     expected = {name: list(features) for name, features in _drill().PRESETS.items() if name != "everything"}
+    sets = _catalog()["verify"]["sets"]
 
-    assert _catalog()["verify"]["sets"] == expected
+    assert "everything" not in sets
+    assert sets == expected
+
+
+@pytest.mark.parametrize("name", sorted(_catalog()["presets"]) + sorted(_catalog()["verify"]["sets"]))
+def test_every_preset_and_verify_set_is_named_the_way_the_spec_allows(name: str):
+    """Spec 1.2: a name here is lower case and may carry a hyphen, so `accounts-only` reads as one."""
+    assert SET_NAME.match(name)
 
 
 def test_every_preset_is_closed_under_what_its_features_require():
