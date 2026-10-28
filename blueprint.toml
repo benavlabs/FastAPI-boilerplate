@@ -176,3 +176,158 @@ doc = "A step the initial-data script runs, in order."
 [points.test_plugins]
 cardinality = "many"
 doc = "A fixture module pytest loads for the features the project carries."
+
+[features.accounts]
+summary = "Users, sessions, CSRF, login lockout, OAuth"
+group = "Accounts"
+paths = [
+  "backend/scripts/canonicalize_emails.py",
+  "backend/scripts/create_first_superuser.py",
+  "backend/scripts/unlock_account.py",
+  "backend/src/infrastructure/auth/",
+  "backend/src/modules/user/",
+  "backend/tests/fixtures/accounts.py",
+  "backend/tests/integration/accounts/",
+  "backend/tests/integration/api/v1/users/",
+  "backend/tests/integration/auth/",
+  "backend/tests/unit/infrastructure/auth/",
+  "backend/tests/unit/modules/user/",
+  "backend/tests/unit/scripts/test_canonicalize_emails.py",
+  "backend/tests/unit/scripts/test_create_first_superuser.py",
+  "backend/tests/unit/scripts/test_setup_initial_data.py",
+  "backend/tests/unit/scripts/test_unlock_account.py",
+]
+
+[[features.accounts.when]]
+if = "admin"
+paths = [
+  "backend/src/modules/user/admin.py",
+  "backend/tests/unit/modules/user/test_admin.py",
+]
+
+[features.rbac]
+summary = "Roles and permissions"
+group = "Accounts"
+requires = ["accounts"]
+paths = [
+  "backend/src/modules/role/",
+  "backend/tests/integration/rbac/",
+  "backend/tests/unit/modules/role/",
+]
+
+[[features.rbac.when]]
+if = "admin"
+paths = [
+  "backend/src/modules/role/admin.py",
+  "backend/tests/unit/modules/role/test_admin.py",
+]
+
+[features.ratelimit]
+summary = "Per-caller API throttle"
+group = "Accounts"
+requires = ["accounts"]
+paths = [
+  "backend/src/infrastructure/ratelimit/",
+  "backend/tests/integration/ratelimit/",
+  "backend/tests/unit/infrastructure/ratelimit/",
+]
+
+[features.tiers]
+summary = "User tiers other features key off"
+group = "Accounts"
+requires = ["accounts"]
+paths = [
+  "backend/scripts/create_first_tier.py",
+  "backend/src/modules/tier/",
+  "backend/tests/fixtures/tiers.py",
+  "backend/tests/integration/tiers/",
+  "backend/tests/unit/modules/tier/",
+]
+
+[[features.tiers.when]]
+if = "admin"
+paths = [
+  "backend/src/modules/tier/admin.py",
+  "backend/tests/unit/modules/tier/test_admin.py",
+]
+
+[features.tier_limits]
+summary = "Per-tier rate limits"
+group = "Accounts"
+requires = ["tiers", "ratelimit"]
+paths = [
+  "backend/src/modules/rate_limit/",
+  "backend/tests/integration/tier_limits/",
+  "backend/tests/unit/modules/rate_limit/",
+]
+
+[features.api_keys]
+summary = "API keys: create, revoke, meter"
+group = "Accounts"
+requires = ["accounts"]
+paths = [
+  "backend/scripts/cleanup_api_key_json.py",
+  "backend/scripts/prune_key_usage.py",
+  "backend/scripts/revoke_scrypt_api_keys.py",
+  "backend/src/modules/api_keys/",
+  "backend/tests/integration/api/v1/api_keys/",
+  "backend/tests/unit/modules/api_keys/",
+]
+
+[[features.api_keys.when]]
+if = "ratelimit"
+paths = [
+  "backend/tests/integration/api_keys_ratelimit/",
+]
+
+[[features.api_keys.when]]
+if = "rbac"
+paths = [
+  "backend/tests/integration/api_keys_rbac/",
+]
+
+[[features.api_keys.when]]
+if = "taskiq"
+paths = [
+  "backend/src/modules/api_keys/tasks.py",
+  "backend/tests/unit/modules/api_keys/test_tasks.py",
+]
+
+[[features.api_keys.when]]
+if = "tier_limits"
+paths = [
+  "backend/tests/integration/api_keys_tiers/",
+]
+
+[features.admin]
+summary = "SQLAdmin panel at /admin"
+group = "Operations"
+requires = ["accounts"]
+paths = [
+  "backend/src/interfaces/admin/",
+  "backend/tests/unit/interfaces/admin/",
+]
+
+[features.cache]
+summary = "@cache over Redis or Memcached"
+group = "Operations"
+paths = [
+  "backend/src/infrastructure/cache/",
+  "backend/tests/unit/infrastructure/cache/",
+]
+
+[features.taskiq]
+summary = "Background tasks on Redis or RabbitMQ"
+group = "Operations"
+paths = [
+  "backend/src/infrastructure/taskiq/",
+  "backend/tests/unit/infrastructure/taskiq/",
+]
+
+[[features.taskiq.when]]
+if = "accounts"
+paths = [
+  "backend/src/infrastructure/taskiq/email.py",
+  "backend/tests/unit/infrastructure/taskiq/test_email.py",
+]
+

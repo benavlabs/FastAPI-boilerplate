@@ -9,6 +9,7 @@ This file goes when `fastro blueprint lint` and `fastro blueprint verify` replac
 
 import ast
 import importlib.util
+import itertools
 import re
 import sys
 import tomllib
@@ -276,3 +277,140 @@ def test_the_import_reader_sees_a_name_the_drill_wraps():
     bindings = _bindings(_drill()._wiring_hooks(set()))
 
     assert ("..infrastructure.composition", "ReadinessCheck", "ReadinessCheck") in bindings
+
+
+GENERATED_BY_WIRING = "backend/src/wiring/admin.py"
+"""The drill deletes it with the admin feature; the catalog's `[[wiring]]` entry omits it instead."""
+
+
+def _declared(feature: dict[str, Any]) -> list[tuple[str, str | None]]:
+    """A feature's declared paths, each with the condition it is kept under, if any."""
+    paths: list[tuple[str, str | None]] = [(path.rstrip("/"), None) for path in feature.get("paths", ())]
+    for block in feature.get("when", ()):
+        paths.extend((path.rstrip("/"), block["if"]) for path in block.get("paths", ()))
+
+    return paths
+
+
+def _kept_by_the_catalog(features: dict[str, Any], chosen: set[str]) -> set[str]:
+    return {
+        path
+        for name, feature in features.items()
+        if name in chosen
+        for path, condition in _declared(feature)
+        if condition is None or condition in chosen
+    }
+
+
+def _kept_by_the_drill(manifest: Any, chosen: set[str]) -> set[str]:
+    """What `build` leaves on disk: a combination path needs both of its features."""
+    kept: set[str] = set()
+    for name, feature in manifest.FEATURES.items():
+        if name not in chosen:
+            continue
+
+        kept.update(path for path in feature.paths if path != GENERATED_BY_WIRING)
+        for partner, paths in feature.combination_paths.items():
+            if partner in chosen:
+                kept.update(paths)
+
+    return kept
+
+
+def _selections(manifest: Any) -> list[set[str]]:
+    """Every selection a project could carry: each subset of the features, closed under requires."""
+    closed = []
+    for size in range(len(manifest.FEATURES) + 1):
+        for combination in itertools.combinations(manifest.FEATURES, size):
+            selection = manifest._selected_from(combination)
+            if selection not in closed:
+                closed.append(selection)
+
+    return closed
+
+
+def test_the_features_are_the_ones_the_drill_knows():
+    """In the drill's order: spec 6.2 hands templates the selection in catalog order."""
+    assert list(_catalog()["features"]) == list(_drill().FEATURES)
+
+
+@pytest.mark.parametrize("name", sorted(_catalog()["features"]))
+def test_every_feature_is_declared_the_way_the_spec_asks(name: str):
+    """Spec 2.4: a one-line summary, and the heading the checklist groups it under."""
+    feature = _catalog()["features"][name]
+
+    assert FEATURE_NAME.match(name)
+    assert feature["summary"].strip() == feature["summary"]
+    assert "\n" not in feature["summary"]
+    assert feature["group"] in {"Accounts", "Operations"}
+
+
+def test_every_feature_requires_what_the_drill_says_it_requires():
+    """A requires that drifts would generate a project whose imports have nothing to bind."""
+    requires = _drill().REQUIRES
+
+    for name, feature in _catalog()["features"].items():
+        assert list(feature.get("requires", ())) == list(requires.get(name, ()))
+
+
+@pytest.mark.parametrize(
+    ("name", "condition"),
+    sorted((name, block["if"]) for name, feature in _catalog()["features"].items() for block in feature.get("when", ())),
+)
+def test_every_condition_names_a_feature_this_repository_has(name: str, condition: str):
+    """Spec 1.3: an unknown name is an error rather than something that reads as false."""
+    assert condition in _drill().FEATURES
+    assert condition != name
+
+
+@pytest.mark.parametrize(
+    "entry",
+    sorted(
+        {path for feature in _catalog()["features"].values() for path, _ in _declared(feature)},
+    ),
+)
+def test_every_feature_path_is_one_this_repo_has(entry: str):
+    """A path that no longer exists leaves a file in projects that nobody meant to keep."""
+    assert not entry.startswith("/")
+    assert ".." not in Path(entry).parts
+    assert (REPO_ROOT / entry).exists()
+
+
+@pytest.mark.parametrize("name", sorted(_catalog()["features"]))
+def test_a_directory_is_spelled_as_a_subtree_and_a_file_is_not(name: str):
+    """Spec 1.1: `src/modules/user` without the slash would name one file nobody has."""
+    for path in _catalog()["features"][name].get("paths", ()):
+        assert path.endswith("/") == (REPO_ROOT / path).is_dir(), path
+
+    for block in _catalog()["features"][name].get("when", ()):
+        for path in block.get("paths", ()):
+            assert path.endswith("/") == (REPO_ROOT / path).is_dir(), path
+
+
+def test_no_path_is_declared_twice():
+    """Spec 1.1: two declarations of the identical path are 'owned twice'."""
+    declared = [path for feature in _catalog()["features"].values() for path, _ in _declared(feature)]
+
+    assert sorted(declared) == sorted(set(declared))
+
+
+def test_the_generated_wiring_file_belongs_to_no_feature():
+    """It is written by `[[wiring]]`, which leaves it out of a project rather than deleting it."""
+    declared = {path for feature in _catalog()["features"].values() for path, _ in _declared(feature)}
+
+    assert GENERATED_BY_WIRING in _drill().FEATURES["admin"].paths
+    assert GENERATED_BY_WIRING not in declared
+
+
+def test_every_selection_keeps_the_files_the_drill_keeps():
+    """The catalog gives a shared file to the feature whose subtree holds it, and the drill to both.
+
+    `src/modules/user/admin.py` is admin's work inside accounts' package, and the drill lists it
+    under both. One declaration owns it here, so what's compared is the file surviving a
+    selection, not which feature spoke for it.
+    """
+    manifest = _drill()
+    features = _catalog()["features"]
+
+    for chosen in _selections(manifest):
+        assert _kept_by_the_catalog(features, chosen) == _kept_by_the_drill(manifest, chosen), sorted(chosen)
