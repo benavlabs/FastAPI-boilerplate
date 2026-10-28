@@ -78,3 +78,101 @@ accounts-admin = ["accounts", "admin"]
 accounts-api-keys = ["accounts", "api_keys"]
 accounts-rbac-tiers = ["accounts", "rbac", "tiers", "ratelimit"]
 accounts-cache-taskiq = ["accounts", "cache", "taskiq"]
+
+[core.contributes]
+critical_readiness = [
+  "src.infrastructure.database.health:readiness as database_readiness",
+  "src.infrastructure.database.health:schema_readiness",
+]
+
+[points.routers]
+cardinality = "many"
+doc = "A router the API mounts under its version prefix."
+
+[points.root_routers]
+cardinality = "one"
+doc = "The routers mounted beside the API rather than under its prefix."
+
+[points.api_throttle]
+cardinality = "many"
+doc = "A dependency every throttled route runs before answering."
+
+[points.lifecycles]
+cardinality = "many"
+doc = "Startup and shutdown work, started in order and torn down in reverse."
+
+[points.installers]
+cardinality = "many"
+doc = "Something that installs itself on the app as the app is built."
+
+[points.docs_guard]
+cardinality = "one"
+doc = "The dependency that guards the documentation routes where they are served."
+
+[points.settings]
+cardinality = "many"
+doc = "A settings mixin the project's Settings inherits, with the core one last."
+
+[points.permission_sources]
+cardinality = "many"
+doc = "Answers which permissions an account holds."
+
+[points.rate_limit_resolvers]
+cardinality = "many"
+doc = "Answers the limit for a request, or declines to."
+
+[points.tier_delete_guards]
+cardinality = "many"
+doc = "Answers why a tier cannot be deleted yet."
+
+[points.tier_delete_releases]
+cardinality = "many"
+doc = "Releases the rows a feature keeps for a tier that is being deleted."
+
+[points.critical_readiness]
+cardinality = "many"
+doc = "A dependency a request needs, so readiness answers 503 while it is unreachable."
+
+[points.informational_readiness]
+cardinality = "many"
+doc = "A dependency readiness reports on without refusing traffic over it."
+
+[points.user_model]
+cardinality = "many"
+doc = "Columns a feature adds to the user model."
+
+[points.user_schema]
+cardinality = "many"
+doc = "Fields a feature adds to the user schemas."
+
+[points.admin_views]
+cardinality = "many"
+doc = "A model view the admin panel registers."
+
+[points.email_sender]
+cardinality = "one"
+doc = "The sender the account emails go out through."
+
+[points.cache_decorator]
+cardinality = "one"
+doc = "The decorator a route caches its response with."
+
+[points.task_modules]
+cardinality = "many"
+doc = "A module whose background tasks the worker registers."
+
+[points.table_modules]
+cardinality = "many"
+doc = "A module outside src/modules that declares tables on the metadata."
+
+[points.extra_transports]
+cardinality = "many"
+doc = "An authentication transport registered beside the session one."
+
+[points.seeders]
+cardinality = "many"
+doc = "A step the initial-data script runs, in order."
+
+[points.test_plugins]
+cardinality = "many"
+doc = "A fixture module pytest loads for the features the project carries."

@@ -7,6 +7,7 @@ checks against come from the drill, which is the repository's own account of its
 This file goes when `fastro blueprint lint` and `fastro blueprint verify` replace the drill.
 """
 
+import ast
 import importlib.util
 import re
 import sys
@@ -144,3 +145,93 @@ def test_the_presets_name_features_this_repository_has():
 
 def test_full_is_every_feature():
     assert sorted(_catalog()["presets"]["full"]) == sorted(_drill().FEATURES)
+
+
+ONE_OF_EACH = {"root_routers", "docs_guard", "email_sender", "cache_decorator"}
+"""The points a project may fill once: each renders as a single value with a fallback."""
+
+
+def _ref(text: str) -> tuple[str, str, str]:
+    """A spec 1.4 ref, as (module, attribute, local name)."""
+    body, _, alias = text.partition(" as ")
+    module, _, attribute = body.partition(":")
+
+    return module, attribute, alias or attribute
+
+
+def _import_line(entry: str) -> str:
+    """The import a wiring file under ``src/wiring/`` gets for this ref.
+
+    Spec 2.8: a file under the import root imports relatively, so ``src.a.b:name`` is
+    written ``from ..a.b import name``, and an alias keeps its own statement.
+    """
+    module, attribute, alias = _ref(entry)
+    imported = attribute if alias == attribute else f"{attribute} as {alias}"
+
+    return f"from ..{module.removeprefix('src.')} import {imported}"
+
+
+def _defines(module: str, attribute: str) -> bool:
+    """Whether ``module`` defines ``attribute`` at its top level, read without importing."""
+    path = REPO_ROOT / "backend" / Path(*module.split(".")).with_suffix(".py")
+    if not path.exists():
+        return False
+
+    tree = ast.parse(path.read_text())
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and any(
+            isinstance(target, ast.Name) and target.id == attribute for target in node.targets
+        ):
+            return True
+        if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name) and node.target.id == attribute:
+            return True
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef) and node.name == attribute:
+            return True
+        if isinstance(node, ast.ImportFrom | ast.Import) and any(
+            (alias.asname or alias.name) == attribute for alias in node.names
+        ):
+            return True
+
+    return False
+
+
+@pytest.mark.parametrize("name", sorted(_catalog()["points"]))
+def test_every_point_is_declared_the_way_the_spec_asks(name: str):
+    """Spec 2.3: a cardinality, and one line saying what the point collects."""
+    point = _catalog()["points"][name]
+
+    assert FEATURE_NAME.match(name)
+    assert point["cardinality"] in {"many", "one"}
+    assert point["doc"].strip() == point["doc"]
+    assert "\n" not in point["doc"]
+
+
+def test_the_points_a_project_may_fill_once_are_the_ones_rendered_as_a_value():
+    """A second contribution to one of these is an error, so the set has to be exact."""
+    points = _catalog()["points"]
+    single = {name for name, point in points.items() if point["cardinality"] == "one"}
+
+    assert single == ONE_OF_EACH
+
+
+def test_the_database_checks_belong_to_no_feature():
+    """The drill wires them whatever is selected, so the catalog gives them to core."""
+    core = _catalog()["core"]["contributes"]["critical_readiness"]
+    with_nothing_selected = _drill()._wiring_hooks(set())
+    rendered = with_nothing_selected.split("CRITICAL_READINESS_CHECKS: tuple[ReadinessCheck, ...] = (")[1]
+
+    assert [_ref(entry)[2] for entry in core] == [name.strip() for name in rendered.split(")")[0].split(",") if name.strip()]
+
+
+@pytest.mark.parametrize("entry", _catalog()["core"]["contributes"]["critical_readiness"])
+def test_every_core_contribution_is_imported_the_way_the_drill_imports_it(entry: str):
+    """The names alone would accept a ref that kept the alias and changed the module."""
+    assert _import_line(entry) in _drill()._wiring_hooks(set())
+
+
+@pytest.mark.parametrize("entry", _catalog()["core"]["contributes"]["critical_readiness"])
+def test_every_core_contribution_names_something_that_exists(entry: str):
+    """Spec 1.4: the attribute has to be defined at the module's top level."""
+    module, attribute, _ = _ref(entry)
+
+    assert _defines(module, attribute), entry
