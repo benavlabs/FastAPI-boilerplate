@@ -219,6 +219,18 @@ table_modules = [{ value = "src.infrastructure.auth.store" }]
 seeders = [{ ref = "scripts.create_first_superuser:create_first_superuser", order = 11 }]
 test_plugins = [{ value = "tests.fixtures.accounts" }]
 
+[features.accounts.commands."users unlock"]
+module = "scripts.unlock_account"
+help = "Clear the login lockout an account is held in."
+
+[features.accounts.commands."users canonicalize-emails"]
+module = "scripts.canonicalize_emails"
+help = "Rewrite the user addresses stored with case or whitespace in them."
+
+[features.accounts.commands."users create-superuser"]
+module = "scripts.create_first_superuser"
+help = "Create the first superuser from the admin environment variables."
+
 [[features.accounts.when]]
 if = "admin"
 paths = [
@@ -295,6 +307,10 @@ user_schema = ["src.modules.tier.contrib:UserTierFields"]
 seeders = [{ ref = "scripts.create_first_tier:create_first_tier", order = 10 }]
 test_plugins = [{ value = "tests.fixtures.tiers" }]
 
+[features.tiers.commands."tiers create-default"]
+module = "scripts.create_first_tier"
+help = "Create the default tier DEFAULT_TIER_NAME names, if it isn't there yet."
+
 [[features.tiers.when]]
 if = "admin"
 paths = [
@@ -342,6 +358,18 @@ routers = [
 installers = ["src.modules.api_keys.install:install as api_keys_install"]
 settings = ["src.modules.api_keys.settings:APIKeySettings"]
 extra_transports = [{ ref = "src.modules.api_keys.transport:APIKeyTransport", call = true }]
+
+[features.api_keys.commands."keys cleanup-json"]
+module = "scripts.cleanup_api_key_json"
+help = "Repair the API key rows whose JSON columns hold something nothing can read."
+
+[features.api_keys.commands."keys prune-usage"]
+module = "scripts.prune_key_usage"
+help = "Delete the API key usage rows past the retention."
+
+[features.api_keys.commands."keys revoke-scrypt"]
+module = "scripts.revoke_scrypt_api_keys"
+help = "Name the API keys still stored under a scrypt hash, and revoke them when asked."
 
 [[features.api_keys.when]]
 if = "ratelimit"

@@ -18,6 +18,7 @@ import keyword
 import re
 import sys
 import tomllib
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
@@ -1222,11 +1223,46 @@ def test_the_defaults_are_what_this_repos_own_generator_already_uses():
     assert f'DEFAULT_INTERNAL_SUBNET = "{params["internal_subnet"]["default"]}"' in subnet
 
 
-@pytest.mark.parametrize("words", sorted(_catalog()["commands"]))
-def test_every_command_is_spelled_the_way_the_spec_reads_it(words: str):
-    """Spec 2.9: the words become the command path, one space apart."""
-    command = _catalog()["commands"][words]
+def _declared_commands() -> list[tuple[str | None, str, dict[str, Any]]]:
+    """Every declared command: the feature that owns it, or none, with its words and its table.
 
+    A list rather than a table keyed by the words, because two declarations of one command are
+    what spec 2.9 refuses, and a table would quietly keep the second.
+    """
+    declared: list[tuple[str | None, str, dict[str, Any]]] = [
+        (None, words, command) for words, command in _catalog()["commands"].items()
+    ]
+    for name, feature in _catalog()["features"].items():
+        declared.extend((name, words, command) for words, command in feature.get("commands", {}).items())
+
+    return declared
+
+
+def _script_of(command: dict[str, Any]) -> str:
+    return f"{_catalog()['blueprint']['python_root']}/{Path(*command['module'].split('.')).with_suffix('.py')}"
+
+
+def _under(script: str, paths: Iterable[str]) -> bool:
+    """Spec 1.1: a declaration names the file itself, or a subtree it sits in."""
+    return any(script == path or script.startswith(f"{path}/") for path in paths)
+
+
+def _sorted_commands() -> list[tuple[str | None, str, dict[str, Any]]]:
+    return sorted(_declared_commands(), key=lambda entry: entry[1])
+
+
+COMMANDS = [pytest.param(words, command, id=words) for _, words, command in _sorted_commands()]
+
+TOP_LEVEL_COMMANDS = [pytest.param(words, command, id=words) for owner, words, command in _sorted_commands() if owner is None]
+
+FEATURE_COMMANDS = [
+    pytest.param(owner, words, command, id=words) for owner, words, command in _sorted_commands() if owner is not None
+]
+
+
+@pytest.mark.parametrize(("words", "command"), COMMANDS)
+def test_every_command_is_spelled_the_way_the_spec_reads_it(words: str, command: dict[str, Any]):
+    """Spec 2.9: the words become the command path, one space apart."""
     assert all(COMMAND_WORD.match(word) for word in words.split(" "))
     assert "  " not in words
     assert all(part.isidentifier() and not keyword.iskeyword(part) for part in command["module"].split("."))
@@ -1235,27 +1271,86 @@ def test_every_command_is_spelled_the_way_the_spec_reads_it(words: str):
     assert command.get("outside_project", "error") in {"error", "token_hex"}
 
 
-@pytest.mark.parametrize("words", sorted(_catalog()["commands"]))
-def test_every_command_runs_a_module_this_repo_can_run(words: str):
+@pytest.mark.parametrize(("words", "command"), COMMANDS)
+def test_every_command_runs_a_module_this_repo_can_run(words: str, command: dict[str, Any]):
     """It is run as `python -m <module>`, which needs the entry point that makes that work."""
-    module = _catalog()["commands"][words]["module"]
-    path = REPO_ROOT / _catalog()["blueprint"]["python_root"] / Path(*module.split(".")).with_suffix(".py")
+    path = REPO_ROOT / _catalog()["blueprint"]["python_root"] / Path(*command["module"].split(".")).with_suffix(".py")
 
-    assert path.is_file()
+    assert path.is_file(), words
     assert '__name__ == "__main__"' in path.read_text()
 
 
-@pytest.mark.parametrize("words", sorted(_catalog()["commands"]))
-def test_every_command_runs_a_script_no_feature_takes_away(words: str):
-    """A command carries no condition (spec 2.9), so one naming a feature's script would break.
+def test_no_two_commands_claim_the_same_words():
+    """Spec 2.9: the words are unique across `[commands]` and every feature's.
 
-    `scripts/unlock_account.py` goes with accounts, and `fastro users unlock` in a project
-    without accounts would be a command pointing at a module that isn't there.
+    fastro refuses the catalog at the second declaration, so a repeat is a catalog no project
+    can be generated from at all.
     """
-    module = _catalog()["commands"][words]["module"]
-    script = f"{_catalog()['blueprint']['python_root']}/{Path(*module.split('.')).with_suffix('.py')}"
+    claimed = [words for _, words, _ in _declared_commands()]
 
-    assert script not in _owned_paths(), script
+    assert sorted(claimed) == sorted(set(claimed))
+
+
+@pytest.mark.parametrize(("words", "command"), TOP_LEVEL_COMMANDS)
+def test_every_command_runs_a_script_no_feature_takes_away(words: str, command: dict[str, Any]):
+    """`[commands]` are always present (spec 2.9), so one naming a feature's script would break.
+
+    `scripts/unlock_account.py` goes with accounts, so it is accounts that declares
+    `fastro users unlock`: top-level, the command would be there in a project without the
+    module it runs.
+    """
+    assert not _under(_script_of(command), _owned_paths()), words
+
+
+@pytest.mark.parametrize(("owner", "words", "command"), FEATURE_COMMANDS)
+def test_every_feature_command_sits_under_its_features_own_paths(owner: str, words: str, command: dict[str, Any]):
+    """Spec 2.9: under the feature's own `paths`, not a `when`'s, which a selection still drops."""
+    declared = _declared(_catalog()["features"][owner])
+    script = _script_of(command)
+
+    assert _under(script, [path for path, condition in declared if condition is None]), words
+    assert not _under(script, [path for path, condition in declared if condition is not None]), words
+
+
+def test_the_feature_commands_are_every_feature_owned_script_a_project_could_run():
+    """Both ways, and against the repository rather than against the catalog's own account.
+
+    A runnable script of a feature's own that nothing declares is a command no project is
+    offered, and a command for a module its feature doesn't own is one some project is left
+    without.
+    """
+    python_root = _catalog()["blueprint"]["python_root"]
+    directory = REPO_ROOT / python_root / "scripts"
+    runnable = {
+        f"{python_root}/scripts/{script.name}"
+        for script in sorted(directory.glob("*.py"))
+        if _under(f"{python_root}/scripts/{script.name}", _owned_paths()) and '__name__ == "__main__"' in script.read_text()
+    }
+
+    assert runnable, directory
+    assert {_script_of(command) for owner, _, command in _declared_commands() if owner is not None} == runnable
+
+
+def test_every_selection_carries_the_commands_whose_module_it_keeps():
+    """A feature's command is there only where the feature is (spec 2.4).
+
+    That has to be exactly where the module it runs is still on disk: a command offered by a
+    project that cannot run it is worse than no command, and one a project could run but is
+    never offered is work thrown away.
+    """
+    manifest = _drill()
+    owned = _owned_paths()
+
+    for chosen in _selections(manifest):
+        kept = _kept_by_the_drill(manifest, chosen)
+        offered = {words for owner, words, _ in _declared_commands() if owner is None or owner in chosen}
+        runnable = {
+            words
+            for _, words, command in _declared_commands()
+            if not _under(_script_of(command), owned) or _under(_script_of(command), kept)
+        }
+
+        assert offered == runnable, sorted(chosen)
 
 
 def test_the_blueprint_repo_says_it_is_the_blueprint():
