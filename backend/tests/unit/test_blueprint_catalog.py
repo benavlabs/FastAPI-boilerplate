@@ -885,18 +885,6 @@ def test_every_wiring_file_is_under_the_python_root_and_is_a_file(path: str):
     assert (REPO_ROOT / path).is_file()
 
 
-@pytest.mark.parametrize("path", [entry["path"] for entry in _entries()])
-def test_every_wiring_file_says_what_it_is_for(path: str):
-    """The entry's `doc` is the file's own docstring, minus the line naming what generated it."""
-    entry = next(entry for entry in _entries() if entry["path"] == path)
-    docstring = ast.get_docstring(ast.parse(_committed(path)))
-
-    assert docstring is not None
-    declared = entry["doc"].splitlines()
-    assert declared[0] == docstring.splitlines()[0]
-    assert " ".join(" ".join(declared[1:]).split()) in " ".join(docstring.split())
-
-
 @pytest.mark.parametrize(
     ("path", "name"),
     [(entry["path"], slot["name"]) for entry in _entries() for slot in entry["slots"] if "annotation" in slot],
@@ -1072,6 +1060,50 @@ def test_the_header_fits_the_line_length_of_the_files_it_goes_into():
     """Spec 2.8: each line is at most 100 characters, so a docstring passes E501 at 128."""
     for line in _catalog()["wiring_defaults"]["header"].splitlines():
         assert len(line) <= 100, line
+
+
+HAND_WRITTEN = "backend/src/wiring/__init__.py"
+"""The one module beside the generated ones that a person writes, and fastro never rewrites."""
+
+
+def _docstring(source: str) -> str | None:
+    """The module docstring as it is written, rather than as ``ast`` tidies it up."""
+    body = ast.parse(source).body
+    if body and isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant):
+        return str(body[0].value.value)
+
+    return None
+
+
+@pytest.mark.parametrize("path", [entry["path"] for entry in _entries()])
+def test_every_generated_file_carries_its_doc_and_then_the_header(path: str):
+    """Spec 2.8: the entry's `doc`, a blank line, then the header, each stripped before rendering.
+
+    This is the whole docstring, so a paragraph the file carries and the catalog doesn't is one
+    `fastro sync` would delete from a project without being asked.
+    """
+    entry = next(declared for declared in _entries() if declared["path"] == path)
+    header = _catalog()["wiring_defaults"]["header"]
+
+    assert _docstring(_committed(path)) == f"{entry['doc'].strip()}\n\n{header.strip()}\n"
+
+
+@pytest.mark.parametrize("path", [entry["path"] for entry in _entries()])
+def test_no_generated_file_names_the_drill(path: str):
+    """The header names fastro as the author, and the drill goes in B3: two authors is one too many."""
+    assert "removal_drill" not in _committed(path), path
+
+
+def test_the_hand_written_module_says_who_writes_the_ones_beside_it():
+    """It is not generated, so it is where the reason lives: once, in the file a person edits."""
+    docstring = _docstring(_committed(HAND_WRITTEN))
+
+    assert HAND_WRITTEN not in [entry["path"] for entry in _entries()]
+    assert docstring is not None
+    assert "fastro" in docstring
+    assert "blueprint.toml" in docstring
+    assert "imports and literals" in docstring
+    assert "removal_drill" not in docstring
 
 
 @pytest.mark.parametrize("path", [entry["path"] for entry in _entries()])
