@@ -716,6 +716,10 @@ outside_project = "token_hex"
 module = "scripts.validate_env"
 help = "Audit this environment the way production would."
 
+[commands."db baseline"]
+module = "scripts.baseline"
+help = "Write this project's baseline migration, checked against the models."
+
 [commands."db tables"]
 module = "scripts.create_tables"
 help = "Create the tables the models declare, without alembic."

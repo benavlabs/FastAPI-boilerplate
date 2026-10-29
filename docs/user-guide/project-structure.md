@@ -29,6 +29,7 @@ backend/
 │   ├── script.py.mako
 │   └── versions/
 ├── scripts/                  # Setup and maintenance scripts
+│   ├── baseline.py           # Writes the project's first migration, checked against the models
 │   ├── canonicalize_emails.py
 │   ├── cleanup_api_key_json.py
 │   ├── create_first_superuser.py
@@ -207,6 +208,7 @@ scripts/
 ├── create_first_superuser.py # Just the admin user
 ├── create_first_tier.py      # Just the default tier
 ├── create_tables.py          # Just the database tables
+├── baseline.py               # Writes the project's first migration, checked against the models
 ├── cleanup_api_key_json.py   # One-off repair for legacy API key rows
 ├── canonicalize_emails.py    # One-off repair for addresses stored with case or spaces
 ├── unlock_account.py         # Clears the login lockout one account is held in
