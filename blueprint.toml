@@ -7,8 +7,10 @@ python_root = "backend"
 import_root = "src"
 blueprint_only = [
   ".github/",
+  ".pre-commit-config.yaml",
   "CODE_OF_CONDUCT.md",
   "CONTRIBUTING.md",
+  "README.md",
   "backend/tests/unit/test_blueprint_catalog.py",
   "backend/tests/unit/test_docs_imports.py",
   "backend/tests/unit/test_docs_recipes.py",
@@ -20,6 +22,7 @@ blueprint_only = [
   "cli/",
   "docs/",
   "fastro.toml",
+  "pyproject.toml",
   "tools/",
   "uv.lock",
   "zensical.toml",
@@ -707,7 +710,7 @@ default = "172.31.240.0/24"
 max_prefix = 8
 help = "The compose network, and the only peers uvicorn takes forwarded headers from, in nginx mode."
 
-[commands."env gen-secret"]
+[commands."env secret"]
 module = "scripts.gen_secret"
 help = "Print a secret key the project's own rules accept."
 outside_project = "token_hex"

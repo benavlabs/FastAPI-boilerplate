@@ -111,6 +111,72 @@ def test_every_blueprint_only_path_is_one_this_repo_has(entry: str):
     assert (REPO_ROOT / entry).exists()
 
 
+def _withheld(path: str) -> bool:
+    """Whether `blueprint_only` keeps a project from receiving this path (spec 1.1 subtrees)."""
+    return any(path == entry.rstrip("/") or path.startswith(entry) for entry in _catalog()["blueprint"]["blueprint_only"])
+
+
+def _workspace_members() -> list[str]:
+    with (REPO_ROOT / "pyproject.toml").open("rb") as handle:
+        return list(tomllib.load(handle)["tool"]["uv"]["workspace"]["members"])
+
+
+def _hook_paths() -> list[str]:
+    """The literal head of each pre-commit `files:` pattern, which is a path in the repository."""
+    patterns = re.findall(r"^\s*files: (\S+)$", (REPO_ROOT / ".pre-commit-config.yaml").read_text(), re.M)
+
+    return [re.split(r"[(\[{|?*+.\\]", pattern.removeprefix("^"))[0].rstrip("/") for pattern in patterns]
+
+
+def _readme_references() -> list[str]:
+    """The files the README's own markup points at, leaving out what it fetches over the network."""
+    found = re.findall(r'src(?:set)?="([^"]+)"', (REPO_ROOT / "README.md").read_text())
+
+    return [reference for reference in found if not reference.startswith("http")]
+
+
+POINTS_AT = {
+    "pyproject.toml": _workspace_members,
+    ".pre-commit-config.yaml": _hook_paths,
+    "README.md": _readme_references,
+}
+"""Each root file that names paths, read the way that file spells them."""
+
+
+@pytest.mark.parametrize("path", sorted(POINTS_AT))
+def test_no_file_a_project_receives_points_at_one_it_does_not(path: str):
+    """Either the pointer goes or the file does.
+
+    A workspace member a project never receives is a project `uv sync` refuses; a lint pattern
+    is a hook over nothing; an image is a hole where the cover was. The three root files are
+    the blueprint's own, so they are the ones that go.
+    """
+    withheld = sorted(target for target in POINTS_AT[path]() if _withheld(target))
+
+    assert not withheld or _withheld(path), (path, withheld)
+
+
+WITHHELD_POINTERS = {
+    "pyproject.toml": "cli",
+    ".pre-commit-config.yaml": "cli/src",
+    "README.md": "docs/assets",
+}
+"""What keeps each of the three out of a project, pinned so a reader of it can't go quiet."""
+
+
+@pytest.mark.parametrize("path", sorted(POINTS_AT))
+def test_each_file_still_names_the_path_that_keeps_it_out(path: str):
+    """The reason each file is blueprint-only, rather than the fact of it.
+
+    A format that moved on -- a renamed pre-commit key, an image moved out of `docs/` -- would
+    leave the rule above with nothing to object to, and the file would ship. When `cli/` goes
+    in B3, this is where the question of shipping the workspace root comes back.
+    """
+    pointed = POINTS_AT[path]()
+
+    assert any(target.startswith(WITHHELD_POINTERS[path]) for target in pointed), pointed
+
+
 def test_the_things_projects_must_not_receive_are_listed():
     """The catalog, the drill, the docs and the tool's own tree belong to the blueprint only."""
     listed = set(_catalog()["blueprint"]["blueprint_only"])
