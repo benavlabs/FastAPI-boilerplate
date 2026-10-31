@@ -16,9 +16,12 @@ from typing import Any
 import pytest
 
 from scripts import baseline
+from src.infrastructure.database.session import Base
 
 HOST = "127.0.0.1"
 PORT = 54321
+
+BACKEND = Path(baseline.__file__).resolve().parents[1]
 
 
 class _Container:
@@ -156,7 +159,8 @@ def test_the_commands_run_against_the_container(versions, container, matching, a
 
 
 def test_a_database_the_models_do_not_declare_is_refused(versions, container, alembic, monkeypatch, capsys):
-    monkeypatch.setattr(baseline, "created_schema", _schema_of({"alembic_version": []}))
+    """The table named here is one no project declares, so it is a mismatch whatever is selected."""
+    monkeypatch.setattr(baseline, "created_schema", _schema_of({"alembic_version": [], "nothing_declares_this": []}))
 
     code = baseline.main(["--check"])
 
@@ -211,28 +215,57 @@ def test_a_project_that_already_has_a_history_is_refused(versions, container, ma
 
 
 def test_the_declared_schema_is_the_one_the_models_build(versions):
-    """It is read in this process, so a models import that stopped working would be silent."""
+    """The tables are the ones this project's features declare, read rather than listed.
+
+    A project without accounts has no `user`, and one with no features has only alembic's own,
+    which the script adds because a baseline creates the table alembic records itself in.
+    """
     declared = baseline.declared_schema()
 
     assert declared["alembic_version"] == []
-    assert "user" in declared
+    assert set(declared) == set(Base.metadata.tables) | {"alembic_version"}
+    assert all(indexes == sorted(indexes) for indexes in declared.values())
 
 
-def test_the_migrations_guide_names_the_script():
-    """The guide's manual recipe is this script by hand, which a reader has no way to know."""
-    guide = Path(baseline.__file__).resolve().parents[2] / "docs/user-guide/database/migrations.md"
+_COLD_SCHEMA = """
+from scripts.baseline import declared_schema
 
-    assert "python -m scripts.baseline" in guide.read_text()
+print(sorted(name for name in declared_schema() if name != "alembic_version"))
+"""
+
+
+def test_the_script_imports_the_models_itself():
+    """Only a cold interpreter can tell: in the suite, `tests/conftest.py` has imported the app,
+    which imports every model, so the metadata is already full whatever the script does.
+
+    A project that declares no models of its own cannot tell an import that did nothing from one
+    that worked, so it skips rather than passing for the wrong reason.
+    """
+    declared = sorted(Base.metadata.tables)
+    if not declared:
+        pytest.skip("this project declares no models, so a missing import looks like a working one")
+
+    result = subprocess.run(
+        [sys.executable, "-c", _COLD_SCHEMA],
+        cwd=BACKEND,
+        env={**os.environ, "PYTHONPATH": str(BACKEND)},
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stdout.strip().splitlines()[-1] == str(declared), "the settings log to stdout before it prints"
 
 
 def test_running_it_as_a_module_takes_the_check_flag():
     """``--check`` is what verify runs, so an argument parser that refuses it is a broken verify."""
     result = subprocess.run(
         [sys.executable, "-m", "scripts.baseline", "--help"],
-        cwd=Path(baseline.__file__).resolve().parents[1],
+        cwd=BACKEND,
         capture_output=True,
         text=True,
-        env={**os.environ, "PYTHONPATH": str(Path(baseline.__file__).resolve().parents[1])},
+        env={**os.environ, "PYTHONPATH": str(BACKEND)},
         timeout=120,
     )
 

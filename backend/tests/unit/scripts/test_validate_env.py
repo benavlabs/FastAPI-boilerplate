@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from pydantic import AliasChoices
 
 from scripts.validate_env import audit, main
 from src.infrastructure.config.settings import EnvironmentOption, Settings
@@ -39,8 +40,31 @@ def _audited(monkeypatch, settings: Settings) -> None:
     monkeypatch.setattr("scripts.validate_env.get_settings", lambda: settings)
 
 
+def _accepted_names() -> set[str]:
+    """Every name this project's settings take, a field's alias choices included.
+
+    `SESSION_REDIS_PASSWORD` accepts `CACHE_REDIS_PASSWORD` as well, so a project with accounts
+    and no cache still takes that name and reads the session password from it.
+    """
+    accepted = set()
+    for name, field in Settings.model_fields.items():
+        accepted.add(name)
+        alias = field.validation_alias
+        if isinstance(alias, str):
+            accepted.add(alias)
+        elif isinstance(alias, AliasChoices):
+            accepted.update(choice for choice in alias.choices if isinstance(choice, str))
+
+    return accepted
+
+
 def _strong() -> dict[str, Any]:
-    return {
+    """A configuration production would accept, less whatever this project has no feature for.
+
+    `Settings` forbids an input no field of its own takes, so a project without the cache, the
+    limiter or the admin panel refuses their settings rather than ignoring them.
+    """
+    strong = {
         "SECRET_KEY": secrets.token_hex(32),
         "POSTGRES_PASSWORD": "a-strong-database-password",
         "CORS_ORIGINS": "https://app.example.com",
@@ -53,6 +77,8 @@ def _strong() -> dict[str, Any]:
         "SESSION_BACKEND": "redis",
         "RATE_LIMITER_BACKEND": "redis",
     }
+
+    return {name: value for name, value in strong.items() if name in _accepted_names()}
 
 
 def test_a_clean_configuration_says_so(monkeypatch, capsys):
@@ -77,8 +103,12 @@ def test_a_weak_configuration_is_refused_and_named(monkeypatch, capsys):
 
 
 def test_warnings_are_reported_even_when_something_is_critical(monkeypatch, capsys):
-    """The warnings used to be computed only when nothing critical was found."""
-    _audited(monkeypatch, _settings(SECRET_KEY="insecure-secret-key-change-this"))
+    """The warnings used to be computed only when nothing critical was found.
+
+    Both findings are core: the placeholder key is critical and debug mode is a warning, so a
+    project with no features selected still produces one of each.
+    """
+    _audited(monkeypatch, _settings(SECRET_KEY="insecure-secret-key-change-this", DEBUG=True))
 
     code = main()
 
@@ -89,8 +119,12 @@ def test_warnings_are_reported_even_when_something_is_critical(monkeypatch, caps
 
 
 def test_warnings_alone_do_not_fail_the_audit(monkeypatch, capsys):
-    """A warning is something to look at, not something that would stop a boot."""
-    _audited(monkeypatch, _settings(**(_strong() | {"CACHE_REDIS_PASSWORD": ""})))
+    """A warning is something to look at, not something that would stop a boot.
+
+    Debug mode rather than an unprotected cache: the cache is a feature, and this test runs in
+    projects that didn't select it.
+    """
+    _audited(monkeypatch, _settings(**(_strong() | {"DEBUG": True})))
 
     code = main()
 
@@ -101,8 +135,12 @@ def test_warnings_alone_do_not_fail_the_audit(monkeypatch, capsys):
 
 
 def test_every_finding_names_the_environment_it_is_checked_for(monkeypatch, capsys):
-    """Audited as production, a finding that names a development environment is a lie."""
-    _audited(monkeypatch, _settings(ENVIRONMENT=EnvironmentOption.DEVELOPMENT, EMAIL_BACKEND="console"))
+    """Audited as production, a finding that names a development environment is a lie.
+
+    The table-creation finding is the one asked for, because it is core: the email backend names
+    the environment too, but only a project with accounts has anything to email.
+    """
+    _audited(monkeypatch, _settings(ENVIRONMENT=EnvironmentOption.DEVELOPMENT, CREATE_TABLES_ON_STARTUP=True))
 
     main()
 

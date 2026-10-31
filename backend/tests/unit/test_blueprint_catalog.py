@@ -113,7 +113,10 @@ def test_every_blueprint_only_path_is_one_this_repo_has(entry: str):
 
 def _withheld(path: str) -> bool:
     """Whether `blueprint_only` keeps a project from receiving this path (spec 1.1 subtrees)."""
-    return any(path == entry.rstrip("/") or path.startswith(entry) for entry in _catalog()["blueprint"]["blueprint_only"])
+    return any(
+        path == entry.rstrip("/") or (entry.endswith("/") and path.startswith(entry))
+        for entry in _catalog()["blueprint"]["blueprint_only"]
+    )
 
 
 def _workspace_members() -> list[str]:
@@ -175,6 +178,51 @@ def test_each_file_still_names_the_path_that_keeps_it_out(path: str):
     pointed = POINTS_AT[path]()
 
     assert any(target.startswith(WITHHELD_POINTERS[path]) for target in pointed), pointed
+
+
+def _literals(module: Path) -> set[str]:
+    """Every string literal in a module, less the docstrings, which talk about files rather than
+    reach for them."""
+    tree = ast.parse(module.read_text())
+    docstrings = {
+        id(node.body[0].value)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Module | ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef)
+        and node.body
+        and isinstance(node.body[0], ast.Expr)
+        and isinstance(node.body[0].value, ast.Constant)
+    }
+
+    return {
+        node.value
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Constant) and isinstance(node.value, str) and id(node) not in docstrings
+    }
+
+
+def test_no_test_a_project_receives_names_a_tree_it_does_not_get():
+    """A test that reaches for `docs/`, `tools/` or `cli/` is a test no project can run.
+
+    `test_removal_drill.py` loads `tools/removal_drill.py`, and `test_baseline.py` read the
+    migrations guide: both are files a project never receives, and the drill hid it by copying
+    the whole repository into every project it built. Only the subtree entries are compared,
+    because a root file's name is ambiguous: a shipped test naming `pyproject.toml` means
+    the one under `backend/`.
+    """
+    trees = [entry for entry in _catalog()["blueprint"]["blueprint_only"] if entry.endswith("/")]
+    reaching = {}
+    for module in sorted((REPO_ROOT / "backend" / "tests").rglob("*.py")):
+        relative = module.relative_to(REPO_ROOT).as_posix()
+        if _withheld(relative):
+            continue
+
+        named = sorted(
+            text for text in _literals(module) for tree in trees if text == tree.rstrip("/") or text.startswith(tree)
+        )
+        if named:
+            reaching[relative] = named
+
+    assert reaching == {}
 
 
 def test_the_things_projects_must_not_receive_are_listed():

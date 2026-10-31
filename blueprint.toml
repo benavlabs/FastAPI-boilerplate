@@ -17,6 +17,7 @@ blueprint_only = [
   "backend/tests/unit/test_docs_scripts.py",
   "backend/tests/unit/test_docs_wiring.py",
   "backend/tests/unit/test_image_contents.py",
+  "backend/tests/unit/test_removal_drill.py",
   "blueprint/",
   "blueprint.toml",
   "cli/",
