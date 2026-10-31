@@ -83,15 +83,31 @@ def test_development_builds_of_the_tool_can_read_it():
     assert _catalog()["blueprint"]["requires_fastro"] == ">=0.1.0.dev0,<0.2"
 
 
-def test_the_core_dependencies_are_the_ones_the_backend_declares():
-    """The catalog carries the backend's lists until they are split per feature."""
+def _declared_specifiers() -> set[str]:
+    """Every runtime specifier a project could install: the core's, each feature's, each option's."""
+    specifiers = set(_catalog()["blueprint"]["dependencies"]["runtime"])
+    for feature in _catalog()["features"].values():
+        specifiers.update(feature.get("dependencies", ()))
+        for block in feature.get("when", ()):
+            specifiers.update(block.get("dependencies", ()))
+        for option in feature.get("options", {}).values():
+            for chosen in option.get("dependencies", {}).values():
+                specifiers.update(chosen)
+
+    return specifiers
+
+
+def test_the_dependencies_a_project_could_install_are_the_ones_the_backend_declares():
+    """This repo selects every feature, so the union of the declarations is the backend's own list.
+
+    The specifiers are compared, not the distribution names, so a floor that moves in one file
+    and not the other is caught rather than averaged away.
+    """
     with BACKEND_PYPROJECT.open("rb") as handle:
         backend = tomllib.load(handle)
 
-    dependencies = _catalog()["blueprint"]["dependencies"]
-
-    assert dependencies["runtime"] == backend["project"]["dependencies"]
-    assert dependencies["dev"] == backend["project"]["optional-dependencies"]["dev"]
+    assert _declared_specifiers() == set(backend["project"]["dependencies"])
+    assert _catalog()["blueprint"]["dependencies"]["dev"] == backend["project"]["optional-dependencies"]["dev"]
 
 
 def _distribution(specifier: str) -> str:
@@ -112,28 +128,146 @@ def _provided() -> dict[str, frozenset[str]]:
 
 
 @functools.cache
+def _module_imports(path: Path) -> frozenset[str]:
+    """Every module an absolute import in this file names, dotted as it is written."""
+    found: set[str] = set()
+    for node in ast.walk(ast.parse(path.read_text())):
+        if isinstance(node, ast.Import):
+            found.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+            found.add(node.module)
+
+    return frozenset(found)
+
+
+@functools.cache
 def _imported(*directories: str, skipping: tuple[str, ...] = ()) -> frozenset[str]:
     """Every top-level module imported under these directories of the python root, less the files
     named in `skipping`, which are given relative to that root."""
     root = REPO_ROOT / _catalog()["blueprint"]["python_root"]
     skipped = {root / name for name in skipping}
-    found: set[str] = set()
-    for directory in directories:
-        for path in sorted((root / directory).rglob("*.py")):
-            if path in skipped:
-                continue
 
-            for node in ast.walk(ast.parse(path.read_text())):
-                if isinstance(node, ast.Import):
-                    found.update(alias.name.split(".")[0] for alias in node.names)
-                elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
-                    found.add(node.module.split(".")[0])
+    return frozenset(
+        module.split(".")[0]
+        for directory in directories
+        for path in sorted((root / directory).rglob("*.py"))
+        if path not in skipped
+        for module in _module_imports(path)
+    )
+
+
+@functools.cache
+def _imports_outright(path: Path) -> frozenset[str]:
+    """The top-level modules this file imports with no guard, counted statement by statement.
+
+    One import of a module inside a `try` doesn't excuse another outside it: the unguarded one is
+    what runs first and what fails, so a module imported both ways is imported outright.
+    """
+    tree = ast.parse(path.read_text())
+    guarded = {
+        id(inner)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Try)
+        for inner in ast.walk(node)
+        if isinstance(inner, ast.Import | ast.ImportFrom)
+    }
+
+    found: set[str] = set()
+    for node in ast.walk(tree):
+        if id(node) in guarded:
+            continue
+
+        if isinstance(node, ast.Import):
+            found.update(alias.name.split(".")[0] for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+            found.add(node.module.split(".")[0])
 
     return frozenset(found)
 
 
+@functools.cache
+def _importers() -> dict[str, frozenset[str]]:
+    """Which files under the python root import each top-level module, as repo-relative paths."""
+    root = REPO_ROOT / _catalog()["blueprint"]["python_root"]
+    found: dict[str, set[str]] = {}
+    for path in sorted(root.rglob("*.py")):
+        for module in _module_imports(path):
+            found.setdefault(module.split(".")[0], set()).add(path.relative_to(REPO_ROOT).as_posix())
+
+    return {module: frozenset(files) for module, files in found.items()}
+
+
 def _declared_distributions(listing: str) -> set[str]:
+    """The distributions a listing names: `runtime` is every list a project could install from."""
+    if listing == "runtime":
+        return {_distribution(specifier) for specifier in _declared_specifiers()}
+
     return {_distribution(specifier) for specifier in _catalog()["blueprint"]["dependencies"][listing]}
+
+
+INDIRECT_NEEDS = {
+    "itsdangerous": ("starlette.middleware.sessions", "backend/src/interfaces/admin/auth.py"),
+    "user-agents": ("crudauth.transports.session.transport", "backend/src/infrastructure/auth/evictions.py"),
+}
+"""Distributions nothing imports by name, each with the import that needs it and the file that
+makes that import. `starlette` doesn't declare `itsdangerous`, and
+`crudauth/transports/session/__init__.py` imports its `manager`, which imports `user_agents`
+inside a `try`. A project without either would refuse to start the admin panel, or record
+every session's device as unknown, with nothing naming what is missing."""
+
+
+@pytest.mark.parametrize(
+    ("feature", "specifier"),
+    sorted(
+        (name, specifier) for name, feature in _catalog()["features"].items() for specifier in feature.get("dependencies", ())
+    ),
+)
+def test_every_feature_dependency_is_one_that_feature_needs(feature: str, specifier: str):
+    """A dependency parked on the wrong feature is a project that installs it and never uses it,
+    or selects the feature and finds it missing."""
+    name = _distribution(specifier)
+    owned = [path for path, _ in _declared(_catalog()["features"][feature])]
+
+    if name in INDIRECT_NEEDS:
+        module, importer = INDIRECT_NEEDS[name]
+
+        assert _under(importer, owned), importer
+        assert module in _module_imports(REPO_ROOT / importer), module
+        assert not _provided()[name] & set(_importers()), f"{name} is imported by name now"
+
+        return
+
+    importers = {file for module in _provided()[name] for file in _importers().get(module, ())}
+    outright = {file for file in importers if _provided()[name] & _imports_outright(REPO_ROOT / file)}
+
+    assert importers, name
+    assert any(_under(file, owned) for file in outright), sorted(importers)
+
+
+@pytest.mark.parametrize(
+    ("feature", "option", "value", "specifier"),
+    sorted(
+        (name, option, value, specifier)
+        for name, feature in _catalog()["features"].items()
+        for option, declared in feature.get("options", {}).items()
+        for value, specifiers in declared.get("dependencies", {}).items()
+        for specifier in specifiers
+    ),
+)
+def test_every_option_dependency_is_one_its_value_needs(feature: str, option: str, value: str, specifier: str):
+    """Spec 2.5: the value has to be one of the option's choices, and the file that imports the
+    distribution has to belong to the feature that offers it."""
+    declared = _catalog()["features"][feature]["options"][option]
+    owned = [path for path, _ in _declared(_catalog()["features"][feature])]
+    importers = {file for module in _provided()[_distribution(specifier)] for file in _importers().get(module, ())}
+
+    assert value in declared["choices"]
+    assert importers, specifier
+    assert all(_under(file, owned) for file in importers), sorted(importers)
+    for file in importers:
+        assert not _provided()[_distribution(specifier)] & _imports_outright(REPO_ROOT / file), (
+            f"{file} imports {specifier} without a guard, and a project that chose another value has it absent"
+        )
 
 
 def test_no_runtime_dependency_is_one_only_the_tests_import():

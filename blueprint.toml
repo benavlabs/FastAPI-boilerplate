@@ -31,28 +31,20 @@ blueprint_only = [
 
 [blueprint.dependencies]
 runtime = [
-  "aiomcache>=0.8.2",
   "aiosqlite>=0.21.0",
   "alembic>=1.16.4",
   "anyio>=4.15.1",
   "asyncpg>=0.30.0",
   "crudauth[all]>=0.8.2,<0.9.0",
-  "cryptography>=42.0.0",
   "fastapi[standard]>=0.115.8",
   "fastcrud>=0.21.0",
   "greenlet>=3.1.1",
-  "itsdangerous>=2.2.0",
   "jinja2>=3.1.6",
   "pydantic>=2.10.6",
   "pydantic-settings>=2.14.2",
   "redis>=6.1.0",
-  "sqladmin>=0.28.0",
   "sqlalchemy>=2.0.37",
   "starlette>=1.3.1",
-  "taskiq>=0.11.20",
-  "taskiq-redis>=1.1.2",
-  "taskiq-aio-pika>=0.4.3",
-  "user-agents>=2.2.0",
 ]
 dev = [
   "mypy>=1.14.1",
@@ -184,6 +176,7 @@ doc = "A fixture module pytest loads for the features the project carries."
 [features.accounts]
 summary = "Users, sessions, CSRF, login lockout, OAuth"
 group = "Accounts"
+dependencies = ["user-agents>=2.2.0"]
 paths = [
   "backend/scripts/canonicalize_emails.py",
   "backend/scripts/create_first_superuser.py",
@@ -405,6 +398,7 @@ paths = [
 summary = "SQLAdmin panel at /admin"
 group = "Operations"
 requires = ["accounts"]
+dependencies = ["sqladmin>=0.28.0", "itsdangerous>=2.2.0"]
 paths = [
   "backend/src/interfaces/admin/",
   "backend/tests/unit/interfaces/admin/",
@@ -433,11 +427,18 @@ choices = ["redis", "memcached"]
 default = "redis"
 env = { CACHE_BACKEND = "{value}" }
 services = { memcached = ["memcached"] }
+dependencies = { memcached = ["aiomcache>=0.8.2"] }
 
 [features.taskiq]
 summary = "Background tasks on Redis or RabbitMQ"
 group = "Operations"
 services = ["worker", "scheduler"]
+dependencies = [
+  "taskiq>=0.11.20",
+  "taskiq-redis>=1.1.2",
+  "taskiq-aio-pika>=0.4.3",
+  "cryptography>=42.0.0",
+]
 paths = [
   "backend/src/infrastructure/taskiq/",
   "backend/tests/unit/infrastructure/taskiq/",
