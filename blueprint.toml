@@ -6,6 +6,7 @@ requires_fastro = ">=0.1.0.dev0,<0.2"
 python_root = "backend"
 import_root = "src"
 blueprint_only = [
+  ".gitattributes",
   ".github/",
   ".pre-commit-config.yaml",
   "CODE_OF_CONDUCT.md",
@@ -18,6 +19,7 @@ blueprint_only = [
   "backend/tests/unit/test_docs_wiring.py",
   "backend/tests/unit/test_image_contents.py",
   "backend/tests/unit/test_removal_drill.py",
+  "backend/tests/unit/test_tarball_contents.py",
   "blueprint/",
   "blueprint.toml",
   "cli/",

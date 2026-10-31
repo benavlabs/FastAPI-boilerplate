@@ -1,0 +1,4 @@
+docs/ export-ignore
+tools/ export-ignore
+zensical.toml export-ignore
+.github/ISSUE_TEMPLATE/ export-ignore
