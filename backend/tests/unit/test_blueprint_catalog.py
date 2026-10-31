@@ -83,14 +83,16 @@ def test_development_builds_of_the_tool_can_read_it():
     assert _catalog()["blueprint"]["requires_fastro"] == ">=0.1.0.dev0,<0.2"
 
 
-def _declared_specifiers() -> set[str]:
-    """Every runtime specifier a project could install: the core's, each feature's, each option's."""
-    specifiers = set(_catalog()["blueprint"]["dependencies"]["runtime"])
+def _declared_specifiers(listing: str = "runtime") -> set[str]:
+    """Every specifier a project could install from this listing: the core's, each feature's, each
+    `when` block's, and, for the runtime one, each option's."""
+    key = "dependencies" if listing == "runtime" else "dev_dependencies"
+    specifiers = set(_catalog()["blueprint"]["dependencies"][listing])
     for feature in _catalog()["features"].values():
-        specifiers.update(feature.get("dependencies", ()))
+        specifiers.update(feature.get(key, ()))
         for block in feature.get("when", ()):
-            specifiers.update(block.get("dependencies", ()))
-        for option in feature.get("options", {}).values():
+            specifiers.update(block.get(key, ()))
+        for option in feature.get("options", {}).values() if listing == "runtime" else ():
             for chosen in option.get("dependencies", {}).values():
                 specifiers.update(chosen)
 
@@ -107,7 +109,7 @@ def test_the_dependencies_a_project_could_install_are_the_ones_the_backend_decla
         backend = tomllib.load(handle)
 
     assert _declared_specifiers() == set(backend["project"]["dependencies"])
-    assert _catalog()["blueprint"]["dependencies"]["dev"] == backend["project"]["optional-dependencies"]["dev"]
+    assert _declared_specifiers("dev") == set(backend["project"]["optional-dependencies"]["dev"])
 
 
 def _distribution(specifier: str) -> str:
@@ -198,11 +200,8 @@ def _importers() -> dict[str, frozenset[str]]:
 
 
 def _declared_distributions(listing: str) -> set[str]:
-    """The distributions a listing names: `runtime` is every list a project could install from."""
-    if listing == "runtime":
-        return {_distribution(specifier) for specifier in _declared_specifiers()}
-
-    return {_distribution(specifier) for specifier in _catalog()["blueprint"]["dependencies"][listing]}
+    """The distributions a listing names, the core's and every feature's together."""
+    return {_distribution(specifier) for specifier in _declared_specifiers(listing)}
 
 
 INDIRECT_NEEDS = {
@@ -330,6 +329,28 @@ def test_no_file_a_project_keeps_imports_a_dependency_it_did_not_select():
                         continue
 
                     assert _under(file, removed) or _withheld(file), (sorted(chosen), name, file)
+
+
+@pytest.mark.parametrize(
+    ("feature", "specifier"),
+    sorted(
+        (name, specifier)
+        for name, feature in _catalog()["features"].items()
+        for specifier in feature.get("dev_dependencies", ())
+    ),
+)
+def test_every_feature_development_dependency_belongs_to_that_feature(feature: str, specifier: str):
+    """An extra is never imported by name, so what makes it the feature's is the distribution it
+    extends: `taskiq[reload]` is the taskiq worker's own `--reload`, and a project with no worker
+    has nothing to reload. A file of the feature's importing it counts too, for a test-only
+    dependency that is imported.
+    """
+    name = _distribution(specifier)
+    runtime = {_distribution(entry) for entry in _catalog()["features"][feature].get("dependencies", ())}
+    owned = [path for path, _ in _declared(_catalog()["features"][feature])]
+    importers = {file for module in _provided().get(name, ()) for file in _importers().get(module, ())}
+
+    assert name in runtime or any(_under(file, owned) for file in importers), name
 
 
 @pytest.mark.parametrize(
@@ -1803,8 +1824,19 @@ def test_the_catalog_accounts_for_what_the_file_imports_for_every_selection(path
         assert _declared_bindings(catalog, entry, chosen) == written, sorted(chosen)
 
 
-LINE_LENGTH = 128
-"""The project's ruff line length, which spec 2.8 wraps a generated import at."""
+LINE_LENGTH = _catalog()["wiring_defaults"]["line_length"]
+"""Spec 2.12: the length spec 2.8 wraps a generated import at, declared rather than assumed."""
+
+
+def test_the_generated_line_length_is_the_one_ruff_holds_the_project_to():
+    """Spec 2.12: an integer from 1 to 320. Declared shorter than ruff's, fastro would wrap an
+    import ruff is happy with; longer, and `ruff format --check` fails on a file nobody edited.
+    """
+    with BACKEND_PYPROJECT.open("rb") as handle:
+        backend = tomllib.load(handle)
+
+    assert 1 <= LINE_LENGTH <= 320
+    assert LINE_LENGTH == backend["tool"]["ruff"]["line-length"]
 
 
 @pytest.mark.parametrize("path", [entry["path"] for entry in _entries()])
@@ -1903,9 +1935,21 @@ def test_every_param_is_declared_the_way_the_spec_asks(generator: str, param: st
 def test_the_subnet_default_is_a_network_with_no_host_bits_set():
     """Spec 2.9: `10.0.0.1/24` is not a network, and the tool would refuse the catalog for it."""
     declared = _catalog()["generators"]["deploy"]["params"]["internal_subnet"]
+    network = ipaddress.ip_network(declared["default"], strict=True)
 
-    assert str(ipaddress.ip_network(declared["default"], strict=True)) == declared["default"]
-    assert 0 <= declared["max_prefix"] <= 128
+    assert str(network) == declared["default"]
+    assert network.prefixlen >= declared["max_prefix"][f"v{network.version}"], "the default meets its own limit"
+
+
+def test_the_subnet_limit_is_set_for_both_families():
+    """Spec 2.9: a table with both `v4` (0 to 32) and `v6` (0 to 128), because one integer can't
+    carry the two. An IPv6 limit of 8 would accept a `/16`, which is half the address space.
+    """
+    limits = _catalog()["generators"]["deploy"]["params"]["internal_subnet"]["max_prefix"]
+
+    assert set(limits) == {"v4", "v6"}
+    assert 0 <= limits["v4"] <= 32
+    assert 0 <= limits["v6"] <= 128
 
 
 def test_every_param_the_templates_read_is_a_param_the_catalog_declares():
@@ -1926,6 +1970,9 @@ def test_the_defaults_are_what_this_repos_own_generator_already_uses():
     assert f'typer.Option({params["api_port"]["default"]}, "--api-port"' in source
     assert f'typer.Option({params["workers"]["default"]}, "--workers"' in source
     assert f'DEFAULT_INTERNAL_SUBNET = "{params["internal_subnet"]["default"]}"' in subnet
+
+    limits = params["internal_subnet"]["max_prefix"]
+    assert f"SMALLEST_TRUSTED_PREFIX = {{4: {limits['v4']}, 6: {limits['v6']}}}" in subnet
 
 
 def _declared_commands() -> list[tuple[str | None, str, dict[str, Any]]]:
