@@ -4,9 +4,11 @@ version = "0.20.0"
 schema = 1
 requires_fastro = ">=0.1.0.dev0,<0.2"
 python_root = "backend"
+overlay = "blueprint/overlay"
 import_root = "src"
 blueprint_only = [
   ".gitattributes",
+  ".gitignore",
   ".github/",
   ".pre-commit-config.yaml",
   "CODE_OF_CONDUCT.md",
