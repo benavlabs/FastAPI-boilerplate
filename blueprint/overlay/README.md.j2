@@ -1,0 +1,109 @@
+# {{ project.name }}
+
+A FastAPI backend, generated from the {{ blueprint.name }} blueprint ({{ blueprint.version }}) by
+fastro {{ fastro.version }}.
+{% if features %}
+Selected: {{ features | join(", ") }}.
+{%- else %}
+Nothing optional is selected: this is the core, and `uvx fastro@{{ fastro.version }} add` brings
+a feature in.
+{%- endif %}
+
+Every command below runs from this directory: the ones in a subshell step into `backend/` and come
+back. `uvx fastro@{{ fastro.version }}` fetches the tool that generated the project, so a checkout
+needs nothing installed first.
+
+## Get it running
+
+```bash
+uv sync --all-extras --project backend
+cp backend/.env.example backend/.env
+uvx fastro@{{ fastro.version }} env secret          # put the key it prints in backend/.env
+uvx fastro@{{ fastro.version }} make deploy local   # writes the compose files
+docker compose up -d
+```
+
+That stack runs the API{% if has("taskiq") %}, the worker and the scheduler{% endif %} and the data stores it needs, with `backend/src` mounted so a change reloads. Outside production the app builds the schema from the models as it boots, so there is nothing to migrate yet: the API is on <http://localhost:8000>, and its docs on `/docs`.
+{%- if has("accounts") %}
+Create the first superuser from the `ADMIN_*` variables in `backend/.env`:
+
+```bash
+docker compose exec api python -m scripts.setup_initial_data
+```
+{%- endif %}
+{%- if has("admin") %}
+
+## The admin panel
+
+`backend/.env.example` turns it on, so a copied example has it at `/admin`. Set
+`ADMIN_ENABLED=false` where you don't want it, and give `ADMIN_USERNAME` and `ADMIN_PASSWORD`
+values of your own before anything but your laptop can reach it.
+{%- endif %}
+
+## Migrations
+
+When alembic should own the schema instead of the boot-time `create_all`, write the first revision
+from the models and start the database empty, because the one that booted already holds the whole
+schema and an upgrade against it fails on tables that exist:
+
+```bash
+uvx fastro@{{ fastro.version }} db baseline
+docker compose down -v
+```
+
+Set `CREATE_TABLES_ON_STARTUP=false` in `backend/.env`, then bring the stack back: a container
+reads that file as it starts, so an edit needs `up -d` again.
+
+```bash
+docker compose up -d
+docker compose exec api alembic upgrade head
+```
+
+`db baseline` starts a throwaway Postgres of its own, so it runs here rather than in the container,
+and leaves the revision in `backend/migrations/versions/` to commit. To keep what is already in the
+development database instead of dropping it, run `docker compose exec api alembic stamp head`: the
+schema is there, and stamping records it as applied.
+
+## Running the app on your machine
+
+The stack publishes Postgres{% if has("accounts") or has("cache") or has("taskiq") %} and Redis{% endif %} on localhost, so the app can run outside it. Point `POSTGRES_SERVER` and every `*_HOST` in `backend/.env` at `localhost`, then:
+
+```bash
+docker compose stop api{% if has("taskiq") %} worker scheduler{% endif %}
+docker compose up -d postgres{% if has("accounts") or has("cache") or has("taskiq") %} redis{% endif %}
+(cd backend && uv run --no-sync uvicorn src.interfaces.main:app --reload)
+```
+
+The first line frees the port the stack publishes; without it nothing can bind it.
+{%- if has("taskiq") %}
+
+The worker and the scheduler run the same way, against the broker `TASKIQ_BROKER_TYPE` names:
+
+```bash
+(cd backend && uv run --no-sync taskiq worker src.infrastructure.taskiq.worker:default_broker)
+(cd backend && uv run --no-sync taskiq scheduler src.infrastructure.taskiq.scheduler:scheduler)
+```
+{%- endif %}
+
+## Work on it
+
+```bash
+(cd backend && uv run --no-sync ruff check . && uv run --no-sync ruff format --check .)
+(cd backend && uv run --no-sync mypy src scripts migrations tests)
+(cd backend && uv run --no-sync pytest)
+```
+
+`AGENTS.md` says where code goes and what not to edit. From this directory,
+`uvx fastro@{{ fastro.version }} check` reads the project the way CI does, and
+`uvx fastro@{{ fastro.version }} sync --check` tells you whether `src/wiring/` matches
+`fastro.toml`.
+
+## Change what it carries
+
+```bash
+uvx fastro@{{ fastro.version }} features            # what is selected, and what else there is
+uvx fastro@{{ fastro.version }} add <feature>
+uvx fastro@{{ fastro.version }} remove <feature>
+```
+
+Either one rewrites `src/wiring/`, the dependencies and `.env.example`, and says what it changed.
