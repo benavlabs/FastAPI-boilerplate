@@ -210,10 +210,11 @@ INDIRECT_NEEDS = {
     "user-agents": ("crudauth.transports.session.transport", "backend/src/infrastructure/auth/evictions.py"),
 }
 """Distributions nothing imports by name, each with the import that needs it and the file that
-makes that import. `starlette` doesn't declare `itsdangerous`, and
-`crudauth/transports/session/__init__.py` imports its `manager`, which imports `user_agents`
-inside a `try`. A project without either would refuse to start the admin panel, or record
-every session's device as unknown, with nothing naming what is missing."""
+makes that import. `starlette` doesn't declare `itsdangerous`, and importing
+`crudauth.transports.session.transport` runs that package's `__init__`, which imports its
+`manager`, which imports `user_agents` inside a `try`. A project without either would refuse
+to start the admin panel, or record every session's device as unknown, with nothing naming
+what is missing."""
 
 
 @pytest.mark.parametrize(
@@ -242,6 +243,58 @@ def test_every_feature_dependency_is_one_that_feature_needs(feature: str, specif
 
     assert importers, name
     assert any(_under(file, owned) for file in outright), sorted(importers)
+
+
+def _needed_by(features: dict[str, Any]) -> dict[str, set[str]]:
+    """Each declared distribution, with the features that bring it. An option's brings an empty
+    set: a project selects the feature and still chooses another value, so nothing guarantees it."""
+    needed: dict[str, set[str]] = {}
+    for name, feature in features.items():
+        for specifier in feature.get("dependencies", ()):
+            needed.setdefault(_distribution(specifier), set()).add(name)
+        for option in feature.get("options", {}).values():
+            for specifiers in option.get("dependencies", {}).values():
+                for specifier in specifiers:
+                    needed.setdefault(_distribution(specifier), set())
+
+    return needed
+
+
+def _removed_for(features: dict[str, Any], chosen: set[str]) -> list[str]:
+    """The owned paths this selection doesn't keep, which is what `_kept_by_the_catalog` leaves out."""
+    return [
+        path
+        for name, feature in features.items()
+        for path, condition in _declared(feature)
+        if name not in chosen or (condition is not None and not _true(condition, chosen))
+    ]
+
+
+def test_no_file_a_project_keeps_imports_a_dependency_it_did_not_select():
+    """The other half of moving a dependency off the core, over all 164 selections.
+
+    `fastro new` writes a project's `pyproject.toml` from the declarations (spec 6.3), so a file
+    kept without the feature that brings a distribution, importing it outright, is a project that
+    fails at import. Only the files that go with the feature may need it.
+    """
+    features = _catalog()["features"]
+    needed = _needed_by(features)
+
+    assert needed["sqladmin"] == {"admin"}
+    assert needed["aiomcache"] == set(), "an option's dependency is never guaranteed"
+
+    for chosen in _selections(_drill()):
+        removed = _removed_for(features, chosen)
+        for name, owners in needed.items():
+            if owners & chosen:
+                continue
+
+            for module in _provided()[name]:
+                for file in _importers().get(module, ()):
+                    if not _provided()[name] & _imports_outright(REPO_ROOT / file):
+                        continue
+
+                    assert _under(file, removed) or _withheld(file), (sorted(chosen), name, file)
 
 
 @pytest.mark.parametrize(
