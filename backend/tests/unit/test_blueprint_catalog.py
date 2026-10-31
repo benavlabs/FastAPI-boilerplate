@@ -19,6 +19,7 @@ import re
 import sys
 import tomllib
 from collections.abc import Iterable
+from importlib.metadata import packages_distributions
 from pathlib import Path
 from typing import Any
 
@@ -91,6 +92,95 @@ def test_the_core_dependencies_are_the_ones_the_backend_declares():
 
     assert dependencies["runtime"] == backend["project"]["dependencies"]
     assert dependencies["dev"] == backend["project"]["optional-dependencies"]["dev"]
+
+
+def _distribution(specifier: str) -> str:
+    """The distribution a PEP 508 specifier names, without its extras or its version."""
+    return re.split(r"[\[<>=!~;]", specifier)[0].strip().lower().replace("_", "-")
+
+
+@functools.cache
+def _provided() -> dict[str, frozenset[str]]:
+    """The modules each installed distribution provides, which is what an import names: `faker`
+    is imported as `faker`, and `user-agents` as `user_agents`."""
+    provided: dict[str, set[str]] = {}
+    for module, distributions in packages_distributions().items():
+        for distribution in distributions:
+            provided.setdefault(_distribution(distribution), set()).add(module)
+
+    return {name: frozenset(modules) for name, modules in provided.items()}
+
+
+@functools.cache
+def _imported(*directories: str, skipping: tuple[str, ...] = ()) -> frozenset[str]:
+    """Every top-level module imported under these directories of the python root, less the files
+    named in `skipping`, which are given relative to that root."""
+    root = REPO_ROOT / _catalog()["blueprint"]["python_root"]
+    skipped = {root / name for name in skipping}
+    found: set[str] = set()
+    for directory in directories:
+        for path in sorted((root / directory).rglob("*.py")):
+            if path in skipped:
+                continue
+
+            for node in ast.walk(ast.parse(path.read_text())):
+                if isinstance(node, ast.Import):
+                    found.update(alias.name.split(".")[0] for alias in node.names)
+                elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+                    found.add(node.module.split(".")[0])
+
+    return frozenset(found)
+
+
+def _declared_distributions(listing: str) -> set[str]:
+    return {_distribution(specifier) for specifier in _catalog()["blueprint"]["dependencies"][listing]}
+
+
+def test_no_runtime_dependency_is_one_only_the_tests_import():
+    """A distribution only the tests import is installed in production for nothing.
+
+    `backend/Dockerfile` installs the runtime list with `--no-dev`, so that is the list that
+    decides the image. A distribution nothing imports at all is left alone here: several are
+    needed indirectly, through something that doesn't declare them.
+    """
+    runtime = _declared_distributions("runtime")
+    application = _imported("src", "scripts", "migrations")
+    tests = _imported("tests")
+
+    only_tested = {
+        name for name in runtime if _provided().get(name, frozenset()) & tests and not _provided()[name] & application
+    }
+
+    assert only_tested == set()
+
+
+DEVELOPMENT_SCRIPT = "scripts/baseline.py"
+"""The one script a project runs from its development environment rather than from the image."""
+
+
+def test_no_dependency_the_application_imports_is_declared_for_development_only():
+    """The other way round, where `uv export --no-dev` would leave an import with nothing behind it.
+
+    The scripts are read too, because an operator runs them in the image: the first-run guide
+    seeds a deployment with `docker compose exec api python -m scripts.setup_initial_data`, and
+    the repairs, the usage prune and the account unlock are all run the same way. `baseline.py`
+    is the exception, and the only one: it writes a project's first migration against a container
+    it starts itself, which is a thing to do once, from a checkout.
+    """
+    development = _declared_distributions("dev") - _declared_distributions("runtime")
+    application = _imported("src", "scripts", "migrations", skipping=(DEVELOPMENT_SCRIPT,))
+
+    assert {name for name in development if _provided().get(name, frozenset()) & application} == set()
+
+
+def test_the_dependency_readings_find_what_they_claim_to():
+    """Both rules report what they found, so a reading that stopped working would pass quietly."""
+    assert "fastapi" in _imported("src", "migrations")
+    assert "pytest" in _imported("tests")
+    assert _provided()["sqlalchemy"] == frozenset({"sqlalchemy"})
+    assert "testcontainers" in _imported("scripts")
+    assert "testcontainers" not in _imported("scripts", skipping=(DEVELOPMENT_SCRIPT,))
+    assert "asyncio" in _imported("scripts", skipping=(DEVELOPMENT_SCRIPT,)), "the other scripts are still read"
 
 
 @pytest.mark.parametrize("entry", sorted(_catalog()["blueprint"]["blueprint_only"]))

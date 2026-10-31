@@ -18,11 +18,9 @@ dependencies = [
     "asyncpg>=0.30.0",
     "crudauth[all]>=0.8.2,<0.9.0",
     "cryptography>=42.0.0",
-    "faker>=37.1.0",
     "fastapi[standard]>=0.115.8",
     "fastcrud>=0.21.0",
     "greenlet>=3.1.1",
-    "httpx>=0.28.1",
     "itsdangerous>=2.2.0",
     "jinja2>=3.1.6",
     "pydantic>=2.10.6",
@@ -48,6 +46,8 @@ dev = [
     "pytest-xdist[psutil]>=3.8.0",
     "taskiq[reload]>=0.11.20",
     "pre-commit>=4.0.0",
+    "faker>=37.1.0",
+    "httpx>=0.28.1",
 ]
 
 [tool.setuptools.packages.find]
