@@ -12,7 +12,6 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "aiomcache>=0.8.2",
-    "aiosqlite>=0.21.0",
     "alembic>=1.16.4",
     "anyio>=4.15.1",
     "asyncpg>=0.30.0",
@@ -22,7 +21,6 @@ dependencies = [
     "fastcrud>=0.21.0",
     "greenlet>=3.1.1",
     "itsdangerous>=2.2.0",
-    "jinja2>=3.1.6",
     "pydantic>=2.10.6",
     "pydantic-settings>=2.14.2",
     "redis>=6.1.0",
@@ -48,6 +46,7 @@ dev = [
     "pre-commit>=4.0.0",
     "faker>=37.1.0",
     "httpx>=0.28.1",
+    "jinja2>=3.1.6",
 ]
 
 [tool.setuptools.packages.find]

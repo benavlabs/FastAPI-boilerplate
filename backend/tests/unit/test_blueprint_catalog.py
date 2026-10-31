@@ -19,7 +19,7 @@ import re
 import sys
 import tomllib
 from collections.abc import Iterable
-from importlib.metadata import packages_distributions
+from importlib.metadata import packages_distributions, requires
 from pathlib import Path
 from typing import Any
 
@@ -215,6 +215,41 @@ makes that import. `starlette` doesn't declare `itsdangerous`, and importing
 `manager`, which imports `user_agents` inside a `try`. A project without either would refuse
 to start the admin panel, or record every session's device as unknown, with nothing naming
 what is missing."""
+
+
+NEEDED_WITHOUT_AN_IMPORT = {
+    "asyncpg": "the driver `POSTGRES_ASYNC_PREFIX` names, which sqlalchemy loads from the URL",
+    "greenlet": "what sqlalchemy runs a DBAPI call in, for its asyncio support",
+}
+"""Core distributions no file imports and no import pulls in: another distribution asks for them,
+or a setting names them as a driver. Written down so a project's image carries nothing nobody can
+account for."""
+
+
+def test_every_runtime_dependency_nothing_imports_is_accounted_for():
+    """Both ways: a distribution installed and never imported is either needed through something
+    else, which is worth writing down, or weight in every project's image for no reason."""
+    runtime = _declared_distributions("runtime")
+    imported = {name for name in runtime if _provided().get(name, frozenset()) & set(_importers())}
+
+    assert runtime - imported == set(INDIRECT_NEEDS) | set(NEEDED_WITHOUT_AN_IMPORT)
+
+
+def test_the_two_the_database_needs_are_the_blueprint_s_to_declare():
+    """Why neither can be left to sqlalchemy, read from the installed metadata and the settings.
+
+    `asyncpg` is the driver the URL names and sqlalchemy loads; `greenlet` is what sqlalchemy's
+    asyncio support runs a driver's calls in. Sqlalchemy asks for them only through extras the
+    backend doesn't declare, and the greenlet one outright on some platforms only, so a project
+    that installed plain `sqlalchemy` would have neither.
+    """
+    asked = requires("sqlalchemy") or ()
+    base = (REPO_ROOT / "backend/src/infrastructure/config/base.py").read_text()
+
+    assert 'POSTGRES_ASYNC_PREFIX", default="postgresql+asyncpg://"' in base
+    assert any(entry.startswith("asyncpg") and entry.endswith('extra == "postgresql-asyncpg"') for entry in asked)
+    assert any(entry.startswith("greenlet") and entry.endswith('extra == "asyncio"') for entry in asked)
+    assert "sqlalchemy>=2.0.37" in _catalog()["blueprint"]["dependencies"]["runtime"], "plain, with no extras"
 
 
 @pytest.mark.parametrize(
