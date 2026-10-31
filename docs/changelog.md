@@ -25,6 +25,10 @@ ___
   `aiosqlite` answered `SQLITE_ASYNC_PREFIX`, which no module reads, and the admin panel gets
   `jinja2` through `sqladmin`, which requires it. `jinja2` stays in the `dev` extra for the
   template tests. A project of your own that imported either has to declare it.
+- **`.env.example` ships `ADMIN_ENABLED=false`.** The setting has defaulted to `false` since
+  0.20.0, but the example still turned the panel on, so a copied example served `/admin` with the
+  example's own `admin` credentials. Set `ADMIN_ENABLED=true`, with credentials of your own, where
+  you want it.
 
 ___
 

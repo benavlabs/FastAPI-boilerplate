@@ -1498,6 +1498,47 @@ def test_no_marker_sits_anywhere_but_under_a_header():
     assert all(_true(marker.removeprefix("# @fastro if="), set(_catalog()["features"])) for marker in marked)
 
 
+ADMIN_GUIDE = REPO_ROOT / "docs" / "user-guide" / "admin-panel" / "configuration.md"
+
+QUOTED_EXAMPLE = "The default `.env.example`"
+"""Where that guide quotes the example, which is the one place the docs reproduce its values."""
+
+
+def test_the_guide_quotes_the_example_as_it_ships():
+    """A quoted value that drifts from the file is a reader setting up a panel that stays dark, or
+    serving one they thought was off: the example keeps the admin panel off, as the setting's own
+    default has since 0.20.0."""
+    guide = ADMIN_GUIDE.read_text()
+    quoted = guide[guide.index(QUOTED_EXAMPLE) :].split("```")[1].removeprefix("env\n")
+    shipped = dict(line.split("=", 1) for line in ENV_EXAMPLE.read_text().splitlines() if re.match(r"^[A-Z][A-Z0-9_]*=", line))
+
+    assert "ADMIN_ENABLED=false" in quoted, "the example ships the panel off"
+    for line in quoted.splitlines():
+        name, _, value = line.partition("=")
+        assert shipped[name] == value, name
+
+
+FIRST_RUN = REPO_ROOT / "docs" / "getting-started"
+
+NEARBY_LINES = 2
+"""How far from a mention of the panel the flag may be and still be read as part of the same claim."""
+
+
+@pytest.mark.parametrize("page", sorted(path.name for path in FIRST_RUN.glob("*.md")))
+def test_no_first_run_page_offers_the_admin_panel_without_saying_what_turns_it_on(page: str):
+    """A new reader follows these pages in order, and `/admin` answers 404 until the flag is set
+    and both credentials are there. A page that lists it among the things that now work sends
+    that reader to look for a bug of their own."""
+    lines = (FIRST_RUN / page).read_text().splitlines()
+    unexplained = [
+        line
+        for index, line in enumerate(lines)
+        if "/admin" in line and "ADMIN_ENABLED" not in "\n".join(lines[max(0, index - NEARBY_LINES) : index + NEARBY_LINES + 1])
+    ]
+
+    assert unexplained == []
+
+
 def test_the_example_is_read_the_way_it_is_written():
     """The reading itself: a parse that found no sections, or missed the commented-out lines,
     would leave the rule above with nothing to object to."""

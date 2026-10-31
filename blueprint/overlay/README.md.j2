@@ -35,9 +35,9 @@ docker compose exec api python -m scripts.setup_initial_data
 
 ## The admin panel
 
-`backend/.env.example` turns it on, so a copied example has it at `/admin`. Set
-`ADMIN_ENABLED=false` where you don't want it, and give `ADMIN_USERNAME` and `ADMIN_PASSWORD`
-values of your own before anything but your laptop can reach it.
+It ships switched off. Set `ADMIN_ENABLED=true` in `backend/.env`, with `ADMIN_USERNAME` and
+`ADMIN_PASSWORD` values of your own, and it is served at `/admin`. Without both credentials it
+stays unmounted, whatever the flag says.
 {%- endif %}
 
 ## Migrations

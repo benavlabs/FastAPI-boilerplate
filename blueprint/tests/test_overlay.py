@@ -185,6 +185,17 @@ def test_the_readme_tells_a_project_only_what_it_carries(features: tuple[str, ..
             assert not re.search(rf"\b{name}\b", rendered), name
 
 
+def test_the_readme_describes_the_admin_panel_the_example_ships():
+    """The README and `.env.example` go to the same project, so one can't say the panel is off
+    while the other turns it on."""
+    example = (REPO_ROOT / CATALOG["blueprint"]["python_root"] / ".env.example").read_text()
+    rendered = _rendered(README, ("accounts", "admin"))
+    shipped_off = "\nADMIN_ENABLED=false\n" in example
+
+    assert ("ships switched off" in rendered) == shipped_off
+    assert ("Set `ADMIN_ENABLED=true`" in rendered) == shipped_off
+
+
 def test_the_readme_says_what_a_project_with_no_features_is():
     """Core only is a real answer, so the file says so rather than leaving the line empty."""
     rendered = _rendered(README, ())
