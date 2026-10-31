@@ -1243,6 +1243,96 @@ def test_every_option_offers_the_values_its_feature_acts_on(feature: str, option
     )
 
 
+ENV_EXAMPLE = REPO_ROOT / "backend" / ".env.example"
+
+NOT_A_SETTING = {
+    "DATABASE_URL": "core",
+    "FORWARDED_ALLOW_IPS": "core",
+    "SESSION_REDIS_URL": "accounts",
+}
+"""Variables the example sets that no settings field declares, and where each belongs:
+`DATABASE_URL` is the name `DATABASE_URL_OVERRIDE` is aliased to, `FORWARDED_ALLOW_IPS` is read
+by uvicorn and written by the deploy templates, and `SESSION_REDIS_URL` is built by the accounts
+settings rather than declared as a field."""
+
+
+@functools.cache
+def _settings_fields() -> dict[str, frozenset[str]]:
+    """Which part of the project declares each setting: `core`, or the features whose contributed
+    settings classes declare it."""
+    modules: dict[str, list[Path]] = {"core": [REPO_ROOT / "backend/src/infrastructure/config/base.py"]}
+    for name, feature in _catalog()["features"].items():
+        for entry in feature.get("contributes", {}).get("settings", ()):
+            module, _, _ = _ref(entry if isinstance(entry, str) else entry["ref"])
+            modules.setdefault(name, []).append(REPO_ROOT / "backend" / Path(*module.split(".")).with_suffix(".py"))
+
+    declared: dict[str, set[str]] = {}
+    for owner, paths in modules.items():
+        for path in paths:
+            for node in ast.walk(ast.parse(path.read_text())):
+                if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name) and node.target.id.isupper():
+                    declared.setdefault(node.target.id, set()).add(owner)
+
+    return {name: frozenset(owners) for name, owners in declared.items()}
+
+
+@functools.cache
+def _env_sections() -> tuple[tuple[str, tuple[str, ...]], ...]:
+    """Each section of the example: its title, and the variables it sets, including the ones it
+    ships commented out, since a reader uncomments them where they sit."""
+    lines = ENV_EXAMPLE.read_text().splitlines()
+    rule = re.compile(r"^# ={10,}$")
+    headers = [
+        index
+        for index, line in enumerate(lines)
+        if rule.match(line) and index + 2 < len(lines) and rule.match(lines[index + 2])
+    ]
+
+    sections = []
+    for position, start in enumerate(headers):
+        end = headers[position + 1] if position + 1 < len(headers) else len(lines)
+        variables = tuple(
+            found.group(1) for line in lines[start + 3 : end] if (found := re.match(r"^#?\s*([A-Z][A-Z0-9_]*)=", line))
+        )
+        sections.append((lines[start + 1].lstrip("# ").strip(), variables))
+
+    return tuple(sections)
+
+
+def _owner_of(variable: str) -> frozenset[str]:
+    fields = _settings_fields()
+    if variable in fields:
+        return fields[variable]
+
+    assert variable in NOT_A_SETTING, f"{variable} is in the example and nothing declares it"
+
+    return frozenset({NOT_A_SETTING[variable]})
+
+
+@pytest.mark.parametrize("title", [title for title, _ in _env_sections()])
+def test_every_section_of_the_example_belongs_to_one_feature_or_to_the_core(title: str):
+    """Spec 6.1 keeps or drops a section whole, so a section can hold one feature's variables or
+    the core's, never both: dropping a mixed one would take `SECRET_KEY` from every project
+    without accounts.
+    """
+    variables = next(found for name, found in _env_sections() if name == title)
+    owners = {owner for variable in variables for owner in _owner_of(variable)}
+
+    assert len(owners) <= 1, sorted(owners)
+
+
+def test_the_example_is_read_the_way_it_is_written():
+    """The reading itself: a parse that found no sections, or missed the commented-out lines,
+    would leave the rule above with nothing to object to."""
+    sections = dict(_env_sections())
+
+    assert len(sections) >= 15
+    assert "CREATE_TABLES_ON_STARTUP" in sections["Database Configuration"], "a line shipped commented out"
+    assert _owner_of("SECRET_KEY") == frozenset({"core"})
+    assert _owner_of("CACHE_BACKEND") == frozenset({"cache"})
+    assert _owner_of("SESSION_REDIS_URL") == frozenset({"accounts"})
+
+
 @pytest.mark.parametrize(("feature", "option"), sorted(OPTION_SOURCES))
 def test_every_option_defaults_to_what_the_project_already_ships(feature: str, option: str):
     """The question `fastro new` asks pre-picks the value a clone of this repo runs with."""
