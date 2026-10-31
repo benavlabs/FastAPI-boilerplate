@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import yaml
 from jinja2 import Environment, FileSystemLoader, StrictUndefined, meta
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -30,7 +31,7 @@ a command. Anything else after `fastro` has to be a command the catalog declares
 A_FASTRO_COMMAND = re.compile(r"\bfastro(?:@(?:\{\{[^}]*\}\}|[^\s{]+))? ((?:[a-z][a-z0-9-]*)(?: [a-z][a-z0-9-]*)?)")
 """A command, however it is run: `fastro sync`, or `uvx fastro@{{ fastro.version }} sync`, or
 `uvx fastro@0.1.0 sync`. Without the pin in the pattern every pinned command goes unread, and
-with a pin of `\S+` the template's own `{{ fastro.version }}` reads as one, leaving `fastro` as
+with a pin that takes any non-space text, the template's own `{{ fastro.version }}` reads as one, leaving `fastro` as
 the command."""
 
 A_CODE_SPAN = re.compile(r"`([^`\n]+)`|```[a-z]*\n(.*?)```", re.DOTALL)
@@ -198,26 +199,82 @@ def test_the_readme_names_the_features_a_project_selected():
     assert "Selected: accounts, admin." in rendered
 
 
-def test_every_fastro_command_in_the_readme_runs_the_tool_that_generated_the_project():
+@pytest.mark.parametrize("path", [str(path.relative_to(OVERLAY)) for path in _files() if path.suffix == ".j2"])
+def test_every_fastro_command_a_template_writes_runs_the_tool_that_generated_the_project(path: str):
     """`uvx fastro@<version>` needs nothing installed first and pins the project to the tool it
     was generated with, so a reader never gets a newer tool's behaviour by accident.
 
-    Only what a reader runs is checked: `fastro.toml` is a file and `fastro.version` is a context
-    value, not something to run.
+    Templates only: `AGENTS.md` is written by hand and has no version to interpolate. In Markdown
+    the commands are what is written as code; anywhere else every line is run, so the whole file
+    counts. `fastro.toml` is a file and `fastro.version` a context value, so neither is read as a
+    command, however a pattern escapes the dot.
     """
-    spans = [span or fenced for span, fenced in A_CODE_SPAN.findall((OVERLAY / README).read_text())]
+    text = (OVERLAY / path).read_text()
+    spans = (
+        [span or fenced for span, fenced in A_CODE_SPAN.findall(text)] if _landing(OVERLAY / path).suffix == ".md" else [text]
+    )
     unpinned = []
     for span in spans:
         for found in re.finditer(r"fastro", span):
             before, after = span[: found.start()], span[found.end() :]
-            if after.startswith((".toml", ".version")):
+            if after.removeprefix("\\").startswith((".toml", ".version")):
                 continue
 
             if not (before.endswith("uvx ") and after.startswith("@{{ fastro.version }}")):
                 unpinned.append(span.strip()[:60])
 
     assert unpinned == []
-    assert "uvx fastro@{{ fastro.version }}" in (OVERLAY / README).read_text()
+
+
+WORKFLOW = ".github/workflows/ci.yml.j2"
+
+PRE_COMMIT = ".pre-commit-config.yaml.j2"
+
+BEFORE_FINISHING = ("ruff check .", "ruff format --check .", "mypy src scripts migrations tests", "pytest")
+"""What an agent is told to run before finishing, which is what CI runs: one list, two files."""
+
+
+@pytest.mark.parametrize("path", [WORKFLOW, PRE_COMMIT])
+def test_the_yaml_a_project_receives_parses(path: str):
+    """Rendered for the harshest selection, since a conditional that empties a list or leaves a
+    dangling key is only visible once it is parsed."""
+    assert yaml.safe_load(_rendered(path, ()))
+
+
+def test_the_workflow_runs_what_the_agent_file_tells_an_agent_to_run():
+    """An agent whose checks are looser than CI's finishes work that CI then rejects."""
+    agents = (OVERLAY / "AGENTS.md").read_text()
+    workflow = _rendered(WORKFLOW, ())
+
+    for command in BEFORE_FINISHING:
+        assert command in agents, command
+        assert command in workflow, command
+
+
+def test_the_workflow_installs_the_project_rather_than_this_workspace():
+    """A project has one `pyproject.toml`, under the python root: `--all-packages` and a root
+    lock are this repository's own shape, and neither is there."""
+    workflow = yaml.safe_load(_rendered(WORKFLOW, ()))
+    steps = workflow["jobs"]["check"]["steps"]
+    installing = next(step for step in steps if step.get("name") == "Install")
+
+    assert "--project backend" in installing["run"]
+    assert "--all-packages" not in installing["run"]
+    assert (
+        "backend/uv.lock" in next(step for step in steps if step.get("name") == "Install uv")["with"]["cache-dependency-glob"]
+    )
+
+
+def test_every_pre_commit_hook_watches_paths_a_project_has():
+    """A `files:` pattern naming `cli/` or `tools/` is a hook over nothing: those are the
+    blueprint's own, and no project receives them."""
+    hooks = yaml.safe_load(_rendered(PRE_COMMIT, ()))
+    watched = [hook["files"] for repo in hooks["repos"] for hook in repo["hooks"] if "files" in hook]
+
+    assert watched
+    for pattern in watched:
+        head = re.split(r"[(\[{|?*+\\]", pattern.removeprefix("^"))[0].rstrip("/")
+        assert head in {"backend", "fastro.toml", "fastro\\.toml", ""} or not _withheld(head), pattern
 
 
 def test_the_claude_file_points_at_the_agents_file():

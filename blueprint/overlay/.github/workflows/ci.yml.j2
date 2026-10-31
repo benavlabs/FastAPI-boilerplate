@@ -1,0 +1,46 @@
+name: CI
+
+on: [push, pull_request]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      - name: Install
+        run: uv sync --all-extras --locked --project backend --python 3.11
+
+      - name: Lint
+        working-directory: backend
+        run: |
+          uv run --no-sync ruff check .
+          uv run --no-sync ruff format --check .
+
+      - name: Types
+        working-directory: backend
+        run: uv run --no-sync mypy src scripts migrations tests
+
+      - name: Tests
+        working-directory: backend
+        run: uv run --no-sync pytest
+        env:
+          ENVIRONMENT: local
+          SECRET_KEY: a-secret-key-this-run-only-with-32-bytes
+
+      - name: The project matches what it declares
+        run: |
+          uvx fastro@{{ fastro.version }} sync --check
+          uvx fastro@{{ fastro.version }} check
