@@ -1246,20 +1246,36 @@ def test_every_option_offers_the_values_its_feature_acts_on(feature: str, option
 ENV_EXAMPLE = REPO_ROOT / "backend" / ".env.example"
 
 NOT_A_SETTING = {
-    "DATABASE_URL": "core",
     "FORWARDED_ALLOW_IPS": "core",
-    "SESSION_REDIS_URL": "accounts",
 }
-"""Variables the example sets that no settings field declares, and where each belongs:
-`DATABASE_URL` is the name `DATABASE_URL_OVERRIDE` is aliased to, `FORWARDED_ALLOW_IPS` is read
-by uvicorn and written by the deploy templates, and `SESSION_REDIS_URL` is built by the accounts
-settings rather than declared as a field."""
+"""Variables the example sets that no settings field takes: `FORWARDED_ALLOW_IPS` is read by
+uvicorn and written by the deploy templates, never by the app."""
+
+
+def _alias_names(node: ast.AnnAssign) -> set[str]:
+    """The names a field accepts besides its own, which is how one feature's setting reads
+    another's: `SESSION_REDIS_HOST` takes `CACHE_REDIS_HOST` when nothing sets it."""
+    names: set[str] = set()
+    for given in getattr(node.value, "keywords", ()):
+        if given.arg != "validation_alias":
+            continue
+
+        if isinstance(given.value, ast.Constant) and isinstance(given.value.value, str):
+            names.add(given.value.value)
+        else:
+            names.update(
+                argument.value
+                for argument in getattr(given.value, "args", ())
+                if isinstance(argument, ast.Constant) and isinstance(argument.value, str)
+            )
+
+    return names
 
 
 @functools.cache
 def _settings_fields() -> dict[str, frozenset[str]]:
-    """Which part of the project declares each setting: `core`, or the features whose contributed
-    settings classes declare it."""
+    """Which parts of the project take each setting: `core`, or the features whose contributed
+    settings classes declare it, counting the names a field accepts as aliases as well."""
     modules: dict[str, list[Path]] = {"core": [REPO_ROOT / "backend/src/infrastructure/config/base.py"]}
     for name, feature in _catalog()["features"].items():
         for entry in feature.get("contributes", {}).get("settings", ()):
@@ -1271,15 +1287,38 @@ def _settings_fields() -> dict[str, frozenset[str]]:
         for path in paths:
             for node in ast.walk(ast.parse(path.read_text())):
                 if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name) and node.target.id.isupper():
-                    declared.setdefault(node.target.id, set()).add(owner)
+                    for name in {node.target.id} | _alias_names(node):
+                        declared.setdefault(name, set()).add(owner)
 
     return {name: frozenset(owners) for name, owners in declared.items()}
 
 
 @functools.cache
-def _env_sections() -> tuple[tuple[str, tuple[str, ...]], ...]:
-    """Each section of the example: its title, and the variables it sets, including the ones it
-    ships commented out, since a reader uncomments them where they sit."""
+def _env_comments() -> dict[str, tuple[str, ...]]:
+    """Each section's comment lines, less its markers, which name variables as data."""
+    lines = ENV_EXAMPLE.read_text().splitlines()
+    rule = re.compile(r"^# ={10,}$")
+    headers = [
+        index
+        for index, line in enumerate(lines)
+        if rule.match(line) and index + 2 < len(lines) and rule.match(lines[index + 2])
+    ]
+
+    comments = {}
+    for position, start in enumerate(headers):
+        end = headers[position + 1] if position + 1 < len(headers) else len(lines)
+        comments[lines[start + 1].lstrip("# ").strip()] = tuple(
+            line for line in lines[start + 3 : end] if line.lstrip().startswith("#") and "@fastro" not in line
+        )
+
+    return comments
+
+
+@functools.cache
+def _env_sections() -> tuple[tuple[str, str | None, tuple[str, ...]], ...]:
+    """Each section of the example: its title, the marker directly below its header if it carries
+    one, and the variables it sets, including the ones it ships commented out, since a reader
+    uncomments them where they sit."""
     lines = ENV_EXAMPLE.read_text().splitlines()
     rule = re.compile(r"^# ={10,}$")
     headers = [
@@ -1294,7 +1333,8 @@ def _env_sections() -> tuple[tuple[str, tuple[str, ...]], ...]:
         variables = tuple(
             found.group(1) for line in lines[start + 3 : end] if (found := re.match(r"^#?\s*([A-Z][A-Z0-9_]*)=", line))
         )
-        sections.append((lines[start + 1].lstrip("# ").strip(), variables))
+        marker = lines[start + 3] if start + 3 < end and lines[start + 3].startswith("# @fastro ") else None
+        sections.append((lines[start + 1].lstrip("# ").strip(), marker, variables))
 
     return tuple(sections)
 
@@ -1309,28 +1349,145 @@ def _owner_of(variable: str) -> frozenset[str]:
     return frozenset({NOT_A_SETTING[variable]})
 
 
-@pytest.mark.parametrize("title", [title for title, _ in _env_sections()])
+def _owners_of(title: str) -> set[str]:
+    """Every part of the project that takes any of this section's variables."""
+    variables = next(found for name, _, found in _env_sections() if name == title)
+
+    return {owner for variable in variables for owner in _owner_of(variable)}
+
+
+def _common_owners_of(title: str) -> set[str]:
+    """The parts that take *every* variable in the section, which is what a marker can name."""
+    variables = next(found for name, _, found in _env_sections() if name == title)
+
+    return set.intersection(*(set(_owner_of(variable)) for variable in variables)) if variables else {"core"}
+
+
+def _marked_feature(title: str) -> str:
+    marker = next(found for name, found, _ in _env_sections() if name == title)
+
+    return marker.removeprefix("# @fastro if=") if marker else "core"
+
+
+@pytest.mark.parametrize("title", [title for title, _, _ in _env_sections()])
 def test_every_section_of_the_example_belongs_to_one_feature_or_to_the_core(title: str):
     """Spec 6.1 keeps or drops a section whole, so a section can hold one feature's variables or
     the core's, never both: dropping a mixed one would take `SECRET_KEY` from every project
     without accounts.
     """
-    variables = next(found for name, found in _env_sections() if name == title)
-    owners = {owner for variable in variables for owner in _owner_of(variable)}
+    assert _common_owners_of(title), sorted(_owners_of(title))
 
-    assert len(owners) <= 1, sorted(owners)
+
+@pytest.mark.parametrize("title", [title for title, _, _ in _env_sections()])
+def test_every_section_a_feature_owns_says_which_feature_keeps_it(title: str):
+    """Spec 6.1: the marker is a line of its own directly below the header's closing rule, and
+    the section goes when its condition is false. A core section carries none, because a project
+    keeps it whatever it selected.
+    """
+    common = _common_owners_of(title)
+    marker = next(found for name, found, _ in _env_sections() if name == title)
+
+    if common == {"core"}:
+        assert marker is None, title
+
+        return
+
+    assert marker is not None, sorted(common)
+    assert marker.removeprefix("# @fastro if=") in common - {"core"}
+
+
+@pytest.mark.parametrize("title", [title for title, _, _ in _env_sections()])
+def test_no_section_sends_a_reader_to_a_variable_another_feature_owns(title: str):
+    """A kept section has to read on its own: a project that selected one feature and not another
+    would otherwise be told to set something it hasn't got, with nowhere to set it.
+
+    Only variables this section's own feature declares, or the core's, may be named. The
+    production checklist is the reason this exists: it used to name eight of them.
+    """
+    mine = {_marked_feature(title)}
+    named = {
+        word
+        for line in _env_comments()[title]
+        for word in re.findall(r"\b[A-Z][A-Z0-9_]{2,}\b", line)
+        if word in _settings_fields() or word in NOT_A_SETTING
+    }
+
+    assert {word: sorted(_owner_of(word)) for word in named if not _owner_of(word) & (mine | {"core"})} == {}
+
+
+@functools.cache
+def _fields_falling_back_to_another_feature() -> dict[str, frozenset[str]]:
+    """Fields that read another feature's variable when nothing sets their own, with the features
+    whose names they borrow. `SESSION_REDIS_HOST` takes `CACHE_REDIS_HOST`, so a project with
+    accounts and no cache has nothing in its example pointing sessions at Redis."""
+    fields: dict[str, set[str]] = {}
+    for name, feature in _catalog()["features"].items():
+        for entry in feature.get("contributes", {}).get("settings", ()):
+            module, _, _ = _ref(entry if isinstance(entry, str) else entry["ref"])
+            path = REPO_ROOT / "backend" / Path(*module.split(".")).with_suffix(".py")
+            for node in ast.walk(ast.parse(path.read_text())):
+                if not isinstance(node, ast.AnnAssign) or not isinstance(node.target, ast.Name):
+                    continue
+
+                borrowed = {
+                    owner for alias in _alias_names(node) - {node.target.id} for owner in _owner_of(alias) if owner != name
+                }
+                if borrowed:
+                    fields.setdefault(node.target.id, set()).update(borrowed)
+
+    return {name: frozenset(owners) for name, owners in fields.items()}
+
+
+@pytest.mark.parametrize("field", sorted(_fields_falling_back_to_another_feature()))
+def test_every_setting_that_borrows_another_features_variable_is_named_in_its_own_section(field: str):
+    """Otherwise the only line that sets it is the other feature's, and a project without that
+    feature is left with the default: for the session Redis, `localhost`, which is not the
+    service name the compose stack publishes.
+
+    The line may be commented out. It is there to be found and uncommented, and a live one would
+    beat the borrowed value rather than fall back to it.
+    """
+    owners = _owner_of(field) - _fields_falling_back_to_another_feature()[field]
+    sections = {title: variables for title, _, variables in _env_sections()}
+    theirs = [title for title in sections if _marked_feature(title) in owners]
+
+    assert theirs, sorted(owners)
+    assert any(field in sections[title] for title in theirs), (
+        f"{field} is set only by {sorted(_fields_falling_back_to_another_feature()[field])}"
+    )
+
+
+def test_the_comments_are_read_the_way_they_are_written():
+    """The reading above: comments that stopped being found would leave it nothing to object to."""
+    comments = _env_comments()
+
+    assert any("SECRET_KEY" in line for line in comments["Production Security Checklist"])
+    assert any("CACHE_REDIS_DB" in line for line in comments["Cache Configuration"])
+    assert not any("@fastro" in line for section in comments.values() for line in section)
+
+
+def test_no_marker_sits_anywhere_but_under_a_header():
+    """A marker further down would speak for the lines after it, which spec 6.1 doesn't read:
+    the section is what the condition keeps or drops."""
+    lines = ENV_EXAMPLE.read_text().splitlines()
+    marked = [line for line in lines if line.startswith("# @fastro if=")]
+    under_headers = [marker for _, marker, _ in _env_sections() if marker is not None]
+
+    assert marked == under_headers
+    assert all(_true(marker.removeprefix("# @fastro if="), set(_catalog()["features"])) for marker in marked)
 
 
 def test_the_example_is_read_the_way_it_is_written():
     """The reading itself: a parse that found no sections, or missed the commented-out lines,
     would leave the rule above with nothing to object to."""
-    sections = dict(_env_sections())
+    sections = {title: variables for title, _, variables in _env_sections()}
 
     assert len(sections) >= 15
     assert "CREATE_TABLES_ON_STARTUP" in sections["Database Configuration"], "a line shipped commented out"
     assert _owner_of("SECRET_KEY") == frozenset({"core"})
     assert _owner_of("CACHE_BACKEND") == frozenset({"cache"})
     assert _owner_of("SESSION_REDIS_URL") == frozenset({"accounts"})
+    assert _owner_of("CACHE_REDIS_HOST") == frozenset({"accounts", "cache"}), "the session host takes it too"
 
 
 @pytest.mark.parametrize(("feature", "option"), sorted(OPTION_SOURCES))
