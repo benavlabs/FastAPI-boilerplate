@@ -1,0 +1,10 @@
+source = true
+features = ["accounts", "rbac", "ratelimit", "tiers", "tier_limits", "api_keys", "admin", "cache", "taskiq"]
+blueprint = { name = "fastro", version = "0.20.0" }
+
+[project]
+name = "fastapi-boilerplate"
+
+[options]
+"cache.backend" = "redis"
+"taskiq.broker" = "redis"

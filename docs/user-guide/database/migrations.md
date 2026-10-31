@@ -31,6 +31,12 @@ Tracked, reviewable, reversible schema changes — what you want for anything be
     want ([Composable Features](../composable-features.md)), then generate the baseline for what's
     left.
 
+    **The script does all of this.** `uv run --no-sync python -m scripts.baseline` starts a
+    throwaway Postgres, autogenerates the revision against it, checks that applying it recreates
+    exactly what the models declare, and leaves it in `migrations/versions/` to commit; `--check`
+    deletes it again. The rest of this section is the same thing by hand, for when Docker isn't
+    there.
+
     **Generate it against a database with nothing in it.** Autogenerate writes the difference
     between the models and the database it connects to, so pointing it at a database that already
     has the schema — a dev stack, which `CREATE_TABLES_ON_STARTUP` built with `create_all` — writes

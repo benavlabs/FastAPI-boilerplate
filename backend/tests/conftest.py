@@ -16,8 +16,6 @@ os.environ.setdefault("SECRET_KEY", "test_secret_key_for_tests_with_32_bytes_at_
 os.environ.setdefault("ADMIN_ENABLED", "true")
 os.environ.setdefault("ADMIN_USERNAME", "admin")
 os.environ.setdefault("ADMIN_PASSWORD", "s3cret")
-os.environ.setdefault("SQLITE_URI", ":memory:")
-os.environ.setdefault("SQLITE_ASYNC_PREFIX", "sqlite+aiosqlite:///")
 
 # Disable the testcontainers Ryuk reaper. Under `pytest -n auto`, each xdist worker
 # is a separate process that spins up its own Ryuk container, and Docker Desktop

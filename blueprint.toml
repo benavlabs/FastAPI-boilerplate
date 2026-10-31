@@ -1,0 +1,733 @@
+[blueprint]
+name = "fastro"
+version = "0.20.0"
+schema = 1
+requires_fastro = ">=0.1.0.dev0,<0.2"
+python_root = "backend"
+import_root = "src"
+blueprint_only = [
+  ".github/",
+  ".pre-commit-config.yaml",
+  "CODE_OF_CONDUCT.md",
+  "CONTRIBUTING.md",
+  "README.md",
+  "backend/tests/unit/test_blueprint_catalog.py",
+  "backend/tests/unit/test_docs_imports.py",
+  "backend/tests/unit/test_docs_recipes.py",
+  "backend/tests/unit/test_docs_scripts.py",
+  "backend/tests/unit/test_docs_wiring.py",
+  "backend/tests/unit/test_image_contents.py",
+  "backend/tests/unit/test_removal_drill.py",
+  "blueprint/",
+  "blueprint.toml",
+  "cli/",
+  "docs/",
+  "fastro.toml",
+  "pyproject.toml",
+  "tools/",
+  "uv.lock",
+  "zensical.toml",
+]
+
+[blueprint.dependencies]
+runtime = [
+  "alembic>=1.16.4",
+  "anyio>=4.15.1",
+  "asyncpg>=0.30.0",
+  "crudauth[all]>=0.8.2,<0.9.0",
+  "fastapi[standard]>=0.115.8",
+  "fastcrud>=0.21.0",
+  "greenlet>=3.1.1",
+  "pydantic>=2.10.6",
+  "pydantic-settings>=2.14.2",
+  "redis>=6.1.0",
+  "sqlalchemy>=2.0.37",
+  "starlette>=1.3.1",
+]
+dev = [
+  "mypy>=1.14.1",
+  "ruff>=0.9.4",
+  "pytest>=8.3.5",
+  "pytest-asyncio>=0.25.3",
+  "pytest-mock>=3.14.0",
+  "testcontainers[postgres]>=4.10.0",
+  "pytest-xdist[psutil]>=3.8.0",
+  "taskiq[reload]>=0.11.20",
+  "pre-commit>=4.0.0",
+  "faker>=37.1.0",
+  "httpx>=0.28.1",
+  "jinja2>=3.1.6",
+]
+
+[presets]
+minimal = ["accounts"]
+standard = ["accounts", "rbac", "ratelimit", "tiers", "tier_limits", "admin", "cache"]
+full = ["accounts", "rbac", "ratelimit", "tiers", "tier_limits", "api_keys", "admin", "cache", "taskiq"]
+
+[verify.sets]
+core-only = []
+core-taskiq = ["taskiq"]
+accounts-only = ["accounts"]
+accounts-rbac = ["accounts", "rbac"]
+accounts-admin = ["accounts", "admin"]
+accounts-api-keys = ["accounts", "api_keys"]
+accounts-rbac-tiers = ["accounts", "rbac", "tiers", "ratelimit"]
+accounts-cache-taskiq = ["accounts", "cache", "taskiq"]
+
+[core.contributes]
+critical_readiness = [
+  "src.infrastructure.database.health:readiness as database_readiness",
+  "src.infrastructure.database.health:schema_readiness",
+]
+
+[points.routers]
+cardinality = "many"
+doc = "A router the API mounts under its version prefix."
+
+[points.root_routers]
+cardinality = "one"
+doc = "The routers mounted beside the API rather than under its prefix."
+
+[points.api_throttle]
+cardinality = "many"
+doc = "A dependency every throttled route runs before answering."
+
+[points.lifecycles]
+cardinality = "many"
+doc = "Startup and shutdown work, started in order and torn down in reverse."
+
+[points.installers]
+cardinality = "many"
+doc = "Something that installs itself on the app as the app is built."
+
+[points.docs_guard]
+cardinality = "one"
+doc = "The dependency that guards the documentation routes where they are served."
+
+[points.settings]
+cardinality = "many"
+doc = "A settings mixin the project's Settings inherits, with the core one last."
+
+[points.permission_sources]
+cardinality = "many"
+doc = "Answers which permissions an account holds."
+
+[points.rate_limit_resolvers]
+cardinality = "many"
+doc = "Answers the limit for a request, or declines to."
+
+[points.tier_delete_guards]
+cardinality = "many"
+doc = "Answers why a tier cannot be deleted yet."
+
+[points.tier_delete_releases]
+cardinality = "many"
+doc = "Releases the rows a feature keeps for a tier that is being deleted."
+
+[points.critical_readiness]
+cardinality = "many"
+doc = "A dependency a request needs, so readiness answers 503 while it is unreachable."
+
+[points.informational_readiness]
+cardinality = "many"
+doc = "A dependency readiness reports on without refusing traffic over it."
+
+[points.user_model]
+cardinality = "many"
+doc = "Columns a feature adds to the user model."
+
+[points.user_schema]
+cardinality = "many"
+doc = "Fields a feature adds to the user schemas."
+
+[points.admin_views]
+cardinality = "many"
+doc = "A model view the admin panel registers."
+
+[points.email_sender]
+cardinality = "one"
+doc = "The sender the account emails go out through."
+
+[points.cache_decorator]
+cardinality = "one"
+doc = "The decorator a route caches its response with."
+
+[points.task_modules]
+cardinality = "many"
+doc = "A module whose background tasks the worker registers."
+
+[points.table_modules]
+cardinality = "many"
+doc = "A module outside src/modules that declares tables on the metadata."
+
+[points.extra_transports]
+cardinality = "many"
+doc = "An authentication transport registered beside the session one."
+
+[points.seeders]
+cardinality = "many"
+doc = "A step the initial-data script runs, in order."
+
+[points.test_plugins]
+cardinality = "many"
+doc = "A fixture module pytest loads for the features the project carries."
+
+[features.accounts]
+summary = "Users, sessions, CSRF, login lockout, OAuth"
+group = "Accounts"
+dependencies = ["user-agents>=2.2.0"]
+paths = [
+  "backend/scripts/canonicalize_emails.py",
+  "backend/scripts/create_first_superuser.py",
+  "backend/scripts/unlock_account.py",
+  "backend/src/infrastructure/auth/",
+  "backend/src/modules/user/",
+  "backend/tests/fixtures/accounts.py",
+  "backend/tests/integration/accounts/",
+  "backend/tests/integration/api/v1/users/",
+  "backend/tests/integration/auth/",
+  "backend/tests/unit/infrastructure/auth/",
+  "backend/tests/unit/modules/user/",
+  "backend/tests/unit/scripts/test_canonicalize_emails.py",
+  "backend/tests/unit/scripts/test_create_first_superuser.py",
+  "backend/tests/unit/scripts/test_setup_initial_data.py",
+  "backend/tests/unit/scripts/test_unlock_account.py",
+]
+
+[features.accounts.contributes]
+routers = [
+  { ref = "src.modules.user.routes:router as users_router", prefix = "/users", throttled = true, order = 10 },
+  { ref = "src.infrastructure.auth.routes:router as auth_router", prefix = "/auth", throttled = false, order = 22 },
+]
+root_routers = ["src.infrastructure.auth.routes:root_routers as accounts_root_routers"]
+lifecycles = [
+  "src.infrastructure.auth.setup:lifecycle as accounts_lifecycle",
+  { ref = "src.infrastructure.handover:lifecycle as handover_lifecycle", if = "not taskiq", order = 950 },
+]
+installers = ["src.infrastructure.auth.install:install as accounts_install"]
+docs_guard = ["src.infrastructure.auth.dependencies:get_current_superuser"]
+settings = ["src.infrastructure.auth.settings:AccountsSettings"]
+critical_readiness = [
+  "src.infrastructure.auth.health:limiter_readiness",
+  "src.infrastructure.auth.health:sessions_readiness",
+]
+table_modules = [{ value = "src.infrastructure.auth.store" }]
+seeders = [{ ref = "scripts.create_first_superuser:create_first_superuser", order = 11 }]
+test_plugins = [{ value = "tests.fixtures.accounts" }]
+
+[features.accounts.commands."users unlock"]
+module = "scripts.unlock_account"
+help = "Clear the login lockout an account is held in."
+
+[features.accounts.commands."users canonicalize-emails"]
+module = "scripts.canonicalize_emails"
+help = "Rewrite the user addresses stored with case or whitespace in them."
+
+[features.accounts.commands."users create-superuser"]
+module = "scripts.create_first_superuser"
+help = "Create the first superuser from the admin environment variables."
+
+[[features.accounts.when]]
+if = "admin"
+paths = [
+  "backend/src/modules/user/admin.py",
+  "backend/tests/unit/modules/user/test_admin.py",
+]
+contributes.admin_views = [{ ref = "src.modules.user.admin:UserAdmin", order = 10 }]
+
+[features.rbac]
+summary = "Roles and permissions"
+group = "Accounts"
+requires = ["accounts"]
+paths = [
+  "backend/src/modules/role/",
+  "backend/tests/integration/rbac/",
+  "backend/tests/unit/modules/role/",
+]
+
+[features.rbac.contributes]
+routers = [
+  { ref = "src.modules.role.routes:user_roles_router", prefix = "/users", throttled = true, order = 13 },
+  { ref = "src.modules.role.routes:permissions_router", prefix = "/permissions", throttled = true, order = 24 },
+  { ref = "src.modules.role.routes:router as roles_router", prefix = "/roles", throttled = true, order = 25 },
+]
+permission_sources = ["src.modules.role.sources:role_permissions"]
+user_model = ["src.modules.role.contrib:UserRoleColumns"]
+
+[[features.rbac.when]]
+if = "admin"
+paths = [
+  "backend/src/modules/role/admin.py",
+  "backend/tests/unit/modules/role/test_admin.py",
+]
+contributes.admin_views = [
+  { ref = "src.modules.role.admin:RoleAdmin", order = 12 },
+  { ref = "src.modules.role.admin:RolePermissionAdmin", order = 13 },
+  { ref = "src.modules.role.admin:UserRoleAdmin", order = 14 },
+]
+
+[features.ratelimit]
+summary = "Per-caller API throttle"
+group = "Accounts"
+requires = ["accounts"]
+paths = [
+  "backend/src/infrastructure/ratelimit/",
+  "backend/tests/integration/ratelimit/",
+  "backend/tests/unit/infrastructure/ratelimit/",
+]
+
+[features.ratelimit.contributes]
+api_throttle = ["src.infrastructure.ratelimit.dependency:api_rate_limit_dependency"]
+settings = ["src.infrastructure.ratelimit.settings:RateLimitSettings"]
+
+[features.tiers]
+summary = "User tiers other features key off"
+group = "Accounts"
+requires = ["accounts"]
+paths = [
+  "backend/scripts/create_first_tier.py",
+  "backend/src/modules/tier/",
+  "backend/tests/fixtures/tiers.py",
+  "backend/tests/integration/tiers/",
+  "backend/tests/unit/modules/tier/",
+]
+
+[features.tiers.contributes]
+routers = [
+  { ref = "src.modules.tier.routes:user_tier_router", prefix = "/users", throttled = true, order = 11 },
+  { ref = "src.modules.tier.routes:router as tiers_router", prefix = "/tiers", throttled = true, order = 20 },
+]
+settings = ["src.modules.tier.settings:TierSettings"]
+user_model = ["src.modules.tier.contrib:UserTierColumns"]
+user_schema = ["src.modules.tier.contrib:UserTierFields"]
+seeders = [{ ref = "scripts.create_first_tier:create_first_tier", order = 10 }]
+test_plugins = [{ value = "tests.fixtures.tiers" }]
+
+[features.tiers.commands."tiers create-default"]
+module = "scripts.create_first_tier"
+help = "Create the default tier DEFAULT_TIER_NAME names, if it isn't there yet."
+
+[[features.tiers.when]]
+if = "admin"
+paths = [
+  "backend/src/modules/tier/admin.py",
+  "backend/tests/unit/modules/tier/test_admin.py",
+]
+contributes.admin_views = [{ ref = "src.modules.tier.admin:TierAdmin", order = 11 }]
+
+[features.tier_limits]
+summary = "Per-tier rate limits"
+group = "Accounts"
+requires = ["tiers", "ratelimit"]
+paths = [
+  "backend/src/modules/rate_limit/",
+  "backend/tests/integration/tier_limits/",
+  "backend/tests/unit/modules/rate_limit/",
+]
+
+[features.tier_limits.contributes]
+routers = [
+  { ref = "src.modules.rate_limit.routes:user_rate_limits_router", prefix = "/users", throttled = true, order = 12 },
+  { ref = "src.modules.rate_limit.routes:router as rate_limits_router", prefix = "/rate-limits", throttled = true, order = 21 },
+]
+rate_limit_resolvers = ["src.modules.rate_limit.hooks:tier_rate_limit"]
+tier_delete_guards = ["src.modules.rate_limit.hooks:rate_limits_reference_tier"]
+tier_delete_releases = ["src.modules.rate_limit.hooks:release_deleted_rate_limits"]
+
+[features.api_keys]
+summary = "API keys: create, revoke, meter"
+group = "Accounts"
+requires = ["accounts"]
+paths = [
+  "backend/scripts/cleanup_api_key_json.py",
+  "backend/scripts/prune_key_usage.py",
+  "backend/scripts/revoke_scrypt_api_keys.py",
+  "backend/src/modules/api_keys/",
+  "backend/tests/integration/api/v1/api_keys/",
+  "backend/tests/unit/modules/api_keys/",
+]
+
+[features.api_keys.contributes]
+routers = [
+  { ref = "src.modules.api_keys.routes:router as api_keys_router", prefix = "/api-keys", throttled = true, order = 23 },
+]
+installers = ["src.modules.api_keys.install:install as api_keys_install"]
+settings = ["src.modules.api_keys.settings:APIKeySettings"]
+extra_transports = [{ ref = "src.modules.api_keys.transport:APIKeyTransport", call = true }]
+
+[features.api_keys.commands."keys cleanup-json"]
+module = "scripts.cleanup_api_key_json"
+help = "Repair the API key rows whose JSON columns hold something nothing can read."
+
+[features.api_keys.commands."keys prune-usage"]
+module = "scripts.prune_key_usage"
+help = "Delete the API key usage rows past the retention."
+
+[features.api_keys.commands."keys revoke-scrypt"]
+module = "scripts.revoke_scrypt_api_keys"
+help = "Name the API keys still stored under a scrypt hash, and revoke them when asked."
+
+[[features.api_keys.when]]
+if = "ratelimit"
+paths = [
+  "backend/tests/integration/api_keys_ratelimit/",
+]
+
+[[features.api_keys.when]]
+if = "rbac"
+paths = [
+  "backend/tests/integration/api_keys_rbac/",
+]
+
+[[features.api_keys.when]]
+if = "taskiq"
+paths = [
+  "backend/src/modules/api_keys/tasks.py",
+  "backend/tests/unit/modules/api_keys/test_tasks.py",
+]
+contributes.task_modules = [{ value = "src.modules.api_keys.tasks", order = 11 }]
+
+[[features.api_keys.when]]
+if = "tier_limits"
+paths = [
+  "backend/tests/integration/api_keys_tiers/",
+]
+
+[features.admin]
+summary = "SQLAdmin panel at /admin"
+group = "Operations"
+requires = ["accounts"]
+dependencies = ["sqladmin>=0.28.0", "itsdangerous>=2.2.0"]
+paths = [
+  "backend/src/interfaces/admin/",
+  "backend/tests/unit/interfaces/admin/",
+]
+
+[features.admin.contributes]
+installers = ["src.interfaces.admin.initialize:install as admin_install"]
+settings = ["src.interfaces.admin.settings:SQLAdminSettings"]
+
+[features.cache]
+summary = "@cache over Redis or Memcached"
+group = "Operations"
+paths = [
+  "backend/src/infrastructure/cache/",
+  "backend/tests/unit/infrastructure/cache/",
+]
+
+[features.cache.contributes]
+lifecycles = ["src.infrastructure.cache.initialize:lifecycle as cache_lifecycle"]
+settings = ["src.infrastructure.cache.settings:CacheSettings"]
+informational_readiness = ["src.infrastructure.cache.health:readiness as cache_readiness"]
+cache_decorator = ["src.infrastructure.cache.decorator:cache as cached"]
+
+[features.cache.options.backend]
+choices = ["redis", "memcached"]
+default = "redis"
+env = { CACHE_BACKEND = "{value}" }
+services = { memcached = ["memcached"] }
+dependencies = { memcached = ["aiomcache>=0.8.2"] }
+
+[features.taskiq]
+summary = "Background tasks on Redis or RabbitMQ"
+group = "Operations"
+services = ["worker", "scheduler"]
+dependencies = [
+  "taskiq>=0.11.20",
+  "taskiq-redis>=1.1.2",
+  "taskiq-aio-pika>=0.4.3",
+  "cryptography>=42.0.0",
+]
+paths = [
+  "backend/src/infrastructure/taskiq/",
+  "backend/tests/unit/infrastructure/taskiq/",
+]
+
+[features.taskiq.contributes]
+lifecycles = ["src.infrastructure.taskiq.lifecycle:lifecycle as taskiq_lifecycle"]
+settings = ["src.infrastructure.taskiq.settings:TaskiqSettings"]
+informational_readiness = ["src.infrastructure.taskiq.health:readiness as broker_readiness"]
+
+[features.taskiq.options.broker]
+choices = ["redis", "rabbitmq"]
+default = "redis"
+env = { TASKIQ_BROKER_TYPE = "{value}" }
+services = { rabbitmq = ["rabbitmq"] }
+
+[[features.taskiq.when]]
+if = "accounts"
+paths = [
+  "backend/src/infrastructure/taskiq/email.py",
+  "backend/tests/unit/infrastructure/taskiq/test_email.py",
+]
+contributes.email_sender = ["src.infrastructure.taskiq.email:queued_sender"]
+contributes.task_modules = [{ value = "src.infrastructure.taskiq.email", order = 10 }]
+
+
+[wiring_defaults]
+header = """Generated by fastro from blueprint.toml and fastro.toml. Don't edit: change
+fastro.toml (or [app] in it, for your own code) and run `fastro sync`."""
+
+[[wiring]]
+path = "backend/src/wiring/settings.py"
+doc = """The project's settings: each selected feature's mixin on top of the core.
+
+Core comes last, so a feature can override a core default rather than the other way round."""
+
+[[wiring.slots]]
+kind = "class"
+name = "Settings"
+point = "settings"
+append = ["src.infrastructure.config.base:CoreSettings"]
+doc = "The settings of every selected feature, on top of the core."
+
+[[wiring.slots]]
+kind = "raw"
+code = "settings = Settings()"
+
+[[wiring]]
+path = "backend/src/wiring/app.py"
+doc = "The composition root: what the app mounts, starts and installs."
+imports = [
+  "from collections.abc import Callable",
+  "from typing import Any",
+  "from fastapi import APIRouter, FastAPI",
+  "from ..infrastructure.composition import Lifecycle, RouterMount",
+]
+
+[[wiring.slots]]
+kind = "tuple"
+name = "ROUTER_MOUNTS"
+point = "routers"
+annotation = "tuple[RouterMount, ...]"
+item = 'RouterMount({name}, "{prefix}", throttled={throttled})'
+
+[[wiring.slots]]
+kind = "value"
+name = "ROOT_ROUTERS"
+point = "root_routers"
+annotation = "tuple[APIRouter, ...]"
+fallback = "()"
+
+[[wiring.slots]]
+kind = "tuple"
+name = "API_THROTTLE"
+point = "api_throttle"
+annotation = "tuple[Any, ...]"
+item = "Depends({name})"
+item_imports = ["from fastapi import Depends"]
+
+[[wiring.slots]]
+kind = "tuple"
+name = "LIFECYCLES"
+point = "lifecycles"
+annotation = "tuple[Lifecycle, ...]"
+
+[[wiring.slots]]
+kind = "tuple"
+name = "INSTALLERS"
+point = "installers"
+annotation = "tuple[Callable[[FastAPI], None], ...]"
+
+[[wiring.slots]]
+kind = "value"
+name = "DOCS_GUARD"
+point = "docs_guard"
+annotation = "Callable[..., Any] | None"
+fallback = "None"
+
+[[wiring]]
+path = "backend/src/wiring/hooks.py"
+doc = "The contributions features make to each other's extension points."
+imports = [
+  "from ..infrastructure.composition import PermissionSource, RateLimitResolver, ReadinessCheck, TierDeleteGuard, TierDeleteRelease",
+]
+
+[[wiring.slots]]
+kind = "tuple"
+name = "PERMISSION_SOURCES"
+point = "permission_sources"
+annotation = "tuple[PermissionSource, ...]"
+
+[[wiring.slots]]
+kind = "tuple"
+name = "RATE_LIMIT_RESOLVERS"
+point = "rate_limit_resolvers"
+annotation = "tuple[RateLimitResolver, ...]"
+
+[[wiring.slots]]
+kind = "tuple"
+name = "TIER_DELETE_GUARDS"
+point = "tier_delete_guards"
+annotation = "tuple[TierDeleteGuard, ...]"
+
+[[wiring.slots]]
+kind = "tuple"
+name = "TIER_DELETE_RELEASES"
+point = "tier_delete_releases"
+annotation = "tuple[TierDeleteRelease, ...]"
+
+[[wiring.slots]]
+kind = "tuple"
+name = "CRITICAL_READINESS_CHECKS"
+point = "critical_readiness"
+annotation = "tuple[ReadinessCheck, ...]"
+
+[[wiring.slots]]
+kind = "tuple"
+name = "INFORMATIONAL_READINESS_CHECKS"
+point = "informational_readiness"
+annotation = "tuple[ReadinessCheck, ...]"
+
+[[wiring]]
+path = "backend/src/wiring/models.py"
+doc = "Extension points of the user model: what other features add to ``User``."
+
+[[wiring.slots]]
+kind = "class"
+name = "UserModelExtensions"
+point = "user_model"
+doc = "Columns and relationships other features add to ``User``."
+
+[[wiring.slots]]
+kind = "class"
+name = "UserSchemaExtensions"
+point = "user_schema"
+fallback = "pydantic:BaseModel"
+doc = "Fields other features add to the user read schemas."
+
+[[wiring]]
+path = "backend/src/wiring/email.py"
+doc = """The sender the account emails go out through.
+
+It is its own module because ``hooks`` reaches features that import the accounts feature back."""
+imports = ["from crudauth import EmailSender"]
+
+[[wiring.slots]]
+kind = "value"
+name = "EMAIL_SENDER"
+point = "email_sender"
+annotation = "EmailSender"
+fallback = "HandingOverSender(build_sender())"
+fallback_imports = [
+  "from ..infrastructure.email.factory import build_sender",
+  "from ..infrastructure.email.senders import HandingOverSender",
+]
+
+[[wiring]]
+path = "backend/src/wiring/cache.py"
+doc = "The decorator a route caches its response with."
+
+[[wiring.slots]]
+kind = "reexport"
+name = "cached"
+point = "cache_decorator"
+fallback = "src.infrastructure.uncached:cached"
+
+[[wiring]]
+path = "backend/src/wiring/transports.py"
+doc = "The authentication transports this project registers beside the session one."
+imports = ["from crudauth import Transport"]
+
+[[wiring.slots]]
+kind = "tuple"
+name = "EXTRA_TRANSPORTS"
+point = "extra_transports"
+annotation = "tuple[Transport, ...]"
+
+[[wiring]]
+path = "backend/src/wiring/tasks.py"
+doc = """The modules whose background tasks the worker registers.
+
+A task the worker reports as unknown drops its message, so a module declaring one belongs in this list."""
+
+[[wiring.slots]]
+kind = "tuple"
+name = "TASK_MODULES"
+point = "task_modules"
+annotation = "tuple[str, ...]"
+literal = true
+
+[[wiring]]
+path = "backend/src/wiring/tables.py"
+doc = "Modules outside ``src/modules`` that declare tables on ``Base.metadata``."
+
+[[wiring.slots]]
+kind = "tuple"
+name = "TABLE_MODULES"
+point = "table_modules"
+annotation = "tuple[str, ...]"
+literal = true
+
+[[wiring]]
+path = "backend/src/wiring/admin.py"
+doc = "The model views the admin panel registers."
+if = "admin"
+
+[[wiring.slots]]
+kind = "tuple"
+name = "ADMIN_VIEWS"
+point = "admin_views"
+annotation = "tuple[type, ...]"
+
+[[wiring]]
+path = "backend/scripts/seeders.py"
+doc = "The initial-data steps ``scripts/setup_initial_data.py`` runs, in order."
+imports = ["from collections.abc import Awaitable, Callable"]
+
+[[wiring.slots]]
+kind = "tuple"
+name = "SEEDERS"
+point = "seeders"
+annotation = "tuple[Callable[[], Awaitable[None]], ...]"
+
+[[wiring]]
+path = "backend/tests/wiring.py"
+doc = "Fixture modules of the selected features, loaded by ``tests/conftest.py``."
+
+[[wiring.slots]]
+kind = "list"
+name = "PYTEST_PLUGINS"
+point = "test_plugins"
+annotation = "list[str]"
+literal = true
+
+[generators.deploy]
+templates = "blueprint/templates/deploy"
+
+[generators.deploy.params.api_port]
+type = "int"
+default = 8000
+help = "Host port to publish the API on."
+
+[generators.deploy.params.workers]
+type = "int"
+default = 4
+help = "Number of API workers, for the prod and nginx modes."
+
+[generators.deploy.params.internal_subnet]
+type = "cidr"
+default = "172.31.240.0/24"
+max_prefix = 8
+help = "The compose network, and the only peers uvicorn takes forwarded headers from, in nginx mode."
+
+[commands."env secret"]
+module = "scripts.gen_secret"
+help = "Print a secret key the project's own rules accept."
+outside_project = "token_hex"
+
+[commands."env validate"]
+module = "scripts.validate_env"
+help = "Audit this environment the way production would."
+
+[commands."db baseline"]
+module = "scripts.baseline"
+help = "Write this project's baseline migration, checked against the models."
+
+[commands."db tables"]
+module = "scripts.create_tables"
+help = "Create the tables the models declare, without alembic."
+
+[commands."db seed"]
+module = "scripts.setup_initial_data"
+help = "Run the initial-data steps of the selected features, in order."
