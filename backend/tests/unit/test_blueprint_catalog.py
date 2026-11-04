@@ -870,6 +870,42 @@ def test_every_selection_keeps_the_files_the_drill_keeps():
         assert _kept_by_the_catalog(features, chosen) == _kept_by_the_drill(manifest, chosen), sorted(chosen)
 
 
+TOOLCHAIN_ONLY = {"PATH", "PYTHONPATH", "HOME"}
+"""What the drill's environment holds beyond the settings: paths, not configuration."""
+
+
+def test_the_app_the_verification_imports_is_this_project_s_own():
+    """Spec 2.2: a dotted module whose first part is `import_root`, and whose file this repository
+    has. Without it `blueprint verify` skips the app-import check, which is the one that catches a
+    feature removal that left something importing what went."""
+    blueprint = _catalog()["blueprint"]
+    module = _catalog()["verify"]["app"]
+    path = REPO_ROOT / blueprint["python_root"] / Path(*module.split(".")).with_suffix(".py")
+
+    assert module.split(".")[0] == blueprint["import_root"]
+    assert path.is_file(), module
+    assert _defines(module, "app"), "the check imports the module for its app"
+
+
+def test_the_toolchain_environment_is_what_the_app_needs_to_import():
+    """Spec 2.12: names and string values only. These are the settings the drill sets itself
+    before it imports anything, and they are test values for checking a project rather than
+    secrets: a memory session store, a memory limiter, the local environment, and a key that
+    exists only so the settings validate.
+    """
+    declared = _catalog()["checks"]["toolchain"]["env"]
+    source = inspect.getsource(_drill().check)
+    set_by_the_drill = set(re.findall(r'^\s+"([A-Z][A-Z0-9_]*)":', source, re.M)) - TOOLCHAIN_ONLY
+
+    assert set(declared) == set_by_the_drill
+    for name, value in declared.items():
+        assert ENV_VAR.match(name), name
+        assert isinstance(value, str), name
+
+    assert len(declared["SECRET_KEY"]) >= 32, "the settings refuse a shorter one"
+    assert declared["SECRET_KEY"] not in ENV_EXAMPLE.read_text(), "not the example's placeholder"
+
+
 POINTS: dict[str, tuple[str, str]] = {
     "routers": ("_wiring_app", "ROUTER_MOUNTS"),
     "root_routers": ("_wiring_app", "ROOT_ROUTERS"),
@@ -1914,6 +1950,9 @@ GENERATOR_NAME = re.compile(r"^[a-z][a-z0-9-]*$")
 """Spec 2.9. It becomes the word after `fastro make`, and `fastro make` takes no underscore."""
 
 COMMAND_WORD = re.compile(r"^[a-z][a-z0-9-]*$")
+
+ENV_VAR = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+"""Spec 2.5 and 2.12: the name of an environment variable."""
 
 PARAM_TYPES = {"int", "str", "bool", "cidr", "choice"}
 

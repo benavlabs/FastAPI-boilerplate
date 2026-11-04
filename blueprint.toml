@@ -67,6 +67,9 @@ minimal = ["accounts"]
 standard = ["accounts", "rbac", "ratelimit", "tiers", "tier_limits", "admin", "cache"]
 full = ["accounts", "rbac", "ratelimit", "tiers", "tier_limits", "api_keys", "admin", "cache", "taskiq"]
 
+[verify]
+app = "src.interfaces.main"
+
 [verify.sets]
 core-only = []
 core-taskiq = ["taskiq"]
@@ -467,6 +470,12 @@ paths = [
 contributes.email_sender = ["src.infrastructure.taskiq.email:queued_sender"]
 contributes.task_modules = [{ value = "src.infrastructure.taskiq.email", order = 10 }]
 
+
+[checks.toolchain.env]
+ENVIRONMENT = "local"
+SECRET_KEY = "a-key-only-the-toolchain-checks-run-with"
+SESSION_BACKEND = "memory"
+RATE_LIMITER_BACKEND = "memory"
 
 [wiring_defaults]
 line_length = 128
