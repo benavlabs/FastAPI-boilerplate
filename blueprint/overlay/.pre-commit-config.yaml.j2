@@ -1,0 +1,46 @@
+default_language_version:
+  python: python3.11
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: check-yaml
+      - id: check-case-conflict
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: ["--maxkb=750", "--enforce-all"]
+      - id: detect-private-key
+
+  - repo: https://github.com/asottile/pyupgrade
+    rev: v3.20.0
+    hooks:
+      - id: pyupgrade
+        args: [--py311-plus]
+        name: Upgrade code to Python 3.11+
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.12
+    hooks:
+      - id: ruff-check
+        args: [--fix]
+      - id: ruff-format
+
+  - repo: local
+    hooks:
+      - id: mypy
+        name: Mypy
+        language: system
+        entry: bash -c 'cd backend && uv run --no-sync mypy src scripts migrations tests --config-file pyproject.toml'
+        pass_filenames: false
+        files: ^backend/(src|scripts|migrations|tests)/
+        types: [python]
+
+      - id: wiring
+        name: The wiring matches fastro.toml
+        language: system
+        entry: uvx fastro@{{ fastro.version }} sync --check
+        pass_filenames: false
+        files: ^(fastro\.toml|backend/src/wiring/)

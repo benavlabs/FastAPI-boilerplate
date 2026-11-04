@@ -20,6 +20,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -541,6 +542,17 @@ def _tests_wiring(chosen: set[str]) -> str:
     )
 
 
+def blueprint_only() -> tuple[str, ...]:
+    """The paths a project never receives, as `blueprint.toml` lists them."""
+    with (REPO / "blueprint.toml").open("rb") as handle:
+        return tuple(tomllib.load(handle)["blueprint"]["blueprint_only"])
+
+
+def withheld(path: str) -> bool:
+    """Whether a project is kept from receiving this path: a trailing slash means its subtree."""
+    return any(path == entry.rstrip("/") or (entry.endswith("/") and path.startswith(entry)) for entry in blueprint_only())
+
+
 def copy_repository(source: Path, project: Path) -> None:
     """Copy ``source`` to ``project``, leaving out what a scratch build must not carry."""
     shutil.copytree(
@@ -555,6 +567,9 @@ def build(preset: str, into: Path) -> Path:
     chosen = _selected(preset)
     project = into / preset
     copy_repository(REPO, project)
+
+    for entry in blueprint_only():
+        _remove(project / entry.rstrip("/"))
 
     for name, feature in FEATURES.items():
         if name in chosen:

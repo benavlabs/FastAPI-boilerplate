@@ -1,9 +1,17 @@
+"""The memcached backend, which a project only installs aiomcache for when it chooses it.
+
+The dependency belongs to the `cache.backend=memcached` option, and an option owns no paths, so
+a project on the default redis choice receives this file without the package it needs.
+"""
+
 import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from src.infrastructure.cache.backends.memcached import (
+pytest.importorskip("aiomcache")
+
+from src.infrastructure.cache.backends.memcached import (  # noqa: E402
     MemcachedBackend,
     MemcachedSettings,
     PatternMatchingNotSupportedError,

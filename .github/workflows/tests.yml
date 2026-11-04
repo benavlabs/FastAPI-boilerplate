@@ -34,6 +34,9 @@ jobs:
       - name: Pytest (cli)
         run: cd cli && uv run --no-sync pytest
 
+      - name: Pytest (blueprint)
+        run: uv run --no-sync pytest blueprint/tests
+
   removal-drills:
     runs-on: ubuntu-latest
     strategy:

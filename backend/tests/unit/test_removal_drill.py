@@ -223,6 +223,25 @@ def _without_formatting(source: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
     return tuple(imports), tuple(statements)
 
 
+def test_a_project_is_kept_from_everything_the_catalog_reserves():
+    """A project that received the catalog, this drill or the docs would run the blueprint's own
+    tests against itself, and they describe a repository it is not. Spec 1.1: an entry with a
+    trailing slash reserves the whole subtree, not just the directory."""
+    reserved = drill.blueprint_only()
+
+    assert reserved, "the catalog reserves nothing, so this reads it wrongly"
+    for entry in reserved:
+        assert drill.withheld(entry.rstrip("/")), entry
+        if entry.endswith("/"):
+            assert drill.withheld(f"{entry}somewhere/deeper.py"), entry
+
+
+def test_nothing_a_drill_step_needs_is_kept_from_the_project():
+    """Every step runs from `backend/`, and reads its configuration and its tests from there."""
+    for needed in ("backend", "backend/pyproject.toml", "backend/tests/conftest.py", "backend/src/wiring/app.py"):
+        assert not drill.withheld(needed), needed
+
+
 def test_the_generator_rebuilds_what_this_project_committed():
     """The drill proves a regenerated project reproduces this one, which needs them equal."""
     present = _features_on_disk()

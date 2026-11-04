@@ -29,16 +29,19 @@ backend/
 │   ├── script.py.mako
 │   └── versions/
 ├── scripts/                  # Setup and maintenance scripts
+│   ├── baseline.py           # Writes the project's first migration, checked against the models
 │   ├── canonicalize_emails.py
 │   ├── cleanup_api_key_json.py
 │   ├── create_first_superuser.py
 │   ├── create_first_tier.py
 │   ├── create_tables.py
+│   ├── gen_secret.py         # Prints a SECRET_KEY the project's own rules accept
 │   ├── prune_key_usage.py    # The usage prune, for a project with no worker to schedule it
 │   ├── revoke_scrypt_api_keys.py
 │   ├── seeders.py            # The seeders the selected features contribute
 │   ├── setup_initial_data.py
-│   └── unlock_account.py
+│   ├── unlock_account.py
+│   └── validate_env.py       # Audits the environment the way production would
 ├── src/                      # Application source (the three layers below)
 └── tests/                    # Test suite (unit + integration)
 ```
@@ -205,9 +208,12 @@ scripts/
 ├── create_first_superuser.py # Just the admin user
 ├── create_first_tier.py      # Just the default tier
 ├── create_tables.py          # Just the database tables
+├── baseline.py               # Writes the project's first migration, checked against the models
 ├── cleanup_api_key_json.py   # One-off repair for legacy API key rows
 ├── canonicalize_emails.py    # One-off repair for addresses stored with case or spaces
 ├── unlock_account.py         # Clears the login lockout one account is held in
+├── gen_secret.py             # Prints a SECRET_KEY the project's own rules accept
+├── validate_env.py           # Audits the environment the way production would
 ├── revoke_scrypt_api_keys.py # Names the API keys still stored as scrypt, revokes them on request
 └── prune_key_usage.py        # Deletes the API-key usage rows past KEY_USAGE_RETENTION_DAYS
 ```

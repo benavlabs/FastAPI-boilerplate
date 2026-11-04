@@ -113,7 +113,7 @@ You now have a working FastAPI app with:
 - Redis-backed cache and rate limiting
 - Session-based authentication with optional OAuth (Google, GitHub)
 - API keys with per-key permissions
-- SQLAdmin admin interface at `/admin`
+- SQLAdmin admin interface at `/admin`, off until you set `ADMIN_ENABLED=true`
 - Async background task support via Taskiq
 
 ## Test Your API

@@ -17,6 +17,18 @@ ___
   image installs neither and a deployment is unaffected: the advisories are about the environments
   a hook runs in and the lock files it takes, on the machines that run the hooks. `pre-commit run
   --all-files` passes on the new versions.
+- **`faker` and `httpx` are development dependencies now**, because only the tests import them.
+  The image installs the runtime list with `--no-dev`, so `faker` is no longer in it: code of your
+  own that imported it there has to declare it. `httpx` still arrives in the image through
+  `fastapi[standard]`, which requires it, so only `faker` actually leaves.
+- **`aiosqlite` is gone and `jinja2` is a development dependency.** Nothing imported either:
+  `aiosqlite` answered `SQLITE_ASYNC_PREFIX`, which no module reads, and the admin panel gets
+  `jinja2` through `sqladmin`, which requires it. `jinja2` stays in the `dev` extra for the
+  template tests. A project of your own that imported either has to declare it.
+- **`.env.example` ships `ADMIN_ENABLED=false`.** The setting has defaulted to `false` since
+  0.20.0, but the example still turned the panel on, so a copied example served `/admin` with the
+  example's own `admin` credentials. Set `ADMIN_ENABLED=true`, with credentials of your own, where
+  you want it.
 
 ___
 

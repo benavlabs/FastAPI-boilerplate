@@ -18,6 +18,15 @@ RUNNABLE = "__main__"
 """What a script a reader runs has, which the modules beside them do not."""
 
 
+MIGRATIONS = REPO_ROOT / "docs" / "user-guide" / "database" / "migrations.md"
+"""The one guide whose manual recipe is a script of its own done by hand."""
+
+
+def test_the_migrations_guide_names_the_script_that_writes_the_baseline():
+    """`scripts/baseline.py` does what that recipe does, and a reader has no way to know it."""
+    assert "python -m scripts.baseline" in MIGRATIONS.read_text()
+
+
 def _runnable_scripts() -> list[str]:
     return sorted(path.name for path in SCRIPTS.glob("*.py") if RUNNABLE in path.read_text())
 

@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+
+# Tooling caches
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Configuration: .env.example is the one that is committed
+.env
+.env.*
+!.env.example
+
+# Editors
+.idea/
+.vscode/
+.DS_Store

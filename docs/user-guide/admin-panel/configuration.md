@@ -222,17 +222,18 @@ For production behind HTTPS, you'll typically want to:
 
 ### Development
 
-The default `.env.example` is already development-ready:
+The default `.env.example` leaves the panel off:
 
 ```env
 ENVIRONMENT=development
-ADMIN_ENABLED=true
+ADMIN_ENABLED=false
 ADMIN_USERNAME=admin
 ADMIN_PASSWORD=Change-Me-Now-1!
 SECRET_KEY=insecure-secret-key-change-this-in-production
 ```
 
-Open <http://localhost:8000/admin>, log in, and you have access to Users and Tiers.
+Set `ADMIN_ENABLED=true` in your `.env`, restart, then open <http://localhost:8000/admin>, log in,
+and you have access to Users and Tiers.
 
 ### Production Hardening
 

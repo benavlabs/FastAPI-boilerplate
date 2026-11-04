@@ -276,7 +276,8 @@ After installing, verify everything works:
 
 1. **API Docs**: <http://localhost:8000/docs>
 2. **Health Check**: `curl http://localhost:8000/health`
-3. **Admin Panel**: <http://localhost:8000/admin>
+3. **Admin Panel**: <http://localhost:8000/admin>, once `ADMIN_ENABLED=true` and both admin
+   credentials are set in `backend/.env`; it is off in the example, and unmounted until then
 4. **Database**: check the app log for "Database connected" / no errors at startup
 
 ## Troubleshooting
