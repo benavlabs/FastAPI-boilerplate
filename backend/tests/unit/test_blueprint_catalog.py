@@ -1,8 +1,9 @@
 """The catalog describes this repository, and `tools/removal_drill.py` is what it describes.
 
-`blueprint.toml` is read by fastro, which isn't a dependency here yet, so nothing in this
-file imports it: the rules it checks are transcribed from the catalog spec, and the facts it
-checks against come from the drill, which is the repository's own account of its features.
+`blueprint.toml` is read by fastro, which the repository root installs and the backend doesn't,
+so nothing in this file imports it: the rules it checks are transcribed from the catalog spec,
+and the facts it checks against come from the drill, which is the repository's own account of
+its features.
 
 This file goes when `fastro blueprint lint` and `fastro blueprint verify` replace the drill.
 """
@@ -31,7 +32,7 @@ CATALOG = REPO_ROOT / "blueprint.toml"
 BACKEND_PYPROJECT = REPO_ROOT / "backend" / "pyproject.toml"
 
 FEATURE_NAME = re.compile(r"^[a-z][a-z0-9_]*$")
-"""Spec 1.2. Written out rather than imported, because fastro is not a dependency yet."""
+"""Spec 1.2. Written out rather than imported, because the backend's tests don't import fastro."""
 
 BLUEPRINT_NAME = re.compile(r"^[a-z][a-z0-9-]*$")
 
@@ -457,11 +458,81 @@ def _workspace_members() -> list[str]:
         return list(tomllib.load(handle)["tool"]["uv"]["workspace"]["members"])
 
 
-def _hook_paths() -> list[str]:
-    """The literal head of each pre-commit `files:` pattern, which is a path in the repository."""
-    patterns = re.findall(r"^\s*files: (\S+)$", (REPO_ROOT / ".pre-commit-config.yaml").read_text(), re.M)
+def _unwrapped(pattern: str) -> str:
+    """A pattern without the one group that wraps all of it, if there is one."""
+    depth = 0
+    for index, character in enumerate(pattern):
+        depth += {"(": 1, ")": -1}.get(character, 0)
+        if depth == 0:
+            return pattern[1:-1] if pattern.startswith("(") and index == len(pattern) - 1 else pattern
 
-    return [re.split(r"[(\[{|?*+.\\]", pattern.removeprefix("^"))[0].rstrip("/") for pattern in patterns]
+    return pattern
+
+
+def _alternatives(pattern: str) -> list[str]:
+    """The top-level alternatives of an anchored pattern, outside a group that wraps it whole."""
+    body = _unwrapped(pattern.removeprefix("^").removesuffix("$"))
+
+    parts, depth, start = [], 0, 0
+    for index, character in enumerate(body):
+        depth += {"(": 1, "[": 1, ")": -1, "]": -1}.get(character, 0)
+        if character == "|" and depth == 0:
+            parts.append(body[start:index])
+            start = index + 1
+
+    return [*parts, body[start:]]
+
+
+def _literal_head(pattern: str) -> str:
+    """The characters a pattern matches literally before its first special one, unescaped."""
+    head = re.match(r"(?:[^\\()\[\]{}|?*+.^$]|\\[./-])*", pattern)
+    assert head is not None
+
+    return re.sub(r"\\(.)", r"\1", head.group())
+
+
+def _pattern_heads(pattern: str) -> list[str]:
+    """The path each alternative of a pre-commit `files:` pattern starts with, through nested ones."""
+    alternatives = _alternatives(pattern)
+    if len(alternatives) > 1:
+        return [head for alternative in alternatives for head in _pattern_heads(alternative)]
+
+    return [_literal_head(alternatives[0]).rstrip("/")]
+
+
+def _named_paths(patterns: list[str]) -> list[str]:
+    """The paths the patterns name, refusing one whose head is empty: it would name nothing to check."""
+    heads = [head for pattern in patterns for head in _pattern_heads(pattern)]
+    assert all(heads), patterns
+
+    return heads
+
+
+def _hook_paths() -> list[str]:
+    """The paths the pre-commit `files:` patterns name, one per alternative."""
+    return _named_paths(re.findall(r"^\s*files: (\S+)$", (REPO_ROOT / ".pre-commit-config.yaml").read_text(), re.M))
+
+
+@pytest.mark.parametrize(
+    ("pattern", "heads"),
+    [
+        ("^cli/src/", ["cli/src"]),
+        ("^backend/(src|scripts|migrations|tests)/", ["backend"]),
+        (r"^(blueprint\.toml|fastro\.toml|backend/src/wiring/)", ["blueprint.toml", "fastro.toml", "backend/src/wiring"]),
+        (r"^(a\.py)|(b/)$", ["a.py", "b"]),
+        (r"^(a|(b\.py|c/))$", ["a", "b.py", "c"]),
+        (r"^(a|b)/x", [""]),
+    ],
+)
+def test_the_hook_reader_sees_every_path_a_pattern_names(pattern: str, heads: list[str]):
+    """An alternation names one path per branch, and an escaped dot is part of the name."""
+    assert _pattern_heads(pattern) == heads
+
+
+def test_the_hook_reader_refuses_a_pattern_that_names_no_path():
+    """A head of `""` is never withheld, so the rules that read it would pass over nothing."""
+    with pytest.raises(AssertionError):
+        _named_paths([r"^(a|b)/x"])
 
 
 def _readme_references() -> list[str]:
@@ -511,6 +582,159 @@ def test_each_file_still_names_the_path_that_keeps_it_out(path: str):
     pointed = POINTS_AT[path]()
 
     assert any(target.startswith(WITHHELD_POINTERS[path]) for target in pointed), pointed
+
+
+ROOT_PYPROJECT = REPO_ROOT / "pyproject.toml"
+FASTRO_REPOSITORY = "https://github.com/benavlabs/fastro"
+COMMIT = re.compile(r"^[0-9a-f]{40}$")
+
+
+def _root_project() -> dict[str, Any]:
+    with ROOT_PYPROJECT.open("rb") as handle:
+        return tomllib.load(handle)
+
+
+def test_the_repository_root_installs_fastro_for_its_own_checks():
+    """fastro checks the blueprint, so the root project, which no project receives, carries it."""
+    assert _withheld("pyproject.toml")
+    assert "fastro" in {_distribution(specifier) for specifier in _root_project()["dependency-groups"]["dev"]}
+
+
+def test_fastro_is_pinned_to_one_commit_of_its_repository():
+    """Unreleased, so a commit is the only version a lock can hold steady."""
+    source = _root_project()["tool"]["uv"]["sources"]["fastro"]
+
+    assert source.keys() == {"git", "rev"}
+    assert source["git"] == FASTRO_REPOSITORY
+    assert COMMIT.match(source["rev"]), source["rev"]
+
+
+def test_no_project_receives_the_fastro_pin():
+    """A project gets `backend/pyproject.toml`, and its own checks run fastro through `uvx`."""
+    with BACKEND_PYPROJECT.open("rb") as handle:
+        backend = tomllib.load(handle)
+
+    groups = [
+        backend["project"].get("dependencies", []),
+        *backend["project"].get("optional-dependencies", {}).values(),
+        *backend.get("dependency-groups", {}).values(),
+    ]
+
+    assert "fastro" not in {_distribution(specifier) for group in groups for specifier in group}
+    assert "fastro" not in backend.get("tool", {}).get("uv", {}).get("sources", {})
+
+
+def _pre_commit_hooks() -> list[dict[str, str]]:
+    """Each hook's keys, read from its `- id:` block, with the value written on the key's own line."""
+    blocks = re.findall(r"^( *)- id: (\S+)\n((?:\1  +[\w-]+:.*\n)*)", (REPO_ROOT / ".pre-commit-config.yaml").read_text(), re.M)
+
+    return [{"id": hook, **dict(re.findall(r"^ +([\w-]+):[ ]*(.*)$", keys, re.M))} for _, hook, keys in blocks]
+
+
+def _the_sync_check_hook() -> dict[str, str]:
+    hooks = [hook for hook in _pre_commit_hooks() if "fastro sync --check" in hook.get("entry", "")]
+    assert len(hooks) == 1, hooks
+
+    return hooks[0]
+
+
+def test_a_commit_runs_sync_check_on_the_whole_tree():
+    """`sync --check` compares every wiring file, so the hook hands it no file names."""
+    hook = _the_sync_check_hook()
+
+    assert hook["entry"] == "uv run --no-sync fastro sync --check"
+    assert hook["language"] == "system"
+    assert hook["pass_filenames"] == "false"
+
+
+def test_the_sync_check_hook_runs_at_every_commit():
+    """Any key beyond these narrows when it runs: a stage, an exclusion, a file type."""
+    assert _the_sync_check_hook().keys() == {"id", "name", "language", "entry", "pass_filenames", "files"}
+
+
+@pytest.mark.parametrize("path", ["blueprint.toml", "fastro.toml", *(entry["path"] for entry in _catalog()["wiring"])])
+def test_a_commit_that_touches_what_sync_compares_runs_sync_check(path: str):
+    """The catalog, the selection and every file it generates, so a new wiring file can't slip by."""
+    assert re.search(_the_sync_check_hook()["files"], path), path
+
+
+def test_a_commit_that_touches_nothing_sync_compares_skips_sync_check():
+    for path in (
+        "backend/src/modules/user/models.py",
+        "docs/backend/src/wiring/app.md",
+        "backend/fastro.toml",
+        "blueprint.toml.orig",
+    ):
+        assert not re.search(_the_sync_check_hook()["files"], path), path
+
+
+def _workflow_runs() -> list[str]:
+    """Every one-line `run:` in the repository's own CI."""
+    return [
+        run.strip()
+        for workflow in sorted((REPO_ROOT / ".github" / "workflows").glob("*.yml"))
+        for run in re.findall(r"^\s+run: (.+)$", workflow.read_text(), re.M)
+    ]
+
+
+def _defaults_blocks(workflow: str) -> list[str]:
+    """Each `defaults:` block of a workflow, at any level, with its value written on the same line or below it."""
+    lines = workflow.splitlines()
+    blocks = []
+    for index, line in enumerate(lines):
+        found = re.match(r"^( *)defaults:(.*)$", line)
+        if found is None:
+            continue
+
+        block = [found.group(2)]
+        for following in lines[index + 1 :]:
+            if following.strip() and len(following) - len(following.lstrip()) <= len(found.group(1)):
+                break
+            block.append(following)
+        blocks.append("\n".join(block))
+
+    return blocks
+
+
+@pytest.mark.parametrize(
+    "workflow",
+    [
+        "defaults:\n  run:\n    working-directory: backend\njobs:\n",
+        "jobs:\n  lint:\n    defaults:\n      run:\n        shell: bash\n        working-directory: backend\n    steps:\n",
+        "jobs:\n  lint:\n    defaults: {run: {working-directory: backend}}\n",
+    ],
+)
+def test_the_defaults_reader_sees_a_working_directory_however_it_is_written(workflow: str):
+    assert any("working-directory" in block for block in _defaults_blocks(workflow))
+
+
+def test_the_defaults_reader_stops_at_the_end_of_its_block():
+    workflow = "defaults:\n  run:\n    shell: bash\njobs:\n  lint:\n    steps:\n      - working-directory: backend\n"
+
+    assert not any("working-directory" in block for block in _defaults_blocks(workflow))
+
+
+SYNC_THAT_KEEPS_THE_DEV_GROUP = {"uv", "sync", "--all-packages", "--all-extras", "--locked", "--python", "3.11"}
+"""The words a sync may use and still install the root dev group, where fastro is."""
+
+
+@pytest.mark.parametrize("command", ["fastro sync --check", "fastro blueprint lint"])
+def test_ci_runs_fastros_checks_where_fastro_is_installed(command: str):
+    """From the repository root, the project that declares fastro, never after a `cd`, and always gating the job."""
+    assert [run for run in _workflow_runs() if command in run] == [f"uv run --no-sync {command}"]
+
+    for workflow in sorted((REPO_ROOT / ".github" / "workflows").glob("*.yml")):
+        text = workflow.read_text()
+        steps = [step for step in re.split(r"\n(?= +- )", text) if command in step]
+        if steps:
+            assert not any("working-directory" in block for block in _defaults_blocks(text)), workflow.name
+            for step in steps:
+                assert set(re.findall(r"^\s*(?:- )?([\w-]+):", step, re.M)) == {"name", "run"}, step
+
+            syncs = re.findall(r"^\s+run: (uv sync\b.*)$", text, re.M)
+            assert syncs, workflow.name
+            for sync in syncs:
+                assert set(sync.split()) <= SYNC_THAT_KEEPS_THE_DEV_GROUP, sync
 
 
 def _literals(module: Path) -> set[str]:

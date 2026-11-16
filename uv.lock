@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.11"
 resolution-markers = [
     "python_full_version >= '3.15'",
@@ -980,6 +980,16 @@ name = "fastapi-boilerplate-workspace"
 version = "0"
 source = { virtual = "." }
 
+[package.dev-dependencies]
+dev = [
+    { name = "fastro" },
+]
+
+[package.metadata]
+
+[package.metadata.requires-dev]
+dev = [{ name = "fastro", git = "https://github.com/benavlabs/fastro?rev=ddda03f1151b3233e083dd2d4354649dc997e4ec" }]
+
 [[package]]
 name = "fastapi-cli"
 version = "0.0.24"
@@ -1133,6 +1143,16 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/91/5c/2ee44d6cc63cc1f039cb218ea2681d6978c3a27b094e2a4bdf02f503f599/fastcrud-0.21.0.tar.gz", hash = "sha256:38990a96d4639e65e6f1c9b8f4cebfe5bf1a84ba731eb5c224fff593a7316e02", size = 79300, upload-time = "2026-01-23T19:30:07.347Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/5f/1b/85fb4c1cb771845e5ede668ef28c090e021020d117e891fa1e599c9e32d1/fastcrud-0.21.0-py3-none-any.whl", hash = "sha256:94daa5ca7815a268b700ee31b36455a8248a1a0547f3fcef5969df0047aab338", size = 107150, upload-time = "2026-01-23T19:30:05.895Z" },
+]
+
+[[package]]
+name = "fastro"
+version = "0.1.0.dev0"
+source = { git = "https://github.com/benavlabs/fastro?rev=ddda03f1151b3233e083dd2d4354649dc997e4ec#ddda03f1151b3233e083dd2d4354649dc997e4ec" }
+dependencies = [
+    { name = "jinja2" },
+    { name = "packaging" },
+    { name = "typer" },
 ]
 
 [[package]]

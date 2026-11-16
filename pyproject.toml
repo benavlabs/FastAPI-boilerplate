@@ -26,8 +26,14 @@ version = "0"
 description = "Workspace root — see backend/ and cli/ for actual packages."
 requires-python = ">=3.11"
 
+[dependency-groups]
+dev = ["fastro"]
+
 [tool.uv.workspace]
 members = ["backend", "cli"]
+
+[tool.uv.sources]
+fastro = { git = "https://github.com/benavlabs/fastro", rev = "ddda03f1151b3233e083dd2d4354649dc997e4ec" }
 
 [tool.pytest.ini_options]
 testpaths = ["blueprint/tests"]

@@ -54,6 +54,13 @@ repos:
       files: ^cli/src/
       types: [python]
 
+    - id: fastro_sync_check
+      name: Wiring in sync (fastro)
+      language: system
+      entry: uv run --no-sync fastro sync --check
+      pass_filenames: false
+      files: ^(blueprint\.toml|fastro\.toml|backend/src/wiring/.*|backend/scripts/seeders\.py|backend/tests/wiring\.py)$
+
     - id: unit_test
       name: Unit test
       language: system

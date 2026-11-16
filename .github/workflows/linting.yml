@@ -32,3 +32,9 @@ jobs:
 
       - name: Ruff format
         run: uv run --no-sync ruff format --check backend/src backend/tests backend/scripts backend/migrations cli/src cli/tests tools blueprint/tests
+
+      - name: Wiring in sync
+        run: uv run --no-sync fastro sync --check
+
+      - name: Blueprint lint
+        run: uv run --no-sync fastro blueprint lint
