@@ -638,6 +638,21 @@ def _the_sync_check_hook() -> dict[str, str]:
     return hooks[0]
 
 
+SYNC_CHECK_TRIGGERS_BY_NAME = {"blueprint.toml", "fastro.toml", "pyproject.toml", "uv.lock"}
+"""The files the guides name as running the sync check; the wiring they name by what it is."""
+
+
+def _path_spans(text: str) -> set[str]:
+    """Each code span that reads as a path: no spaces, and a directory or an extension."""
+    return {span for span in re.findall(r"`([^`]+)`", text) if re.fullmatch(r"[\w./-]+", span) and re.search(r"[/.]", span)}
+
+
+def _assert_names_the_sync_check_triggers(text: str) -> None:
+    assert _path_spans(text) == SYNC_CHECK_TRIGGERS_BY_NAME, _path_spans(text)
+    for path in _path_spans(text):
+        assert re.search(_the_sync_check_hook()["files"], path), path
+
+
 def test_a_commit_runs_sync_check_on_the_whole_tree():
     """`sync --check` compares every wiring file, so the hook hands it no file names."""
     hook = _the_sync_check_hook()
@@ -678,6 +693,76 @@ def test_a_commit_that_touches_nothing_sync_compares_skips_sync_check():
         "blueprint_toml",
     ):
         assert not re.search(_the_sync_check_hook()["files"], path), path
+
+
+HYGIENE_HOOKS_REPOSITORY = "https://github.com/pre-commit/pre-commit-hooks"
+"""The repository whose hooks the development guide's table names together, as its hygiene hooks."""
+
+
+def _hook_repositories() -> dict[str, str]:
+    """Each hook id in `.pre-commit-config.yaml`, with the repository it comes from."""
+    text = (REPO_ROOT / ".pre-commit-config.yaml").read_text()
+
+    return {
+        hook: repository
+        for repository, block in re.findall(r"^  - repo: (\S+)\n((?:(?!  - repo: ).*\n)*)", text, re.M)
+        for hook in re.findall(r"^ *- id: ([\w-]+)", block, re.M)
+    }
+
+
+def _development_guide_hook_rows() -> dict[str, str]:
+    """The guide's pre-commit table, each row keyed by each hook its first cell names, or by the cell if it names none."""
+    section = (REPO_ROOT / "docs" / "user-guide" / "development.md").read_text().split("## Pre-Commit", 1)[1]
+    rows = re.findall(r"^\| (?!Hook\b|-)(.+?) \| (.+) \|$", section.split("\n\n## ", 1)[0], re.M)
+
+    named = [
+        (name, cells)
+        for names, cells in rows
+        for name in [code.split()[0] for code in re.findall(r"`([^`]+)`", names)] or [names]
+    ]
+    assert len({name for name, _ in named}) == len(named), named
+
+    return dict(named)
+
+
+def test_the_development_guide_names_every_hook_a_commit_runs():
+    rows = _development_guide_hook_rows()
+    assert _hook_repositories()
+
+    for hook, repository in _hook_repositories().items():
+        assert hook in rows or (repository == HYGIENE_HOOKS_REPOSITORY and "hygiene hooks" in rows), hook
+
+
+def test_the_development_guide_names_no_hook_the_config_lacks():
+    rows = _development_guide_hook_rows()
+
+    assert set(rows) - {"hygiene hooks"} <= set(_hook_repositories())
+    if "hygiene hooks" in rows:
+        assert HYGIENE_HOOKS_REPOSITORY in _hook_repositories().values()
+
+
+def test_the_development_guide_says_which_hooks_are_local():
+    rows = _development_guide_hook_rows()
+    local = {hook for hook, repository in _hook_repositories().items() if repository == "local"}
+
+    assert local
+    assert {hook for hook, cells in rows.items() if cells.startswith("local")} == local
+
+
+def test_the_development_guide_says_which_hooks_run_only_when_asked_for():
+    manual = {hook["id"] for hook in _pre_commit_hooks() if hook.get("stages") == "[manual]"}
+
+    assert manual
+    assert {hook for hook, cells in _development_guide_hook_rows().items() if "manual stage" in cells} == manual
+
+
+def test_the_development_guide_gives_the_command_the_sync_check_hook_runs():
+    row = _development_guide_hook_rows()[_the_sync_check_hook()["id"]]
+    entry = f"`{_the_sync_check_hook()['entry']}`"
+
+    assert entry in row
+    _assert_names_the_sync_check_triggers(row)
+    assert "wiring" in row.replace(entry, "")
 
 
 def _workflow_runs() -> list[str]:
@@ -810,17 +895,14 @@ def test_the_contributing_guide_names_the_check_a_commit_runs():
 def test_the_contributing_guide_names_every_file_that_runs_the_check():
     """The catalog, the selection and the pin by name, and the wiring, each one the hook runs on."""
     sentence = _the_guide_s_sync_check_sentence()
-    named = set(re.findall(r"`([\w.]+\.(?:toml|lock))`", sentence))
 
-    assert named == {"blueprint.toml", "fastro.toml", "pyproject.toml", "uv.lock"}
-    for path in named:
-        assert re.search(_the_sync_check_hook()["files"], path), path
+    _assert_names_the_sync_check_triggers(sentence)
     assert "wiring" in sentence.split(f"`{_the_sync_check_hook()['entry']}`")[0]
 
 
 def test_the_check_runs_on_no_file_the_contributing_guide_leaves_out():
     """Each trigger is a file the guide names or a wiring file, so a new one fails until the guide names it."""
-    named = set(re.findall(r"`([\w.]+\.(?:toml|lock))`", _the_guide_s_sync_check_sentence()))
+    named = _path_spans(_the_guide_s_sync_check_sentence())
     wiring = [entry["path"] for entry in _catalog()["wiring"]]
 
     for alternative in _alternatives(_the_sync_check_hook()["files"]):

@@ -104,6 +104,7 @@ The repo's `.pre-commit-config.yaml` runs what CI runs, and nothing that fights 
 | `yesqa` | removes a `noqa` nothing needs any more |
 | hygiene hooks | final newlines, trailing whitespace, YAML, large files, private keys, merge markers |
 | `mypy_backend`, `mypy_cli` | local hooks, the same invocations CI uses |
+| `fastro_sync_check` | local: `uv run --no-sync fastro sync --check`, on a commit that touches `blueprint.toml`, `fastro.toml`, the wiring, the root `pyproject.toml` or `uv.lock` |
 | `unit_test` | local, manual stage: `pytest tests/unit` |
 
 `unit_test` runs the unit tests only — they need no container and finish in seconds. The
