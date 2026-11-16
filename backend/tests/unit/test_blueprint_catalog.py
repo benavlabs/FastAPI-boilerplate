@@ -658,12 +658,24 @@ def test_a_commit_that_touches_what_sync_compares_runs_sync_check(path: str):
     assert re.search(_the_sync_check_hook()["files"], path), path
 
 
+@pytest.mark.parametrize("path", ["pyproject.toml", "uv.lock"])
+def test_a_commit_that_moves_the_fastro_pin_runs_sync_check(path: str):
+    """Another fastro can render the same catalog differently, so the files that pin it count too."""
+    assert re.search(_the_sync_check_hook()["files"], path), path
+
+
 def test_a_commit_that_touches_nothing_sync_compares_skips_sync_check():
     for path in (
         "backend/src/modules/user/models.py",
         "docs/backend/src/wiring/app.md",
         "backend/fastro.toml",
         "blueprint.toml.orig",
+        "backend/pyproject.toml",
+        "backend/uv.lock",
+        "uv_lock",
+        "pyproject_toml",
+        "fastro_toml",
+        "blueprint_toml",
     ):
         assert not re.search(_the_sync_check_hook()["files"], path), path
 

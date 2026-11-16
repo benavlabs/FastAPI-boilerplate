@@ -59,7 +59,7 @@ repos:
       language: system
       entry: uv run --no-sync fastro sync --check
       pass_filenames: false
-      files: ^(blueprint\.toml|fastro\.toml|backend/src/wiring/.*|backend/scripts/seeders\.py|backend/tests/wiring\.py)$
+      files: ^(blueprint\.toml|fastro\.toml|pyproject\.toml|uv\.lock|backend/src/wiring/.*|backend/scripts/seeders\.py|backend/tests/wiring\.py)$
 
     - id: unit_test
       name: Unit test
