@@ -1,5 +1,5 @@
 [blueprint]
-name = "fastro"
+name = "fastapi-boilerplate"
 version = "0.20.0"
 schema = 1
 requires_fastro = ">=0.1.0.dev0,<0.2"

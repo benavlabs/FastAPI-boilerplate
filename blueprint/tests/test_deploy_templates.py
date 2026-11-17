@@ -28,7 +28,7 @@ def _context(
     """The spec 6.2 context, as the tool builds it for a generator."""
     return {
         "project": {"name": "example", "slug": "example"},
-        "blueprint": {"name": "fastro", "version": "0.20.0"},
+        "blueprint": {"name": "fastapi-boilerplate", "version": "0.20.0"},
         "fastro": {"version": "0.1.0"},
         "features": list(features),
         "options": {},

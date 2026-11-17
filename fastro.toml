@@ -1,6 +1,6 @@
 source = true
 features = ["accounts", "rbac", "ratelimit", "tiers", "tier_limits", "api_keys", "admin", "cache", "taskiq"]
-blueprint = { name = "fastro", version = "0.20.0" }
+blueprint = { name = "fastapi-boilerplate", version = "0.20.0" }
 
 [project]
 name = "fastapi-boilerplate"

@@ -64,7 +64,7 @@ def _drill():
 
 
 def test_the_catalog_parses():
-    assert _catalog()["blueprint"]["name"] == "fastro"
+    assert _catalog()["blueprint"]["name"] == "fastapi-boilerplate"
 
 
 def test_it_names_itself_the_way_the_spec_allows():
