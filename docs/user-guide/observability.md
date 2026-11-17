@@ -44,10 +44,10 @@ from .config.settings import settings
 from .database.session import get_engine
 
 
-def configure_tracing() -> None:
+def configure_tracing(service_name: str = "api") -> None:
     """Configure Logfire and instrument the clients this app talks through."""
     logfire.configure(
-        service_name="api",
+        service_name=service_name,
         environment=settings.ENVIRONMENT.value,
         send_to_logfire="if-token-present",
         console=False,
@@ -83,6 +83,12 @@ installers, and the app calls it as it's built. Don't write it into `src/wiring/
 fastro generates that file from `fastro.toml`, so `fastro sync --check` fails on a hand edit and
 the next `fastro sync` undoes it. `[app].paths` marks the module as your own code.
 
+In a generated project, `fastro sync` and `fastro sync --check` need a fastro release with
+project-mode sync, so until one ships, add
+`from ..infrastructure.observability import install as tracing_install` to `src/interfaces/main.py`
+and change its `installers=INSTALLERS,` line to `installers=(*INSTALLERS, tracing_install),`, then
+undo that edit the first time you run `fastro sync`, or the app installs tracing twice.
+
 `send_to_logfire="if-token-present"` is what keeps it off: with no `LOGFIRE_TOKEN` in the
 environment, nothing leaves the process, which is the same rule every other optional thing in this
 project follows — a setting that enables something is off when unset. `LOGFIRE_TOKEN`,
@@ -91,10 +97,10 @@ are defaults a deployment can override without touching the code.
 
 !!! note "The worker is a second process"
     `taskiq worker src.infrastructure.taskiq.worker:default_broker` never imports `main.py`,
-    so none of the above runs there. Call `configure_tracing()` in
-    `src/infrastructure/taskiq/worker.py` as well, with `service_name="worker"`, and the two
-    processes report separately. A task enqueued by a request is not joined to that request's trace
-    unless you propagate the context yourself (`logfire.propagate`).
+    so none of the above runs there. Call `configure_tracing(service_name="worker")` in
+    `src/infrastructure/taskiq/worker.py` as well, and the two processes report separately. A task
+    enqueued by a request is not joined to that request's trace unless you propagate the context
+    yourself (`logfire.propagate`).
 
 ## What not to send
 
@@ -144,9 +150,10 @@ proxy's own access logs already cover whether the app is up and how fast it answ
 
 ## If you turn this into a feature
 
-A project that wants observability to be removable like the others gives it a `FEATURES` entry in
-`tools/removal_drill.py` — the `observability` module, its tests, and its contribution to
-`src/wiring/app.py` — and settings that are off when unset. See
+In a project, the module above is your own code, under `[app]`. Observability becomes a removable
+feature only in FastAPI-boilerplate itself, as a `[features.observability]` table in its
+`blueprint.toml`: its `paths` own the module and its tests, `[features.observability.contributes]`
+lists the installer, and its settings are off when unset. See
 [Composable Features](composable-features.md).
 
 ## Key Files
