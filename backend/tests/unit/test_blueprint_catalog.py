@@ -856,6 +856,16 @@ def test_the_sync_the_contributing_guide_gives_installs_fastro():
         assert set(sync.split()) <= SYNC_THAT_KEEPS_THE_DEV_GROUP, sync
 
 
+def test_the_readme_s_quickstart_sync_installs_fastro():
+    """Every sync the README gives keeps the root dev group, and says it brings fastro in."""
+    syncs = re.findall(r"^\s*(?:\$\s+)?(uv sync\b[^#\n]*)(#.*)?$", (REPO_ROOT / "README.md").read_text(), re.M)
+
+    assert syncs
+    for sync, note in syncs:
+        assert set(sync.split()) <= SYNC_THAT_KEEPS_THE_DEV_GROUP, sync
+        assert re.search(r"\bfastro\b", note), note
+
+
 def test_the_contributing_guide_names_the_group_that_pins_fastro():
     groups = [
         group
