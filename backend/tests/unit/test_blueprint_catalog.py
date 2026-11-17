@@ -695,10 +695,6 @@ def test_a_commit_that_touches_nothing_sync_compares_skips_sync_check():
         assert not re.search(_the_sync_check_hook()["files"], path), path
 
 
-HYGIENE_HOOKS_REPOSITORY = "https://github.com/pre-commit/pre-commit-hooks"
-"""The repository whose hooks the development guide's table names together, as its hygiene hooks."""
-
-
 def _hook_repositories() -> dict[str, str]:
     """Each hook id in `.pre-commit-config.yaml`, with the repository it comes from."""
     text = (REPO_ROOT / ".pre-commit-config.yaml").read_text()
@@ -726,19 +722,12 @@ def _development_guide_hook_rows() -> dict[str, str]:
 
 
 def test_the_development_guide_names_every_hook_a_commit_runs():
-    rows = _development_guide_hook_rows()
     assert _hook_repositories()
-
-    for hook, repository in _hook_repositories().items():
-        assert hook in rows or (repository == HYGIENE_HOOKS_REPOSITORY and "hygiene hooks" in rows), hook
+    assert set(_hook_repositories()) <= set(_development_guide_hook_rows())
 
 
 def test_the_development_guide_names_no_hook_the_config_lacks():
-    rows = _development_guide_hook_rows()
-
-    assert set(rows) - {"hygiene hooks"} <= set(_hook_repositories())
-    if "hygiene hooks" in rows:
-        assert HYGIENE_HOOKS_REPOSITORY in _hook_repositories().values()
+    assert set(_development_guide_hook_rows()) <= set(_hook_repositories())
 
 
 def test_the_development_guide_says_which_hooks_are_local():
@@ -763,6 +752,35 @@ def test_the_development_guide_gives_the_command_the_sync_check_hook_runs():
     assert entry in row
     _assert_names_the_sync_check_triggers(row)
     assert "wiring" in row.replace(entry, "")
+
+
+def _hook_shell_line(hook: dict[str, str]) -> str:
+    """What a hook runs, without the `bash -c` that lets a local hook change directory first."""
+    found = re.fullmatch(r"bash -c '(.+)'", hook["entry"])
+
+    return found[1] if found else hook["entry"]
+
+
+def test_the_hooks_the_development_guide_says_ci_runs_run_what_ci_runs():
+    rows = _development_guide_hook_rows()
+    claimed = [hook for hook in _pre_commit_hooks() if "entry" in hook and re.search(r"\bCI\b", rows.get(hook["id"], ""))]
+
+    assert claimed
+    for hook in claimed:
+        assert _hook_shell_line(hook) in _workflow_runs(), hook["id"]
+
+
+def test_the_development_guide_gives_the_command_each_manual_hook_runs_and_where():
+    manual = [hook for hook in _pre_commit_hooks() if hook.get("stages") == "[manual]"]
+
+    assert manual
+    for hook in manual:
+        found = re.fullmatch(r"cd (\S+) && (.+)", _hook_shell_line(hook))
+        assert found, hook["id"]
+        directory, command = found.groups()
+        row = _development_guide_hook_rows()[hook["id"]]
+        assert f"`{command}`" in row, row
+        assert f"`{directory}/`" in row, row
 
 
 def _workflow_runs() -> list[str]:

@@ -102,10 +102,10 @@ The repo's `.pre-commit-config.yaml` runs what CI runs, and nothing that fights 
 | `ruff-check --fix`, `ruff-format` | the same lint and format CI checks |
 | `pyupgrade` | rewrites to Python 3.11+ syntax |
 | `yesqa` | removes a `noqa` nothing needs any more |
-| hygiene hooks | final newlines, trailing whitespace, YAML, large files, private keys, merge markers |
+| `end-of-file-fixer`, `trailing-whitespace`, `check-yaml`, `check-executables-have-shebangs`, `check-case-conflict`, `check-added-large-files`, `detect-private-key`, `check-merge-conflict` | final newlines, trailing whitespace, YAML, shebangs on executables, file names that differ only in case, large files, private keys, merge markers |
 | `mypy_backend`, `mypy_cli` | local hooks, the same invocations CI uses |
 | `fastro_sync_check` | local: `uv run --no-sync fastro sync --check`, on a commit that touches `blueprint.toml`, `fastro.toml`, the wiring, the root `pyproject.toml` or `uv.lock` |
-| `unit_test` | local, manual stage: `pytest tests/unit` |
+| `unit_test` | local, manual stage: `uv run --no-sync pytest tests/unit` in `backend/` |
 
 `unit_test` runs the unit tests only — they need no container and finish in seconds. The
 integration suite, which starts Postgres through testcontainers, runs in CI and when you run
