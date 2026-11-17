@@ -832,31 +832,17 @@ def _development_guide_pre_commit_prose() -> str:
     return _development_guide_pre_commit_section().rsplit("\n|", 1)[1].split("\n", 1)[1]
 
 
-def _modules_imported_anywhere(path: Path) -> set[str]:
-    """Each module a file imports, at its top or inside a function, a block or a fixture."""
-    modules = set()
-    for node in ast.walk(ast.parse(path.read_text())):
-        if isinstance(node, ast.ImportFrom) and node.module:
-            modules.add(node.module)
-        elif isinstance(node, ast.Import):
-            modules.update(alias.name for alias in node.names)
-
-    return modules
-
-
-def test_every_test_that_starts_a_container_skips_without_docker():
-    """What the development guide means when it says the unit test hook passes without Docker."""
-    tests = REPO_ROOT / "backend" / "tests"
-    starting = [
-        path
-        for path in sorted(tests.rglob("*.py"))
-        if any(re.fullmatch(r"testcontainers(?:\..+)?", module) for module in _modules_imported_anywhere(path))
-    ]
+def test_some_unit_tests_start_containers_through_testcontainers():
+    """The development guide's claim; `blueprint/tests/test_pre_commit.py` runs the hook without Docker to show they skip."""
+    unit = REPO_ROOT / "backend" / "tests" / "unit"
 
     assert "`testcontainers`" in _development_guide_pre_commit_prose()
-    assert any(path.is_relative_to(tests / "unit") for path in starting)
-    for path in starting:
-        assert re.search(r"if not is_docker_running\(\):\n\s+pytest\.skip\(", path.read_text()), path
+    assert any(
+        isinstance(node, ast.ImportFrom) and re.fullmatch(r"testcontainers(?:\..+)?", node.module or "")
+        for path in unit.rglob("*.py")
+        if path != Path(__file__).resolve()
+        for node in ast.walk(ast.parse(path.read_text()))
+    )
 
 
 def test_docker_counts_as_not_running_when_its_client_cannot_connect(monkeypatch):
