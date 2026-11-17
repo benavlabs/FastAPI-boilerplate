@@ -7,9 +7,8 @@ beside them is generated from a script, which is text, so it is held to the same
 """
 
 import re
+import tomllib
 from pathlib import Path
-
-from tests.unit.test_docs_imports import LEFT_OUT_PATHS
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 WIRING = REPO_ROOT / "backend" / "src" / "wiring"
@@ -21,12 +20,7 @@ DRAWN_TREE = re.compile(r"```text\n(.*?)```", re.DOTALL)
 
 
 def _wiring_modules() -> list[str]:
-    """The composition root's modules, as a project that carries them has them."""
-    return sorted(
-        path.name
-        for path in WIRING.glob("*.py")
-        if path.name != "__init__.py" and f"backend/src/wiring/{path.name}" not in LEFT_OUT_PATHS
-    )
+    return sorted(path.name for path in WIRING.glob("*.py") if path.name != "__init__.py")
 
 
 def _tree_drawing_the_wiring() -> str:
@@ -65,11 +59,11 @@ def test_the_diagram_draws_every_module_of_the_composition_root():
     assert [name for name in _wiring_modules() if name not in drawn] == []
 
 
-def test_the_diagram_names_every_preset_the_drill_runs():
-    """A preset added to the matrix and not to the picture is a diagram that has aged."""
-    drill = (REPO_ROOT / "tools" / "removal_drill.py").read_text()
-    presets = re.findall(r'^    "([a-z0-9-]+)": \(', drill, re.M)
-    drawn = DIAGRAMS.read_text()
+def test_the_diagram_names_every_set_verify_sets_declares():
+    """A set added to `[verify.sets]` and not to the picture is a diagram that has aged."""
+    with (REPO_ROOT / "blueprint.toml").open("rb") as handle:
+        sets = tomllib.load(handle)["verify"]["sets"]
+    drawn = set(re.findall(r">([a-z0-9-]+)</text>", DIAGRAMS.read_text()))
 
-    assert presets, "no presets found in the drill"
-    assert [preset for preset in presets if "-" in preset and preset not in drawn] == []
+    assert sets
+    assert [name for name in sets if name not in drawn] == []

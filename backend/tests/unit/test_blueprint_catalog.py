@@ -1053,6 +1053,40 @@ def _contributing_syncs() -> list[str]:
     return re.findall(r"^\s*(?:\$\s+)?(uv sync\b.*)$", CONTRIBUTING.read_text(), re.M)
 
 
+def _imported_modules(module: str, source: str) -> set[str]:
+    """Each module a file imports, and each name it imports from one, with relative imports resolved."""
+    package = module.split(".")[:-1]
+    imported: set[str] = set()
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Import):
+            imported.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            anchor = package[: len(package) - node.level + 1] if node.level else []
+            base = ".".join([*anchor, *filter(None, [node.module])])
+            imported.add(base)
+            imported.update(f"{base}.{alias.name}" for alias in node.names)
+
+    return imported
+
+
+def test_every_test_that_reads_the_docs_or_imports_a_withheld_test_stays_in_the_blueprint():
+    backend = REPO_ROOT / "backend"
+    files = {".".join(path.relative_to(backend).with_suffix("").parts): path for path in (backend / "tests").rglob("*.py")}
+    withheld = {module for module, path in files.items() if _withheld(str(path.relative_to(REPO_ROOT)))}
+    reading = []
+    for module, path in sorted(files.items()):
+        source = path.read_text()
+        if re.search(r"""(?:["']|\}/|\.\./)docs["'/]""", source) or withheld & _imported_modules(module, source):
+            reading.append(path)
+
+    assert {f"test_docs_{name}.py" for name in ("imports", "recipes", "scripts", "wiring")} <= {path.name for path in reading}
+    for path in reading:
+        assert _withheld(str(path.relative_to(REPO_ROOT))), (
+            f"{path.relative_to(REPO_ROOT)} reads the docs, which describe every feature, or imports a blueprint-only test, "
+            "so it assumes the full repo: list it under [blueprint].blueprint_only in blueprint.toml"
+        )
+
+
 def test_the_contributing_guide_is_the_blueprint_s_own():
     assert _withheld("CONTRIBUTING.md")
 
