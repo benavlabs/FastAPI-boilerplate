@@ -6,7 +6,7 @@ This page walks through running the boilerplate in containers. The Python projec
 `docker compose` from the repository root too.
 
 !!! info "The compose file is generated, not shipped"
-    No compose file is committed. `bp deploy generate local` writes one at the repository root,
+    No compose file is committed. `fastro make deploy local` writes one at the repository root,
     where it is gitignored, so regenerating it never conflicts with the repo. `prod` and `nginx`
     write the other two stacks. See [CLI commands](../../cli/commands.md#bp-deploy-generate-mode).
 
@@ -15,7 +15,7 @@ This page walks through running the boilerplate in containers. The Python projec
 ```bash
 cp backend/.env.example backend/.env
 # edit backend/.env (set SECRET_KEY, change default DB password, etc.)
-uv run --no-sync bp deploy generate local
+uv run --no-sync fastro make deploy local
 docker compose up --build
 ```
 
@@ -39,7 +39,7 @@ docker build --target prod -t fastapi-boilerplate:prod -f backend/Dockerfile .
 docker build --target migrate -t fastapi-boilerplate:migrate -f backend/Dockerfile .
 ```
 
-## What `bp deploy generate local` Writes
+## What `fastro make deploy local` Writes
 
 Four services, named `api`, `worker`, `postgres` and `redis`, with the API and the worker built
 from the `dev` stage and the source mounted for reload:
@@ -260,10 +260,10 @@ docker compose down -v
 
 For a more production-like local stack:
 
-1. **Generate the `prod` stack**: `bp deploy generate prod` builds the `prod` stage, drops the
+1. **Generate the `prod` stack**: `fastro make deploy prod` builds the `prod` stage, drops the
    source mounts and runs `fastapi run --workers`.
 2. **Run migrations as a separate job** (the `migrate` service above) before the app starts.
-3. **Set the worker count**: `bp deploy generate prod --workers 4`, or `WORKERS=4` in
+3. **Set the worker count**: `fastro make deploy prod --workers 4`, or `WORKERS=4` in
    `backend/.env` (the `prod` command reads it).
 5. **Add a reverse proxy** if you need TLS — Caddy or Traefik are simpler to configure than nginx for single-host setups.
 

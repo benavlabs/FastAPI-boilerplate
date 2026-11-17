@@ -55,7 +55,7 @@ Pick whichever workflow fits you:
 
     - [Docker](https://docs.docker.com/get-docker/) (20.10+)
     - [Docker Compose](https://docs.docker.com/compose/install/) (v2+)
-    - [uv](https://docs.astral.sh/uv/getting-started/installation/) (0.4+), which runs the CLI that writes the compose file
+    - [uv](https://docs.astral.sh/uv/getting-started/installation/) (0.4+), which runs fastro, the tool that writes the compose file
 
     ### 1. Get the Template
 
@@ -68,7 +68,7 @@ Pick whichever workflow fits you:
 
     ```bash
     uv sync --all-packages --all-extras
-    uv run --no-sync bp deploy generate local
+    uv run --no-sync fastro make deploy local
     ```
 
     `docker-compose.yml` is written at the repository root and is not committed, because the

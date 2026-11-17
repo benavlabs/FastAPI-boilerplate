@@ -9,7 +9,7 @@
 | FastCRUD · SQLAdmin · Alembic | ✓ | ✓ |
 | Caching · rate limiting · Taskiq jobs | ✓ | ✓ |
 | Docker (local / prod / nginx) | ✓ | ✓ |
-| `bp` CLI - scaffolding, env audit, plugins | ✓ |  |
+| fastro - compose scaffolding, env audit | ✓ |  |
 | **Payments** - Stripe: subscriptions, credits, discounts, webhooks |  | ✓ |
 | **Entitlements** - feature gating by plan/tier |  | ✓ |
 | **Transactional email** & notifications |  | ✓ |

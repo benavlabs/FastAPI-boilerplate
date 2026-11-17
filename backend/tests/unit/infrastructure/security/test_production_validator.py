@@ -639,7 +639,7 @@ class TestTheSecretKeyRule:
         The rules do refuse a few generated keys: one hex key in 12.6 million runs
         through eight consecutive digits, and a ``token_urlsafe`` key walks
         neighbouring keys over 0.6 of its length at around one in ten million (one
-        such key in a 10,000,000 sample, none in a second). ``bp env gen-secret``
+        such key in a 10,000,000 sample, none in a second). ``fastro env secret``
         draws again rather than printing those, and the seed here is fixed so that
         this sweep states what the rules do instead of drawing a lottery.
         """

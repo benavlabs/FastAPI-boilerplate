@@ -281,7 +281,7 @@ FORWARDED_ALLOW_IPS=172.31.240.0/24
 and the access logs report. Because uvicorn reads it from its own process environment, it reaches
 the server through compose's `env_file` (or whatever exports it where uvicorn starts) rather than
 through the app's settings — a value in `backend/.env` only applies if that file is the container's
-`env_file`. `bp deploy generate nginx` writes it for you, set to `--internal-subnet`.
+`env_file`. `fastro make deploy nginx` writes it for you, set to `--internal-subnet`.
 
 Leave it unset when nothing sits in front of the app. A wildcard (`*`) lets any client claim any
 address, and `TRUSTED_PROXY_HOPS` then counts hops in a header the client controls.

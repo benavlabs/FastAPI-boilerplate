@@ -243,7 +243,7 @@ cd backend
 uv run --no-sync taskiq scheduler src.infrastructure.taskiq.scheduler:scheduler
 ```
 
-`bp deploy generate` writes it as a `scheduler` service alongside the worker, for a project that
+`fastro make deploy` writes it as a `scheduler` service alongside the worker, for a project that
 carries the taskiq feature.
 
 **Run exactly one scheduler.** Each one fires every schedule it finds, so a second replica means

@@ -131,7 +131,7 @@ services:
         condition: service_healthy
 ```
 
-Redis still runs locally — Neon replaces Postgres only. Regenerating with `uv run --no-sync bp deploy generate local` brings the Postgres service back, so keep the edit in mind after a regen.
+Redis still runs locally; Neon replaces Postgres only. Regenerating with `uv run --no-sync fastro make deploy local` brings the Postgres service back, so keep the edit in mind after a regen.
 
 ## Database branching for previews
 

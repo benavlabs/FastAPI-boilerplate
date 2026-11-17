@@ -453,7 +453,7 @@ ENVIRONMENT=production CONFIRM_PRODUCTION_MIGRATION=yes uv run --no-sync alembic
 
 ### Docker Migration Job
 
-`bp deploy generate prod` (and `nginx`) writes a `migrate` service for this, built from the `migrate`
+`fastro make deploy prod` (and `nginx`) writes a `migrate` service for this, built from the `migrate`
 stage in `backend/Dockerfile`, which runs `alembic upgrade head` and exits. It sits behind a compose
 profile, and nothing waits on it:
 

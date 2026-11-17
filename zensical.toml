@@ -1,6 +1,6 @@
 [project]
 site_name = "FastAPI-boilerplate"
-site_description = "Production-ready FastAPI starter with sessions, OAuth, SQLAdmin, Taskiq, Redis caching, and a plugin-aware CLI."
+site_description = "Production-ready FastAPI starter with sessions, OAuth, SQLAdmin, Taskiq, Redis caching, and compose files written by fastro."
 site_url = "https://benavlabs.github.io/FastAPI-boilerplate"
 docs_dir = "docs"
 site_dir = "site"

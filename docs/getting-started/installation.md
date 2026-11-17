@@ -17,7 +17,7 @@ Docker Compose handles every service for you (Postgres + Redis + the app).
 
 - [Docker](https://docs.docker.com/get-docker/) (20.10+)
 - [Docker Compose](https://docs.docker.com/compose/install/) (v2+)
-- [uv](https://docs.astral.sh/uv/getting-started/installation/), which runs the CLI that writes the compose file
+- [uv](https://docs.astral.sh/uv/getting-started/installation/), which runs fastro, the tool that writes the compose file
 
 ### Steps
 
@@ -37,7 +37,7 @@ Docker Compose handles every service for you (Postgres + Redis + the app).
 3. **Generate the compose file**:
 
     ```bash
-    uv run --no-sync bp deploy generate local
+    uv run --no-sync fastro make deploy local
     ```
 
     `docker-compose.yml` is written at the repo root and is not committed, because the stack
@@ -49,7 +49,7 @@ Docker Compose handles every service for you (Postgres + Redis + the app).
 
     ```bash
     cp backend/.env.example backend/.env
-    # Edit backend/.env: set SECRET_KEY (`uv run --no-sync bp env gen-secret` prints one),
+    # Edit backend/.env: set SECRET_KEY (`uv run --no-sync fastro env secret` prints one),
     # change ADMIN_PASSWORD and the default DB password.
     ```
 
@@ -128,7 +128,7 @@ For development on your host machine. You provide PostgreSQL and Redis yourself.
     cd fastapi-boilerplate
     ```
 
-    The repo is a [uv workspace](https://docs.astral.sh/uv/concepts/projects/workspaces/) — the deployable application lives in `backend/` and the developer CLI (`bp`) lives in `cli/`. Both share a single virtual environment at the repo root.
+    The repo is a [uv workspace](https://docs.astral.sh/uv/concepts/projects/workspaces/): the deployable application lives in `backend/` and `cli/` holds the old developer tool, which fastro replaces. Both share a single virtual environment at the repo root.
 
 2. **Install Python dependencies**:
 
@@ -143,14 +143,14 @@ For development on your host machine. You provide PostgreSQL and Redis yourself.
     ```bash
     cp backend/.env.example backend/.env
     # Edit backend/.env: point POSTGRES_SERVER and CACHE_REDIS_HOST at localhost,
-    # set a strong SECRET_KEY (or run `uv run --no-sync bp env gen-secret`), etc.
+    # set a strong SECRET_KEY (or run `uv run --no-sync fastro env secret`), etc.
     ```
 
-    The CLI ships a few helpers for this step — see [CLI → Commands](../cli/commands.md):
+    fastro has a few helpers for this step; see [CLI → Commands](../cli/commands.md):
 
     ```bash
-    uv run --no-sync bp env gen-secret      # print a fresh SECRET_KEY
-    uv run --no-sync bp env validate        # audit the .env against the production validator
+    uv run --no-sync fastro env secret      # print a fresh SECRET_KEY
+    uv run --no-sync fastro env validate    # audit the .env against the production validator
     ```
 
 4. **Set up PostgreSQL** (if not already configured):
