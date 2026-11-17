@@ -1006,6 +1006,25 @@ def test_the_workflow_reader_reads_every_run_and_a_block_line_by_line():
     assert _workflow_runs([workflow]) == ["uv sync", "uv run --no-sync pytest", "echo one", "if true; then", "echo two", "fi"]
 
 
+def test_ci_type_checks_the_blueprint_tests_it_runs():
+    """A test file nobody type-checks can drift from the code it reads, and only fail when it runs."""
+    runs = _workflow_runs()
+    tested = {
+        argument.rstrip("/")
+        for run in runs
+        if run.startswith("uv run --no-sync pytest ")
+        for argument in run.split()[4:]
+        if argument.startswith("blueprint/")
+    }
+    checked = [run.split()[4:] for run in runs if run.startswith("uv run --no-sync mypy ")]
+
+    assert tested
+    for directory in tested:
+        assert any(
+            directory == path.rstrip("/") or directory.startswith(path.rstrip("/") + "/") for paths in checked for path in paths
+        ), directory
+
+
 def _defaults_blocks(workflow: str) -> list[str]:
     """Each `defaults:` block of a workflow, at any level, with its value written on the same line or below it."""
     lines = workflow.splitlines()

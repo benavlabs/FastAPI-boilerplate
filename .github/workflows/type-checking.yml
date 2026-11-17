@@ -40,3 +40,9 @@ jobs:
         env:
           ENVIRONMENT: local
           SECRET_KEY: test-secret-key-for-testing-only
+
+      - name: Mypy (blueprint tests)
+        run: uv run --no-sync mypy blueprint/tests
+        env:
+          ENVIRONMENT: local
+          SECRET_KEY: test-secret-key-for-testing-only
