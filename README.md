@@ -1,4 +1,4 @@
-<h1 align="center">Fastro · The Benav Labs FastAPI Boilerplate</h1>
+<h1 align="center">FastAPI-boilerplate by Benav Labs</h1>
 <p align="center" markdown=1>
   <i><b>Batteries-included FastAPI starter</b> - vertical-slice modules, swappable infrastructure, plugin-ready CLI.</i>
 </p>
@@ -7,7 +7,7 @@
   <a href="https://benavlabs.github.io/FastAPI-boilerplate">
     <picture>
       <source media="(prefers-color-scheme: dark)" srcset="docs/assets/fastro-cover-dark.png">
-      <img src="docs/assets/fastro-cover-light.png" alt="Fastro - open-source FastAPI boilerplate with auth, CRUD, jobs, caching and rate-limits" width="100%">
+      <img src="docs/assets/fastro-cover-light.png" alt="FastAPI-boilerplate - open source, with auth, CRUD, jobs, caching and rate-limits" width="100%">
     </picture>
   </a>
 </p>
@@ -74,11 +74,11 @@
 * **Admin**: [SQLAdmin views](https://benavlabs.github.io/FastAPI-boilerplate/user-guide/admin-panel/) (optional, env-toggled)
 * **CLI**: [`bp` tool](https://benavlabs.github.io/FastAPI-boilerplate/cli/) for compose scaffolding, env audits, and plugin extensions
 
-## Fastro vs FastroAI
+## FastAPI-boilerplate vs FastroAI
 
-This boilerplate - **Fastro** - is the free, open-source **foundation**: everything you need for a production FastAPI backend. **[FastroAI](https://fastro.ai)** is the paid template built on the same foundation for shipping a **complete SaaS** - Stripe billing (subscriptions, credits, discounts), entitlements, transactional email, and a frontend, all wired together. Building an **AI** product? The PydanticAI agent layer is included too - but every paid feature fits a regular SaaS just as well.
+**FastAPI-boilerplate** is the free, open-source **foundation**: everything you need for a production FastAPI backend. **[FastroAI](https://fastro.ai)** is the paid template built on the same foundation for shipping a **complete SaaS** - Stripe billing (subscriptions, credits, discounts), entitlements, transactional email, and a frontend, all wired together. Building an **AI** product? The PydanticAI agent layer is included too - but every paid feature fits a regular SaaS just as well.
 
-| | **Fastro** (this repo · free) | **FastroAI** (paid) |
+| | **FastAPI-boilerplate** (this repo · free) | **FastroAI** (paid) |
 |---|:---:|:---:|
 | FastAPI + SQLAlchemy 2.0, Pydantic v2 | ✓ | ✓ |
 | Auth - sessions, OAuth, API keys | ✓ | ✓ **+ JWT** |
@@ -98,12 +98,12 @@ This boilerplate - **Fastro** - is the free, open-source **foundation**: everyth
   <a href="https://fastro.ai">
     <picture>
       <source media="(prefers-color-scheme: dark)" srcset="docs/assets/fastroai-card-dark.png">
-      <img src="docs/assets/fastroai-card-light.png" alt="FastroAI - the complete SaaS template: payments, entitlements, email, frontend and AI on top of Fastro" width="100%">
+      <img src="docs/assets/fastroai-card-light.png" alt="FastroAI - the complete SaaS template: payments, entitlements, email, frontend and AI on top of FastAPI-boilerplate" width="100%">
     </picture>
   </a>
 </p>
 
-**Stick with Fastro** if you want a clean, hackable FastAPI backend to build on.
+**Stick with FastAPI-boilerplate** if you want a clean, hackable FastAPI backend to build on.
 **[Get FastroAI →](https://fastro.ai)** if you're shipping a SaaS - AI or not - and want billing, entitlements, email, auth, and a frontend ready out of the box.
 
 ## Repo Layout

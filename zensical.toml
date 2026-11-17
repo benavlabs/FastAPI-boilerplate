@@ -1,5 +1,5 @@
 [project]
-site_name = "Fastro · FastAPI Boilerplate"
+site_name = "FastAPI-boilerplate"
 site_description = "Production-ready FastAPI starter with sessions, OAuth, SQLAdmin, Taskiq, Redis caching, and a plugin-aware CLI."
 site_url = "https://benavlabs.github.io/FastAPI-boilerplate"
 docs_dir = "docs"
@@ -73,7 +73,7 @@ name = "FastAPI on PyPI"
 "Home" = "index.md"
 
 [[project.nav]]
-"Fastro vs FastroAI" = "fastro-vs-fastroai.md"
+"FastAPI-boilerplate vs FastroAI" = "fastro-vs-fastroai.md"
 
 [[project.nav]]
 "Getting Started" = [

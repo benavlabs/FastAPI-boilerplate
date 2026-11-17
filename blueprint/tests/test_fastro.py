@@ -3,12 +3,12 @@
 import tomllib
 from pathlib import Path
 
-from conftest import Fastro
+from conftest import FastroRunner
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
-def test_plain_sync_regenerates_what_the_check_compares(tracked_tree: Path, fastro: Fastro):
+def test_plain_sync_regenerates_what_the_check_compares(tracked_tree: Path, fastro: FastroRunner):
     """CONTRIBUTING.md sends a failed `fastro sync --check` to `fastro sync`."""
     tree = tracked_tree
     wiring = tree / tomllib.loads((tree / "blueprint.toml").read_text())["wiring"][0]["path"]

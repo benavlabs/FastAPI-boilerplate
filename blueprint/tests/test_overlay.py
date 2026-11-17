@@ -24,7 +24,7 @@ CONTEXT_NAMES = {"project", "blueprint", "fastro", "features", "options", "servi
 """Spec 6.2, in full. A template reaching for anything else fails under `StrictUndefined`."""
 
 BUILT_IN_COMMANDS = {"add", "check", "eject", "features", "init", "make", "new", "remove", "sync", "update"}
-"""Fastro's own verbs, which take arguments of their own: `fastro add admin` names a feature, not
+"""fastro's own verbs, which take arguments of their own: `fastro add admin` names a feature, not
 a command. Anything else after `fastro` has to be a command the catalog declares, and
 `make <generator>` has to name one it has."""
 

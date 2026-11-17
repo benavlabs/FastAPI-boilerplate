@@ -8,7 +8,7 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
-Fastro = Callable[..., subprocess.CompletedProcess[str]]
+FastroRunner = Callable[..., subprocess.CompletedProcess[str]]
 
 
 @pytest.fixture
@@ -32,7 +32,7 @@ def tracked_tree(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-def fastro() -> Fastro:
+def fastro() -> FastroRunner:
     """Run the fastro the repository root installs, in a directory of the caller's choosing."""
 
     def run(*arguments: str, cwd: Path) -> subprocess.CompletedProcess[str]:

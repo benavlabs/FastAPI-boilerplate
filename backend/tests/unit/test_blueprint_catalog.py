@@ -2911,3 +2911,39 @@ def test_the_project_is_named_the_way_its_python_package_is():
         backend = tomllib.load(handle)
 
     assert _project()["project"]["name"] == backend["project"]["name"]
+
+
+RETIRED_NAME = "fastro".title()
+
+STILL_CARRYING_THE_RETIRED_NAME = {
+    "docs/changelog.md": "B9 item 15",
+    "docs/assets/build-cover.cjs": "B5",
+    "docs/assets/build-card.cjs": "B5",
+}
+"""Files left as they are until the item named beside each, which rewrites them."""
+
+
+def test_no_tracked_file_calls_the_blueprint_by_its_retired_name():
+    """FastAPI-boilerplate is the blueprint, fastro the tool and FastroAI the paid blueprint: the
+    capitalised tool name, standing alone, names nothing. A wordmark that sets AI in its own
+    `<tspan>` straight after it still spells FastroAI."""
+    alone = re.compile(rf"\b{RETIRED_NAME}\b(?!<tspan[^>]*>AI</tspan>)")
+    tracked = subprocess.run(["git", "ls-files", "-z"], cwd=REPO_ROOT, capture_output=True, text=True, check=True)
+    found = []
+    carrying = set()
+    for name in filter(None, tracked.stdout.split("\0")):
+        path = REPO_ROOT / name
+        if not path.is_file():
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            continue
+        hits = [f"{name}:{number}" for number, line in enumerate(text.splitlines(), 1) if alone.search(line)]
+        if name in STILL_CARRYING_THE_RETIRED_NAME:
+            carrying |= {name} if hits else set()
+        else:
+            found += hits
+
+    assert not found, found
+    assert carrying == set(STILL_CARRYING_THE_RETIRED_NAME), "drop the exemption of a file that no longer carries it"

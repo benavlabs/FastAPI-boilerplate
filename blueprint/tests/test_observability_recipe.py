@@ -6,7 +6,7 @@ import tomllib
 from pathlib import Path
 
 import pytest
-from conftest import Fastro
+from conftest import FastroRunner
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 RECIPE = REPO_ROOT / "docs" / "user-guide" / "observability.md"
@@ -41,7 +41,7 @@ def _installers_slot() -> tuple[str, str]:
     )
 
 
-def test_the_recipe_registers_its_installer_through_fastro_toml_and_a_sync(tracked_tree: Path, fastro: Fastro):
+def test_the_recipe_registers_its_installer_through_fastro_toml_and_a_sync(tracked_tree: Path, fastro: FastroRunner):
     project = tracked_tree
     wiring_file, slot = _installers_slot()
     registration = _block("toml")
@@ -97,7 +97,7 @@ def test_the_installer_configures_tracing_before_it_instruments_the_app():
 
 
 @pytest.mark.parametrize("arguments", [("sync",), ("sync", "--check")])
-def test_the_pinned_fastro_cannot_sync_a_project_yet(tracked_tree: Path, fastro: Fastro, arguments: tuple[str, ...]):
+def test_the_pinned_fastro_cannot_sync_a_project_yet(tracked_tree: Path, fastro: FastroRunner, arguments: tuple[str, ...]):
     """The recipe's hand-edit fallback is there only while this holds; when it fails, delete that sentence."""
     config = tracked_tree / "fastro.toml"
     config.write_text(re.sub(r"^source = true\n", "", config.read_text(), flags=re.M))

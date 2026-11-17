@@ -1,8 +1,8 @@
-# Fastro · The Benav Labs FastAPI Boilerplate
+# FastAPI-boilerplate by Benav Labs
 
 <p align="center">
-  <img src="assets/fastro-cover-light.png#only-light" alt="Fastro - open-source FastAPI boilerplate" width="100%">
-  <img src="assets/fastro-cover-dark.png#only-dark" alt="Fastro - open-source FastAPI boilerplate" width="100%">
+  <img src="assets/fastro-cover-light.png#only-light" alt="FastAPI-boilerplate - open source" width="100%">
+  <img src="assets/fastro-cover-dark.png#only-dark" alt="FastAPI-boilerplate - open source" width="100%">
 </p>
 
 <p align="center">
@@ -130,7 +130,7 @@ Your API will be available at `http://localhost:8000/docs`
 
 ## Building a complete SaaS? Meet FastroAI
 
-Fastro is the free **foundation**. **[FastroAI](https://fastro.ai)** builds on the same base for shipping a full SaaS - Stripe billing (subscriptions, credits, discounts), entitlements, transactional email, a frontend, and AI agents - all wired together, so you don't build them from scratch.
+FastAPI-boilerplate is the free **foundation**. **[FastroAI](https://fastro.ai)** builds on the same base for shipping a full SaaS - Stripe billing (subscriptions, credits, discounts), entitlements, transactional email, a frontend, and AI agents - all wired together, so you don't build them from scratch.
 
 <p align="center">
   <a href="https://fastro.ai">
