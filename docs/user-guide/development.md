@@ -107,17 +107,17 @@ The repo's `.pre-commit-config.yaml` runs these hooks. A row that names CI says 
 | `fastro_sync_check` | local: `uv run --no-sync fastro sync --check`, on a commit that touches `blueprint.toml`, `fastro.toml`, the wiring, the root `pyproject.toml` or `uv.lock`; CI runs the same command |
 | `unit_test` | local, manual stage: `uv run --no-sync pytest tests/unit` in `backend/`; CI runs these tests with the rest, as `uv run --no-sync pytest` in `backend/` |
 
-`unit_test` runs the unit tests only — they need no container and finish in seconds. The
-integration suite, which starts Postgres through testcontainers, runs in CI and when you run
-`pytest` yourself.
+`unit_test` runs the unit tests only. Some of them start containers through `testcontainers`, and
+every test that starts a container skips when Docker isn't running, so the hook passes without
+Docker. The integration suite runs in CI and when you run `pytest` yourself.
 
 There are no docstring- or markdown-formatting hooks: `ruff-format` owns formatting, and the two
 documentation hooks this repo used to carry damaged what they touched — `mdformat` broke MkDocs
 content tabs, and `blacken-docs` rewrote code samples into different code.
 
-`check-docstring-first` is left out for the same reason. This project documents a module-level
-name with an attribute docstring under it, which the hook reads as a second module docstring, so
-it refused 40 files.
+`check-docstring-first` is left out too. This project documents a module-level name with an
+attribute docstring under it, which the hook reads as a second module docstring, so it refuses
+those files.
 
 `pre-commit` ships in the `dev` extra, so `uv sync --all-packages --all-extras` installs it.
 Install the git hook once:

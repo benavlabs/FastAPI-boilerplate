@@ -17,6 +17,7 @@ import ipaddress
 import itertools
 import keyword
 import re
+import subprocess
 import sys
 import tomllib
 from collections.abc import Iterable
@@ -25,6 +26,8 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+
+from tests.conftest import is_docker_running
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
@@ -706,10 +709,15 @@ def _hook_repositories() -> dict[str, str]:
     }
 
 
+def _development_guide_pre_commit_section() -> str:
+    guide = (REPO_ROOT / "docs" / "user-guide" / "development.md").read_text()
+
+    return guide.split("## Pre-Commit", 1)[1].split("\n\n## ", 1)[0]
+
+
 def _development_guide_hook_rows() -> dict[str, str]:
     """The guide's pre-commit table, each row keyed by each hook its first cell names, or by the cell if it names none."""
-    section = (REPO_ROOT / "docs" / "user-guide" / "development.md").read_text().split("## Pre-Commit", 1)[1]
-    rows = re.findall(r"^\| (?!Hook\b|-)(.+?) \| (.+) \|$", section.split("\n\n## ", 1)[0], re.M)
+    rows = re.findall(r"^\| (?!Hook\b|-)(.+?) \| (.+) \|$", _development_guide_pre_commit_section(), re.M)
 
     named = [
         (name, cells)
@@ -817,6 +825,115 @@ def test_the_development_guide_gives_the_command_each_manual_hook_runs_and_where
         row = _development_guide_hook_rows()[hook["id"]]
         assert f"`{command}`" in row, row
         assert f"`{directory}/`" in row, row
+
+
+def _development_guide_pre_commit_prose() -> str:
+    """The development guide's Pre-Commit section, past its hook table."""
+    return _development_guide_pre_commit_section().rsplit("\n|", 1)[1].split("\n", 1)[1]
+
+
+def _modules_imported_anywhere(path: Path) -> set[str]:
+    """Each module a file imports, at its top or inside a function, a block or a fixture."""
+    modules = set()
+    for node in ast.walk(ast.parse(path.read_text())):
+        if isinstance(node, ast.ImportFrom) and node.module:
+            modules.add(node.module)
+        elif isinstance(node, ast.Import):
+            modules.update(alias.name for alias in node.names)
+
+    return modules
+
+
+def test_every_test_that_starts_a_container_skips_without_docker():
+    """What the development guide means when it says the unit test hook passes without Docker."""
+    tests = REPO_ROOT / "backend" / "tests"
+    starting = [
+        path
+        for path in sorted(tests.rglob("*.py"))
+        if any(re.fullmatch(r"testcontainers(?:\..+)?", module) for module in _modules_imported_anywhere(path))
+    ]
+
+    assert "`testcontainers`" in _development_guide_pre_commit_prose()
+    assert any(path.is_relative_to(tests / "unit") for path in starting)
+    for path in starting:
+        assert re.search(r"if not is_docker_running\(\):\n\s+pytest\.skip\(", path.read_text()), path
+
+
+def test_docker_counts_as_not_running_when_its_client_cannot_connect(monkeypatch):
+    monkeypatch.setenv("DOCKER_HOST", "tcp://127.0.0.1:1")
+    monkeypatch.setattr("testcontainers.core.config.testcontainers_config.tc_properties", {})
+
+    assert is_docker_running() is False
+
+
+def test_the_project_puts_an_attribute_docstring_under_a_module_level_name():
+    """Why the development guide leaves `check-docstring-first` out."""
+    documented = [
+        path
+        for path in sorted((REPO_ROOT / "backend").glob("[st]*/**/*.py"))
+        if any(
+            isinstance(name, ast.Assign | ast.AnnAssign)
+            and isinstance(docstring, ast.Expr)
+            and isinstance(docstring.value, ast.Constant)
+            and isinstance(docstring.value.value, str)
+            for name, docstring in itertools.pairwise(ast.parse(path.read_text()).body)
+        )
+    ]
+
+    assert any(path.is_relative_to(REPO_ROOT / "backend" / "src") for path in documented), documented
+    assert "`check-docstring-first`" in _development_guide_pre_commit_prose()
+
+
+def test_the_hooks_the_development_guide_leaves_out_are_not_in_the_config():
+    left_out = {"mdformat", "blacken-docs", "check-docstring-first"}
+    named = set(re.findall(r"`([\w-]+)`", _development_guide_pre_commit_prose()))
+
+    assert left_out <= named
+    assert not left_out & set(_hook_repositories())
+    assert "ruff-format" in named & set(_hook_repositories())
+
+
+def test_the_extra_the_development_guide_names_installs_pre_commit():
+    prose = _development_guide_pre_commit_prose()
+    extra = re.search(r"`pre-commit` ships in the `([\w-]+)` extra, so `(uv sync[^`]*)`", prose)
+    assert extra, prose
+
+    assert {"--all-packages", "--all-extras"} <= set(extra[2].split())
+    assert any(
+        re.match(r"pre-commit(?![\w.-])", requirement)
+        for member in tomllib.loads((REPO_ROOT / "pyproject.toml").read_text())["tool"]["uv"]["workspace"]["members"]
+        for requirement in tomllib.loads((REPO_ROOT / member / "pyproject.toml").read_text())["project"]
+        .get("optional-dependencies", {})
+        .get(extra[1], [])
+    )
+
+
+def test_each_hook_the_development_guide_runs_by_name_is_in_the_config_at_the_stage_it_gives():
+    runs = re.findall(r"pre-commit run (\w[\w-]*)(.*)$", _development_guide_pre_commit_prose(), re.M)
+    hooks = {hook["id"]: hook for hook in _pre_commit_hooks()}
+
+    assert runs
+    for hook, flags in runs:
+        assert hook in hooks, hook
+        stage = re.search(r"--hook-stage (\w+)", flags)
+        assert hooks[hook].get("stages", "[pre-commit]") == f"[{stage[1] if stage else 'pre-commit'}]", hook
+
+
+def test_each_pre_commit_command_the_development_guide_gives_takes_the_flags_it_passes():
+    prose = _development_guide_pre_commit_prose()
+    commands = re.findall(r"^uv run --no-sync pre-commit (\w+)(.*)$", prose, re.M)
+
+    assert commands
+    for fence in re.findall(r"^```bash\n(.*?)^```$", prose, re.M | re.S):
+        for line in fence.splitlines():
+            assert "pre-commit" not in line or line.startswith("uv run --no-sync pre-commit "), line
+    for subcommand, arguments in commands:
+        usage = subprocess.run(
+            [sys.executable, "-m", "pre_commit", subcommand, "--help"], capture_output=True, text=True, check=False
+        )
+        assert usage.returncode == 0, subcommand
+        for flag in re.findall(r"(?<!\S)(--?[\w-]+)", arguments):
+            assert re.search(rf"(?<![\w-]){re.escape(flag)}(?![\w-])", usage.stdout), (subcommand, flag)
 
 
 def _workflow_runs() -> list[str]:
