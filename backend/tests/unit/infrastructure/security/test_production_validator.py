@@ -610,7 +610,8 @@ class TestAProjectWithoutTheseFeatures:
 
     def test_the_core_checks_still_run(self):
         """Dropping features must not drop the checks that hold for every project."""
-        validator = ProductionSecurityValidator(cast(Settings, CoreSettings(ENVIRONMENT=EnvironmentOption.PRODUCTION)))
+        settings = CoreSettings(ENVIRONMENT=EnvironmentOption.PRODUCTION, SECRET_KEY="change-me")
+        validator = ProductionSecurityValidator(cast(Settings, settings))
 
         errors = validator._validate_critical_security()
 
