@@ -95,17 +95,17 @@ field reads as an error.
 
 ## Pre-Commit
 
-The repo's `.pre-commit-config.yaml` runs what CI runs, and nothing that fights it:
+The repo's `.pre-commit-config.yaml` runs these hooks. A row that names CI says what CI runs for it; the other hooks are no CI step:
 
 | Hook | What it does |
 |------|--------------|
-| `ruff-check --fix`, `ruff-format` | the same lint and format CI checks |
+| `ruff-check --fix`, `ruff-format` | lint and format the files a commit stages, fixing what they can; CI runs `ruff check` and `ruff format --check` |
 | `pyupgrade` | rewrites to Python 3.11+ syntax |
 | `yesqa` | removes a `noqa` nothing needs any more |
 | `end-of-file-fixer`, `trailing-whitespace`, `check-yaml`, `check-executables-have-shebangs`, `check-case-conflict`, `check-added-large-files`, `detect-private-key`, `check-merge-conflict` | final newlines, trailing whitespace, YAML, shebangs on executables, file names that differ only in case, large files, private keys, merge markers |
 | `mypy_backend`, `mypy_cli` | local hooks, the same invocations CI uses |
-| `fastro_sync_check` | local: `uv run --no-sync fastro sync --check`, on a commit that touches `blueprint.toml`, `fastro.toml`, the wiring, the root `pyproject.toml` or `uv.lock` |
-| `unit_test` | local, manual stage: `uv run --no-sync pytest tests/unit` in `backend/` |
+| `fastro_sync_check` | local: `uv run --no-sync fastro sync --check`, on a commit that touches `blueprint.toml`, `fastro.toml`, the wiring, the root `pyproject.toml` or `uv.lock`; CI runs the same command |
+| `unit_test` | local, manual stage: `uv run --no-sync pytest tests/unit` in `backend/`; CI runs these tests with the rest, as `uv run --no-sync pytest` in `backend/` |
 
 `unit_test` runs the unit tests only — they need no container and finish in seconds. The
 integration suite, which starts Postgres through testcontainers, runs in CI and when you run

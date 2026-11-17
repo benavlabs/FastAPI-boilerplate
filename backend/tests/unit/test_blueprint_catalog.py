@@ -761,13 +761,49 @@ def _hook_shell_line(hook: dict[str, str]) -> str:
     return found[1] if found else hook["entry"]
 
 
+def _ci_runs_command(command: str) -> bool:
+    """Whether a CI step runs this command, alone or on paths after it."""
+    return any(re.fullmatch(rf"(?:uv run --no-sync )?{re.escape(command)}(?: [^-\s]\S*)*", run) for run in _workflow_runs())
+
+
+def _names_ci(row: str) -> bool:
+    """Whether a row of the development guide's hook table says what CI runs."""
+    return re.search(r"\bCI\b", row) is not None
+
+
+def _ci_runs_hook(hook: dict[str, str]) -> bool:
+    """Whether a CI step runs a local hook's command, as it is or on every path instead of the ones it names."""
+    line = _hook_shell_line(hook)
+
+    return line in _workflow_runs() or re.sub(r"(?: [\w.-]*[/.][\w./-]*)+$", "", line) in _workflow_runs()
+
+
 def test_the_hooks_the_development_guide_says_ci_runs_run_what_ci_runs():
     rows = _development_guide_hook_rows()
-    claimed = [hook for hook in _pre_commit_hooks() if "entry" in hook and re.search(r"\bCI\b", rows.get(hook["id"], ""))]
+    claimed = [hook for hook in _pre_commit_hooks() if _names_ci(rows[hook["id"]])]
 
     assert claimed
     for hook in claimed:
-        assert _hook_shell_line(hook) in _workflow_runs(), hook["id"]
+        if "entry" in hook:
+            assert _ci_runs_hook(hook), hook["id"]
+        else:
+            commands = [span for span in re.findall(r"`([^`]+)`", rows[hook["id"]]) if " " in span]
+            assert any(command.startswith(hook["id"].replace("-", " ")) for command in commands), hook["id"]
+            for command in commands:
+                assert _ci_runs_command(command), command
+
+
+def test_the_hooks_the_development_guide_leaves_ci_out_of_are_no_ci_step():
+    rows = _development_guide_hook_rows()
+    unclaimed = [hook for hook in _pre_commit_hooks() if not _names_ci(rows[hook["id"]])]
+
+    assert unclaimed
+    for hook in unclaimed:
+        if "entry" in hook:
+            assert not _ci_runs_hook(hook), hook["id"]
+        else:
+            for name in {hook["id"], hook["id"].replace("-", " ")}:
+                assert not any(re.search(rf"\b{re.escape(name)}\b", run) for run in _workflow_runs()), name
 
 
 def test_the_development_guide_gives_the_command_each_manual_hook_runs_and_where():
