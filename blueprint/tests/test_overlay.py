@@ -120,8 +120,9 @@ def test_no_two_overlay_files_land_on_one_path():
 @pytest.mark.parametrize("path", [str(path.relative_to(OVERLAY)) for path in _files() if path.suffix == ".j2"])
 def test_every_template_reads_only_what_the_tool_passes(path: str):
     """Spec 6.2: the context is fixed, so a template that asks for anything else renders nothing."""
-    environment = Environment(loader=FileSystemLoader(OVERLAY), undefined=StrictUndefined, keep_trailing_newline=True)
-    source = environment.loader.get_source(environment, path)[0]
+    loader = FileSystemLoader(OVERLAY)
+    environment = Environment(loader=loader, undefined=StrictUndefined, keep_trailing_newline=True)
+    source = loader.get_source(environment, path)[0]
 
     assert meta.find_undeclared_variables(environment.parse(source)) <= CONTEXT_NAMES
 
