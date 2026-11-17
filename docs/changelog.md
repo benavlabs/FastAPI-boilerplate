@@ -12,6 +12,11 @@ ___
 
 #### Changed
 
+- **The tracing recipe registers its installer in `fastro.toml`.**
+  [Observability](user-guide/observability.md) used to have you call `configure_tracing()` and add
+  the installer in `src/interfaces/main.py`. Now `install()` configures tracing itself, and you
+  list it under `[app.contributes]` and run `fastro sync`, which adds it to the generated
+  `src/wiring/app.py`.
 - **FastAPI is capped below 0.140.7.** The app imports `get_flat_dependant` from
   `fastapi.dependencies.utils`, which 0.140.7 removed, and passes `openapi_prefix` to `FastAPI`,
   which 0.145.0 refuses. A project resolves its own dependencies, so without the cap a new one got
