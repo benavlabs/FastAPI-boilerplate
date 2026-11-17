@@ -4,12 +4,17 @@ The templates are rendered with the generator context of catalog spec 6.2, under
 ``StrictUndefined``: a template that reaches for anything the tool doesn't pass fails here.
 """
 
+import tomllib
 from pathlib import Path
 from typing import Any
 
 import pytest
 import yaml
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
+CATALOG = tomllib.loads((REPO_ROOT / "blueprint.toml").read_text())
 
 TEMPLATES = Path(__file__).resolve().parents[1] / "templates" / "deploy"
 
@@ -28,7 +33,7 @@ def _context(
     """The spec 6.2 context, as the tool builds it for a generator."""
     return {
         "project": {"name": "example", "slug": "example"},
-        "blueprint": {"name": "fastapi-boilerplate", "version": "0.20.0"},
+        "blueprint": {"name": CATALOG["blueprint"]["name"], "version": CATALOG["blueprint"]["version"]},
         "fastro": {"version": "0.1.0"},
         "features": list(features),
         "options": {},
