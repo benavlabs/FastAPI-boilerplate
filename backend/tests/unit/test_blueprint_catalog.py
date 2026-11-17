@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import yaml
 
 from tests.conftest import is_docker_running
 
@@ -627,14 +628,42 @@ def test_no_project_receives_the_fastro_pin():
     assert "fastro" not in backend.get("tool", {}).get("uv", {}).get("sources", {})
 
 
-def _pre_commit_hooks() -> list[dict[str, str]]:
-    """Each hook's keys, read from its `- id:` block, with the value written on the key's own line."""
-    blocks = re.findall(r"^( *)- id: (\S+)\n((?:\1  +[\w-]+:.*\n)*)", (REPO_ROOT / ".pre-commit-config.yaml").read_text(), re.M)
+def _pre_commit_repositories(config: str | None = None) -> list[dict[str, Any]]:
+    """Each `- repo:` entry of `.pre-commit-config.yaml`, parsed."""
+    parsed = yaml.safe_load((REPO_ROOT / ".pre-commit-config.yaml").read_text() if config is None else config)
+    repositories: list[dict[str, Any]] = parsed["repos"]
 
-    return [{"id": hook, **dict(re.findall(r"^ +([\w-]+):[ ]*(.*)$", keys, re.M))} for _, hook, keys in blocks]
+    return repositories
 
 
-def _the_sync_check_hook() -> dict[str, str]:
+def _pre_commit_hooks(config: str | None = None) -> list[dict[str, Any]]:
+    return [hook for repository in _pre_commit_repositories(config) for hook in repository["hooks"]]
+
+
+def test_the_pre_commit_reader_reads_what_yaml_means_not_how_it_is_written():
+    hooks = _pre_commit_hooks(
+        "repos:\n"
+        "  - repo: local\n"
+        "    hooks:\n"
+        '      - id: "commented"  # why\n'
+        "        # a note\n"
+        "        entry: run it  # how\n"
+        "\n"
+        "        stages: [ 'manual' ]\n"
+        "      - id: listed\n"
+        "        stages:\n"
+        "          - manual  # first\n"
+        "          - pre-push\n"
+        "        pass_filenames: false\n"
+    )
+
+    assert hooks == [
+        {"id": "commented", "entry": "run it", "stages": ["manual"]},
+        {"id": "listed", "stages": ["manual", "pre-push"], "pass_filenames": False},
+    ]
+
+
+def _the_sync_check_hook() -> dict[str, Any]:
     hooks = [hook for hook in _pre_commit_hooks() if "fastro sync --check" in hook.get("entry", "")]
     assert len(hooks) == 1, hooks
 
@@ -662,7 +691,7 @@ def test_a_commit_runs_sync_check_on_the_whole_tree():
 
     assert hook["entry"] == "uv run --no-sync fastro sync --check"
     assert hook["language"] == "system"
-    assert hook["pass_filenames"] == "false"
+    assert hook["pass_filenames"] is False
 
 
 def test_the_sync_check_hook_runs_at_every_commit():
@@ -700,13 +729,7 @@ def test_a_commit_that_touches_nothing_sync_compares_skips_sync_check():
 
 def _hook_repositories() -> dict[str, str]:
     """Each hook id in `.pre-commit-config.yaml`, with the repository it comes from."""
-    text = (REPO_ROOT / ".pre-commit-config.yaml").read_text()
-
-    return {
-        hook: repository
-        for repository, block in re.findall(r"^  - repo: (\S+)\n((?:(?!  - repo: ).*\n)*)", text, re.M)
-        for hook in re.findall(r"^ *- id: ([\w-]+)", block, re.M)
-    }
+    return {hook["id"]: repository["repo"] for repository in _pre_commit_repositories() for hook in repository["hooks"]}
 
 
 def _development_guide_pre_commit_section() -> str:
@@ -747,7 +770,7 @@ def test_the_development_guide_says_which_hooks_are_local():
 
 
 def test_the_development_guide_says_which_hooks_run_only_when_asked_for():
-    manual = {hook["id"] for hook in _pre_commit_hooks() if hook.get("stages") == "[manual]"}
+    manual = {hook["id"] for hook in _pre_commit_hooks() if hook.get("stages") == ["manual"]}
 
     assert manual
     assert {hook for hook, cells in _development_guide_hook_rows().items() if "manual stage" in cells} == manual
@@ -815,7 +838,7 @@ def test_the_hooks_the_development_guide_leaves_ci_out_of_are_no_ci_step():
 
 
 def test_the_development_guide_gives_the_command_each_manual_hook_runs_and_where():
-    manual = [hook for hook in _pre_commit_hooks() if hook.get("stages") == "[manual]"]
+    manual = [hook for hook in _pre_commit_hooks() if hook.get("stages") == ["manual"]]
 
     assert manual
     for hook in manual:
@@ -902,7 +925,7 @@ def test_each_hook_the_development_guide_runs_by_name_is_in_the_config_at_the_st
     for hook, flags in runs:
         assert hook in hooks, hook
         stage = re.search(r"--hook-stage (\w+)", flags)
-        assert hooks[hook].get("stages", "[pre-commit]") == f"[{stage[1] if stage else 'pre-commit'}]", hook
+        assert hooks[hook].get("stages", ["pre-commit"]) == [stage[1] if stage else "pre-commit"], hook
 
 
 def test_each_pre_commit_command_the_development_guide_gives_takes_the_flags_it_passes():
@@ -922,13 +945,41 @@ def test_each_pre_commit_command_the_development_guide_gives_takes_the_flags_it_
             assert re.search(rf"(?<![\w-]){re.escape(flag)}(?![\w-])", usage.stdout), (subcommand, flag)
 
 
-def _workflow_runs() -> list[str]:
-    """Every one-line `run:` in the repository's own CI."""
+def _workflow_runs(workflows: Iterable[str] | None = None) -> list[str]:
+    """Each line every `run:` in the repository's own CI runs, a block's line by line."""
+    if workflows is None:
+        workflows = [workflow.read_text() for workflow in sorted((REPO_ROOT / ".github" / "workflows").glob("*.yml"))]
+
     return [
-        run.strip()
-        for workflow in sorted((REPO_ROOT / ".github" / "workflows").glob("*.yml"))
-        for run in re.findall(r"^\s+run: (.+)$", workflow.read_text(), re.M)
+        line.strip()
+        for workflow in workflows
+        for job in yaml.safe_load(workflow)["jobs"].values()
+        for step in job.get("steps", [])
+        for line in str(step.get("run", "")).splitlines()
+        if line.strip()
     ]
+
+
+def test_the_workflow_reader_reads_every_run_and_a_block_line_by_line():
+    workflow = (
+        "jobs:\n"
+        "  a:\n"
+        "    steps:\n"
+        "      - run: uv sync  # first\n"
+        "      - name: named\n"
+        "        run: 'uv run --no-sync pytest'\n"
+        "      - name: block\n"
+        "        run: |\n"
+        "          echo one\n"
+        "\n"
+        "          if true; then\n"
+        "            echo two\n"
+        "          fi\n"
+        "  b:\n"
+        "    uses: ./.github/workflows/other.yml\n"
+    )
+
+    assert _workflow_runs([workflow]) == ["uv sync", "uv run --no-sync pytest", "echo one", "if true; then", "echo two", "fi"]
 
 
 def _defaults_blocks(workflow: str) -> list[str]:
