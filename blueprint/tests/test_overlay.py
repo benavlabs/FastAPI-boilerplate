@@ -211,6 +211,20 @@ def test_the_readme_names_the_features_a_project_selected():
     assert "Selected: accounts, admin." in rendered
 
 
+@pytest.mark.parametrize("features", [(), ("accounts", "admin")])
+def test_the_readme_names_the_blueprint_a_project_came_from(features: tuple[str, ...]):
+    """The catalog's `name` is an id; a reader meets the blueprint by its name in full."""
+    environment = Environment(loader=FileSystemLoader(OVERLAY), undefined=StrictUndefined)
+    blueprint = {"name": "a-blueprint-id", "version": "9.8.7"}
+    rendered = environment.get_template(README).render({**_context(features), "blueprint": blueprint})
+
+    assert f"the FastAPI-boilerplate blueprint (`{blueprint['name']}` {blueprint['version']})" in " ".join(rendered.split())
+
+
+def test_the_agents_file_names_the_blueprint_a_project_came_from():
+    assert re.search(r"\bFastAPI-boilerplate\b", (OVERLAY / "AGENTS.md").read_text())
+
+
 @pytest.mark.parametrize("path", [str(path.relative_to(OVERLAY)) for path in _files() if path.suffix == ".j2"])
 def test_every_fastro_command_a_template_writes_runs_the_tool_that_generated_the_project(path: str):
     """`uvx fastro@<version>` needs nothing installed first and pins the project to the tool it
