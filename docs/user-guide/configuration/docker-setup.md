@@ -8,7 +8,7 @@ This page walks through running the boilerplate in containers. The Python projec
 !!! info "The compose file is generated, not shipped"
     No compose file is committed. `fastro make deploy local` writes one at the repository root,
     where it is gitignored, so regenerating it never conflicts with the repo. `prod` and `nginx`
-    write the other two stacks. See [CLI commands](../../cli/commands.md#bp-deploy-generate-mode).
+    write the other two stacks. See [`fastro make deploy`](../fastro.md#writing-the-compose-files-fastro-make-deploy).
 
 ## Quick Start
 

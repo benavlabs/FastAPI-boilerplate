@@ -43,7 +43,7 @@ Docker Compose handles every service for you (Postgres + Redis + the app).
     `docker-compose.yml` is written at the repo root and is not committed, because the stack
     you want depends on how you deploy. `local` is the hot-reload stack: API, Taskiq worker,
     scheduler, Postgres and Redis. The other modes are `prod` and `nginx`, covered in
-    [CLI → Commands](../cli/commands.md).
+    [Generating and updating projects with fastro](../user-guide/fastro.md).
 
 4. **Set up the environment file**:
 
@@ -146,7 +146,7 @@ For development on your host machine. You provide PostgreSQL and Redis yourself.
     # set a strong SECRET_KEY (or run `uv run --no-sync fastro env secret`), etc.
     ```
 
-    fastro has a few helpers for this step; see [CLI → Commands](../cli/commands.md):
+    fastro has a few helpers for this step; see [Generating and updating projects with fastro](../user-guide/fastro.md):
 
     ```bash
     uv run --no-sync fastro env secret      # print a fresh SECRET_KEY

@@ -10,20 +10,11 @@ import typer.main
 from fastro.cli import app
 from retired import OLD_COMMAND, RUNS_OLD_COMMAND, shown_pages
 
-NOT_YET_SWITCHED = ("docs/cli/",)
-"""Pages B3 item 2b deletes, with the old command in them until it does."""
-
 FASTRO = typer.main.get_command(app)
 
 LAUNCHERS = (("uv", "run", "--no-sync"), ("uv", "run"), ("uvx",), ("python", "-m"))
 
 STOPS = {"|", "&&", "||", ";"}
-
-
-def _pages() -> Iterator[tuple[str, str]]:
-    for name, text in shown_pages():
-        if not name.startswith(NOT_YET_SWITCHED):
-            yield name, text
 
 
 def _code(text: str) -> Iterator[tuple[str, bool]]:
@@ -64,7 +55,7 @@ def _fastro_words(code: str) -> list[str] | None:
 def _commands() -> list[tuple[str, list[str], bool]]:
     return [
         (f"{name}: {code.strip()}", words, runs)
-        for name, text in _pages()
+        for name, text in shown_pages()
         for code, runs in _code(text)
         if (words := _fastro_words(code)) is not None
     ]
@@ -97,7 +88,7 @@ def test_no_page_a_reader_sees_runs_the_retired_command():
     """B3 item 2 removes the old developer CLI; every command it ran is a fastro command now."""
     found = [
         f"{name}:{number}"
-        for name, text in _pages()
+        for name, text in shown_pages()
         for number, line in enumerate(text.splitlines(), 1)
         if RUNS_OLD_COMMAND.search(line)
     ]

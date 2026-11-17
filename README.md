@@ -180,7 +180,7 @@ cd backend && uv run --no-sync alembic revision --autogenerate -m "<msg>" && uv 
 cd backend && uv run --no-sync pytest
 ```
 
-More examples (superuser creation, tiers, rate limits, admin usage, plugin authoring) in the [docs](https://benavlabs.github.io/FastAPI-boilerplate/).
+More examples (superuser creation, tiers, rate limits, admin usage) in the [docs](https://benavlabs.github.io/FastAPI-boilerplate/).
 
 ## Sponsors
 

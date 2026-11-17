@@ -39,6 +39,10 @@ ___
   0.20.0, but the example still turned the panel on, so a copied example served `/admin` with the
   example's own `admin` credentials. Set `ADMIN_ENABLED=true`, with credentials of your own, where
   you want it.
+- **The CLI docs are one page about fastro now.** The `CLI` section's Overview, Commands and
+  Plugins pages are gone, and
+  [Generating and updating projects with fastro](user-guide/fastro.md) covers `fastro make deploy`,
+  `fastro env secret` and `fastro env validate`. The old `cli/` URLs redirect there.
 
 ___
 

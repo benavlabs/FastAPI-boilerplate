@@ -73,7 +73,7 @@ Pick whichever workflow fits you:
 
     `docker-compose.yml` is written at the repository root and is not committed, because the
     stack you want depends on how you deploy. `local` is the hot-reload stack; the other modes
-    are `prod` and `nginx`, covered in [CLI → Commands](../cli/commands.md).
+    are `prod` and `nginx`, covered in [Generating and updating projects with fastro](../user-guide/fastro.md).
 
     ### 3. Environment Setup
 
