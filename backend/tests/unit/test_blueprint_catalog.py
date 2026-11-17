@@ -27,6 +27,7 @@ from typing import Any
 
 import pytest
 import yaml
+from packaging.requirements import Requirement
 
 from tests.conftest import is_docker_running
 
@@ -115,6 +116,29 @@ def test_the_dependencies_a_project_could_install_are_the_ones_the_backend_decla
 
     assert _declared_specifiers() == set(backend["project"]["dependencies"])
     assert _declared_specifiers("dev") == set(backend["project"]["optional-dependencies"]["dev"])
+
+
+FASTAPI_THE_APP_NEEDS = {
+    "get_flat_dependant": ("src/infrastructure/cache/utils.py", "0.140.7"),
+    "openapi_prefix": ("src/infrastructure/app_factory.py", "0.145.0"),
+}
+"""Each FastAPI name the app relies on, the file that uses it, and the first release without it."""
+
+
+def test_every_fastapi_a_project_could_install_is_one_the_app_can_import():
+    """A project resolves its dependencies fresh, so the declared range, not the lock, decides which FastAPI it gets."""
+    with (REPO_ROOT / "uv.lock").open("rb") as handle:
+        locked = next(package["version"] for package in tomllib.load(handle)["package"] if package["name"] == "fastapi")
+    ranges = [Requirement(specifier).specifier for specifier in _declared_specifiers() if _distribution(specifier) == "fastapi"]
+
+    assert ranges
+    for name, (path, first_without) in FASTAPI_THE_APP_NEEDS.items():
+        assert name in (REPO_ROOT / "backend" / path).read_text(), (name, path)
+        for allowed in ranges:
+            assert first_without not in allowed, (allowed, name)
+    for allowed in ranges:
+        assert "999.0" not in allowed, allowed
+        assert locked in allowed, (allowed, locked)
 
 
 def _distribution(specifier: str) -> str:

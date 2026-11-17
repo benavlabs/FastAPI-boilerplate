@@ -12,6 +12,11 @@ ___
 
 #### Changed
 
+- **FastAPI is capped below 0.140.7.** The app imports `get_flat_dependant` from
+  `fastapi.dependencies.utils`, which 0.140.7 removed, and passes `openapi_prefix` to `FastAPI`,
+  which 0.145.0 refuses. A project resolves its own dependencies, so without the cap a new one got
+  the newest FastAPI and couldn't import the app. The lock still holds 0.136.1. A later release
+  moves off both and lifts the cap.
 - **`virtualenv` 21.14.13 and `filelock` 4.2.4**, for eighteen advisories published against the
   versions the lock held. Both arrive through `pre-commit`, which lives in the `dev` extra, so the
   image installs neither and a deployment is unaffected: the advisories are about the environments

@@ -921,7 +921,7 @@ requires-dist = [
     { name = "crudauth", extras = ["all"], specifier = ">=0.8.2,<0.9.0" },
     { name = "cryptography", specifier = ">=42.0.0" },
     { name = "faker", marker = "extra == 'dev'", specifier = ">=37.1.0" },
-    { name = "fastapi", extras = ["standard"], specifier = ">=0.115.8" },
+    { name = "fastapi", extras = ["standard"], specifier = ">=0.115.8,<0.140.7" },
     { name = "fastcrud", specifier = ">=0.21.0" },
     { name = "greenlet", specifier = ">=3.1.1" },
     { name = "httpx", marker = "extra == 'dev'", specifier = ">=0.28.1" },
@@ -983,6 +983,7 @@ source = { virtual = "." }
 [package.dev-dependencies]
 dev = [
     { name = "fastro" },
+    { name = "packaging" },
     { name = "pyyaml" },
     { name = "types-pyyaml" },
 ]
@@ -992,6 +993,7 @@ dev = [
 [package.metadata.requires-dev]
 dev = [
     { name = "fastro", git = "https://github.com/benavlabs/fastro?rev=ddda03f1151b3233e083dd2d4354649dc997e4ec" },
+    { name = "packaging", specifier = ">=24.0" },
     { name = "pyyaml", specifier = ">=6.0.2" },
     { name = "types-pyyaml", specifier = ">=6.0.12" },
 ]
