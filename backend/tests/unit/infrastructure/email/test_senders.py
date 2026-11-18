@@ -2,8 +2,13 @@
 
 import asyncio
 import logging
+import smtplib
+import socket
 import ssl
+import threading
+import time
 import warnings
+from collections.abc import Callable
 from typing import Any
 
 import httpx
@@ -21,6 +26,12 @@ SUBJECT = "Reset your password"
 LINK = "https://app.example.com/reset-password?token=the-signed-token"
 BODY = f"Someone asked to reset your password. Use this link: {LINK}"
 
+WAIT = 120
+"""Seconds Mailpit gets to come up and to answer each call, on a machine busy with other suites."""
+
+ATTEMPT = 5
+"""Seconds one attempt to reach Mailpit gets before the wait tries again."""
+
 
 async def _send_the_reset_email(sender: EmailSender) -> None:
     """One message, as crudauth hands it over."""
@@ -31,6 +42,26 @@ async def _send_the_reset_email(sender: EmailSender) -> None:
         kind="reset_password",
         context=EmailContext(kind="reset_password", link=LINK, recipient=RECIPIENT, expires_in=3600),
     )
+
+
+def _greets(host: str, port: int, timeout: float = ATTEMPT) -> None:
+    """Return once an SMTP server at `host:port` has greeted and answered a NOOP."""
+    with smtplib.SMTP(host, port, timeout=timeout) as server:
+        server.noop()
+
+
+def _until(check: Callable[[], object], within: float) -> None:
+    """Call `check` until it returns, retrying a refused or failed connection, and raise its
+    last error once `within` seconds have passed."""
+    deadline = time.monotonic() + within
+    while True:
+        try:
+            check()
+            return
+        except (OSError, smtplib.SMTPException, httpx.HTTPError):
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(0.2)
 
 
 @pytest.fixture(scope="module")
@@ -44,6 +75,9 @@ def mailpit():
         container = MailpitContainer().start()
 
     try:
+        api = container.get_base_api_url()
+        _until(lambda: _greets(container.get_container_host_ip(), container.get_exposed_smtp_port()), WAIT)
+        _until(lambda: httpx.get(f"{api}/api/v1/info", timeout=ATTEMPT).raise_for_status(), WAIT)
         yield container
     finally:
         container.stop()
@@ -58,16 +92,16 @@ def _smtp_sender(mailpit: MailpitContainer, starttls: bool) -> SmtpSender:
         user="mailer",
         password="secret",
         starttls=starttls,
-        timeout=10,
+        timeout=WAIT,
     )
 
 
 def _delivered(mailpit: MailpitContainer) -> dict[str, Any]:
     """The one message Mailpit is holding, with its body."""
     api = mailpit.get_base_api_url()
-    listed = httpx.get(f"{api}/api/v1/messages", timeout=10).json()["messages"]
+    listed = httpx.get(f"{api}/api/v1/messages", timeout=WAIT).json()["messages"]
     assert len(listed) == 1, listed
-    message: dict[str, Any] = httpx.get(f"{api}/api/v1/message/{listed[0]['ID']}", timeout=10).json()
+    message: dict[str, Any] = httpx.get(f"{api}/api/v1/message/{listed[0]['ID']}", timeout=WAIT).json()
 
     return message
 
@@ -98,6 +132,55 @@ async def test_starttls_will_not_talk_to_a_server_it_cannot_verify(mailpit: Mail
     """The container's certificate is self-signed, which is what a stranger's looks like."""
     with pytest.raises(ssl.SSLCertVerificationError):
         await _send_the_reset_email(_smtp_sender(mailpit, starttls=True))
+
+
+def _serve_smtp_after(delay: float) -> tuple[int, list[bytes], threading.Thread]:
+    """A port where a minimal SMTP server starts listening only after `delay` seconds, the
+    commands it receives, and its thread, which ends after one session or 2 idle seconds."""
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        port: int = probe.getsockname()[1]
+    received: list[bytes] = []
+
+    def serve() -> None:
+        time.sleep(delay)
+        with socket.create_server(("127.0.0.1", port)) as server:
+            server.settimeout(2)
+            try:
+                connection, _ = server.accept()
+            except TimeoutError:
+                return
+            with connection, connection.makefile("rwb") as stream:
+                stream.write(b"220 ready\r\n")
+                stream.flush()
+                for line in stream:
+                    received.append(line.strip().upper())
+                    stream.write(b"221 bye\r\n" if line.upper().startswith(b"QUIT") else b"250 ok\r\n")
+                    stream.flush()
+
+    thread = threading.Thread(target=serve, daemon=True)
+    thread.start()
+
+    return port, received, thread
+
+
+def test_the_wait_returns_once_a_server_that_starts_late_answers_a_noop():
+    port, received, thread = _serve_smtp_after(0.5)
+
+    _until(lambda: _greets("127.0.0.1", port), within=10)
+    thread.join(10)
+
+    assert b"NOOP" in received
+
+
+def test_the_wait_gives_up_with_the_last_error():
+    port, _, thread = _serve_smtp_after(2)
+
+    with pytest.raises(ConnectionRefusedError):
+        _until(lambda: _greets("127.0.0.1", port), within=0.3)
+    thread.join(10)
+
+    assert not thread.is_alive()
 
 
 class _GatedSender(EmailSender):
