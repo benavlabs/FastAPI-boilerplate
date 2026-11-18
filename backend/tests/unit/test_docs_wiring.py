@@ -19,6 +19,11 @@ DIAGRAMS = REPO_ROOT / "docs" / "assets" / "build-diagrams.cjs"
 DRAWN_TREE = re.compile(r"```text\n(.*?)```", re.DOTALL)
 
 
+def _catalog() -> dict:
+    with (REPO_ROOT / "blueprint.toml").open("rb") as handle:
+        return tomllib.load(handle)
+
+
 def _wiring_modules() -> list[str]:
     return sorted(path.name for path in WIRING.glob("*.py") if path.name != "__init__.py")
 
@@ -61,9 +66,41 @@ def test_the_diagram_draws_every_module_of_the_composition_root():
 
 def test_the_diagram_names_every_set_verify_sets_declares():
     """A set added to `[verify.sets]` and not to the picture is a diagram that has aged."""
-    with (REPO_ROOT / "blueprint.toml").open("rb") as handle:
-        sets = tomllib.load(handle)["verify"]["sets"]
+    sets = _catalog()["verify"]["sets"]
     drawn = set(re.findall(r">([a-z0-9-]+)</text>", DIAGRAMS.read_text()))
 
     assert sets
     assert [name for name in sets if name not in drawn] == []
+
+
+def _section(page: Path, heading: str) -> str:
+    text = page.read_text()
+    assert heading in text, heading
+
+    return text.split(heading, 1)[1].split("\n## ", 1)[0]
+
+
+def test_the_ci_table_is_every_declared_set_and_names_the_presets_beside_it():
+    """CI runs `fastro blueprint verify` once for each set: the declared ones, each preset and `everything`."""
+    section = _section(COMPOSABLE, "## Checking that removal still works")
+    rows = re.findall(r"^\| `([a-z0-9-]+)` \|", section, re.M)
+    catalog = _catalog()
+
+    assert rows == [*catalog["verify"]["sets"], "everything"]
+    assert [preset for preset in catalog["presets"] if f"`{preset}`" not in section] == []
+
+
+def test_the_steps_for_a_removable_feature_declare_it_in_the_catalog_and_verify_it():
+    section = _section(COMPOSABLE, "## Writing a feature that can be removed")
+
+    assert "`blueprint.toml`" in section and "`[features.<name>]`" in section
+    assert "`[[features.<name>.when]]`" in section and 'if = "<other>"' in section
+    assert "`fastro blueprint verify`" in section
+    assert any(feature.get("when") for feature in _catalog()["features"].values())
+
+
+def test_the_new_module_steps_declare_its_paths_in_the_catalog():
+    steps = STRUCTURE.read_text().split("**Generate a migration**", 1)[0]
+
+    assert "`blueprint.toml`" in steps.rsplit("\n9. ", 1)[1]
+    assert "`fastro blueprint verify`" in steps.rsplit("\n9. ", 1)[1]

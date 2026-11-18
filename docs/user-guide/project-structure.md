@@ -346,7 +346,7 @@ The recommended flow:
 6. **Expose routes**: `backend/src/modules/widgets/routes.py`
 7. **Register the router**: add a `RouterMount` to `ROUTER_MOUNTS` in `backend/src/wiring/app.py`
 8. **Wire the rest of it**: its settings mixin in `wiring/settings.py`, its hook contributions in `wiring/hooks.py`, its admin views in `wiring/admin.py`, its fixtures in `tests/wiring.py` — whichever it has
-9. **Add it to the removal drill**: list its paths in `tools/removal_drill.py` so a build without it is checked
+9. **Declare it in the catalog**: list its paths under its feature's table in `blueprint.toml`, so `fastro blueprint verify` checks a build without it
 10. **Generate a migration**: `uv run --no-sync alembic revision --autogenerate -m "add widgets"`
 11. **Apply**: `uv run --no-sync alembic upgrade head`
 
