@@ -11,7 +11,6 @@ resolution-markers = [
 [manifest]
 members = [
     "fastapi-boilerplate",
-    "fastapi-boilerplate-cli",
     "fastapi-boilerplate-workspace",
 ]
 
@@ -946,32 +945,6 @@ requires-dist = [
     { name = "taskiq-redis", specifier = ">=1.1.2" },
     { name = "testcontainers", extras = ["postgres"], marker = "extra == 'dev'", specifier = ">=4.10.0" },
     { name = "user-agents", specifier = ">=2.2.0" },
-]
-provides-extras = ["dev"]
-
-[[package]]
-name = "fastapi-boilerplate-cli"
-version = "0.1.0"
-source = { editable = "cli" }
-dependencies = [
-    { name = "fastapi-boilerplate" },
-    { name = "jinja2" },
-    { name = "typer" },
-]
-
-[package.optional-dependencies]
-dev = [
-    { name = "pytest" },
-    { name = "pyyaml" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "fastapi-boilerplate", editable = "backend" },
-    { name = "jinja2", specifier = ">=3.1" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.3.5" },
-    { name = "pyyaml", marker = "extra == 'dev'", specifier = ">=6.0.2" },
-    { name = "typer", specifier = ">=0.12" },
 ]
 provides-extras = ["dev"]
 

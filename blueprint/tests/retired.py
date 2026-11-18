@@ -15,6 +15,15 @@ OLD_COMMAND = "b" + "p"
 RUNS_OLD_COMMAND = re.compile(rf"\b{OLD_COMMAND} (?:deploy|env)\b|`{OLD_COMMAND}`")
 """A line that runs the old command, or names it in code."""
 
+NAMES_OLD_COMMAND = re.compile(rf"{RUNS_OLD_COMMAND.pattern}|\brun {OLD_COMMAND}\b|\b{OLD_COMMAND}(?:<[^>]*>)? CLI\b")
+"""A line that runs the old command, names it in code, or calls it a CLI."""
+
+OLD_PACKAGE = "c" + "li"
+
+NAMES_OLD_PACKAGE = re.compile(rf"(?<![\w.-]){OLD_PACKAGE}(?![\w-])|\bboilerplate-{OLD_PACKAGE}\b")
+"""The old package as a word: its folder, a path into it, its module, its distribution. Not
+`redis-cli`, `fastro.cli` or "CLI"."""
+
 
 def tracked_text() -> Iterator[tuple[str, str]]:
     """Every file git tracks or would add, that reads as UTF-8, by its path from the root, with its text."""

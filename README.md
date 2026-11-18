@@ -108,17 +108,15 @@
 
 ## Repo Layout
 
-This is a [uv workspace](https://docs.astral.sh/uv/concepts/projects/workspaces/) with two members. One venv at the root covers both.
+This is a [uv workspace](https://docs.astral.sh/uv/concepts/projects/workspaces/) with one member, `backend/`. One venv at the root holds it and fastro.
 
 ```text
 fastapi-boilerplate/
 ├── pyproject.toml          # workspace root (uv workspace metadata)
-├── backend/                # the deployable application
-│   ├── src/                # interfaces/, infrastructure/, modules/
-│   ├── pyproject.toml
-│   └── Dockerfile          # multi-stage: dev / migrate / prod
-└── cli/                    # the old developer tool, being replaced by fastro
-    └── src/cli/
+└── backend/                # the deployable application
+    ├── src/                # interfaces/, infrastructure/, modules/
+    ├── pyproject.toml
+    └── Dockerfile          # multi-stage: dev / migrate / prod
 ```
 
 ## Quickstart
@@ -126,7 +124,7 @@ fastapi-boilerplate/
 ```bash
 git clone https://github.com/<you>/FastAPI-boilerplate
 cd FastAPI-boilerplate
-uv sync --all-packages --all-extras           # one venv at the root: both members, plus fastro
+uv sync --all-packages --all-extras           # one venv at the root: the backend, plus fastro
 ```
 
 Generate a compose file for the deployment shape you want:

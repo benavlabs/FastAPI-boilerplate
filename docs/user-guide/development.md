@@ -103,7 +103,7 @@ The repo's `.pre-commit-config.yaml` runs these hooks. A row that names CI says 
 | `pyupgrade` | rewrites to Python 3.11+ syntax |
 | `yesqa` | removes a `noqa` nothing needs any more |
 | `end-of-file-fixer`, `trailing-whitespace`, `check-yaml`, `check-executables-have-shebangs`, `check-case-conflict`, `check-added-large-files`, `detect-private-key`, `check-merge-conflict` | final newlines, trailing whitespace, YAML, shebangs on executables, file names that differ only in case, large files, private keys, merge markers |
-| `mypy_backend`, `mypy_cli` | local hooks, the same invocations CI uses |
+| `mypy_backend` | local hook, the same invocation CI uses |
 | `fastro_sync_check` | local: `uv run --no-sync fastro sync --check`, on a commit that touches `blueprint.toml`, `fastro.toml`, the wiring, the root `pyproject.toml` or `uv.lock`; CI runs the same command |
 | `unit_test` | local, manual stage: `uv run --no-sync pytest tests/unit` in `backend/`; CI runs these tests with the rest, as `uv run --no-sync pytest` in `backend/` |
 

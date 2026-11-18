@@ -46,14 +46,6 @@ repos:
       files: ^backend/(src|scripts|migrations|tests)/
       types: [python]
 
-    - id: mypy_cli
-      name: Mypy (cli)
-      language: system
-      entry: bash -c 'cd cli && uv run --no-sync mypy -p cli'
-      pass_filenames: false
-      files: ^cli/src/
-      types: [python]
-
     - id: fastro_sync_check
       name: Wiring in sync (fastro)
       language: system

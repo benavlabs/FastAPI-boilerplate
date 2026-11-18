@@ -31,9 +31,6 @@ jobs:
           ENVIRONMENT: local
           SECRET_KEY: test-secret-key-for-testing-only
 
-      - name: Pytest (cli)
-        run: cd cli && uv run --no-sync pytest
-
       - name: Pytest (blueprint)
         run: uv run --no-sync pytest blueprint/tests
 

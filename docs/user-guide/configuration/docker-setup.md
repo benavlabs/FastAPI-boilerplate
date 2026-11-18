@@ -2,8 +2,8 @@
 
 This page walks through running the boilerplate in containers. The Python project lives at
 `backend/`, and the image builds from the repository root: it needs the workspace's
-`pyproject.toml`, `uv.lock` and `cli/pyproject.toml` as well as `backend/`. You run
-`docker compose` from the repository root too.
+`pyproject.toml` and `uv.lock` as well as `backend/`. You run `docker compose` from the
+repository root too.
 
 !!! info "The compose file is generated, not shipped"
     No compose file is committed. `fastro make deploy local` writes one at the repository root,
@@ -31,7 +31,7 @@ docker compose up --build
 | `migrate` | Adds `migrations/` and `alembic.ini`. Default command is `alembic upgrade head`. Useful as a one-off job before the prod app starts. |
 | `prod` | Same as base, runs as non-root, starts with `fastapi run interfaces/main.py --host 0.0.0.0 --port 8000 --workers $WORKERS` (defaults to 1). |
 
-You select a stage with `--target` when building. The context is the repository root, because the Dockerfile copies `pyproject.toml`, `uv.lock`, `backend/` and `cli/pyproject.toml` from there:
+You select a stage with `--target` when building. The context is the repository root, because the Dockerfile copies `pyproject.toml`, `uv.lock` and `backend/` from there:
 
 ```bash
 docker build --target dev -t fastapi-boilerplate:dev -f backend/Dockerfile .

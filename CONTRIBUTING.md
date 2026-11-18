@@ -24,8 +24,8 @@ cd FastAPI-boilerplate
 uv sync --all-packages --all-extras
 ```
 
-`--all-packages` installs both workspace members, and `--all-extras` brings in the
-dev tools: a plain `uv sync` leaves you without ruff, mypy or pytest.
+`--all-packages` installs the backend, the workspace's one member, and `--all-extras`
+brings in the dev tools: a plain `uv sync` leaves you without ruff, mypy or pytest.
 
 The sync also installs fastro, the CLI that generates projects from this blueprint
 and checks it. The root `pyproject.toml` pins fastro to one commit in its `dev`

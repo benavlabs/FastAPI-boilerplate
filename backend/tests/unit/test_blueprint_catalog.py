@@ -486,6 +486,13 @@ def _workspace_members() -> list[str]:
         return list(tomllib.load(handle)["tool"]["uv"]["workspace"]["members"])
 
 
+def _root_project_paths() -> list[str]:
+    """The workspace members and the test paths the root `pyproject.toml` names."""
+    root = _root_project()
+
+    return [*root["tool"]["uv"]["workspace"]["members"], *root["tool"]["pytest"]["ini_options"]["testpaths"]]
+
+
 def _unwrapped(pattern: str) -> str:
     """A pattern without the one group that wraps all of it, if there is one."""
     depth = 0
@@ -544,7 +551,7 @@ def _hook_paths() -> list[str]:
 @pytest.mark.parametrize(
     ("pattern", "heads"),
     [
-        ("^cli/src/", ["cli/src"]),
+        ("^tools/", ["tools"]),
         ("^backend/(src|scripts|migrations|tests)/", ["backend"]),
         (r"^(blueprint\.toml|fastro\.toml|backend/src/wiring/)", ["blueprint.toml", "fastro.toml", "backend/src/wiring"]),
         (r"^(a\.py)|(b/)$", ["a.py", "b"]),
@@ -571,7 +578,7 @@ def _readme_references() -> list[str]:
 
 
 POINTS_AT = {
-    "pyproject.toml": _workspace_members,
+    "pyproject.toml": _root_project_paths,
     ".pre-commit-config.yaml": _hook_paths,
     "README.md": _readme_references,
 }
@@ -582,9 +589,10 @@ POINTS_AT = {
 def test_no_file_a_project_receives_points_at_one_it_does_not(path: str):
     """Either the pointer goes or the file does.
 
-    A workspace member a project never receives is a project `uv sync` refuses; a lint pattern
-    is a hook over nothing; an image is a hole where the cover was. The three root files are
-    the blueprint's own, so they are the ones that go.
+    A workspace member a project never receives is a project `uv sync` refuses; a test path is
+    a pytest run that collects nothing; a lint pattern is a hook over nothing; an image is a
+    hole where the cover was. The three root files are the blueprint's own, so they are the
+    ones that go.
     """
     withheld = sorted(target for target in POINTS_AT[path]() if _withheld(target))
 
@@ -592,8 +600,8 @@ def test_no_file_a_project_receives_points_at_one_it_does_not(path: str):
 
 
 WITHHELD_POINTERS = {
-    "pyproject.toml": "cli",
-    ".pre-commit-config.yaml": "cli/src",
+    "pyproject.toml": "blueprint/tests",
+    ".pre-commit-config.yaml": "blueprint.toml",
     "README.md": "docs/assets",
 }
 """What keeps each of the three out of a project, pinned so a reader of it can't go quiet."""
@@ -604,8 +612,8 @@ def test_each_file_still_names_the_path_that_keeps_it_out(path: str):
     """The reason each file is blueprint-only, rather than the fact of it.
 
     A format that moved on -- a renamed pre-commit key, an image moved out of `docs/` -- would
-    leave the rule above with nothing to object to, and the file would ship. When `cli/` goes
-    in B3, this is where the question of shipping the workspace root comes back.
+    leave the rule above with nothing to object to, and the file would ship. The root
+    `pyproject.toml` is kept out by the blueprint's own tests, which its pytest config runs.
     """
     pointed = POINTS_AT[path]()
 
@@ -620,6 +628,11 @@ COMMIT = re.compile(r"^[0-9a-f]{40}$")
 def _root_project() -> dict[str, Any]:
     with ROOT_PYPROJECT.open("rb") as handle:
         return tomllib.load(handle)
+
+
+def test_the_backend_is_the_workspaces_one_member():
+    """The old developer tool's package is gone."""
+    assert _workspace_members() == ["backend"]
 
 
 def test_the_repository_root_installs_fastro_for_its_own_checks():
@@ -1232,7 +1245,7 @@ def _literals(module: Path) -> set[str]:
 
 
 def test_no_test_a_project_receives_names_a_tree_it_does_not_get():
-    """A test that reaches for `docs/`, `tools/` or `cli/` is a test no project can run.
+    """A test that reaches for `docs/` or `tools/` is a test no project can run.
 
     `test_removal_drill.py` loads `tools/removal_drill.py`, and `test_baseline.py` read the
     migrations guide: both are files a project never receives, and the drill hid it by copying
@@ -1257,10 +1270,10 @@ def test_no_test_a_project_receives_names_a_tree_it_does_not_get():
 
 
 def test_the_things_projects_must_not_receive_are_listed():
-    """The catalog, the drill, the docs and the tool's own tree belong to the blueprint only."""
+    """The catalog, the drill and the docs belong to the blueprint only."""
     listed = set(_catalog()["blueprint"]["blueprint_only"])
 
-    assert {"blueprint/", "blueprint.toml", "fastro.toml", "docs/", "tools/", "cli/"} <= listed
+    assert {"blueprint/", "blueprint.toml", "fastro.toml", "docs/", "tools/"} <= listed
     assert "backend/tests/unit/test_blueprint_catalog.py" in listed
 
 
@@ -2684,14 +2697,6 @@ def test_every_generators_templates_are_a_directory_this_repo_has(name: str):
     assert any(child.is_dir() for child in templates.iterdir())
 
 
-def test_the_deploy_modes_are_the_ones_this_repo_can_generate():
-    """A mode with no template tree would be offered and then fail; a tree with no mode is dead."""
-    templates = REPO_ROOT / _catalog()["generators"]["deploy"]["templates"]
-    offered = re.findall(r"^    (\w+) = \"\w+\"$", (REPO_ROOT / "cli/src/cli/commands/deploy.py").read_text(), re.M)
-
-    assert sorted(child.name for child in templates.iterdir() if child.is_dir()) == sorted(offered)
-
-
 @pytest.mark.parametrize(
     ("generator", "param"),
     sorted((name, param) for name, declared in _catalog()["generators"].items() for param in declared["params"]),
@@ -2737,20 +2742,6 @@ def test_every_param_the_templates_read_is_a_param_the_catalog_declares():
     read = {name for template in templates.rglob("*.j2") for name in re.findall(r"params\.([a-z_]+)", template.read_text())}
 
     assert read == set(generator["params"])
-
-
-def test_the_defaults_are_what_this_repos_own_generator_already_uses():
-    """`fastro make deploy` has to write what `bp deploy generate` writes, or the first run changes."""
-    params = _catalog()["generators"]["deploy"]["params"]
-    source = (REPO_ROOT / "cli/src/cli/commands/deploy.py").read_text()
-    subnet = (REPO_ROOT / "cli/src/cli/features/_builtins/deploy/feature.py").read_text()
-
-    assert f'typer.Option({params["api_port"]["default"]}, "--api-port"' in source
-    assert f'typer.Option({params["workers"]["default"]}, "--workers"' in source
-    assert f'DEFAULT_INTERNAL_SUBNET = "{params["internal_subnet"]["default"]}"' in subnet
-
-    limits = params["internal_subnet"]["max_prefix"]
-    assert f"SMALLEST_TRUSTED_PREFIX = {{4: {limits['v4']}, 6: {limits['v6']}}}" in subnet
 
 
 def _declared_commands() -> list[tuple[str | None, str, dict[str, Any]]]:

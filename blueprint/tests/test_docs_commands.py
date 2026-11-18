@@ -2,13 +2,14 @@
 
 import re
 import shlex
+import tomllib
 from collections.abc import Iterator
 
 import click
 import pytest
 import typer.main
 from fastro.cli import app
-from retired import OLD_COMMAND, RUNS_OLD_COMMAND, shown_pages
+from retired import OLD_COMMAND, REPO_ROOT, RUNS_OLD_COMMAND, shown_pages
 
 FASTRO = typer.main.get_command(app)
 
@@ -147,3 +148,19 @@ def test_the_reader_refuses_what_fastro_would(page: str, refused: bool):
 )
 def test_the_old_command_is_read_where_it_runs(line: str, runs: bool):
     assert bool(RUNS_OLD_COMMAND.search(line)) is runs
+
+
+def test_every_root_sync_a_page_shows_installs_the_backend():
+    """The root project doesn't depend on the backend, so `--all-packages` is what installs it."""
+    root = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text())
+    backend = tomllib.loads((REPO_ROOT / "backend" / "pyproject.toml").read_text())["project"]["name"]
+    groups = root.get("dependency-groups", {}).values()
+    requirements = [*root["project"].get("dependencies", []), *(requirement for group in groups for requirement in group)]
+    pages = [*shown_pages(), ("CONTRIBUTING.md", (REPO_ROOT / "CONTRIBUTING.md").read_text())]
+    syncs = [
+        f"{name}: {code.strip()}" for name, text in pages for code, _ in _code(text) if code.strip().startswith("uv sync ")
+    ]
+
+    assert not [requirement for requirement in requirements if re.match(rf"{re.escape(backend)}(?![\w.-])", requirement)]
+    assert syncs
+    assert [sync for sync in syncs if "--all-packages" not in sync.split()] == []

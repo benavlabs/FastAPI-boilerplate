@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from retired import OLD_PACKAGE
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DOCS = REPO_ROOT / "docs"
@@ -107,7 +108,7 @@ def test_every_page_is_in_the_nav_and_every_nav_entry_is_a_page():
 def test_every_redirect_leaves_a_page_that_is_gone_for_one_that_is_there():
     redirects = SITE["plugins"]["redirects"]["redirect_maps"]
 
-    assert redirects == {f"cli/{page}.md": "user-guide/fastro.md" for page in ("index", "commands", "plugins")}
+    assert redirects == {f"{OLD_PACKAGE}/{page}.md": "user-guide/fastro.md" for page in ("index", "commands", "plugins")}
     for gone, there in redirects.items():
         assert not (DOCS / gone).exists(), gone
         assert (DOCS / there).is_file(), there

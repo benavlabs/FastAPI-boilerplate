@@ -30,8 +30,8 @@ Pick whichever workflow fits you:
     uv sync --all-packages --all-extras
     ```
 
-    From the repository root: `--all-packages` installs both workspace members and
-    `--all-extras` adds the dev tools (ruff, mypy, pytest).
+    From the repository root: `--all-packages` installs the backend, the workspace's one
+    member, and `--all-extras` adds the dev tools (ruff, mypy, pytest).
 
     ### 3. Environment Setup
 

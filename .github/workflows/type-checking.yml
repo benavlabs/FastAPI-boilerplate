@@ -29,12 +29,6 @@ jobs:
           ENVIRONMENT: local
           SECRET_KEY: test-secret-key-for-testing-only
 
-      - name: Mypy (cli)
-        run: cd cli && uv run --no-sync mypy -p cli
-        env:
-          ENVIRONMENT: local
-          SECRET_KEY: test-secret-key-for-testing-only
-
       - name: Mypy (tools)
         run: uv run --no-sync mypy tools
         env:

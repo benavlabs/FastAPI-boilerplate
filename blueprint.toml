@@ -24,7 +24,6 @@ blueprint_only = [
   "backend/tests/unit/test_tarball_contents.py",
   "blueprint/",
   "blueprint.toml",
-  "cli/",
   "docs/",
   "fastro.toml",
   "pyproject.toml",

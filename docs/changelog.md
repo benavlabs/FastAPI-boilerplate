@@ -44,6 +44,17 @@ ___
   [Generating and updating projects with fastro](user-guide/fastro.md) covers `fastro make deploy`,
   `fastro env secret` and `fastro env validate`. The old `cli/` URLs redirect there.
 
+#### Removed
+
+- **The `bp` CLI and its `cli/` workspace package.** fastro, which the root dev group installs,
+  runs the same commands: `bp deploy generate MODE` is `fastro make deploy MODE`, with the same
+  modes and options; `bp env gen-secret` is `fastro env secret`; `bp env validate` is
+  `fastro env validate`. fastro installs a `bp` command too, which says it is now fastro and runs
+  the fastro command, so `uv run bp ...` keeps working. In a venv that had the old package,
+  `uv sync --all-packages --all-extras --reinstall-package fastro` puts that command back after
+  the sync removes the old one. The `bp.commands` and `bp.features` plugin entry points have no
+  counterpart in fastro. The workspace's one member is `backend/` now.
+
 ___
 
 ## 0.20.0 - October 25, 2026 - Composable Features
