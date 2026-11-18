@@ -354,10 +354,10 @@ uv run --no-sync pytest --cov=src --cov-report=term-missing
 ## Continuous Integration
 
 The repo's `.github/workflows/tests.yml` runs the test suite on PRs, along with the linting and
-type-checking workflows and a matrix job that runs `tools/removal_drill.py` for every preset. The
-workflows install the workspace from the repo root with `uv sync --all-packages --all-extras
---locked`, then `cd backend` for the suite, so the same `uv run --no-sync pytest` works there as
-locally.
+type-checking workflows and a matrix job that runs `fastro blueprint verify` for each set it
+builds: the catalog's `[verify.sets]`, the presets and `everything`, one job each. The workflows
+install the workspace from the repo root with `uv sync --all-packages --all-extras --locked`,
+then `cd backend` for the suite, so the same `uv run --no-sync pytest` works there as locally.
 
 CI runs the whole suite, integration tests included: `.github/workflows/tests.yml` syncs the
 workspace and runs `pytest` on an `ubuntu-latest` runner, where Docker is available, so

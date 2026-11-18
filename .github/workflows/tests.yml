@@ -34,7 +34,7 @@ jobs:
       - name: Pytest (blueprint)
         run: uv run --no-sync pytest blueprint/tests
 
-  removal-drills:
+  verify:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -48,6 +48,9 @@ jobs:
           - accounts-api-keys
           - accounts-rbac-tiers
           - accounts-cache-taskiq
+          - minimal
+          - standard
+          - full
           - everything
     steps:
       - uses: actions/checkout@v4
@@ -64,8 +67,5 @@ jobs:
       - name: Sync workspace
         run: uv sync --all-packages --all-extras --locked --python 3.11
 
-      - name: Removal drill
-        run: uv run --no-sync python tools/removal_drill.py ${{ matrix.preset }}
-        env:
-          ENVIRONMENT: local
-          SECRET_KEY: test-secret-key-for-testing-only
+      - name: Verify
+        run: uv run --no-sync fastro blueprint verify ${{ matrix.preset }}
