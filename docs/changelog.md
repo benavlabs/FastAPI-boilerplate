@@ -54,6 +54,10 @@ ___
   `uv sync --all-packages --all-extras --reinstall-package fastro` puts that command back after
   the sync removes the old one. The `bp.commands` and `bp.features` plugin entry points have no
   counterpart in fastro. The workspace's one member is `backend/` now.
+- **The removal drill.** `tools/removal_drill.py` and its test are gone. `fastro blueprint verify`
+  builds a project for each set in `blueprint.toml`, each preset and `everything`, and runs the
+  same checks on it; CI runs it once per set. Run `uv run --no-sync fastro blueprint verify` for
+  every set, or name one, and add `--keep` to keep the builds.
 
 ___
 

@@ -176,7 +176,6 @@ def test_the_feature_section_names_the_tables_a_feature_is_declared_with():
     assert feature, section
     name = feature[1]
 
-    assert "tools/removal_drill.py" not in section
     assert "`blueprint.toml`" in section and "`[app]`" in section
     assert "`paths`" in section and f"`[features.{name}.contributes]`" in section
     assert any(

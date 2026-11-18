@@ -1,18 +1,13 @@
-"""The catalog describes this repository, and `tools/removal_drill.py` is what it describes.
+"""The catalog describes this repository.
 
 `blueprint.toml` is read by fastro, which the repository root installs and the backend doesn't,
 so nothing in this file imports it: the rules it checks are transcribed from the catalog spec,
-and the facts it checks against come from the drill, which is the repository's own account of
-its features.
-
-This file goes when `fastro blueprint lint` and `fastro blueprint verify` replace the drill.
+and the facts it checks against are the repository's own files.
 """
 
 import ast
 import functools
 import importlib
-import importlib.util
-import inspect
 import ipaddress
 import itertools
 import keyword
@@ -49,18 +44,6 @@ SET_NAME = re.compile(r"^[a-z][a-z0-9_-]*$")
 def _catalog() -> dict[str, Any]:
     with CATALOG.open("rb") as handle:
         return tomllib.load(handle)
-
-
-@functools.cache
-def _drill():
-    """The drill's manifest, loaded as a module: its dataclasses need it in ``sys.modules``."""
-    spec = importlib.util.spec_from_file_location("removal_drill_manifest", REPO_ROOT / "tools" / "removal_drill.py")
-    assert spec is not None and spec.loader is not None
-    manifest = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = manifest
-    spec.loader.exec_module(manifest)
-
-    return manifest
 
 
 def test_the_catalog_parses():
@@ -346,7 +329,7 @@ def test_no_file_a_project_keeps_imports_a_dependency_it_did_not_select():
     assert needed["sqladmin"] == {"admin"}
     assert needed["aiomcache"] == set(), "an option's dependency is never guaranteed"
 
-    for chosen in _selections(_drill()):
+    for chosen in _selections():
         removed = _removed_for(features, chosen)
         for name, owners in needed.items():
             if owners & chosen:
@@ -551,7 +534,7 @@ def _hook_paths() -> list[str]:
 @pytest.mark.parametrize(
     ("pattern", "heads"),
     [
-        ("^tools/", ["tools"]),
+        ("^docs/", ["docs"]),
         ("^backend/(src|scripts|migrations|tests)/", ["backend"]),
         (r"^(blueprint\.toml|fastro\.toml|backend/src/wiring/)", ["blueprint.toml", "fastro.toml", "backend/src/wiring"]),
         (r"^(a\.py)|(b/)$", ["a.py", "b"]),
@@ -1245,13 +1228,11 @@ def _literals(module: Path) -> set[str]:
 
 
 def test_no_test_a_project_receives_names_a_tree_it_does_not_get():
-    """A test that reaches for `docs/` or `tools/` is a test no project can run.
+    """A test that reaches for `docs/` or `blueprint/` is a test no project can run.
 
-    `test_removal_drill.py` loads `tools/removal_drill.py`, and `test_baseline.py` read the
-    migrations guide: both are files a project never receives, and the drill hid it by copying
-    the whole repository into every project it built. Only the subtree entries are compared,
-    because a root file's name is ambiguous: a shipped test naming `pyproject.toml` means
-    the one under `backend/`.
+    `test_baseline.py` read the migrations guide, a file a project never receives. Only the
+    subtree entries are compared, because a root file's name is ambiguous: a shipped test naming
+    `pyproject.toml` means the one under `backend/`.
     """
     trees = [entry for entry in _catalog()["blueprint"]["blueprint_only"] if entry.endswith("/")]
     reaching = {}
@@ -1270,10 +1251,10 @@ def test_no_test_a_project_receives_names_a_tree_it_does_not_get():
 
 
 def test_the_things_projects_must_not_receive_are_listed():
-    """The catalog, the drill and the docs belong to the blueprint only."""
+    """The catalog and the docs belong to the blueprint only."""
     listed = set(_catalog()["blueprint"]["blueprint_only"])
 
-    assert {"blueprint/", "blueprint.toml", "fastro.toml", "docs/", "tools/"} <= listed
+    assert {"blueprint/", "blueprint.toml", "fastro.toml", "docs/"} <= listed
     assert "backend/tests/unit/test_blueprint_catalog.py" in listed
 
 
@@ -1285,15 +1266,6 @@ def test_the_docs_reading_tests_stay_in_the_blueprint():
         assert f"backend/tests/unit/{name}.py" in listed
 
 
-def test_the_verify_sets_are_the_drills_presets():
-    """`everything` is implied by the spec, and declaring it is an error, so the sets are the other eight."""
-    expected = {name: list(features) for name, features in _drill().PRESETS.items() if name != "everything"}
-    sets = _catalog()["verify"]["sets"]
-
-    assert "everything" not in sets
-    assert sets == expected
-
-
 @pytest.mark.parametrize("name", sorted(_catalog()["presets"]) + sorted(_catalog()["verify"]["sets"]))
 def test_every_preset_and_verify_set_is_named_the_way_the_spec_allows(name: str):
     """Spec 1.2: a name here is lower case and may carry a hyphen, so `accounts-only` reads as one."""
@@ -1302,15 +1274,12 @@ def test_every_preset_and_verify_set_is_named_the_way_the_spec_allows(name: str)
 
 def test_every_preset_is_closed_under_what_its_features_require():
     """A preset that names tier_limits without tiers would generate a project that can't import."""
-    requires = _drill().REQUIRES
-
     for name, features in _catalog()["presets"].items():
-        for feature in features:
-            assert set(requires.get(feature, ())) <= set(features), f"{name} is missing what {feature} requires"
+        assert _closed(features) == set(features), f"{name} is missing what its features require"
 
 
 def test_the_presets_name_features_this_repository_has():
-    known = set(_drill().FEATURES)
+    known = set(_catalog()["features"])
 
     for name, features in _catalog()["presets"].items():
         assert set(features) <= known, name
@@ -1319,7 +1288,7 @@ def test_the_presets_name_features_this_repository_has():
 
 
 def test_full_is_every_feature():
-    assert sorted(_catalog()["presets"]["full"]) == sorted(_drill().FEATURES)
+    assert sorted(_catalog()["presets"]["full"]) == sorted(_catalog()["features"])
 
 
 ONE_OF_EACH = {"root_routers", "docs_guard", "email_sender", "cache_decorator"}
@@ -1350,9 +1319,9 @@ def _binding(entry: str) -> tuple[str, str, str]:
 def _bindings(source: str) -> set[tuple[str, str, str]]:
     """Every (module, attribute, local name) the imports in ``source`` bind.
 
-    Read with ``ast`` rather than by matching text: the drill merges names from one module
-    into a single statement and wraps long ones over several lines, and neither shape
-    contains the single-name line a substring check would look for.
+    Read with ``ast`` rather than by matching text: names from one module share a statement,
+    and a long one wraps over several lines, and neither shape contains the single-name line a
+    substring check would look for.
     """
     bindings: set[tuple[str, str, str]] = set()
     for node in ast.parse(source).body:
@@ -1406,21 +1375,6 @@ def test_the_points_a_project_may_fill_once_are_the_ones_rendered_as_a_value():
     assert single == ONE_OF_EACH
 
 
-def test_the_database_checks_belong_to_no_feature():
-    """The drill wires them whatever is selected, so the catalog gives them to core."""
-    core = _catalog()["core"]["contributes"]["critical_readiness"]
-    with_nothing_selected = _drill()._wiring_hooks(set())
-    rendered = with_nothing_selected.split("CRITICAL_READINESS_CHECKS: tuple[ReadinessCheck, ...] = (")[1]
-
-    assert [_ref(entry)[2] for entry in core] == [name.strip() for name in rendered.split(")")[0].split(",") if name.strip()]
-
-
-@pytest.mark.parametrize("entry", _catalog()["core"]["contributes"]["critical_readiness"])
-def test_every_core_contribution_is_imported_the_way_the_drill_imports_it(entry: str):
-    """The names alone would accept a ref that kept the alias and changed the module."""
-    assert _binding(entry) in _bindings(_drill()._wiring_hooks(set()))
-
-
 @pytest.mark.parametrize("entry", _catalog()["core"]["contributes"]["critical_readiness"])
 def test_every_core_contribution_names_something_that_exists(entry: str):
     """Spec 1.4: the attribute has to be defined at the module's top level."""
@@ -1429,23 +1383,23 @@ def test_every_core_contribution_names_something_that_exists(entry: str):
     assert _defines(module, attribute), entry
 
 
-def test_the_import_reader_sees_a_name_the_drill_merges():
-    """Two names from one module become one statement, whose second name no line contains."""
-    bindings = _bindings(_drill()._wiring_hooks({"accounts"}))
+def test_the_import_reader_sees_a_name_that_shares_a_statement():
+    """Two names from one module in one statement, whose second name no line contains alone."""
+    bindings = _bindings("from ..infrastructure.auth.health import limiter_readiness, sessions_readiness\n")
 
     assert ("..infrastructure.auth.health", "limiter_readiness", "limiter_readiness") in bindings
     assert ("..infrastructure.auth.health", "sessions_readiness", "sessions_readiness") in bindings
 
 
-def test_the_import_reader_sees_a_name_the_drill_wraps():
-    """The composition import is written over several lines, so no single line holds it."""
-    bindings = _bindings(_drill()._wiring_hooks(set()))
+def test_the_import_reader_sees_a_name_in_a_wrapped_import():
+    """An import written over several lines, so no single line holds it."""
+    bindings = _bindings("from ..infrastructure.composition import (\n    PermissionSource,\n    ReadinessCheck,\n)\n")
 
     assert ("..infrastructure.composition", "ReadinessCheck", "ReadinessCheck") in bindings
 
 
 GENERATED_BY_WIRING = "backend/src/wiring/admin.py"
-"""The drill deletes it with the admin feature; the catalog's `[[wiring]]` entry omits it instead."""
+"""Written by a `[[wiring]]` entry for the admin feature, so no feature's paths declare it."""
 
 
 def _declared(feature: dict[str, Any]) -> list[tuple[str, str | None]]:
@@ -1463,40 +1417,93 @@ def _kept_by_the_catalog(features: dict[str, Any], chosen: set[str]) -> set[str]
         for name, feature in features.items()
         if name in chosen
         for path, condition in _declared(feature)
-        if condition is None or condition in chosen
+        if condition is None or _true(condition, chosen)
     }
 
 
-def _kept_by_the_drill(manifest: Any, chosen: set[str]) -> set[str]:
-    """What `build` leaves on disk: a combination path needs both of its features."""
-    kept: set[str] = set()
-    for name, feature in manifest.FEATURES.items():
-        if name not in chosen:
-            continue
+@pytest.mark.parametrize(
+    ("path", "kept_with"),
+    [
+        ("backend/src/modules/user/admin.py", {"accounts", "admin"}),
+        ("backend/src/modules/api_keys/tasks.py", {"accounts", "api_keys", "taskiq"}),
+        ("backend/src/modules/api_keys/service.py", {"accounts", "api_keys"}),
+        ("backend/src/infrastructure/taskiq/worker.py", {"taskiq"}),
+        ("backend/src/infrastructure/taskiq/email.py", {"accounts", "taskiq"}),
+        ("backend/tests/unit/infrastructure/taskiq/test_email.py", {"accounts", "taskiq"}),
+        ("backend/src/modules/tier/admin.py", {"tiers", "admin"}),
+        ("backend/tests/unit/modules/tier/test_admin.py", {"tiers", "admin"}),
+        ("backend/src/modules/role/admin.py", {"rbac", "admin"}),
+        ("backend/tests/unit/modules/role/test_admin.py", {"rbac", "admin"}),
+        ("backend/tests/unit/modules/user/test_admin.py", {"accounts", "admin"}),
+        ("backend/tests/unit/modules/api_keys/test_tasks.py", {"api_keys", "taskiq"}),
+        ("backend/tests/integration/api_keys_rbac/test_effective_permissions.py", {"api_keys", "rbac"}),
+        ("backend/tests/integration/api_keys_ratelimit/test_invalid_keys.py", {"api_keys", "ratelimit"}),
+        ("backend/tests/integration/api_keys_tiers/test_reading_another_account.py", {"api_keys", "tier_limits"}),
+    ],
+)
+def test_a_file_is_kept_exactly_where_its_features_are(path: str, kept_with: set[str]):
+    """A file one feature brings into another's package is kept only when every feature it
+    needs is selected, and leaves when any one of them is missing."""
+    features = _catalog()["features"]
+    declared = {declared for feature in features.values() for declared, _ in _declared(feature)}
 
-        kept.update(path for path in feature.paths if path != GENERATED_BY_WIRING)
-        for partner, paths in feature.combination_paths.items():
-            if partner in chosen:
-                kept.update(paths)
+    for chosen in _selections():
+        kept_paths = _kept_by_the_catalog(features, chosen)
+        kept = _under(path, kept_paths) and not _under(path, _removed_for(features, chosen))
+        assert kept is (kept_with <= chosen), sorted(chosen)
+        if path in declared:
+            assert (path in kept_paths) is (kept_with <= chosen), sorted(chosen)
 
-    return kept
+
+def _local_names(point: str, chosen: set[str]) -> list[str]:
+    return [_ref(entry["ref"])[2] for entry in _contributed(_catalog(), point, chosen)]
 
 
-def _selections(manifest: Any) -> list[set[str]]:
+def test_a_project_with_a_worker_queues_its_mail_and_one_without_hands_it_over():
+    """No selection waits for a mail server: the fallback hands the delivery over."""
+    fallback = next(slot for entry in _entries() for slot in entry["slots"] if slot.get("point") == "email_sender")
+
+    assert fallback["fallback"] == "HandingOverSender(build_sender())"
+    for chosen in _selections():
+        expected = ["queued_sender"] if {"accounts", "taskiq"} <= chosen else []
+        assert _local_names("email_sender", chosen) == expected, sorted(chosen)
+
+
+def test_a_project_drains_what_it_handed_over_with_the_worker_or_on_its_own():
+    """Accounts hands its mail over, and drains it once: in the worker's lifecycle where there is
+    one, and in the handover's own where there isn't."""
+    for chosen in _selections():
+        names = _local_names("lifecycles", chosen)
+
+        assert ("taskiq_lifecycle" in names) is ("taskiq" in chosen), sorted(chosen)
+        assert ("handover_lifecycle" in names) is ("accounts" in chosen and "taskiq" not in chosen), sorted(chosen)
+
+
+def _closed(chosen: Iterable[str]) -> set[str]:
+    """A selection with everything its features require, and what that requires in turn."""
+    features = _catalog()["features"]
+    selection = set(chosen)
+    while missing := {required for name in selection for required in features[name].get("requires", ())} - selection:
+        selection |= missing
+
+    return selection
+
+
+def _selections() -> list[set[str]]:
     """Every selection a project could carry: each subset of the features, closed under requires."""
-    closed = []
-    for size in range(len(manifest.FEATURES) + 1):
-        for combination in itertools.combinations(manifest.FEATURES, size):
-            selection = manifest._selected_from(combination)
+    closed: list[set[str]] = []
+    for size in range(len(_catalog()["features"]) + 1):
+        for combination in itertools.combinations(_catalog()["features"], size):
+            selection = _closed(combination)
             if selection not in closed:
                 closed.append(selection)
 
     return closed
 
 
-def test_the_features_are_the_ones_the_drill_knows():
-    """In the drill's order: spec 6.2 hands templates the selection in catalog order."""
-    assert list(_catalog()["features"]) == list(_drill().FEATURES)
+def test_a_project_can_carry_164_selections():
+    """The rules below that run over every selection have that many to run over."""
+    assert len(_selections()) == 164
 
 
 @pytest.mark.parametrize("name", sorted(_catalog()["features"]))
@@ -1510,21 +1517,13 @@ def test_every_feature_is_declared_the_way_the_spec_asks(name: str):
     assert feature["group"] in {"Accounts", "Operations"}
 
 
-def test_every_feature_requires_what_the_drill_says_it_requires():
-    """A requires that drifts would generate a project whose imports have nothing to bind."""
-    requires = _drill().REQUIRES
-
-    for name, feature in _catalog()["features"].items():
-        assert list(feature.get("requires", ())) == list(requires.get(name, ()))
-
-
 @pytest.mark.parametrize(
     ("name", "condition"),
     sorted((name, block["if"]) for name, feature in _catalog()["features"].items() for block in feature.get("when", ())),
 )
 def test_every_condition_names_a_feature_this_repository_has(name: str, condition: str):
     """Spec 1.3: an unknown name is an error rather than something that reads as false."""
-    assert condition in _drill().FEATURES
+    assert condition in _catalog()["features"]
     assert condition != name
 
 
@@ -1563,26 +1562,8 @@ def test_the_generated_wiring_file_belongs_to_no_feature():
     """It is written by `[[wiring]]`, which leaves it out of a project rather than deleting it."""
     declared = {path for feature in _catalog()["features"].values() for path, _ in _declared(feature)}
 
-    assert GENERATED_BY_WIRING in _drill().FEATURES["admin"].paths
+    assert GENERATED_BY_WIRING in [entry["path"] for entry in _entries()]
     assert GENERATED_BY_WIRING not in declared
-
-
-def test_every_selection_keeps_the_files_the_drill_keeps():
-    """The catalog gives a shared file to the feature whose subtree holds it, and the drill to both.
-
-    `src/modules/user/admin.py` is admin's work inside accounts' package, and the drill lists it
-    under both. One declaration owns it here, so what's compared is the file surviving a
-    selection, not which feature spoke for it.
-    """
-    manifest = _drill()
-    features = _catalog()["features"]
-
-    for chosen in _selections(manifest):
-        assert _kept_by_the_catalog(features, chosen) == _kept_by_the_drill(manifest, chosen), sorted(chosen)
-
-
-TOOLCHAIN_ONLY = {"PATH", "PYTHONPATH", "HOME"}
-"""What the drill's environment holds beyond the settings: paths, not configuration."""
 
 
 def test_the_app_the_verification_imports_is_this_project_s_own():
@@ -1599,75 +1580,19 @@ def test_the_app_the_verification_imports_is_this_project_s_own():
 
 
 def test_the_toolchain_environment_is_what_the_app_needs_to_import():
-    """Spec 2.12: names and string values only. These are the settings the drill sets itself
-    before it imports anything, and they are test values for checking a project rather than
-    secrets: a memory session store, a memory limiter, the local environment, and a key that
-    exists only so the settings validate.
+    """Spec 2.12: names and string values only. They are test values for checking a project
+    rather than secrets: a memory session store, a memory limiter, the local environment, and a
+    key that exists only so the settings validate.
     """
     declared = _catalog()["checks"]["toolchain"]["env"]
-    source = inspect.getsource(_drill().check)
-    set_by_the_drill = set(re.findall(r'^\s+"([A-Z][A-Z0-9_]*)":', source, re.M)) - TOOLCHAIN_ONLY
 
-    assert set(declared) == set_by_the_drill
+    assert set(declared) == {"ENVIRONMENT", "SECRET_KEY", "SESSION_BACKEND", "RATE_LIMITER_BACKEND"}
     for name, value in declared.items():
         assert ENV_VAR.match(name), name
         assert isinstance(value, str), name
 
     assert len(declared["SECRET_KEY"]) >= 32, "the settings refuse a shorter one"
     assert declared["SECRET_KEY"] not in ENV_EXAMPLE.read_text(), "not the example's placeholder"
-
-
-POINTS: dict[str, tuple[str, str]] = {
-    "routers": ("_wiring_app", "ROUTER_MOUNTS"),
-    "root_routers": ("_wiring_app", "ROOT_ROUTERS"),
-    "api_throttle": ("_wiring_app", "API_THROTTLE"),
-    "lifecycles": ("_wiring_app", "LIFECYCLES"),
-    "installers": ("_wiring_app", "INSTALLERS"),
-    "docs_guard": ("_wiring_app", "DOCS_GUARD"),
-    "settings": ("_wiring_settings", "Settings"),
-    "permission_sources": ("_wiring_hooks", "PERMISSION_SOURCES"),
-    "rate_limit_resolvers": ("_wiring_hooks", "RATE_LIMIT_RESOLVERS"),
-    "tier_delete_guards": ("_wiring_hooks", "TIER_DELETE_GUARDS"),
-    "tier_delete_releases": ("_wiring_hooks", "TIER_DELETE_RELEASES"),
-    "critical_readiness": ("_wiring_hooks", "CRITICAL_READINESS_CHECKS"),
-    "informational_readiness": ("_wiring_hooks", "INFORMATIONAL_READINESS_CHECKS"),
-    "user_model": ("_wiring_models", "UserModelExtensions"),
-    "user_schema": ("_wiring_models", "UserSchemaExtensions"),
-    "admin_views": ("_wiring_admin", "ADMIN_VIEWS"),
-    "email_sender": ("_wiring_email", "EMAIL_SENDER"),
-    "cache_decorator": ("_wiring_cache", "cached"),
-    "task_modules": ("_wiring_tasks", "TASK_MODULES"),
-    "table_modules": ("_wiring_tables", "TABLE_MODULES"),
-    "extra_transports": ("_wiring_transports", "EXTRA_TRANSPORTS"),
-    "seeders": ("_seeders", "SEEDERS"),
-    "test_plugins": ("_tests_wiring", "PYTEST_PLUGINS"),
-}
-"""Where the drill writes each point: the generator, and the name it assigns or defines."""
-
-
-def _slot_of(point: str) -> dict[str, Any]:
-    """The one slot that collects this point, which `[[wiring]]` declares exactly once."""
-    slots: list[dict[str, Any]] = [
-        slot for entry in _catalog()["wiring"] for slot in entry["slots"] if slot.get("point") == point
-    ]
-    assert len(slots) == 1, point
-
-    return slots[0]
-
-
-def _fallback_of(point: str) -> str | None:
-    """How a point renders with nothing contributed: an expression, or a ref's local name."""
-    slot = _slot_of(point)
-    fallback = slot.get("fallback")
-    if fallback is None:
-        return None
-
-    return _ref(fallback)[2] if slot["kind"] in {"class", "reexport"} else fallback
-
-
-def _appended_to(point: str) -> list[str]:
-    """The bases a `class` slot always adds last, by the name they are bound under."""
-    return [_ref(ref)[2] for ref in _slot_of(point).get("append", ())]
 
 
 def _true(condition: str, chosen: set[str]) -> bool:
@@ -1751,14 +1676,6 @@ def _contributed(catalog: dict[str, Any], point: str, chosen: set[str]) -> list[
     return [table for *_, table in sorted(collected, key=lambda entry: entry[:3])]
 
 
-def _named(entry: dict[str, Any]) -> Any:
-    """The local name a contribution binds, or the literal it contributes."""
-    if "value" in entry:
-        return entry["value"]
-
-    return _ref(entry["ref"])[2]
-
-
 def _defined(source: str, name: str) -> ast.AST | None:
     """The value assigned to ``name``, or the class defined under it."""
     for node in ast.parse(source).body:
@@ -1770,69 +1687,6 @@ def _defined(source: str, name: str) -> ast.AST | None:
             return node
 
     return None
-
-
-def _leading_name(element: ast.AST) -> Any:
-    """What a rendered item is built around: ``RouterMount(users_router, …)`` is ``users_router``."""
-    if isinstance(element, ast.Constant):
-        return element.value
-    if isinstance(element, ast.Name):
-        return element.id
-    if isinstance(element, ast.Call):
-        return _leading_name(element.args[0]) if element.args else _leading_name(element.func)
-
-    raise AssertionError(ast.unparse(element))
-
-
-def _rendered(source: str, point: str, name: str) -> list[Any]:
-    """The names the drill rendered into this point, in the order it wrote them."""
-    if _slot_of(point)["kind"] == "reexport":
-        fallback, _, _ = _binding(_slot_of(point)["fallback"])
-        bound = [module for module, _, alias in _bindings(source) if alias == name]
-
-        return [] if bound == [fallback] else [name]
-
-    defined = _defined(source, name)
-    assert defined is not None, name
-
-    if isinstance(defined, ast.ClassDef):
-        bases = [base.id for base in defined.bases if isinstance(base, ast.Name)]
-        appended = _appended_to(point)
-        if appended:
-            assert bases[-len(appended) :] == appended, bases
-            bases = bases[: -len(appended)]
-
-        return [] if bases == [_fallback_of(point)] else bases
-
-    if isinstance(defined, ast.Tuple | ast.List):
-        return [_leading_name(element) for element in defined.elts]
-
-    return [] if ast.unparse(defined) == _fallback_of(point) else [_leading_name(defined)]
-
-
-def _written_for(manifest: Any, generator: str, chosen: set[str]) -> str:
-    written: str = getattr(manifest, generator)(chosen)
-
-    return written
-
-
-def _constant(node: ast.expr) -> Any:
-    """The value of a rendered literal, such as a mount's prefix or its throttle flag."""
-    assert isinstance(node, ast.Constant), ast.unparse(node)
-
-    return node.value
-
-
-def test_every_declared_point_is_one_the_drill_writes_somewhere():
-    """A point missing from this table would skip the comparison below without saying so."""
-    assert set(POINTS) == set(_catalog()["points"])
-
-
-@pytest.mark.parametrize("point", sorted(POINTS))
-def test_every_point_is_written_by_a_generator_the_drill_has(point: str):
-    generator, _ = POINTS[point]
-
-    assert hasattr(_drill(), generator)
 
 
 def test_every_declared_point_is_contributed_to_or_filled_by_core():
@@ -1866,69 +1720,9 @@ def test_a_point_a_project_fills_once_never_receives_two_contributions():
     catalog = _catalog()
     single = {name for name, point in catalog["points"].items() if point["cardinality"] == "one"}
 
-    for chosen in _selections(_drill()):
+    for chosen in _selections():
         for point in single:
             assert len(_contributed(catalog, point, chosen)) <= 1, (point, sorted(chosen))
-
-
-@pytest.mark.parametrize("point", sorted(POINTS))
-def test_the_catalog_says_what_the_drill_renders(point: str):
-    """For every selection a project could carry, what reaches a point is what the drill wrote.
-
-    All 164 of them, not the verify sets: a set builds and tests a project, so the sets are
-    few, and a generator is a function of the selection alone, so it costs nothing to ask it
-    about combinations no set builds.
-    """
-    catalog = _catalog()
-    manifest = _drill()
-    generator, name = POINTS[point]
-
-    for chosen in _selections(manifest):
-        expected = [_named(entry) for entry in _contributed(catalog, point, chosen)]
-        if generator == "_wiring_admin" and "admin" not in chosen:
-            assert expected == [], sorted(chosen)
-            continue
-
-        assert _rendered(_written_for(manifest, generator, chosen), point, name) == expected, sorted(chosen)
-
-
-def test_every_mounted_router_is_mounted_where_the_drill_mounts_it():
-    """The prefix and the throttle are the catalog's to carry now, so they are compared too."""
-    catalog = _catalog()
-    manifest = _drill()
-
-    for chosen in _selections(manifest):
-        declared = [(_named(entry), entry["prefix"], entry["throttled"]) for entry in _contributed(catalog, "routers", chosen)]
-        mounts = _defined(_written_for(manifest, "_wiring_app", chosen), "ROUTER_MOUNTS")
-        assert isinstance(mounts, ast.Tuple)
-
-        rendered = [
-            (
-                _leading_name(element.args[0]),
-                _constant(element.args[1]),
-                next(_constant(word.value) for word in element.keywords if word.arg == "throttled"),
-            )
-            for element in mounts.elts
-            if isinstance(element, ast.Call)
-        ]
-
-        assert rendered == declared, sorted(chosen)
-
-
-def test_every_contribution_is_imported_the_way_the_drill_imports_it():
-    """A ref that kept the local name and changed the module would render the same line."""
-    catalog = _catalog()
-    manifest = _drill()
-    everything = set(manifest.FEATURES)
-
-    for point, (generator, _) in POINTS.items():
-        source = _written_for(manifest, generator, everything)
-        bound = _bindings(source)
-        for entry in _contributed(catalog, point, everything):
-            if "value" in entry:
-                continue
-
-            assert _binding(entry["ref"]) in bound, (point, entry)
 
 
 def test_a_transport_that_is_constructed_says_so():
@@ -1936,7 +1730,7 @@ def test_a_transport_that_is_constructed_says_so():
     catalog = _catalog()
     everything = set(catalog["features"])
     entry = _contributed(catalog, "extra_transports", everything)[0]
-    rendered = _defined(_written_for(_drill(), "_wiring_transports", everything), "EXTRA_TRANSPORTS")
+    rendered = _defined(_committed("backend/src/wiring/transports.py"), "EXTRA_TRANSPORTS")
 
     assert entry["call"] is True
     assert isinstance(rendered, ast.Tuple) and isinstance(rendered.elts[0], ast.Call)
@@ -2325,13 +2119,6 @@ SLOT_KINDS = {"tuple", "list", "class", "value", "reexport", "raw", "data"}
 """Spec 2.6. A kind the engine doesn't know would be a slot nothing renders."""
 
 
-def _written_by_build(manifest: Any) -> list[str]:
-    """The files `build` writes, read out of its source rather than listed again here."""
-    source = inspect.getsource(manifest.build)
-
-    return re.findall(r'\(project / "([^"]+)"\)\.write_text', source)
-
-
 def _entries() -> list[dict[str, Any]]:
     return list(_catalog()["wiring"])
 
@@ -2347,14 +2134,6 @@ def _annotated(source: str, name: str) -> str | None:
             return ast.unparse(node.annotation)
 
     return None
-
-
-def test_the_wiring_entries_are_the_files_the_drill_writes():
-    """One entry per generated file, both ways. The entries' order carries nothing, so it is free."""
-    written = _written_by_build(_drill())
-
-    assert sorted(entry["path"] for entry in _entries()) == sorted(written)
-    assert len(written) == 12
 
 
 @pytest.mark.parametrize("path", [entry["path"] for entry in _entries()])
@@ -2430,10 +2209,8 @@ def test_every_point_a_project_fills_once_is_rendered_as_one_value():
 def test_the_file_a_feature_brings_with_it_is_generated_only_for_that_feature():
     """FR003: without admin the file is absent from the project, not emptied."""
     admin = next(entry for entry in _entries() if entry["path"].endswith("wiring/admin.py"))
-    build = inspect.getsource(_drill().build)
 
     assert admin["if"] == "admin"
-    assert 'if "admin" in chosen:' in build
     assert [entry.get("if") for entry in _entries()].count(None) == 11
 
 
@@ -2570,12 +2347,6 @@ def test_every_generated_file_carries_its_doc_and_then_the_header(path: str):
     assert _docstring(_committed(path)) == f"{entry['doc'].strip()}\n\n{header.strip()}\n"
 
 
-@pytest.mark.parametrize("path", [entry["path"] for entry in _entries()])
-def test_no_generated_file_names_the_drill(path: str):
-    """The header names fastro as the author, and the drill goes in B3: two authors is one too many."""
-    assert "removal_drill" not in _committed(path), path
-
-
 def test_the_hand_written_module_says_who_writes_the_ones_beside_it():
     """It is not generated, so it is where the reason lives: once, in the file a person edits."""
     docstring = _docstring(_committed(HAND_WRITTEN))
@@ -2585,31 +2356,6 @@ def test_the_hand_written_module_says_who_writes_the_ones_beside_it():
     assert "fastro" in docstring
     assert "blueprint.toml" in docstring
     assert "imports and literals" in docstring
-    assert "removal_drill" not in docstring
-
-
-@pytest.mark.parametrize("path", [entry["path"] for entry in _entries()])
-def test_the_catalog_accounts_for_what_the_file_imports_for_every_selection(path: str):
-    """The fallbacks, where the committed files cannot reach: nothing falls back with all nine.
-
-    `fallback_imports`, the pydantic base and the uncached decorator are only written into a
-    project that left the feature out, so only a smaller selection compares them.
-    """
-    catalog = _catalog()
-    manifest = _drill()
-    entry = next(entry for entry in _entries() if entry["path"] == path)
-    generator = next(
-        drill_generator
-        for point, (drill_generator, _) in POINTS.items()
-        if any(slot.get("point") == point for slot in entry["slots"])
-    )
-
-    for chosen in _selections(manifest):
-        if generator == "_wiring_admin" and "admin" not in chosen:
-            continue
-
-        written = _bindings(_written_for(manifest, generator, chosen))
-        assert _declared_bindings(catalog, entry, chosen) == written, sorted(chosen)
 
 
 LINE_LENGTH = _catalog()["wiring_defaults"]["line_length"]
@@ -2859,11 +2605,11 @@ def test_every_selection_carries_the_commands_whose_module_it_keeps():
     project that cannot run it is worse than no command, and one a project could run but is
     never offered is work thrown away.
     """
-    manifest = _drill()
+    features = _catalog()["features"]
     owned = _owned_paths()
 
-    for chosen in _selections(manifest):
-        kept = _kept_by_the_drill(manifest, chosen)
+    for chosen in _selections():
+        kept = _kept_by_the_catalog(features, chosen)
         offered = {words for owner, words, _ in _declared_commands() if owner is None or owner in chosen}
         runnable = {
             words

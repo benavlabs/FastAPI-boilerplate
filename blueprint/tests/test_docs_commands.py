@@ -9,7 +9,10 @@ import click
 import pytest
 import typer.main
 from fastro.cli import app
-from retired import OLD_COMMAND, REPO_ROOT, RUNS_OLD_COMMAND, shown_pages
+from fastro.engine import blueprint
+from fastro.tools import installed_version
+from fastro.verify import verify_sets
+from retired import OLD_COMMAND, OLD_DRILL, REPO_ROOT, RUNS_OLD_COMMAND, shown_pages
 
 FASTRO = typer.main.get_command(app)
 
@@ -97,6 +100,15 @@ def test_no_page_a_reader_sees_runs_the_retired_command():
     assert not found, found
 
 
+def test_no_code_block_a_reader_sees_runs_the_drill():
+    """A page may still name it in prose, but a block a reader copies runs fastro."""
+    found = [
+        f"{name}: {code.strip()}" for name, text in shown_pages() for code, runs in _code(text) if runs and OLD_DRILL in code
+    ]
+
+    assert found == []
+
+
 def test_the_pages_show_fastro_commands():
     """The rule below has something to read, so a reader that stopped finding commands would show."""
     assert any(words[:2] == ["make", "deploy"] and runs for _, words, runs in _commands())
@@ -164,3 +176,23 @@ def test_every_root_sync_a_page_shows_installs_the_backend():
     assert not [requirement for requirement in requirements if re.match(rf"{re.escape(backend)}(?![\w.-])", requirement)]
     assert syncs
     assert [sync for sync in syncs if "--all-packages" not in sync.split()] == []
+
+
+def _verify_sets() -> set[str]:
+    catalog = blueprint.load("blueprint.toml", (REPO_ROOT / "blueprint.toml").read_text(), installed_version())
+
+    return set(verify_sets(catalog))
+
+
+def test_every_set_a_page_verifies_is_one_verify_builds():
+    named = [
+        (name, word)
+        for name, text in shown_pages()
+        for code, runs in _code(text)
+        if runs and (words := _fastro_words(code)) and words[:2] == ["blueprint", "verify"]
+        for word in words[2:]
+        if not word.startswith("-")
+    ]
+
+    assert named
+    assert [(name, word) for name, word in named if word not in _verify_sets()] == []

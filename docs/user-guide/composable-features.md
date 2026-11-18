@@ -109,9 +109,9 @@ the project's dependencies) and with Docker up (the tests use a Postgres contain
 RabbitMQ one where the taskiq feature is present):
 
 ```sh
-uv run --no-sync python tools/removal_drill.py                 # every preset
-uv run --no-sync python tools/removal_drill.py accounts-only   # one of them
-uv run --no-sync python tools/removal_drill.py --keep          # keep the scratch copies
+uv run --no-sync fastro blueprint verify                 # every set
+uv run --no-sync fastro blueprint verify accounts-only   # one of them
+uv run --no-sync fastro blueprint verify --keep          # keep the scratch copies
 ```
 
 The presets run in CI as a matrix:

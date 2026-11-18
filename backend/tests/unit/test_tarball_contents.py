@@ -1,9 +1,9 @@
 """What a source tarball carries, which is whatever `git archive` writes.
 
 GitHub builds a release's tarball the same way, so a path marked `export-ignore` is one a
-download doesn't have. What's left out is the blueprint's own: the documentation site, the
-removal drill and the issue templates are things to read or run in this repository, not things
-a reader builds the project from.
+download doesn't have. What's left out is the blueprint's own: the documentation site and the
+issue templates are things to read in this repository, not things a reader builds the project
+from.
 """
 
 import io
@@ -13,7 +13,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
-LEFT_OUT = (".github/ISSUE_TEMPLATE/", "docs/", "tools/", "zensical.toml")
+LEFT_OUT = (".github/ISSUE_TEMPLATE/", "docs/", "zensical.toml")
 """The paths `.gitattributes` keeps out of the tarball."""
 
 CARRIED = ("README.md", "backend/Dockerfile", "backend/pyproject.toml", "backend/src/interfaces/main.py")
@@ -57,3 +57,10 @@ def test_every_path_kept_out_is_one_this_repository_has():
     """A path that moved would be ignored silently, leaving the real one in the tarball."""
     for path in LEFT_OUT:
         assert (REPO_ROOT / path).exists(), path
+
+
+def test_the_paths_kept_out_are_the_ones_gitattributes_ignores():
+    """Both ways: an entry left behind in `.gitattributes` is one no test reads."""
+    rules = [line.split() for line in (REPO_ROOT / ".gitattributes").read_text().splitlines()]
+
+    assert sorted(rule[0] for rule in rules if rule[1:] == ["export-ignore"]) == sorted(LEFT_OUT)

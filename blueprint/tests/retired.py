@@ -1,4 +1,5 @@
-"""The developer CLI this repository used to ship, as the scans that keep it gone read it.
+"""The developer CLI this repository used to ship, and the drill that built the repository
+without each feature, as the scans that keep them gone read them.
 
 Every needle is assembled from pieces, so the files that hold them never match themselves.
 """
@@ -23,6 +24,11 @@ OLD_PACKAGE = "c" + "li"
 NAMES_OLD_PACKAGE = re.compile(rf"(?<![\w.-]){OLD_PACKAGE}(?![\w-])|\bboilerplate-{OLD_PACKAGE}\b")
 """The old package as a word: its folder, a path into it, its module, its distribution. Not
 `redis-cli`, `fastro.cli` or "CLI"."""
+
+OLD_DRILL = "removal" + "_drill"
+
+NAMES_OLD_DRILL = re.compile(rf"{OLD_DRILL}|\b{OLD_COMMAND}-and-fastro\b")
+"""The drill's module, its test, or the directory it left out of the copies it built."""
 
 
 def tracked_text() -> Iterator[tuple[str, str]]:

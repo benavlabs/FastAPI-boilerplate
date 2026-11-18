@@ -1,19 +1,41 @@
-"""Nothing outside the history names the developer tool's old package or the command it shipped."""
+"""Nothing outside the history names the developer tool's old package, the command it shipped,
+or the drill that built the repository without each feature."""
 
 import importlib.metadata
 import re
 from collections.abc import Iterator
 
+import click
 import pytest
+import typer.main
 from fastro import compat
-from retired import NAMES_OLD_COMMAND, NAMES_OLD_PACKAGE, OLD_COMMAND, OLD_PACKAGE, REPO_ROOT, tracked_text
+from fastro.cli import app
+from fastro.engine import blueprint
+from fastro.tools import installed_version
+from fastro.verify import verify_sets
+from retired import (
+    NAMES_OLD_COMMAND,
+    NAMES_OLD_DRILL,
+    NAMES_OLD_PACKAGE,
+    OLD_COMMAND,
+    OLD_DRILL,
+    OLD_PACKAGE,
+    REPO_ROOT,
+    tracked_text,
+)
 
-NEEDLES = {"package": NAMES_OLD_PACKAGE, "command": NAMES_OLD_COMMAND}
+NEEDLES = {"package": NAMES_OLD_PACKAGE, "command": NAMES_OLD_COMMAND, "drill": NAMES_OLD_DRILL}
 
 STILL_CARRYING = {
     ("package", "docs/changelog.md"): "the history, for good",
     ("command", "docs/changelog.md"): "the history, for good",
     ("command", "docs/assets/build-cover.cjs"): "B5",
+    ("drill", "docs/changelog.md"): "the history, for good",
+    ("drill", "docs/index.md"): "B5",
+    ("drill", "docs/user-guide/testing.md"): "B5",
+    ("drill", "docs/user-guide/composable-features.md"): "B5",
+    ("drill", "docs/user-guide/project-structure.md"): "B5",
+    ("drill", "docs/assets/build-diagrams.cjs"): "B5",
 }
 """Which needle each exempted file carries, and the item that lifts the exemption."""
 
@@ -41,7 +63,7 @@ def _hits() -> dict[tuple[str, str], list[str]]:
     return hits
 
 
-def test_no_file_names_the_old_package_or_its_command():
+def test_no_file_names_the_old_package_its_command_or_the_drill():
     found = [line for key, lines in _hits().items() if key not in STILL_CARRYING for line in lines]
 
     assert found == []
@@ -88,13 +110,46 @@ def test_the_command_needle(line: str, named: bool):
     assert bool(NAMES_OLD_COMMAND.search(line)) is named
 
 
-def _old_and_new_commands() -> list[tuple[str, str]]:
-    """The pairs the changelog's entry for the package's removal gives, old command first."""
+@pytest.mark.parametrize(
+    ("line", "named"),
+    [
+        (f"uv run --no-sync python tools/{OLD_DRILL}.py accounts-only", True),
+        (f"backend/tests/unit/test_{OLD_DRILL}.py", True),
+        (f'    "{OLD_COMMAND}-and-fastro",', True),
+        ("uv run --no-sync fastro blueprint verify accounts-only", False),
+        ("a removal that leaves nothing behind", False),
+    ],
+)
+def test_the_drill_needle(line: str, named: bool):
+    assert bool(NAMES_OLD_DRILL.search(line)) is named
+
+
+def _removed() -> str:
+    """The changelog's Unreleased `#### Removed` section, on one line."""
     changelog = (REPO_ROOT / "docs" / "changelog.md").read_text()
     unreleased = changelog.split("\n## Unreleased\n", 1)[1].split("\n## ", 1)[0]
-    removed = " ".join(unreleased.split("#### Removed", 1)[1].split("\n#### ", 1)[0].split())
 
-    return re.findall(rf"`{OLD_COMMAND} ([^`]+)` is `fastro ([^`]+)`", removed)
+    return " ".join(unreleased.split("#### Removed", 1)[1].split("\n#### ", 1)[0].split())
+
+
+def _old_and_new_commands() -> list[tuple[str, str]]:
+    """The pairs the changelog's entry for the package's removal gives, old command first."""
+    return re.findall(rf"`{OLD_COMMAND} ([^`]+)` is `fastro ([^`]+)`", _removed())
+
+
+def test_the_changelog_says_what_verify_builds_and_keeps():
+    entry = _removed().split("**The removal drill.**", 1)[1].split(" - **", 1)[0]
+    catalog = blueprint.load("blueprint.toml", (REPO_ROOT / "blueprint.toml").read_text(), installed_version())
+    root = typer.main.get_command(app)
+    assert isinstance(root, click.Group)
+    group = root.commands["blueprint"]
+    assert isinstance(group, click.Group)
+    options = {flag for param in group.commands["verify"].params for flag in param.opts}
+
+    assert "`uv run --no-sync fastro blueprint verify`" in entry
+    assert "`--keep`" in entry and "--keep" in options
+    assert "each set in `blueprint.toml`, each preset and `everything`" in entry
+    assert set(verify_sets(catalog)) == {*catalog.verify.sets, *catalog.presets, "everything"}
 
 
 def test_fastro_still_answers_to_the_old_commands_the_changelog_maps():

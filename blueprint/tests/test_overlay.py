@@ -292,7 +292,7 @@ def test_the_workflow_installs_the_project_rather_than_this_workspace():
 
 
 def test_every_pre_commit_hook_watches_paths_a_project_has():
-    """A `files:` pattern naming `tools/` or `docs/` is a hook over nothing: those are the
+    """A `files:` pattern naming `docs/` or `blueprint/` is a hook over nothing: those are the
     blueprint's own, and no project receives them."""
     hooks = yaml.safe_load(_rendered(PRE_COMMIT, ()))
     watched = [hook["files"] for repo in hooks["repos"] for hook in repo["hooks"] if "files" in hook]

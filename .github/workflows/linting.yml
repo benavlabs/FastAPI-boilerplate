@@ -28,10 +28,10 @@ jobs:
       - name: Ruff check
         # --no-sync skips uv run's implicit sync: the step above already installed
         # every member and extra, and skipping it keeps each step from re-resolving.
-        run: uv run --no-sync ruff check backend/src backend/tests backend/scripts backend/migrations tools blueprint/tests
+        run: uv run --no-sync ruff check backend/src backend/tests backend/scripts backend/migrations blueprint/tests
 
       - name: Ruff format
-        run: uv run --no-sync ruff format --check backend/src backend/tests backend/scripts backend/migrations tools blueprint/tests
+        run: uv run --no-sync ruff format --check backend/src backend/tests backend/scripts backend/migrations blueprint/tests
 
       - name: Wiring in sync
         run: uv run --no-sync fastro sync --check
