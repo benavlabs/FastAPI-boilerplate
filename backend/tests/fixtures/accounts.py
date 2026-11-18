@@ -1,21 +1,17 @@
 """Fixtures of the accounts feature: users, and clients signed in as them."""
 
 import time
+from collections.abc import AsyncIterator
 
 import pytest
 import pytest_asyncio
-from crudauth import Principal, get_password_hash
+from crudauth import get_password_hash
 from crudauth.utils import canonical_email
 from faker import Faker
-from httpx import AsyncClient
+from httpx import ASGITransport, AsyncClient
+from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.infrastructure.auth.dependencies import (
-    get_current_principal,
-    get_current_superuser,
-    get_current_user,
-    get_session_principal,
-)
 from src.infrastructure.auth.setup import auth as crud_auth
 from src.interfaces.main import app
 from src.modules.user.models import User
@@ -100,72 +96,57 @@ async def test_superuser(db_session: AsyncSession):
     }
 
 
-def _principal_for(user: dict) -> Principal:
-    """The crudauth principal the session transport would resolve for this user.
+async def _signed_in_as(user: dict, db: AsyncSession) -> AsyncIterator[AsyncClient]:
+    """A client of its own, signed in as ``user`` through the login route and carrying its CSRF token.
 
-    The auth fixtures override the dict-compat dependencies, so anything reading
-    the principal directly (permission checks, session routes) needs it too, the
-    session-only dependency included: these clients stand for a signed-in session.
+    The address is marked verified first.
     """
-    return Principal(
-        user_id=user["id"],
-        transport="session",
-        is_superuser=user.get("is_superuser", False),
-        email_verified=True,
-        recovery_verified=True,
-    )
+    await db.execute(update(User).where(User.id == user["id"]).values(email_verified=True))
+    await db.commit()
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as signed_in:
+        response = await signed_in.post("/api/v1/auth/login", data={"username": user["username"], "password": user["password"]})
+        assert response.status_code == 200, response.text
+        signed_in.headers["X-CSRF-Token"] = response.json()["csrf_token"]
+        yield signed_in
 
 
 @pytest_asyncio.fixture
-async def auth_client(client: AsyncClient, test_user: dict):
-    """Authenticated test client (regular user) — overrides get_current_user dependency."""
+async def auth_client(
+    client: AsyncClient, db_session: AsyncSession, test_user: dict, fresh_login_lockout: None
+) -> AsyncIterator[AsyncClient]:
+    """A client signed in as ``test_user``, with a session of its own.
 
-    async def override_get_current_user():
-        return test_user
-
-    async def override_get_current_principal():
-        return _principal_for(test_user)
-
-    app.dependency_overrides[get_current_user] = override_get_current_user
-    app.dependency_overrides[get_current_principal] = override_get_current_principal
-    app.dependency_overrides[get_session_principal] = override_get_current_principal
-    return client
+    It takes ``client`` for the database override that fixture installs: without it the login route
+    reaches the app's own database instead of the test one.
+    """
+    async for signed_in in _signed_in_as(test_user, db_session):
+        yield signed_in
 
 
 @pytest_asyncio.fixture
-async def auth_client_2(client: AsyncClient, test_user_2: dict):
-    """Authenticated test client for second user."""
+async def auth_client_2(
+    client: AsyncClient, db_session: AsyncSession, test_user_2: dict, fresh_login_lockout: None
+) -> AsyncIterator[AsyncClient]:
+    """A client signed in as ``test_user_2``, with a session of its own beside ``auth_client``'s.
 
-    async def override_get_current_user():
-        return test_user_2
-
-    async def override_get_current_principal():
-        return _principal_for(test_user_2)
-
-    app.dependency_overrides[get_current_user] = override_get_current_user
-    app.dependency_overrides[get_current_principal] = override_get_current_principal
-    app.dependency_overrides[get_session_principal] = override_get_current_principal
-    return client
+    It takes ``client`` for the database override that fixture installs: without it the login route
+    reaches the app's own database instead of the test one.
+    """
+    async for signed_in in _signed_in_as(test_user_2, db_session):
+        yield signed_in
 
 
 @pytest_asyncio.fixture
-async def superuser_auth_client(client: AsyncClient, test_superuser: dict):
-    """Authenticated test client (superuser)."""
+async def superuser_auth_client(
+    client: AsyncClient, db_session: AsyncSession, test_superuser: dict, fresh_login_lockout: None
+) -> AsyncIterator[AsyncClient]:
+    """A client signed in as ``test_superuser``, with a session of its own beside the other two.
 
-    async def override_get_current_user():
-        return test_superuser
-
-    async def override_get_current_principal():
-        return _principal_for(test_superuser)
-
-    async def override_get_current_superuser():
-        return test_superuser
-
-    app.dependency_overrides[get_current_user] = override_get_current_user
-    app.dependency_overrides[get_current_principal] = override_get_current_principal
-    app.dependency_overrides[get_session_principal] = override_get_current_principal
-    app.dependency_overrides[get_current_superuser] = override_get_current_superuser
-    return client
+    It takes ``client`` for the database override that fixture installs: without it the login route
+    reaches the app's own database instead of the test one.
+    """
+    async for signed_in in _signed_in_as(test_superuser, db_session):
+        yield signed_in
 
 
 @pytest.fixture(autouse=True)
