@@ -257,7 +257,7 @@ def test_the_two_the_database_needs_are_the_blueprint_s_to_declare():
     asked = requires("sqlalchemy") or ()
     base = (REPO_ROOT / "backend/src/infrastructure/config/base.py").read_text()
 
-    assert 'POSTGRES_ASYNC_PREFIX", default="postgresql+asyncpg://"' in base
+    assert 'POSTGRES_ASYNC_PREFIX: str = "postgresql+asyncpg://"' in base
     assert any(entry.startswith("asyncpg") and entry.endswith('extra == "postgresql-asyncpg"') for entry in asked)
     assert any(entry.startswith("greenlet") and entry.endswith('extra == "asyncio"') for entry in asked)
     assert "sqlalchemy>=2.0.37" in _catalog()["blueprint"]["dependencies"]["runtime"], "plain, with no extras"

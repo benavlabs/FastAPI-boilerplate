@@ -12,6 +12,21 @@ ___
 
 #### Changed
 
+- **Settings read the environment when they're built, not when the module is imported.** Every
+  settings class derives from `EnvSettings` (`src/infrastructure/config/base.py`), whose fields
+  carry plain defaults; the environment and `backend/.env` are read each time a class is built. A
+  test that deletes a variable now gets the field's default rather than the value the process
+  started with, and `CREATE_TABLES_ON_STARTUP` follows the `ENVIRONMENT` the settings are built
+  with. Every value is the same as before with no environment and with `.env.example`, and
+  values are read as they always were, in the environment and in the file: a flag is `true`,
+  `false`, `1` or `0` in any case, a number is what `int()` reads, and the file is taken
+  literally, names exactly as written, with no `${...}` expansion. A string handed to a settings
+  class's constructor is held to the same rule now, so `Settings(DEBUG="yes")`, which pydantic
+  used to read as true, is refused. A mixin of your own derives from `EnvSettings` in
+  `src.infrastructure.config.base`.
+  `config` is still exported from `src.infrastructure.config.settings`, so a settings class of
+  your own written as `config("NAME", default=...)` keeps working, with the old import-time
+  reading.
 - **The tracing recipe registers its installer in `fastro.toml`.**
   [Observability](user-guide/observability.md) used to have you call `configure_tracing()` and add
   the installer in `src/interfaces/main.py`. Now `install()` configures tracing itself, and you

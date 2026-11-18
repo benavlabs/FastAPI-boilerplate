@@ -1,12 +1,10 @@
 """Settings for the SQLAdmin panel."""
 
-from pydantic_settings import BaseSettings
-
-from ...infrastructure.config.base import config
+from ...infrastructure.config.base import EnvSettings
 
 
-class SQLAdminSettings(BaseSettings):
+class SQLAdminSettings(EnvSettings):
     """SQLAdmin interface settings."""
 
-    ADMIN_ENABLED: bool = config("ADMIN_ENABLED", default=False, cast=bool)
-    ADMIN_BASE_URL: str = config("ADMIN_BASE_URL", default="/admin")
+    ADMIN_ENABLED: bool = False
+    ADMIN_BASE_URL: str = "/admin"

@@ -395,8 +395,11 @@ Settings live in `backend/src/infrastructure/config/settings.py`. To add a new e
 
 1. Add the field to the relevant settings class (or create a new one):
    ```python
-   class WidgetSettings(BaseSettings):
-       WIDGET_BATCH_SIZE: int = config("WIDGET_BATCH_SIZE", default=100, cast=int)
+   from src.infrastructure.config.base import EnvSettings
+
+
+   class WidgetSettings(EnvSettings):
+       WIDGET_BATCH_SIZE: int = 100
    ```
 2. Add it to the composed `Settings` mixin list at the bottom of `settings.py`.
 3. Document the env var in `backend/.env.example`.

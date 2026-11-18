@@ -5,21 +5,11 @@ to be quiet about the file it did not find: anything it prints lands in front of
 operator command the image runs.
 """
 
-import importlib
 import logging
 import os
 import warnings
 
-import pytest
-
 import src.infrastructure.config.base as base
-
-
-@pytest.fixture
-def reloaded():
-    """Re-import the module under the test's conditions, and put it back afterwards."""
-    yield lambda: importlib.reload(base)
-    importlib.reload(base)
 
 
 def test_with_no_environment_file_nothing_warns(reloaded, monkeypatch, caplog):
@@ -37,10 +27,8 @@ def test_with_no_environment_file_nothing_warns(reloaded, monkeypatch, caplog):
     assert "settings are read from the environment" in caplog.text
 
 
-def test_an_environment_file_that_exists_is_the_one_read(reloaded, monkeypatch, tmp_path, caplog):
-    stored = tmp_path / ".env"
-    stored.write_text("ENVIRONMENT=local\n")
-    monkeypatch.setattr(base.os.path, "realpath", lambda path: str(tmp_path / "src" / "infrastructure" / "config" / "base.py"))
+def test_an_environment_file_that_exists_is_the_one_read(reloaded, found_file, monkeypatch, caplog):
+    stored = found_file
     monkeypatch.delenv("PYTEST_VERSION", raising=False)
     monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
 

@@ -1,15 +1,11 @@
 # Settings Classes
 
-Settings live in `backend/src/infrastructure/config/settings.py` and are organized as Pydantic `BaseSettings` classes — each class groups related variables, and a single `Settings` class composes them all. Defaults come from `backend/.env` via Starlette's `Config()` loader.
+Settings live in `backend/src/infrastructure/config/settings.py` and are organized as Pydantic `BaseSettings` classes: each class groups related variables, and a single `Settings` class composes them all. Each class derives from `EnvSettings` in `src/infrastructure/config/base.py`, which reads the environment and `backend/.env` when the class is built: a variable set in the environment wins over the file, and the field's own default applies when neither sets it.
 
 ## Settings Architecture
 
 ```python
 # src/infrastructure/config/settings.py
-from pydantic_settings import BaseSettings
-from starlette.config import Config
-
-config = Config(env_path)  # reads backend/.env
 
 
 class Settings(
@@ -78,19 +74,32 @@ The actual classes that ship with the boilerplate, all in `src/infrastructure/co
 A typical class:
 
 ```python
-class DatabaseSettings(BaseSettings):
+class DatabaseSettings(EnvSettings):
     """Database-related settings."""
 
-    POSTGRES_USER: str = config("POSTGRES_USER", default="postgres")
-    POSTGRES_PASSWORD: str = config("POSTGRES_PASSWORD", default="postgres")
-    POSTGRES_SERVER: str = config("POSTGRES_SERVER", default="localhost")
-    POSTGRES_PORT: int = config("POSTGRES_PORT", default=5432)
-    POSTGRES_DB: str = config("POSTGRES_DB", default="postgres")
-    POSTGRES_ASYNC_PREFIX: str = config("POSTGRES_ASYNC_PREFIX", default="postgresql+asyncpg://")
-    CREATE_TABLES_ON_STARTUP: bool = config(
-        "CREATE_TABLES_ON_STARTUP", default=_creates_tables_by_default(), cast=bool
-    )
-    POSTGRES_POOL_SIZE: int = config("POSTGRES_POOL_SIZE", default=20, cast=int)
+    POSTGRES_USER: str = "postgres"
+    POSTGRES_PASSWORD: str = "postgres"
+    POSTGRES_SERVER: str = "localhost"
+    POSTGRES_PORT: int = 5432
+    POSTGRES_DB: str = "postgres"
+    POSTGRES_ASYNC_PREFIX: str = "postgresql+asyncpg://"
+    CREATE_TABLES_ON_STARTUP: bool = Field(default_factory=_creates_tables_by_default)
+    POSTGRES_POOL_SIZE: int = 20
+
+    DATABASE_URL_OVERRIDE: str | None = Field(default=None, validation_alias="DATABASE_URL")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _tables_follow_the_environment(cls, values: Any) -> Any:
+        """Default ``CREATE_TABLES_ON_STARTUP`` from the ``ENVIRONMENT`` these settings are built with."""
+        if not isinstance(values, dict) or "CREATE_TABLES_ON_STARTUP" in values:
+            return values
+        try:
+            creates = _creates_tables_by_default(values.get("ENVIRONMENT"))
+        except ValueError:
+            return values
+
+        return {**values, "CREATE_TABLES_ON_STARTUP": creates}
 
     @property
     def DATABASE_URL(self) -> str:
@@ -98,9 +107,8 @@ class DatabaseSettings(BaseSettings):
 
         Falls back to assembling from POSTGRES_* if DATABASE_URL is not set.
         """
-        direct_url = config("DATABASE_URL", default=None)
-        if direct_url:
-            return direct_url
+        if self.DATABASE_URL_OVERRIDE:
+            return self.DATABASE_URL_OVERRIDE
         return (
             f"{self.POSTGRES_ASYNC_PREFIX}{self.POSTGRES_USER}:"
             f"{self.POSTGRES_PASSWORD}@{self.POSTGRES_SERVER}:"
@@ -110,8 +118,11 @@ class DatabaseSettings(BaseSettings):
 
 Key points:
 
-- Each field uses `config("VAR_NAME", default=..., cast=...)`. The `Config()` instance is initialized with `backend/.env` so values are loaded at import time.
-- For typed conversion, pass `cast=int`, `cast=bool`, etc.
+- Each field is named after its variable and carries its default; the field's type is what the value is parsed to (`int`, `bool`, an enum).
+- A `bool` written as text is `true`, `false`, `1` or `0` in any case, and an `int` written as text is whatever `int()` reads, so `yes` and `1.0` are refused rather than guessed at.
+- Values are read when a settings class is built, so a test that sets or deletes a variable sees the change in the next `Settings()` it builds.
+- A default that depends on another variable is set by a `mode="before"` model validator, which sees every value the settings are built with: `CREATE_TABLES_ON_STARTUP` follows the `ENVIRONMENT` given to the constructor or read from the environment. The `default_factory` only answers for settings built without validation.
+- The environment file is read as it always was: one `NAME=value` a line, names exactly as written, values literally (no `${...}` expansion, and a `#` is part of the value).
 - Use `@property` for derived values (like `DATABASE_URL`) — no need for `@computed_field` since callers always go through `get_settings()`.
 
 ## Adding Custom Settings
@@ -119,20 +130,22 @@ Key points:
 ### Basic Custom Group
 
 ```python
-# backend/src/infrastructure/config/settings.py
+# your module's settings.py
+from src.infrastructure.config.base import EnvSettings
 
-class StorageSettings(BaseSettings):
+
+class StorageSettings(EnvSettings):
     """File-storage settings."""
 
-    STORAGE_BACKEND: str = config("STORAGE_BACKEND", default="local")     # "local" or "s3"
-    LOCAL_STORAGE_PATH: str = config("LOCAL_STORAGE_PATH", default="./uploads")
+    STORAGE_BACKEND: str = "local"     # "local" or "s3"
+    LOCAL_STORAGE_PATH: str = "./uploads"
 
-    AWS_ACCESS_KEY_ID: str = config("AWS_ACCESS_KEY_ID", default="")
-    AWS_SECRET_ACCESS_KEY: str = config("AWS_SECRET_ACCESS_KEY", default="")
-    AWS_BUCKET_NAME: str = config("AWS_BUCKET_NAME", default="")
-    AWS_REGION: str = config("AWS_REGION", default="us-east-1")
+    AWS_ACCESS_KEY_ID: str = ""
+    AWS_SECRET_ACCESS_KEY: str = ""
+    AWS_BUCKET_NAME: str = ""
+    AWS_REGION: str = "us-east-1"
 
-    MAX_UPLOAD_SIZE_BYTES: int = config("MAX_UPLOAD_SIZE_BYTES", default=10_485_760, cast=int)
+    MAX_UPLOAD_SIZE_BYTES: int = 10_485_760
 
 
 class Settings(
@@ -149,11 +162,11 @@ Then add the matching variables to `backend/.env.example` so they're discoverabl
 ### Computed / Derived Values
 
 ```python
-class StorageSettings(BaseSettings):
-    STORAGE_BACKEND: str = config("STORAGE_BACKEND", default="local")
-    AWS_ACCESS_KEY_ID: str = config("AWS_ACCESS_KEY_ID", default="")
-    AWS_SECRET_ACCESS_KEY: str = config("AWS_SECRET_ACCESS_KEY", default="")
-    AWS_BUCKET_NAME: str = config("AWS_BUCKET_NAME", default="")
+class StorageSettings(EnvSettings):
+    STORAGE_BACKEND: str = "local"
+    AWS_ACCESS_KEY_ID: str = ""
+    AWS_SECRET_ACCESS_KEY: str = ""
+    AWS_BUCKET_NAME: str = ""
 
     @property
     def s3_configured(self) -> bool:
@@ -176,9 +189,9 @@ For richer validation, switch a field's value to use Pydantic validators:
 from pydantic import field_validator, model_validator
 
 
-class StorageSettings(BaseSettings):
-    STORAGE_BACKEND: str = config("STORAGE_BACKEND", default="local")
-    MAX_UPLOAD_SIZE_BYTES: int = config("MAX_UPLOAD_SIZE_BYTES", default=10_485_760, cast=int)
+class StorageSettings(EnvSettings):
+    STORAGE_BACKEND: str = "local"
+    MAX_UPLOAD_SIZE_BYTES: int = 10_485_760
 
     @field_validator("MAX_UPLOAD_SIZE_BYTES")
     @classmethod
@@ -216,8 +229,8 @@ class StorageBackend(StrEnum):
 from .enums import StorageBackend
 
 
-class StorageSettings(BaseSettings):
-    STORAGE_BACKEND: str = config("STORAGE_BACKEND", default=StorageBackend.LOCAL.value)
+class StorageSettings(EnvSettings):
+    STORAGE_BACKEND: str = StorageBackend.LOCAL.value
 ```
 
 The boilerplate already does this for `CacheBackend`, `LogFormat`, `LogLevel`, `SessionBackend`, `TaskiqBrokerType`, and `EnvironmentOption`.
