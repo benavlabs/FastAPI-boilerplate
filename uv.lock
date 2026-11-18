@@ -992,7 +992,7 @@ dev = [
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "fastro", git = "https://github.com/benavlabs/fastro?rev=ddda03f1151b3233e083dd2d4354649dc997e4ec" },
+    { name = "fastro", git = "https://github.com/benavlabs/fastro?rev=a07bbc1b0a4a0c894bcd59edf5a602b36e34bae1" },
     { name = "packaging", specifier = ">=24.0" },
     { name = "pyyaml", specifier = ">=6.0.2" },
     { name = "types-pyyaml", specifier = ">=6.0.12" },
@@ -1156,7 +1156,7 @@ wheels = [
 [[package]]
 name = "fastro"
 version = "0.1.0.dev0"
-source = { git = "https://github.com/benavlabs/fastro?rev=ddda03f1151b3233e083dd2d4354649dc997e4ec#ddda03f1151b3233e083dd2d4354649dc997e4ec" }
+source = { git = "https://github.com/benavlabs/fastro?rev=a07bbc1b0a4a0c894bcd59edf5a602b36e34bae1#a07bbc1b0a4a0c894bcd59edf5a602b36e34bae1" }
 dependencies = [
     { name = "jinja2" },
     { name = "packaging" },
