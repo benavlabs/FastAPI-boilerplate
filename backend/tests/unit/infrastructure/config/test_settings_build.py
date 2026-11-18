@@ -1,6 +1,7 @@
 """Settings read the environment and the environment file when they're built, not when imported."""
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 from pydantic import ValidationError
@@ -81,8 +82,10 @@ def test_a_partial_class_ignores_the_names_other_classes_read(tmp_path: Path):
 
 
 def test_a_misspelt_name_handed_to_the_constructor_is_refused():
+    misspelt: dict[str, Any] = {"SECRET_KEYY": "x"}
+
     with pytest.raises(ValidationError):
-        Settings(SECRET_KEYY="x")
+        Settings(**misspelt)
 
 
 def test_a_bad_environment_is_reported_without_the_other_settings(monkeypatch: pytest.MonkeyPatch):
@@ -168,7 +171,7 @@ def test_a_class_written_the_old_way_still_composes_and_reads_its_variable(monke
     class OldStyle(BaseSettings):
         OLD_STYLE_VALUE: str = facade.config("OLD_STYLE_VALUE", default="declared")
 
-    class Composed(OldStyle, Settings):
+    class Composed(OldStyle, CoreSettings):
         pass
 
     monkeypatch.setenv("OLD_STYLE_VALUE", "from the environment")
