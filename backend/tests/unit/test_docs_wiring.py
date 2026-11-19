@@ -15,6 +15,7 @@ WIRING = REPO_ROOT / "backend" / "src" / "wiring"
 STRUCTURE = REPO_ROOT / "docs" / "user-guide" / "project-structure.md"
 COMPOSABLE = REPO_ROOT / "docs" / "user-guide" / "composable-features.md"
 DIAGRAMS = REPO_ROOT / "docs" / "assets" / "build-diagrams.cjs"
+CHANGELOG = REPO_ROOT / "docs" / "changelog.md"
 
 DRAWN_TREE = re.compile(r"```text\n(.*?)```", re.DOTALL)
 
@@ -104,3 +105,32 @@ def test_the_new_module_steps_declare_its_paths_in_the_catalog():
 
     assert "`blueprint.toml`" in steps.rsplit("\n9. ", 1)[1]
     assert "`fastro blueprint verify`" in steps.rsplit("\n9. ", 1)[1]
+
+
+def test_the_changelog_names_the_wiring_the_cache_reads_the_scope_fingerprint_from():
+    unreleased = CHANGELOG.read_text().split("## Unreleased", 1)[1].split("\n## ", 1)[0]
+    entry = unreleased.split("**A project with the cache feature and without accounts imports.**", 1)[1].split("\n- **", 1)[0]
+    wiring = next(module for module in _catalog()["wiring"] if module["path"] == "backend/src/wiring/scope.py")
+    (slot,) = wiring["slots"]
+
+    assert f"`{slot['name']}`" in entry and f"{slot['name']}:" in (WIRING / "scope.py").read_text()
+    assert "`src/wiring/scope.py`" in entry
+    assert slot["fallback"] == "None" and "`None` without accounts" in entry
+
+
+def test_the_changelog_names_the_test_a_project_without_the_cache_no_longer_ships():
+    unreleased = CHANGELOG.read_text().split("## Unreleased", 1)[1].split("\n## ", 1)[0]
+    entry = unreleased.split("**A project with the cache feature and without accounts imports.**", 1)[1].split("\n- **", 1)[0]
+    path = "tests/integration/tier_limits/test_cached_listing.py"
+    (block,) = [block for block in _catalog()["features"]["tier_limits"]["when"] if f"backend/{path}" in block["paths"]]
+
+    assert f"`{path}`" in " ".join(entry.split())
+    assert block["if"] == "cache"
+
+
+def test_the_composable_features_page_says_the_scope_fingerprint_is_none_without_accounts():
+    (row,) = [line for line in COMPOSABLE.read_text().splitlines() if line.startswith("| `scope.py` |")]
+    wiring = next(module for module in _catalog()["wiring"] if module["path"] == "backend/src/wiring/scope.py")
+    (slot,) = wiring["slots"]
+
+    assert slot["fallback"] == "None" and "`None` without it" in row

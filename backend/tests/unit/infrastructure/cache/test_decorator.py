@@ -10,7 +10,6 @@ from fastapi import Depends, Query, Request
 from fastapi.routing import APIRoute
 from pydantic import BaseModel, Field
 
-from src.infrastructure.auth.scope import SCOPE_OWNER_IS_SUPERUSER
 from src.infrastructure.cache.decorator import cache
 from src.infrastructure.cache.exceptions import InvalidRequestError
 from src.infrastructure.uncached import cached as uncached
@@ -122,23 +121,6 @@ class TestWhatTheKeyIsMadeOf:
 
         crafted, real = (call.args[0] for call in backend.get.call_args_list)
         assert crafted != real
-
-    async def test_a_scoped_credential_does_not_share_an_entry_with_its_owners_session(self, backend):
-        """A key holds its owner's permissions narrowed, so a response made for the owner's
-        session is not one it may be served.
-        """
-        session = Principal(user_id=1, transport="session")
-        scoped = Principal(user_id=1, transport="apikey", scopes=("user.read",), metadata={SCOPE_OWNER_IS_SUPERUSER: False})
-
-        @cache(key_prefix="keys", resource_id_name="item_id", caller_from="principal")
-        async def endpoint(request: Request, item_id: int, principal: Principal) -> dict[str, Any]:
-            return {"ok": True}
-
-        await endpoint(_request(), item_id=7, principal=session)
-        await endpoint(_request(), item_id=7, principal=scoped)
-
-        asked = [call.args[0] for call in backend.get.call_args_list]
-        assert asked[0] != asked[1]
 
     async def test_each_caller_gets_their_own_entry(self, backend):
         @cache(key_prefix="keys", resource_id_name="item_id", caller_from="principal")

@@ -343,6 +343,53 @@ def test_no_file_a_project_keeps_imports_a_dependency_it_did_not_select():
                     assert _under(file, removed) or _withheld(file), (sorted(chosen), name, file)
 
 
+@functools.cache
+def _project_modules_imported(file: str) -> frozenset[str]:
+    """The project's own modules this file imports, as repo-relative paths with no suffix.
+
+    A relative import is resolved against the file's package, and each name a `from` import takes
+    counts as a submodule too, since it may be one.
+    """
+    root = _catalog()["blueprint"]["python_root"]
+    tops = {path.name for path in (REPO_ROOT / root).iterdir() if path.is_dir()}
+    package = Path(file).relative_to(root).parts[:-1]
+    found: set[tuple[str, ...]] = set()
+    for node in ast.walk(ast.parse((REPO_ROOT / file).read_text())):
+        if isinstance(node, ast.Import):
+            found.update(tuple(alias.name.split(".")) for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            anchor = package[: len(package) - node.level + 1] if node.level else ()
+            base = anchor + (tuple(node.module.split(".")) if node.module else ())
+            found.add(base)
+            found.update((*base, alias.name) for alias in node.names)
+
+    return frozenset(f"{root}/{'/'.join(parts)}" for parts in found if parts and parts[0] in tops)
+
+
+def test_no_file_a_project_keeps_imports_a_module_the_selection_removed():
+    """Over all 164 selections, a kept file never imports the project's own code from a path a
+    feature left out took with it: that project fails at import, or ships a test that can't.
+
+    The generated wiring is left out here, since fastro writes it for each selection.
+    """
+    features = _catalog()["features"]
+    generated = {entry["path"] for entry in _entries()}
+    root = REPO_ROOT / _catalog()["blueprint"]["python_root"]
+    files = sorted(path.relative_to(REPO_ROOT).as_posix() for path in root.rglob("*.py"))
+    broken: dict[str, set[str]] = {}
+
+    for chosen in _selections():
+        removed = _removed_for(features, chosen)
+        for file in files:
+            if file in generated or _withheld(file) or _under(file, removed):
+                continue
+            for module in _project_modules_imported(file):
+                if _under(module, removed) or _under(f"{module}.py", removed):
+                    broken.setdefault(file, set()).add(",".join(sorted(chosen)))
+
+    assert {file: len(selections) for file, selections in broken.items()} == {}
+
+
 @pytest.mark.parametrize(
     ("feature", "specifier"),
     sorted(
@@ -1291,7 +1338,7 @@ def test_full_is_every_feature():
     assert sorted(_catalog()["presets"]["full"]) == sorted(_catalog()["features"])
 
 
-ONE_OF_EACH = {"root_routers", "docs_guard", "email_sender", "cache_decorator"}
+ONE_OF_EACH = {"root_routers", "docs_guard", "email_sender", "cache_decorator", "scope_fingerprint"}
 """The points a project may fill once: each renders as a single value with a fallback."""
 
 
@@ -1439,6 +1486,8 @@ def _kept_by_the_catalog(features: dict[str, Any], chosen: set[str]) -> set[str]
         ("backend/tests/integration/api_keys_rbac/test_effective_permissions.py", {"api_keys", "rbac"}),
         ("backend/tests/integration/api_keys_ratelimit/test_invalid_keys.py", {"api_keys", "ratelimit"}),
         ("backend/tests/integration/api_keys_tiers/test_reading_another_account.py", {"api_keys", "tier_limits"}),
+        ("backend/tests/unit/infrastructure/cache/test_scoped_callers.py", {"cache", "accounts"}),
+        ("backend/tests/integration/tier_limits/test_cached_listing.py", {"tier_limits", "cache"}),
     ],
 )
 def test_a_file_is_kept_exactly_where_its_features_are(path: str, kept_with: set[str]):
@@ -1467,6 +1516,16 @@ def test_a_project_with_a_worker_queues_its_mail_and_one_without_hands_it_over()
     for chosen in _selections():
         expected = ["queued_sender"] if {"accounts", "taskiq"} <= chosen else []
         assert _local_names("email_sender", chosen) == expected, sorted(chosen)
+
+
+def test_a_project_with_accounts_wires_the_scope_fingerprint_and_one_without_wires_none():
+    """Accounts contributes it, and the cache imports nothing of accounts to read it."""
+    fallback = next(slot for entry in _entries() for slot in entry["slots"] if slot.get("point") == "scope_fingerprint")
+
+    assert fallback["fallback"] == "None"
+    for chosen in _selections():
+        expected = ["scope_fingerprint"] if "accounts" in chosen else []
+        assert _local_names("scope_fingerprint", chosen) == expected, sorted(chosen)
 
 
 def test_a_project_drains_what_it_handed_over_with_the_worker_or_on_its_own():
@@ -2211,7 +2270,7 @@ def test_the_file_a_feature_brings_with_it_is_generated_only_for_that_feature():
     admin = next(entry for entry in _entries() if entry["path"].endswith("wiring/admin.py"))
 
     assert admin["if"] == "admin"
-    assert [entry.get("if") for entry in _entries()].count(None) == 11
+    assert [entry.get("if") for entry in _entries()].count(None) == 12
 
 
 def test_the_statement_a_raw_slot_carries_is_in_the_file():

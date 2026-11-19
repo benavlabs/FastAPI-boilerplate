@@ -1,7 +1,8 @@
+import pytest
 from crudauth import Principal
 from starlette.datastructures import QueryParams
 
-from src.infrastructure.auth.scope import SCOPE_OWNER_IS_SUPERUSER
+from src.infrastructure.cache import utils
 from src.infrastructure.cache.utils import (
     caller_marks,
     format_extra_data,
@@ -10,11 +11,6 @@ from src.infrastructure.cache.utils import (
 )
 
 DECLARED = {"page", "items_per_page"}
-
-
-def _scoped(*scope: str) -> Principal:
-    """A principal shaped as the API-key transport builds one."""
-    return Principal(user_id=7, transport="apikey", scopes=scope, metadata={"api_key_id": 1, SCOPE_OWNER_IS_SUPERUSER: False})
 
 
 def test_the_query_is_the_declared_parameters_sorted():
@@ -38,21 +34,17 @@ def test_a_session_is_marked_by_the_account_it_signed_in_as():
     assert caller_marks(Principal(user_id=7, transport="session")) == "7"
 
 
-def test_a_credential_that_carries_a_scope_is_marked_apart_from_the_account():
-    """A key holds its owner's permissions narrowed, so what it is served is its own."""
-    marked = caller_marks(_scoped("user.read"))
+def test_a_principal_is_marked_by_its_account_and_the_fingerprint_wired(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(utils, "SCOPE_FINGERPRINT", lambda principal: "narrowed")
 
-    assert marked != "7"
-    assert marked is not None and marked.startswith("7/")
+    assert caller_marks(Principal(user_id=7, transport="apikey", scopes=("user.read",))) == "7/narrowed"
 
 
-def test_two_scopes_of_one_account_are_marked_apart():
-    assert caller_marks(_scoped("user.read")) != caller_marks(_scoped("user.read", "user.update"))
+def test_without_a_fingerprint_wired_a_principal_is_marked_by_its_account(monkeypatch: pytest.MonkeyPatch):
+    """A project without accounts wires none, and has no credential that carries a scope."""
+    monkeypatch.setattr(utils, "SCOPE_FINGERPRINT", None)
 
-
-def test_one_scope_written_in_either_order_is_marked_the_same():
-    """The order the names were stored in is the client's, and holds the same permissions."""
-    assert caller_marks(_scoped("user.read", "user.update")) == caller_marks(_scoped("user.update", "user.read"))
+    assert caller_marks(Principal(user_id=7, transport="apikey", scopes=("user.read",))) == "7"
 
 
 def test_an_account_read_any_other_way_is_marked_with_nothing():

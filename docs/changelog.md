@@ -82,6 +82,14 @@ ___
   same checks on it; CI runs it once per set. Run `uv run --no-sync fastro blueprint verify` for
   every set, or name one, and add `--keep` to keep the builds.
 
+#### Fixed
+
+- **A project with the cache feature and without accounts imports.** The cache used to import the
+  accounts feature's scope fingerprint to key a scoped credential apart from its account. Accounts
+  now contributes it through `SCOPE_FINGERPRINT` in the generated `src/wiring/scope.py`, which is
+  `None` without accounts. A project with per-tier rate limits and without the cache no longer
+  ships `tests/integration/tier_limits/test_cached_listing.py`, which imported the cache.
+
 ___
 
 ## 0.20.0 - October 25, 2026 - Composable Features

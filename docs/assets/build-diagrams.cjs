@@ -52,7 +52,7 @@ const compositionRoot = ({ primary, body, muted, line, panel }) => `<svg xmlns="
   <line x1="354" y1="284" x2="424" y2="284" stroke="${line}" stroke-width="1.5" marker-end="url(#arrow)"/>
   <text x="389" y="268" text-anchor="middle" font-family="${MONO}" font-size="11.5" fill="${muted}">contributes</text>
 
-  <rect x="432" y="104" width="400" height="360" rx="10" fill="none" stroke="${TEAL}" stroke-width="1.5"/>
+  <rect x="432" y="104" width="400" height="384" rx="10" fill="none" stroke="${TEAL}" stroke-width="1.5"/>
   <g font-family="${MONO}" font-size="13">
     <text x="456" y="138" fill="${primary}">app.py</text><text x="610" y="138" fill="${muted}">ROUTER_MOUNTS, LIFECYCLES</text>
     <text x="456" y="170" fill="${primary}">settings.py</text><text x="610" y="170" fill="${muted}">the settings mixins</text>
@@ -64,6 +64,7 @@ const compositionRoot = ({ primary, body, muted, line, panel }) => `<svg xmlns="
     <text x="456" y="362" fill="${primary}">tables.py</text><text x="610" y="362" fill="${muted}">TABLE_MODULES</text>
     <text x="456" y="394" fill="${primary}">transports.py</text><text x="610" y="394" fill="${muted}">EXTRA_TRANSPORTS</text>
     <text x="456" y="426" fill="${primary}">cache.py</text><text x="610" y="426" fill="${muted}">cached</text>
+    <text x="456" y="458" fill="${primary}">scope.py</text><text x="610" y="458" fill="${muted}">SCOPE_FINGERPRINT</text>
   </g>
 
   <line x1="840" y1="284" x2="948" y2="284" stroke="${line}" stroke-width="1.5" marker-end="url(#arrow)"/>

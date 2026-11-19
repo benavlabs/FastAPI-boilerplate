@@ -29,6 +29,7 @@ plain objects at stable paths, and one package collects them.
 | `tables.py` | `TABLE_MODULES`, the modules outside `src/modules` that declare tables on `Base.metadata` |
 | `transports.py` | `EXTRA_TRANSPORTS`, the authentication transports registered beside the session one |
 | `cache.py` | `cached`, the decorator a route caches its response with, re-exported so a route never imports the cache feature |
+| `scope.py` | `SCOPE_FINGERPRINT`, which accounts contributes so the cache keys a scoped credential apart from its account without importing accounts; `None` without it |
 
 Two more live beside the code they drive: `backend/scripts/seeders.py` lists
 `SEEDERS`, and `backend/tests/wiring.py` lists the fixture modules pytest loads.

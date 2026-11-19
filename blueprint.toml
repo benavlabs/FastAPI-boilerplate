@@ -170,6 +170,10 @@ doc = "A module outside src/modules that declares tables on the metadata."
 cardinality = "many"
 doc = "An authentication transport registered beside the session one."
 
+[points.scope_fingerprint]
+cardinality = "one"
+doc = "What tells a credential that carries a scope apart from its account's others."
+
 [points.seeders]
 cardinality = "many"
 doc = "A step the initial-data script runs, in order."
@@ -220,6 +224,7 @@ critical_readiness = [
 table_modules = [{ value = "src.infrastructure.auth.store" }]
 seeders = [{ ref = "scripts.create_first_superuser:create_first_superuser", order = 11 }]
 test_plugins = [{ value = "tests.fixtures.accounts" }]
+scope_fingerprint = ["src.infrastructure.auth.scope:scope_fingerprint"]
 
 [features.accounts.commands."users unlock"]
 module = "scripts.unlock_account"
@@ -340,6 +345,12 @@ rate_limit_resolvers = ["src.modules.rate_limit.hooks:tier_rate_limit"]
 tier_delete_guards = ["src.modules.rate_limit.hooks:rate_limits_reference_tier"]
 tier_delete_releases = ["src.modules.rate_limit.hooks:release_deleted_rate_limits"]
 
+[[features.tier_limits.when]]
+if = "cache"
+paths = [
+  "backend/tests/integration/tier_limits/test_cached_listing.py",
+]
+
 [features.api_keys]
 summary = "API keys: create, revoke, meter"
 group = "Accounts"
@@ -426,6 +437,12 @@ lifecycles = ["src.infrastructure.cache.initialize:lifecycle as cache_lifecycle"
 settings = ["src.infrastructure.cache.settings:CacheSettings"]
 informational_readiness = ["src.infrastructure.cache.health:readiness as cache_readiness"]
 cache_decorator = ["src.infrastructure.cache.decorator:cache as cached"]
+
+[[features.cache.when]]
+if = "accounts"
+paths = [
+  "backend/tests/unit/infrastructure/cache/test_scoped_callers.py",
+]
 
 [features.cache.options.backend]
 choices = ["redis", "memcached"]
@@ -637,6 +654,20 @@ kind = "reexport"
 name = "cached"
 point = "cache_decorator"
 fallback = "src.infrastructure.uncached:cached"
+
+[[wiring]]
+path = "backend/src/wiring/scope.py"
+doc = """What tells a credential that carries a scope apart from its account's others.
+
+It is its own module, importing none of the other wiring, so that whatever keys what it stores by caller can read it."""
+imports = ["from collections.abc import Callable", "from crudauth import Principal"]
+
+[[wiring.slots]]
+kind = "value"
+name = "SCOPE_FINGERPRINT"
+point = "scope_fingerprint"
+annotation = "Callable[[Principal], str | None] | None"
+fallback = "None"
 
 [[wiring]]
 path = "backend/src/wiring/transports.py"

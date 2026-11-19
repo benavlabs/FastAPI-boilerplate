@@ -179,6 +179,7 @@ wiring/
 ├── tables.py                 # TABLE_MODULES, declaring tables outside src/modules
 ├── transports.py             # EXTRA_TRANSPORTS, registered beside the session transport
 ├── cache.py                  # cached, the decorator a route caches its response with
+├── scope.py                  # SCOPE_FINGERPRINT, which keeps a scoped credential's cached responses its own
 └── admin.py                  # ADMIN_VIEWS (absent without the admin feature)
 ```
 
