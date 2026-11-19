@@ -708,6 +708,7 @@ literal = true
 
 [generators.deploy]
 templates = "blueprint/templates/deploy"
+modes = ["local", "prod", "nginx"]
 
 [generators.deploy.params.api_port]
 type = "int"

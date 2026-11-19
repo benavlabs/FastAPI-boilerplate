@@ -27,6 +27,14 @@ ___
   `config` is still exported from `src.infrastructure.config.settings`, so a settings class of
   your own written as `config("NAME", default=...)` keeps working, with the old import-time
   reading.
+- **`fastro make deploy` renders this repository's `[generators.deploy]`.** The files are the ones
+  `bp deploy generate` wrote, apart from the header, which names `fastro make deploy <mode>`, and
+  the compose project name, which is the project's slug, `fastapi-boilerplate`. Every
+  `--internal-subnet` value is checked in every mode, and a bad one exits 2. Make prints
+  `wrote`, `unchanged` or `kept` per file, replaces a file that differs only after you confirm or
+  with `--force`/`--yes`, and with no terminal keeps it and exits 0. It runs in the blueprint
+  repository only for now. `fastro env validate` exits 2 and says why outside a project, where it
+  used to exit 1.
 - **The tracing recipe registers its installer in `fastro.toml`.**
   [Observability](user-guide/observability.md) used to have you call `configure_tracing()` and add
   the installer in `src/interfaces/main.py`. Now `install()` configures tracing itself, and you

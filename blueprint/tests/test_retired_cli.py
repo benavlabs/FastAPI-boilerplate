@@ -21,6 +21,7 @@ from retired import (
     OLD_DRILL,
     OLD_PACKAGE,
     REPO_ROOT,
+    SAYS_OLD_COMMAND_EXITS,
     tracked_text,
 )
 
@@ -41,6 +42,8 @@ STILL_CARRYING = {
 
 REDIRECTS = "[project.plugins.redirects.redirect_maps]"
 
+FASTRO_PAGE = "docs/user-guide/fastro.md"
+
 
 def _lines(name: str, text: str) -> Iterator[tuple[int, str]]:
     """The numbered lines of a file, without the lines of `zensical.toml`'s redirect map."""
@@ -57,7 +60,7 @@ def _hits() -> dict[tuple[str, str], list[str]]:
     for name, text in tracked_text():
         for number, line in _lines(name, text):
             for needle, pattern in NEEDLES.items():
-                if pattern.search(line):
+                if pattern.search(line) and not (name == FASTRO_PAGE and SAYS_OLD_COMMAND_EXITS.match(line)):
                     hits.setdefault((needle, name), []).append(f"{name}:{number}: {line.strip()}")
 
     return hits

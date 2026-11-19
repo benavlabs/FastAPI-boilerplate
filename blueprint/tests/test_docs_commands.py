@@ -8,11 +8,12 @@ from collections.abc import Iterator
 import click
 import pytest
 import typer.main
+from fastro import make as making
 from fastro.cli import app
 from fastro.engine import blueprint
 from fastro.tools import installed_version
 from fastro.verify import verify_sets
-from retired import OLD_COMMAND, OLD_DRILL, REPO_ROOT, RUNS_OLD_COMMAND, shown_pages
+from retired import OLD_COMMAND, OLD_DRILL, REPO_ROOT, RUNS_OLD_COMMAND, SAYS_OLD_COMMAND_EXITS, shown_pages
 
 FASTRO = typer.main.get_command(app)
 
@@ -78,6 +79,8 @@ def _refusal(words: list[str], runs: bool = True) -> str | None:
         command = command.commands[remaining.pop(0)]
     if isinstance(command, click.Group) and remaining:
         return f"{command.name} takes a command before {remaining[0]!r}"
+    if command is FASTRO.commands["make"]:
+        return _make_refusal(remaining, runs)
     if not remaining and not runs:
         return None
     try:
@@ -88,13 +91,28 @@ def _refusal(words: list[str], runs: bool = True) -> str | None:
     return None
 
 
+def _make_refusal(words: list[str], runs: bool) -> str | None:
+    """Why `fastro make` would refuse these words: it reads them itself, against this blueprint's generators."""
+    if not words or words[0] == making.HELP:
+        return None
+    catalog = blueprint.load("blueprint.toml", (REPO_ROOT / "blueprint.toml").read_text(), installed_version())
+    if not runs and len(words) <= 1:
+        return None if not words or words[0] in catalog.generators else f"make has no generator {words[0]!r}"
+    try:
+        making.parse(catalog, words)
+    except (making.UsageError, making.Refused) as refused:
+        return str(refused)
+
+    return None
+
+
 def test_no_page_a_reader_sees_runs_the_retired_command():
     """B3 item 2 removes the old developer CLI; every command it ran is a fastro command now."""
     found = [
         f"{name}:{number}"
         for name, text in shown_pages()
         for number, line in enumerate(text.splitlines(), 1)
-        if RUNS_OLD_COMMAND.search(line)
+        if RUNS_OLD_COMMAND.search(line) and not (name == "docs/user-guide/fastro.md" and SAYS_OLD_COMMAND_EXITS.match(line))
     ]
 
     assert not found, found
@@ -134,8 +152,12 @@ FENCE = "`" * 3
         (f"{FENCE}bash\n# or: uv run --no-sync fastro make deploy prodd\n{FENCE}", True),
         (f"{FENCE}bash\nuv run --no-sync fastro make deploy  # writes the compose file\n{FENCE}", True),
         ("`fastro make deploy` writes it.", False),
-        ("Run `fastro make deploy --workers 8 prod`.", False),
+        ("Run `fastro make deploy --workers 8 prod`.", True),
+        ("Run `fastro make deploy prod --workers 8`.", False),
+        ("Run `fastro make deploy local --internal-subnet '*'`.", True),
         ("Run `fastro make deploy prod|cat`.", False),
+        (f"{FENCE}bash\nuv run --no-sync fastro make\n{FENCE}", False),
+        ("Run `fastro make --help`.", False),
         (f"{FENCE}bash\n# or: uv run --no-sync fastro make deploy prod\n{FENCE}", False),
         (f"{FENCE}bash\n$ uv run --no-sync fastro env secret --bytes 16 | gh secret set SECRET_KEY\n{FENCE}", False),
         ("Run `uv run --no-sync fastro make deploy nginx --internal-subnet=10.89.0.0/24 --dry-run`.", False),

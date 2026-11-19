@@ -1,34 +1,55 @@
 """What the fastro page states about fastro's commands and the compose files they write.
 
-At the pin, `fastro make deploy` renders fastro's own legacy templates, not this repository's
-`[generators.deploy]`, so the page's facts about what a mode writes are read from those.
+The files are rendered through `fastro make deploy <mode>` in this repository, from the catalog's
+`[generators.deploy]`, so a template fastro doesn't see because git doesn't track it is missing here.
 """
 
+import hashlib
 import importlib.util
 import re
 import subprocess
 import sys
 import tomllib
 from pathlib import Path
-from types import SimpleNamespace
-from typing import Any, cast
+from typing import Any
 
 import click
 import pytest
 import typer.main
 import yaml
-from fastro import _legacy_deploy as deploy
 from fastro.cli import app
-from fastro.commands import env
-from fastro.lib.render import Renderer
+from jinja2 import Environment, FileSystemLoader, StrictUndefined
+from retired import OLD_COMMAND
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PAGE = REPO_ROOT / "docs" / "user-guide" / "fastro.md"
 PRODUCTION = REPO_ROOT / "docs" / "user-guide" / "production.md"
 CATALOG = tomllib.loads((REPO_ROOT / "blueprint.toml").read_text())
+GENERATOR = CATALOG["generators"]["deploy"]
+MODES = GENERATOR["modes"]
 
 FASTRO = typer.main.get_command(app)
 MAKE_DEPLOY = "## Writing the compose files: `fastro make deploy`"
+ENV = "## Preparing the environment: `fastro env`"
+PROJECT_TOML = 'features = []\nblueprint = { name = "fastapi-boilerplate", version = "0.20.0" }\n\n[project]\nname = "my-app"\n'
+
+
+def _fastro(*args: str, cwd: Path = REPO_ROOT) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [sys.executable, "-m", "fastro", *args], cwd=cwd, capture_output=True, text=True, stdin=subprocess.DEVNULL
+    )
+
+
+def _made(mode: str, out: Path, *flags: str) -> dict[str, str]:
+    """What `fastro make deploy <mode>` writes into ``out``, by path."""
+    run = _fastro("make", "deploy", mode, "--output-dir", str(out), "--force", *flags)
+    assert run.returncode == 0, run.stdout + run.stderr
+
+    return {path.relative_to(out).as_posix(): path.read_text() for path in sorted(out.rglob("*")) if path.is_file()}
+
+
+def _compose(mode: str, out: Path, *flags: str) -> dict[str, Any]:
+    return dict(yaml.safe_load(_made(mode, out, *flags)["docker-compose.yml"]))
 
 
 def _command(*words: str) -> click.Command:
@@ -64,47 +85,33 @@ def _mode_rows() -> dict[str, list[str]]:
     return {_ticked(row[0])[0]: row for row in _rows() if not row[0].startswith("`-")}
 
 
-def _option_rows() -> list[list[str]]:
-    return [row for row in _rows() if row[0].startswith("`-")]
+def _option_rows() -> dict[str, list[str]]:
+    return {_ticked(row[0])[0]: row for row in _rows() if row[0].startswith("`-")}
 
 
-def _plan(mode: str, root: Path, taskiq: bool = True, api_port: int = 8000, workers: int = 4, **params: Any) -> deploy.Plan:
-    backend = root / "backend"
-    backend.mkdir(parents=True, exist_ok=True)
-    if taskiq:
-        (backend / deploy.TASKIQ_PACKAGE).mkdir(parents=True)
-    project = SimpleNamespace(repo_root=root, backend_dir=backend)
+def _help_flags() -> list[list[str]]:
+    """The flags of each option `fastro make deploy --help` lists, one option per entry."""
+    run = _fastro("make", "deploy", "--help")
+    assert run.returncode == 0, run.stdout + run.stderr
+    options = run.stdout.split("Options:", 1)[1].splitlines()
 
-    return deploy.plan(mode, cast(Any, project), root, api_port=api_port, workers=workers, **params)
-
-
-def _rendered(plan: deploy.Plan) -> dict[str, str]:
-    renderer = Renderer(deploy.TEMPLATES)
-
-    return {render.target.name: renderer.render(render.template, plan.context) for render in plan.files}
+    return [re.findall(r"--?[a-z][a-z-]*", line.split("  ")[1]) for line in options if line.startswith("  -")]
 
 
-def _services(mode: str, root: Path, taskiq: bool = True) -> dict[str, Any]:
-    return dict(yaml.safe_load(_rendered(_plan(mode, root, taskiq))["docker-compose.yml"])["services"])
+def test_the_page_names_the_modes_the_catalog_declares():
+    assert sorted(_mode_rows()) == sorted(MODES)
 
 
-def test_the_page_names_the_modes_fastro_takes():
-    mode = next(param for param in _command("make", "deploy").params if param.name == "mode")
-    assert isinstance(mode.type, click.Choice)
-
-    assert sorted(_mode_rows()) == sorted(mode.type.choices)
-
-
-@pytest.mark.parametrize("mode", ["local", "prod", "nginx"])
+@pytest.mark.parametrize("mode", MODES)
 def test_each_mode_writes_the_files_and_the_stack_its_row_names(mode: str, tmp_path: Path):
     row = _mode_rows()[mode]
-    plan = _plan(mode, tmp_path)
-    services = _services(mode, tmp_path / "rendered")
+    written = _made(mode, tmp_path)
+    services = yaml.safe_load(written["docker-compose.yml"])["services"]
     stage = re.search(r"`(\w+)` stage", row[1])
     port = re.search(r"\bport (\d+)\b", row[1])
     published = services.get("nginx", {}).get("ports", [])
 
-    assert sorted(str(render.target.relative_to(tmp_path)) for render in plan.files) == sorted(_ticked(row[2]))
+    assert sorted(written) == sorted(_ticked(row[2]))
     assert stage, row
     assert services["api"]["build"]["target"] == stage[1]
     assert ("`migrate`" in row[1]) == ("migrate" in services)
@@ -113,41 +120,99 @@ def test_each_mode_writes_the_files_and_the_stack_its_row_names(mode: str, tmp_p
     assert (f"{port[1]}:{port[1]}" in published) if port else not published
 
 
-@pytest.mark.parametrize("mode", ["local", "prod", "nginx"])
+@pytest.mark.parametrize("mode", MODES)
+def test_each_file_names_the_command_that_wrote_it_and_the_project_is_the_slug(mode: str, tmp_path: Path):
+    written = _made(mode, tmp_path)
+    project = tomllib.loads((REPO_ROOT / "fastro.toml").read_text())["project"]["name"]
+    section = _section(MAKE_DEPLOY)
+    headers = {text.splitlines()[0] for text in written.values()}
+
+    assert headers == {f"# Generated by `fastro make deploy {mode}`."}
+    assert yaml.safe_load(written["docker-compose.yml"])["name"] == project.lower() == "fastapi-boilerplate"
+    assert "a header naming the command that wrote it" in section
+    assert "named after the project's slug, `fastapi-boilerplate` here" in section
+
+
+def _rendered_directly(mode: str, services: list[str]) -> dict[str, Any]:
+    """A mode's compose file rendered with jinja under fastro's settings, for a project named "My App" whose
+    selection brings ``services``. Only the names the templates read are in the context."""
+    environment = Environment(
+        loader=FileSystemLoader(REPO_ROOT / GENERATOR["templates"]), keep_trailing_newline=True, undefined=StrictUndefined
+    )
+    context = {
+        "project": {"name": "My App", "slug": "my-app"},
+        "services": services,
+        "params": {name: param["default"] for name, param in GENERATOR["params"].items()},
+    }
+
+    return dict(yaml.safe_load(environment.get_template(f"{mode}/docker-compose.yml.j2").render(context)))
+
+
+@pytest.mark.parametrize("mode", MODES)
+def test_the_compose_project_is_the_slug_not_the_name(mode: str):
+    assert _rendered_directly(mode, [])["name"] == "my-app"
+
+
+LEGACY = {
+    "local/docker-compose.yml": "0b8f3746c257de3fb36564f72e7786ff2863b00e636c40dde6cd368c7d94b706",
+    "prod/docker-compose.yml": "b315b3bfa74e2d7ffb70890bb4d44766bbc176e85412238871cbdefb5520a854",
+    "nginx/docker-compose.yml": "7f7f158f9c83d01279f6c8ce67e0f798236d07cbf9a0eda2317c5bf007471afa",
+    "nginx/nginx/default.conf": "dec9a1f2b30190a783d34d1b9336de8a0666b603fb453ae33acce7f75952f161",
+}
+"""The sha256 of what fastro a07bbc1's legacy deploy command wrote for each mode, with the default params, past
+the header line and with the project name written as ``{project}``."""
+
+
+def _past_the_header_and_name(text: str) -> str:
+    return re.sub(r"(?i)fastapi-boilerplate", "{project}", "".join(text.splitlines(keepends=True)[1:]))
+
+
+@pytest.mark.parametrize("mode", MODES)
+def test_apart_from_the_header_and_name_the_files_are_what_the_legacy_command_wrote(mode: str, tmp_path: Path):
+    written = _made(mode, tmp_path)
+    digests = {
+        f"{mode}/{path}": hashlib.sha256(_past_the_header_and_name(text).encode()).hexdigest() for path, text in written.items()
+    }
+
+    assert digests == {path: digest for path, digest in LEGACY.items() if path.startswith(f"{mode}/")}
+    assert "Apart from the header and the project name, the files are byte for byte" in _section(MAKE_DEPLOY)
+
+
+@pytest.mark.parametrize("mode", MODES)
 def test_a_project_with_taskiq_gets_a_worker_and_one_scheduler_in_every_mode(mode: str, tmp_path: Path):
-    with_taskiq = _services(mode, tmp_path / "with")
-    without = _services(mode, tmp_path / "without", taskiq=False)
+    with_taskiq = _compose(mode, tmp_path)["services"]
 
     assert "taskiq feature also gets a `worker` and one `scheduler` in every mode" in _section(MAKE_DEPLOY)
+    assert sorted(CATALOG["features"]["taskiq"]["services"]) == ["scheduler", "worker"]
     assert {"worker", "scheduler"} <= set(with_taskiq)
     assert with_taskiq["scheduler"].get("deploy", {}).get("replicas", 1) == 1
-    assert not {"worker", "scheduler"} & set(without)
+    assert not {"worker", "scheduler"} & set(_rendered_directly(mode, [])["services"])
 
 
 def test_the_options_and_their_defaults_are_the_ones_fastro_has():
-    options = {param.opts[0]: param for param in _command("make", "deploy").params if isinstance(param, click.Option)}
-    stated = {_ticked(row[0])[0]: row for row in _option_rows()}
+    stated = _option_rows()
+    listed = {flags[-1] if flags[-1].startswith("--") else flags[0]: flags for flags in _help_flags()}
+    defaults = {f"--{name.replace('_', '-')}": param["default"] for name, param in GENERATOR["params"].items()}
 
-    assert sorted(stated) == sorted(options)
+    assert sorted(stated) == sorted(listed)
     for flag, row in stated.items():
-        option = options[flag]
-        assert sorted(_ticked(row[0])) == sorted(option.opts), flag
-        if option.is_flag:
-            assert row[1] == "", flag
-        elif option.default is None:
-            assert (flag, row[1]) == ("--output-dir", "the repository root")
+        assert sorted(_ticked(row[0])) == sorted(listed[flag]), flag
+        if flag in defaults:
+            assert row[1] == f"`{defaults[flag]}`", flag
+        elif flag == "--output-dir":
+            assert row[1] == "the repository root"
         else:
-            assert row[1] == f"`{option.default}`", flag
+            assert row[1] == "", flag
 
 
-def test_the_subnet_limits_are_the_catalogs_and_fastros():
-    limits = CATALOG["generators"]["deploy"]["params"]["internal_subnet"]["max_prefix"]
+def test_the_subnet_limits_are_the_catalogs():
+    limits = GENERATOR["params"]["internal_subnet"]["max_prefix"]
 
-    assert {4: limits["v4"], 6: limits["v6"]} == deploy.SMALLEST_TRUSTED_PREFIX
     assert f"`/{limits['v4']}` or smaller for IPv4, and `/{limits['v6']}` or smaller for IPv6" in _section(MAKE_DEPLOY)
     assert f"`/{limits['v4']}` (IPv4) or `/{limits['v6']}` (IPv6)" in PRODUCTION.read_text()
 
 
+@pytest.mark.parametrize("mode", MODES)
 @pytest.mark.parametrize(
     ("subnet", "refused"),
     [
@@ -159,18 +224,18 @@ def test_the_subnet_limits_are_the_catalogs_and_fastros():
         ("fd00::/48", False),
     ],
 )
-def test_the_subnet_refusals_the_pages_name(subnet: str, refused: bool):
-    try:
-        deploy.validated_subnet(subnet)
-    except ValueError:
-        assert refused, subnet
-    else:
-        assert not refused, subnet
+def test_every_mode_checks_the_subnet_and_refuses_what_the_pages_name(mode: str, subnet: str, refused: bool, tmp_path: Path):
+    run = _fastro("make", "deploy", mode, "--internal-subnet", subnet, "--output-dir", str(tmp_path), "--dry-run")
+    section = _section(MAKE_DEPLOY)
+
+    assert run.returncode == (2 if refused else 0), run.stdout + run.stderr
+    assert "Every value is checked in every mode" in section and "exits 2 before any file is written" in section
+    assert "`local` and `prod` always use the default network" in section
 
 
 def test_the_nginx_subnet_is_the_network_and_the_peers_uvicorn_trusts(tmp_path: Path):
     subnet = "10.89.0.0/24"
-    compose = yaml.safe_load(_rendered(_plan("nginx", tmp_path, internal_subnet=subnet))["docker-compose.yml"])
+    compose = _compose("nginx", tmp_path, "--internal-subnet", subnet)
     networks = [config["subnet"] for network in compose["networks"].values() for config in network["ipam"]["config"]]
     environment = compose["services"]["api"]["environment"]
     trusted = (
@@ -185,64 +250,123 @@ def test_the_nginx_subnet_is_the_network_and_the_peers_uvicorn_trusts(tmp_path: 
     assert "`FORWARDED_ALLOW_IPS`" in section and "compose network's subnet" in section
 
 
-@pytest.mark.parametrize(("mode", "refused"), [("nginx", True), ("local", False), ("prod", False)])
-def test_only_nginx_reads_the_subnet(mode: str, refused: bool):
-    run = subprocess.run(
-        [sys.executable, "-m", "fastro", "make", "deploy", mode, "--internal-subnet", "*", "--dry-run"],
-        cwd=REPO_ROOT,
-        capture_output=True,
-        text=True,
-    )
-
-    assert (run.returncode != 0) is refused, run.stdout + run.stderr
-    assert "`local` and `prod` always use the default network" in _section(MAKE_DEPLOY)
-
-
-def test_the_secret_size_is_the_one_fastro_takes():
-    size = next(param for param in _command("env", "secret").params if param.name == "bytes_")
-    assert isinstance(size.type, click.IntRange)
-    section = _section("## Preparing the environment: `fastro env`")
-
-    assert f"from `{size.type.min}` to `{size.type.max}`, `{size.default}` by default" in section
-    assert f"so {2 * size.default} hex characters" in section
-
-
-def test_every_command_the_page_heads_a_section_with_is_one_fastro_has():
-    headed = re.findall(r"^#+ .*?`fastro ([a-z ]+)`", PAGE.read_text(), re.M)
-
-    assert headed
-    for words in headed:
-        _command(*words.split())
-
-
 def _modes_named(cell: str) -> set[str]:
     named = re.search(r"for ((?:`\w+`(?: and )?)+)$", cell)
 
-    return set(_ticked(named[1])) if named else {"local", "prod", "nginx"}
+    return set(_ticked(named[1])) if named else set(MODES)
 
 
-@pytest.mark.parametrize("mode", ["local", "prod", "nginx"])
+@pytest.mark.parametrize("mode", MODES)
 def test_the_port_and_the_workers_reach_the_modes_their_rows_name(mode: str, tmp_path: Path):
-    rows = {_ticked(row[0])[0]: row for row in _option_rows()}
-    rendered = _rendered(_plan(mode, tmp_path, api_port=9123, workers=7))
-    api = yaml.safe_load(rendered["docker-compose.yml"])["services"]["api"]
+    rows = _option_rows()
+    written = _made(mode, tmp_path, "--api-port", "9123", "--workers", "7")
+    api = yaml.safe_load(written["docker-compose.yml"])["services"]["api"]
     environment = api.get("environment", {})
 
     if mode in _modes_named(rows["--api-port"][2]):
         assert api["ports"] == ["9123:8000"]
     else:
         assert "ports" not in api
-        assert "9123" not in "".join(rendered.values())
+        assert "9123" not in "".join(written.values())
     if mode in _modes_named(rows["--workers"][2]):
         assert environment["WORKERS"] == "7"
     else:
         assert "WORKERS" not in environment
 
 
-def test_the_env_commands_run_the_scripts_the_page_names():
-    section = _section("## Preparing the environment: `fastro env`")
+def test_make_prints_a_line_per_file_and_keeps_a_changed_one_without_a_terminal(tmp_path: Path):
+    target = tmp_path / "docker-compose.yml"
+    shown = str(target)
+    section = _section(MAKE_DEPLOY)
 
-    for module in (env.GEN_SECRET_MODULE, env.VALIDATE_MODULE):
+    first = _fastro("make", "deploy", "local", "--output-dir", str(tmp_path))
+    again = _fastro("make", "deploy", "local", "--output-dir", str(tmp_path))
+    target.write_text("edited by hand\n")
+    kept = _fastro("make", "deploy", "local", "--output-dir", str(tmp_path))
+    left = target.read_text()
+    dry = _fastro("make", "deploy", "local", "--output-dir", str(tmp_path), "--dry-run")
+    generated = _made("local", tmp_path / "fresh")["docker-compose.yml"]
+    size = len(generated.encode())
+    replaced = {}
+    for flag in ("--force", "-f", "--yes", "-y"):
+        target.write_text("edited by hand\n")
+        replaced[flag] = (_fastro("make", "deploy", "local", "--output-dir", str(tmp_path), flag).stdout, target.read_text())
+
+    assert (first.returncode, first.stdout.splitlines()) == (0, [f"wrote {shown}"])
+    assert (again.returncode, again.stdout.splitlines()) == (0, [f"unchanged {shown}"])
+    assert kept.returncode == 0 and kept.stdout.startswith(f"kept {shown}")
+    assert left == "edited by hand\n"
+    assert dry.stdout.startswith(f"would write {shown} ({size} bytes)")
+    assert replaced == dict.fromkeys(("--force", "-f", "--yes", "-y"), (f"wrote {shown}\n", generated))
+    assert "or with `--force` or `--yes`" in section
+    assert all(f"`{line} X`" in section for line in ("wrote", "unchanged", "kept"))
+    assert "`would write X (N bytes)`" in section
+    assert "with no terminal to ask on, it is kept and named, and the exit is still 0" in section
+
+
+@pytest.mark.parametrize("command", [["fastro", "make", "deploy", "local"], [OLD_COMMAND, "deploy", "generate", "local"]])
+def test_make_in_a_project_exits_2(command: list[str], tmp_path: Path):
+    """fastro's own command in a project fastro created; the old one in a project made before fastro, with no
+    ``fastro.toml``."""
+    if command[0] == "fastro":
+        (tmp_path / "fastro.toml").write_text(PROJECT_TOML)
+    else:
+        (tmp_path / "backend").mkdir()
+    run = subprocess.run(
+        [str(Path(sys.executable).parent / command[0]), *command[1:]], cwd=tmp_path, capture_output=True, text=True
+    )
+    section = _section(MAKE_DEPLOY)
+
+    assert run.returncode == 2, run.stdout + run.stderr
+    assert not (tmp_path / "docker-compose.yml").exists()
+    assert "In a project fastro created it exits 2" in section
+    assert f"`{OLD_COMMAND} deploy generate` exits 2 too, in a project made before fastro" in section
+
+
+def test_the_secret_size_is_the_one_fastro_takes():
+    size = next(param for param in _command("env", "secret").params if param.name == "bytes_")
+    assert isinstance(size.type, click.IntRange)
+    section = _section(ENV)
+
+    assert f"from `{size.type.min}` to `{size.type.max}`, `{size.default}` by default" in section
+    assert f"so {2 * size.default} hex characters" in section
+
+
+def test_the_built_in_secret_prints_a_token_outside_a_project(tmp_path: Path):
+    run = _fastro("env", "secret", cwd=tmp_path)
+
+    assert run.returncode == 0
+    assert re.fullmatch(r"[0-9a-f]{64}\n", run.stdout)
+    assert "It is built in, so it prints a token anywhere" in _section(ENV)
+
+
+@pytest.mark.parametrize("project", [False, True])
+def test_validate_outside_this_repository_exits_2_saying_why(project: bool, tmp_path: Path):
+    if project:
+        (tmp_path / "fastro.toml").write_text(PROJECT_TOML)
+    run = _fastro("env", "validate", cwd=tmp_path)
+    section = _section(ENV)
+
+    assert run.returncode == 2
+    assert run.stderr.strip()
+    assert "Anywhere else it exits 2 and says why" in section
+    assert "outside a project, and in a project fastro created, for now" in section
+
+
+def test_every_command_the_page_heads_a_section_with_is_one_fastro_has(tmp_path: Path):
+    headed = re.findall(r"^#+ .*?`fastro ([a-z ]+)`", PAGE.read_text(), re.M)
+
+    assert headed
+    for words in headed:
+        run = _fastro(*words.split(), "--help", cwd=tmp_path)
+        assert run.returncode == 0, (words, run.stdout + run.stderr)
+
+
+def test_the_env_commands_run_the_scripts_the_page_names():
+    section = _section(ENV)
+
+    for words in ("env secret", "env validate"):
+        module = CATALOG["commands"][words]["module"]
         assert f"`{module}`" in section
         assert (REPO_ROOT / "backend" / f"{module.replace('.', '/')}.py").is_file()
 
@@ -260,7 +384,7 @@ def test_validate_exits_and_reports_the_way_the_page_says(
 
     exited = script.main()
     printed = capsys.readouterr().out
-    section = _section("## Preparing the environment: `fastro env`")
+    section = _section(ENV)
 
     assert exited == code
     assert "exits 1 when anything is critical and 0 otherwise" in section
@@ -287,3 +411,14 @@ def test_the_root_dev_group_installs_fastro():
 
     assert "fastro" in dev
     assert "The root dev group installs it" in _section("# Generating and updating projects with fastro")
+
+
+def test_the_changelog_says_what_make_deploy_changed(tmp_path: Path):
+    unreleased = (REPO_ROOT / "docs" / "changelog.md").read_text().split("## Unreleased", 1)[1].split("\n## ", 1)[0]
+    heading = "**`fastro make deploy` renders this repository's `[generators.deploy]`.**"
+    entry = " ".join(unreleased.split(heading, 1)[1].split("\n- **", 1)[0].split())
+    name = _compose("local", tmp_path)["name"]
+
+    assert f"the project's slug, `{name}`" in entry
+    assert "`fastro make deploy <mode>`" in entry
+    assert "a bad one exits 2" in entry and "`fastro env validate` exits 2" in entry

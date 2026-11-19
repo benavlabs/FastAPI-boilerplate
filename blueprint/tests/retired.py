@@ -19,6 +19,9 @@ RUNS_OLD_COMMAND = re.compile(rf"\b{OLD_COMMAND} (?:deploy|env)\b|`{OLD_COMMAND}
 NAMES_OLD_COMMAND = re.compile(rf"{RUNS_OLD_COMMAND.pattern}|\brun {OLD_COMMAND}\b|\b{OLD_COMMAND}(?:<[^>]*>)? CLI\b")
 """A line that runs the old command, names it in code, or calls it a CLI."""
 
+SAYS_OLD_COMMAND_EXITS = re.compile(rf"^`{OLD_COMMAND} deploy generate` exits 2 too, in a project made before fastro\.$")
+"""The one line a reader sees that names the old command: the fastro page saying it is refused."""
+
 OLD_PACKAGE = "c" + "li"
 
 NAMES_OLD_PACKAGE = re.compile(rf"(?<![\w.-]){OLD_PACKAGE}(?![\w-])|\bboilerplate-{OLD_PACKAGE}\b")
