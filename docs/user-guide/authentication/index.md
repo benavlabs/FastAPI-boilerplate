@@ -277,7 +277,7 @@ curl -X POST http://localhost:8000/api/v1/auth/password/reset-confirm \
 
 ### Login Lockout
 
-`crudauth` throttles the login endpoint internally with an escalating per-IP / per-identifier lockout, whose thresholds are the `LOGIN_*` settings ([Authentication & Security](../configuration/environment-variables.md#authentication--security)). When the limit is hit, `POST /api/v1/auth/login` returns `429 Too Many Requests` with a `Retry-After` header telling the client how long to wait. Behind a reverse proxy, set `TRUSTED_PROXY_HOPS` so the lockout keys on the real client IP rather than the proxy's.
+`crudauth` throttles the login endpoint internally with an escalating per-IP / per-identifier lockout, whose thresholds are the `LOGIN_*` settings ([Authentication & Security](../configuration/environment-variables.md#authentication-security)). When the limit is hit, `POST /api/v1/auth/login` returns `429 Too Many Requests` with a `Retry-After` header telling the client how long to wait. Behind a reverse proxy, set `TRUSTED_PROXY_HOPS` so the lockout keys on the real client IP rather than the proxy's.
 
 The per-identifier half counts failures from every address and applies before the password is
 checked, so anybody who knows a username, an admin's included, can keep that account out by failing

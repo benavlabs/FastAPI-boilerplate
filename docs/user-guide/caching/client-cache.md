@@ -197,7 +197,7 @@ Raise `CLIENT_CACHE_MAX_AGE`, or set per-asset headers in the handler / proxy. B
 |-----------------------|-------------------------------------------------------|
 | Middleware            | `backend/src/infrastructure/middleware.py`            |
 | Wiring                | `backend/src/infrastructure/app_factory.py`           |
-| Settings              | `backend/src/infrastructure/config/settings.py` (`CacheSettings`) |
+| Settings              | `backend/src/infrastructure/config/base.py` (`ClientCacheSettings`) |
 
 ## Next Steps
 

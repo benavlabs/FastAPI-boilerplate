@@ -2,7 +2,10 @@ import logging
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from src.modules.user.models import User
 
 from .test_create import generate_unique_user_data
 
@@ -17,7 +20,8 @@ async def test_soft_delete_success(
     db_session: AsyncSession,
     test_user: dict,
 ):
-    """Test successful soft deletion of user account."""
+    """Deleting one's own account soft-deletes the row, and the session it was signed in with no
+    longer signs it in."""
     username = test_user["username"]
 
     logger.info(f"Testing soft deletion for user: {username}")
@@ -28,7 +32,10 @@ async def test_soft_delete_success(
     assert data["message"] == "User account deactivated"
 
     get_response = await auth_client.get(f"/api/v1/users/{username}")
-    assert get_response.status_code == 404
+    assert get_response.status_code == 401
+
+    deleted = await db_session.scalar(select(User.is_deleted).where(User.id == test_user["id"]))
+    assert deleted is True
 
 
 async def test_soft_delete_unauthorized(
@@ -148,13 +155,13 @@ async def test_permanent_delete_nonexistent_user(
     assert data["detail"] == "User not found."
 
 
-async def test_delete_cascade_effects(
+async def test_an_account_deleted_by_its_owner_is_gone_for_another_user(
     auth_client: AsyncClient,
     superuser_auth_client: AsyncClient,
     db_session: AsyncSession,
     test_user: dict,
 ):
-    """Test cascade effects of user deletion."""
+    """A self-deleted account's profile answers 404 to another signed-in user."""
     username = test_user["username"]
 
     profile = await auth_client.get(f"/api/v1/users/{username}")

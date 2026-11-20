@@ -17,7 +17,7 @@ Docker Compose handles every service for you (Postgres + Redis + the app).
 
 - [Docker](https://docs.docker.com/get-docker/) (20.10+)
 - [Docker Compose](https://docs.docker.com/compose/install/) (v2+)
-- [uv](https://docs.astral.sh/uv/getting-started/installation/), which runs the CLI that writes the compose file
+- [uv](https://docs.astral.sh/uv/getting-started/installation/), which runs fastro, the tool that writes the compose file
 
 ### Steps
 
@@ -37,19 +37,19 @@ Docker Compose handles every service for you (Postgres + Redis + the app).
 3. **Generate the compose file**:
 
     ```bash
-    uv run --no-sync bp deploy generate local
+    uv run --no-sync fastro make deploy local
     ```
 
     `docker-compose.yml` is written at the repo root and is not committed, because the stack
     you want depends on how you deploy. `local` is the hot-reload stack: API, Taskiq worker,
     scheduler, Postgres and Redis. The other modes are `prod` and `nginx`, covered in
-    [CLI → Commands](../cli/commands.md).
+    [Generating and updating projects with fastro](../user-guide/fastro.md).
 
 4. **Set up the environment file**:
 
     ```bash
     cp backend/.env.example backend/.env
-    # Edit backend/.env: set SECRET_KEY (`uv run --no-sync bp env gen-secret` prints one),
+    # Edit backend/.env: set SECRET_KEY (`uv run --no-sync fastro env secret` prints one),
     # change ADMIN_PASSWORD and the default DB password.
     ```
 
@@ -128,7 +128,7 @@ For development on your host machine. You provide PostgreSQL and Redis yourself.
     cd fastapi-boilerplate
     ```
 
-    The repo is a [uv workspace](https://docs.astral.sh/uv/concepts/projects/workspaces/) — the deployable application lives in `backend/` and the developer CLI (`bp`) lives in `cli/`. Both share a single virtual environment at the repo root.
+    The repo is a [uv workspace](https://docs.astral.sh/uv/concepts/projects/workspaces/): the deployable application in `backend/` is its one member, and it shares a single virtual environment at the repo root with fastro and the dev tools.
 
 2. **Install Python dependencies**:
 
@@ -136,21 +136,21 @@ For development on your host machine. You provide PostgreSQL and Redis yourself.
     uv sync --all-packages --all-extras
     ```
 
-    This syncs the whole workspace — backend, CLI, and dev tools — into one `.venv/` at the repo root. From here on, `uv run --no-sync <cmd>` works from any subdirectory; the flag skips uv's implicit sync, so a command starts immediately and leaves the environment and the lockfile alone. Re-running a plain `uv sync` without `--all-extras` is what removes ruff, mypy and pytest again.
+    This syncs the backend, fastro and the dev tools into one `.venv/` at the repo root. From here on, `uv run --no-sync <cmd>` works from any subdirectory; the flag skips uv's implicit sync, so a command starts immediately and leaves the environment and the lockfile alone. Re-running a plain `uv sync` without `--all-extras` is what removes ruff, mypy and pytest again.
 
 3. **Set up environment variables**:
 
     ```bash
     cp backend/.env.example backend/.env
     # Edit backend/.env: point POSTGRES_SERVER and CACHE_REDIS_HOST at localhost,
-    # set a strong SECRET_KEY (or run `uv run --no-sync bp env gen-secret`), etc.
+    # set a strong SECRET_KEY (or run `uv run --no-sync fastro env secret`), etc.
     ```
 
-    The CLI ships a few helpers for this step — see [CLI → Commands](../cli/commands.md):
+    fastro has a few helpers for this step; see [Generating and updating projects with fastro](../user-guide/fastro.md):
 
     ```bash
-    uv run --no-sync bp env gen-secret      # print a fresh SECRET_KEY
-    uv run --no-sync bp env validate        # audit the .env against the production validator
+    uv run --no-sync fastro env secret      # print a fresh SECRET_KEY
+    uv run --no-sync fastro env validate    # audit the .env against the production validator
     ```
 
 4. **Set up PostgreSQL** (if not already configured):
@@ -276,7 +276,8 @@ After installing, verify everything works:
 
 1. **API Docs**: <http://localhost:8000/docs>
 2. **Health Check**: `curl http://localhost:8000/health`
-3. **Admin Panel**: <http://localhost:8000/admin>
+3. **Admin Panel**: <http://localhost:8000/admin>, once `ADMIN_ENABLED=true` and both admin
+   credentials are set in `backend/.env`; it is off in the example, and unmounted until then
 4. **Database**: check the app log for "Database connected" / no errors at startup
 
 ## Troubleshooting

@@ -18,11 +18,11 @@ The app **will not start** if any of these is true:
   those is measured as a share of the whole value, so a generated key that happens to spell a word
   still passes. Two rules are absolute: a run of eight consecutive code points, and under 64 bits
   of entropy. The tests sweep 100,000 keys of each shape a generator produces — the hex keys
-  `bp env gen-secret` prints (`secrets.token_hex(16/32)`) and `secrets.token_urlsafe(24/32)` keys
+  `fastro env secret` prints (`secrets.token_hex(16/32)`) and `secrets.token_urlsafe(24/32)` keys
   from whatever else you might use — from a fixed seed, and none of the 400,000 is refused. A
   random key can still trip a rule: one hex key in 12.6 million runs through eight consecutive
   digits, and a `token_urlsafe` key walks the keyboard at around one in ten million. Run inside a
-  project, `bp env gen-secret` checks each draw against those rules and draws again while they
+  project, `fastro env secret` checks each draw against those rules and draws again while they
   would refuse it.
 - **The database password is `postgres`** (the well-known default). Attackers try this first.
 - **The database password is empty.** Database is unprotected.
@@ -260,7 +260,7 @@ The proxy must:
 
 Set `TRUSTED_PROXY_HOPS` to the number of reverse proxies you've put in front of the app (1 for a single nginx/Caddy, 2 if Cloudflare is also in front). crudauth uses it to read the real client IP from the last trusted hop of `X-Forwarded-For` when applying login lockout — otherwise every request would appear to come from the proxy and the lockout would key on a single IP.
 
-Set `FORWARDED_ALLOW_IPS` to your proxy's address or subnet. **uvicorn** reads it from its own process environment, not through the app's settings, and it decides what `request.client` and the access logs report. A wildcard makes uvicorn take the *leftmost* `X-Forwarded-For` entry, which is whatever the client sent, so any client can claim any address and say its request arrived over HTTPS. Named a subnet, uvicorn skips the entries from that subnet and reads the last one outside it. The generated nginx vhost also replaces `X-Forwarded-For` with the address nginx saw, so there is only ever one entry to read. The generated stack puts the containers on a fixed subnet and sets this to that CIDR; `bp deploy generate nginx --internal-subnet 10.20.30.0/24` changes both together, and refuses host bits, a wildcard, or a range wider than `/8` (IPv4) or `/48` (IPv6).
+Set `FORWARDED_ALLOW_IPS` to your proxy's address or subnet. **uvicorn** reads it from its own process environment, not through the app's settings, and it decides what `request.client` and the access logs report. A wildcard makes uvicorn take the *leftmost* `X-Forwarded-For` entry, which is whatever the client sent, so any client can claim any address and say its request arrived over HTTPS. Named a subnet, uvicorn skips the entries from that subnet and reads the last one outside it. The generated nginx vhost also replaces `X-Forwarded-For` with the address nginx saw, so there is only ever one entry to read. The generated stack puts the containers on a fixed subnet and sets this to that CIDR; `fastro make deploy nginx --internal-subnet 10.20.30.0/24` changes both together, and refuses host bits, a wildcard, or a range wider than `/8` (IPv4) or `/48` (IPv6).
 
 !!! warning "nginx is the only hop in the generated stack"
 

@@ -95,28 +95,29 @@ field reads as an error.
 
 ## Pre-Commit
 
-The repo's `.pre-commit-config.yaml` runs what CI runs, and nothing that fights it:
+The repo's `.pre-commit-config.yaml` runs these hooks. A row that names CI says what CI runs for it; the other hooks are no CI step:
 
 | Hook | What it does |
 |------|--------------|
-| `ruff-check --fix`, `ruff-format` | the same lint and format CI checks |
+| `ruff-check --fix`, `ruff-format` | lint and format the files a commit stages, fixing what they can; CI runs `ruff check` and `ruff format --check` |
 | `pyupgrade` | rewrites to Python 3.11+ syntax |
 | `yesqa` | removes a `noqa` nothing needs any more |
-| hygiene hooks | final newlines, trailing whitespace, YAML, large files, private keys, merge markers |
-| `mypy_backend`, `mypy_cli` | local hooks, the same invocations CI uses |
-| `unit_test` | local, manual stage: `pytest tests/unit` |
+| `end-of-file-fixer`, `trailing-whitespace`, `check-yaml`, `check-executables-have-shebangs`, `check-case-conflict`, `check-added-large-files`, `detect-private-key`, `check-merge-conflict` | final newlines, trailing whitespace, YAML, shebangs on executables, file names that differ only in case, large files, private keys, merge markers |
+| `mypy_backend` | local hook, the same invocation CI uses |
+| `fastro_sync_check` | local: `uv run --no-sync fastro sync --check`, on a commit that touches `blueprint.toml`, `fastro.toml`, the wiring, the root `pyproject.toml` or `uv.lock`; CI runs the same command |
+| `unit_test` | local, manual stage: `uv run --no-sync pytest tests/unit` in `backend/`; CI runs these tests with the rest, as `uv run --no-sync pytest` in `backend/` |
 
-`unit_test` runs the unit tests only — they need no container and finish in seconds. The
-integration suite, which starts Postgres through testcontainers, runs in CI and when you run
-`pytest` yourself.
+`unit_test` runs the unit tests only. Some of them start containers through `testcontainers`, and
+every test that starts a container skips when Docker isn't running, so the hook passes without
+Docker. The integration suite runs in CI and when you run `pytest` yourself.
 
 There are no docstring- or markdown-formatting hooks: `ruff-format` owns formatting, and the two
 documentation hooks this repo used to carry damaged what they touched — `mdformat` broke MkDocs
 content tabs, and `blacken-docs` rewrote code samples into different code.
 
-`check-docstring-first` is left out for the same reason. This project documents a module-level
-name with an attribute docstring under it, which the hook reads as a second module docstring, so
-it refused 40 files.
+`check-docstring-first` is left out too. This project documents a module-level name with an
+attribute docstring under it, which the hook reads as a second module docstring, so it refuses
+those files.
 
 `pre-commit` ships in the `dev` extra, so `uv sync --all-packages --all-extras` installs it.
 Install the git hook once:
@@ -394,8 +395,11 @@ Settings live in `backend/src/infrastructure/config/settings.py`. To add a new e
 
 1. Add the field to the relevant settings class (or create a new one):
    ```python
-   class WidgetSettings(BaseSettings):
-       WIDGET_BATCH_SIZE: int = config("WIDGET_BATCH_SIZE", default=100, cast=int)
+   from src.infrastructure.config.base import EnvSettings
+
+
+   class WidgetSettings(EnvSettings):
+       WIDGET_BATCH_SIZE: int = 100
    ```
 2. Add it to the composed `Settings` mixin list at the bottom of `settings.py`.
 3. Document the env var in `backend/.env.example`.

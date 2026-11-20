@@ -243,7 +243,7 @@ cd backend
 uv run --no-sync taskiq scheduler src.infrastructure.taskiq.scheduler:scheduler
 ```
 
-`bp deploy generate` writes it as a `scheduler` service alongside the worker, for a project that
+`fastro make deploy` writes it as a `scheduler` service alongside the worker, for a project that
 carries the taskiq feature.
 
 **Run exactly one scheduler.** Each one fires every schedule it finds, so a second replica means
@@ -473,7 +473,7 @@ async def rebuild_widget_index(owner_id: int, db: DBSession) -> dict[str, Any]:
 | Broker lifecycle (API) | `backend/src/infrastructure/taskiq/lifecycle.py`                   |
 | DB dependency          | `backend/src/infrastructure/taskiq/deps.py`                        |
 | Registered task modules | `backend/src/wiring/tasks.py`                                     |
-| Settings               | `backend/src/infrastructure/config/settings.py` (`TaskiqSettings`) |
+| Settings               | `backend/src/infrastructure/taskiq/settings.py` (`TaskiqSettings`) |
 
 ## Next Steps
 

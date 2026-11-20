@@ -2,31 +2,30 @@
 
 from urllib.parse import quote
 
-from pydantic_settings import BaseSettings
 from sqlalchemy.engine import URL
 
-from ..config.base import config
+from ..config.base import EnvSettings
 from ..config.enums import TaskiqBrokerType
 from ..redis import redis_url
 
 
-class TaskiqSettings(BaseSettings):
+class TaskiqSettings(EnvSettings):
     """Taskiq async task queue settings."""
 
-    TASKIQ_BROKER_TYPE: str = config("TASKIQ_BROKER_TYPE", default=TaskiqBrokerType.REDIS.value)
-    TASKIQ_DEFAULT_RETRY_COUNT: int = config("TASKIQ_DEFAULT_RETRY_COUNT", default=3, cast=int)
-    TASKIQ_RETRY_DELAY_SECONDS: int = config("TASKIQ_RETRY_DELAY_SECONDS", default=0, cast=int)
+    TASKIQ_BROKER_TYPE: str = TaskiqBrokerType.REDIS.value
+    TASKIQ_DEFAULT_RETRY_COUNT: int = 3
+    TASKIQ_RETRY_DELAY_SECONDS: int = 0
 
-    TASKIQ_REDIS_HOST: str = config("TASKIQ_REDIS_HOST", default="localhost")
-    TASKIQ_REDIS_PORT: int = config("TASKIQ_REDIS_PORT", default=6379, cast=int)
-    TASKIQ_REDIS_DB: int = config("TASKIQ_REDIS_DB", default=3, cast=int)
-    TASKIQ_REDIS_PASSWORD: str | None = config("TASKIQ_REDIS_PASSWORD", default=None)
+    TASKIQ_REDIS_HOST: str = "localhost"
+    TASKIQ_REDIS_PORT: int = 6379
+    TASKIQ_REDIS_DB: int = 3
+    TASKIQ_REDIS_PASSWORD: str | None = None
 
-    TASKIQ_RABBITMQ_HOST: str = config("TASKIQ_RABBITMQ_HOST", default="localhost")
-    TASKIQ_RABBITMQ_PORT: int = config("TASKIQ_RABBITMQ_PORT", default=5672, cast=int)
-    TASKIQ_RABBITMQ_USER: str = config("TASKIQ_RABBITMQ_USER", default="guest")
-    TASKIQ_RABBITMQ_PASSWORD: str = config("TASKIQ_RABBITMQ_PASSWORD", default="guest")
-    TASKIQ_RABBITMQ_VHOST: str = config("TASKIQ_RABBITMQ_VHOST", default="/")
+    TASKIQ_RABBITMQ_HOST: str = "localhost"
+    TASKIQ_RABBITMQ_PORT: int = 5672
+    TASKIQ_RABBITMQ_USER: str = "guest"
+    TASKIQ_RABBITMQ_PASSWORD: str = "guest"
+    TASKIQ_RABBITMQ_VHOST: str = "/"
 
     @property
     def TASKIQ_BROKER_URL(self) -> str:

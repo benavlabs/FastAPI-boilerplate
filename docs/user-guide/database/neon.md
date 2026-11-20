@@ -3,7 +3,7 @@
 [Neon](https://neon.com) is serverless Postgres — a managed database that scales compute to zero when idle and lets you branch a database like you branch code. It's a drop-in replacement for the local Postgres container: the boilerplate needs **one environment variable**, no code changes.
 
 !!! info "Neon sponsors this project"
-    Neon supports Fastro · The Benav Labs FastAPI Boilerplate with database credits for our open-source infrastructure. It's one option among many — the boilerplate runs on any Postgres 14+ (local, RDS, Cloud SQL, Supabase, your own box) — but it's the one we use and the one these instructions are tested against.
+    Neon supports FastAPI-boilerplate by Benav Labs with database credits for our open-source infrastructure. It's one option among many — the boilerplate runs on any Postgres 14+ (local, RDS, Cloud SQL, Supabase, your own box) — but it's the one we use and the one these instructions are tested against.
 
 ## When it's a good fit
 
@@ -131,7 +131,7 @@ services:
         condition: service_healthy
 ```
 
-Redis still runs locally — Neon replaces Postgres only. Regenerating with `uv run --no-sync bp deploy generate local` brings the Postgres service back, so keep the edit in mind after a regen.
+Redis still runs locally; Neon replaces Postgres only. Regenerating with `uv run --no-sync fastro make deploy local` brings the Postgres service back, so keep the edit in mind after a regen.
 
 ## Database branching for previews
 

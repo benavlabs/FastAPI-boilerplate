@@ -30,8 +30,8 @@ Pick whichever workflow fits you:
     uv sync --all-packages --all-extras
     ```
 
-    From the repository root: `--all-packages` installs both workspace members and
-    `--all-extras` adds the dev tools (ruff, mypy, pytest).
+    From the repository root: `--all-packages` installs the backend, the workspace's one
+    member, and `--all-extras` adds the dev tools (ruff, mypy, pytest).
 
     ### 3. Environment Setup
 
@@ -55,7 +55,7 @@ Pick whichever workflow fits you:
 
     - [Docker](https://docs.docker.com/get-docker/) (20.10+)
     - [Docker Compose](https://docs.docker.com/compose/install/) (v2+)
-    - [uv](https://docs.astral.sh/uv/getting-started/installation/) (0.4+), which runs the CLI that writes the compose file
+    - [uv](https://docs.astral.sh/uv/getting-started/installation/) (0.4+), which runs fastro, the tool that writes the compose file
 
     ### 1. Get the Template
 
@@ -68,12 +68,12 @@ Pick whichever workflow fits you:
 
     ```bash
     uv sync --all-packages --all-extras
-    uv run --no-sync bp deploy generate local
+    uv run --no-sync fastro make deploy local
     ```
 
     `docker-compose.yml` is written at the repository root and is not committed, because the
     stack you want depends on how you deploy. `local` is the hot-reload stack; the other modes
-    are `prod` and `nginx`, covered in [CLI → Commands](../cli/commands.md).
+    are `prod` and `nginx`, covered in [Generating and updating projects with fastro](../user-guide/fastro.md).
 
     ### 3. Environment Setup
 
@@ -113,7 +113,7 @@ You now have a working FastAPI app with:
 - Redis-backed cache and rate limiting
 - Session-based authentication with optional OAuth (Google, GitHub)
 - API keys with per-key permissions
-- SQLAdmin admin interface at `/admin`
+- SQLAdmin admin interface at `/admin`, off until you set `ADMIN_ENABLED=true`
 - Async background task support via Taskiq
 
 ## Test Your API

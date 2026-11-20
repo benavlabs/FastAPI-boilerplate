@@ -545,7 +545,7 @@ entries, Redis keeps a per-user index, and the database store has a `user_id` co
 | Refused-login and lockout hooks | `backend/src/infrastructure/auth/audit.py` |
 | Session management routes | crudauth's `build_session_management_router`, mounted in `routes.py` |
 | HTTP exceptions (fastcrud re-export) | `backend/src/infrastructure/http_exceptions.py` |
-| Auth settings | `backend/src/infrastructure/config/settings.py` (`AuthSettings`) |
+| Auth settings | `backend/src/infrastructure/auth/settings.py` (`AuthSettings`) |
 
 Session storage, CSRF, and lockout themselves live in the `crudauth` library, not the boilerplate.
 

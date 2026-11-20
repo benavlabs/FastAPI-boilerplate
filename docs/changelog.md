@@ -12,11 +12,87 @@ ___
 
 #### Changed
 
+- **Settings read the environment when they're built, not when the module is imported.** Every
+  settings class derives from `EnvSettings` (`src/infrastructure/config/base.py`), whose fields
+  carry plain defaults; the environment and `backend/.env` are read each time a class is built. A
+  test that deletes a variable now gets the field's default rather than the value the process
+  started with, and `CREATE_TABLES_ON_STARTUP` follows the `ENVIRONMENT` the settings are built
+  with. Every value is the same as before with no environment and with `.env.example`, and
+  values are read as they always were, in the environment and in the file: a flag is `true`,
+  `false`, `1` or `0` in any case, a number is what `int()` reads, and the file is taken
+  literally, names exactly as written, with no `${...}` expansion. A string handed to a settings
+  class's constructor is held to the same rule now, so `Settings(DEBUG="yes")`, which pydantic
+  used to read as true, is refused. A mixin of your own derives from `EnvSettings` in
+  `src.infrastructure.config.base`.
+  `config` is still exported from `src.infrastructure.config.settings`, so a settings class of
+  your own written as `config("NAME", default=...)` keeps working, with the old import-time
+  reading.
+- **`fastro make deploy` renders this repository's `[generators.deploy]`.** The files are the ones
+  `bp deploy generate` wrote, apart from the header, which names `fastro make deploy <mode>`, and
+  the compose project name, which is the project's slug, `fastapi-boilerplate`. Every
+  `--internal-subnet` value is checked in every mode, and a bad one exits 2. Make prints
+  `wrote`, `unchanged` or `kept` per file, replaces a file that differs only after you confirm or
+  with `--force`/`--yes`, and with no terminal keeps it and exits 0. It runs in the blueprint
+  repository only for now. `fastro env validate` exits 2 and says why outside a project, where it
+  used to exit 1.
+- **The tracing recipe registers its installer in `fastro.toml`.**
+  [Observability](user-guide/observability.md) used to have you call `configure_tracing()` and add
+  the installer in `src/interfaces/main.py`. Now `install()` configures tracing itself, and you
+  list it under `[app.contributes]` and run `fastro sync`, which adds it to the generated
+  `src/wiring/app.py`.
+- **FastAPI is capped below 0.140.7.** The app imports `get_flat_dependant` from
+  `fastapi.dependencies.utils`, which 0.140.7 removed, and passes `openapi_prefix` to `FastAPI`,
+  which 0.145.0 refuses. A project resolves its own dependencies, so without the cap a new one got
+  the newest FastAPI and couldn't import the app. The lock still holds 0.136.1. A later release
+  moves off both and lifts the cap.
 - **`virtualenv` 21.14.13 and `filelock` 4.2.4**, for eighteen advisories published against the
   versions the lock held. Both arrive through `pre-commit`, which lives in the `dev` extra, so the
   image installs neither and a deployment is unaffected: the advisories are about the environments
   a hook runs in and the lock files it takes, on the machines that run the hooks. `pre-commit run
   --all-files` passes on the new versions.
+- **`faker` and `httpx` are development dependencies now**, because only the tests import them.
+  The image installs the runtime list with `--no-dev`, so `faker` is no longer in it: code of your
+  own that imported it there has to declare it. `httpx` still arrives in the image through
+  `fastapi[standard]`, which requires it, so only `faker` actually leaves.
+- **`aiosqlite` is gone and `jinja2` is a development dependency.** Nothing imported either:
+  `aiosqlite` answered `SQLITE_ASYNC_PREFIX`, which no module reads, and the admin panel gets
+  `jinja2` through `sqladmin`, which requires it. `jinja2` stays in the `dev` extra for the
+  template tests. A project of your own that imported either has to declare it.
+- **`.env.example` ships `ADMIN_ENABLED=false`.** The setting has defaulted to `false` since
+  0.20.0, but the example still turned the panel on, so a copied example served `/admin` with the
+  example's own `admin` credentials. Set `ADMIN_ENABLED=true`, with credentials of your own, where
+  you want it.
+- **The CLI docs are one page about fastro now.** The `CLI` section's Overview, Commands and
+  Plugins pages are gone, and
+  [Generating and updating projects with fastro](user-guide/fastro.md) covers `fastro make deploy`,
+  `fastro env secret` and `fastro env validate`. The old `cli/` URLs redirect there.
+
+#### Removed
+
+- **The `bp` CLI and its `cli/` workspace package.** fastro, which the root dev group installs,
+  runs the same commands: `bp deploy generate MODE` is `fastro make deploy MODE`, with the same
+  modes and options; `bp env gen-secret` is `fastro env secret`; `bp env validate` is
+  `fastro env validate`. fastro installs a `bp` command too, which says it is now fastro and runs
+  the fastro command, so `uv run bp ...` keeps working. In a venv that had the old package,
+  `uv sync --all-packages --all-extras --reinstall-package fastro` puts that command back after
+  the sync removes the old one. The `bp.commands` and `bp.features` plugin entry points have no
+  counterpart in fastro. The workspace's one member is `backend/` now.
+- **The removal drill.** `tools/removal_drill.py` and its test are gone. `fastro blueprint verify`
+  builds a project for each set in `blueprint.toml`, each preset and `everything`, and runs the
+  same checks on it; CI runs it once per set. Run `uv run --no-sync fastro blueprint verify` for
+  every set, or name one, and add `--keep` to keep the builds.
+
+#### Fixed
+
+- **A project with the cache feature and without accounts imports.** The cache used to import the
+  accounts feature's scope fingerprint to key a scoped credential apart from its account. Accounts
+  now contributes it through `SCOPE_FINGERPRINT` in the generated `src/wiring/scope.py`, which is
+  `None` without accounts. A project with per-tier rate limits and without the cache no longer
+  ships `tests/integration/tier_limits/test_cached_listing.py`, which imported the cache.
+- **A new account is given the default tier.** The signup route said it assigned one, and neither
+  it nor a provider's first sign-in did. With the tiers feature, both now give a new account the
+  tier `DEFAULT_TIER_NAME` names, through `NEW_ACCOUNT_FIELDS` in the generated
+  `src/wiring/signup.py`. While no such tier exists, or it is deleted, the account has none.
 
 ___
 

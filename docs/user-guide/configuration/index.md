@@ -62,12 +62,12 @@ SECRET_KEY=your-secret-key
 Pydantic `BaseSettings` classes in `src/infrastructure/config/settings.py` validate and structure config:
 
 ```python
-class DatabaseSettings(BaseSettings):
-    POSTGRES_USER: str = config("POSTGRES_USER", default="postgres")
-    POSTGRES_PASSWORD: str = config("POSTGRES_PASSWORD", default="postgres")
-    POSTGRES_SERVER: str = config("POSTGRES_SERVER", default="localhost")
-    POSTGRES_PORT: int = config("POSTGRES_PORT", default=5432)
-    POSTGRES_DB: str = config("POSTGRES_DB", default="postgres")
+class DatabaseSettings(EnvSettings):
+    POSTGRES_USER: str = "postgres"
+    POSTGRES_PASSWORD: str = "postgres"
+    POSTGRES_SERVER: str = "localhost"
+    POSTGRES_PORT: int = 5432
+    POSTGRES_DB: str = "postgres"
 ```
 
 A single composite `Settings` class combines them all.
@@ -222,8 +222,8 @@ To run a Taskiq worker, add a worker service to your Compose file with the comma
 The boilerplate already exposes toggles like `CACHE_ENABLED`, `RATE_LIMITER_ENABLED`, `ADMIN_ENABLED`, and `CSRF_ENABLED`. You can add your own in a settings class:
 
 ```python
-class FeatureSettings(BaseSettings):
-    ENABLE_ANALYTICS: bool = config("ENABLE_ANALYTICS", default=False, cast=bool)
+class FeatureSettings(EnvSettings):
+    ENABLE_ANALYTICS: bool = False
 ```
 
 Then use it:

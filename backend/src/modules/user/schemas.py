@@ -91,7 +91,12 @@ class UserCreate(UserBase):
 
 
 class UserCreateInternal(UserBase):
-    """Internal schema for user creation with hashed password."""
+    """Internal schema for user creation with hashed password.
+
+    It also carries the columns ``wiring.signup`` has other features set on a new account,
+    which the user module doesn't name."""
+
+    model_config = ConfigDict(extra="allow")
 
     hashed_password: str
     google_id: str | None = None

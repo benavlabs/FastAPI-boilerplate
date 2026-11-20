@@ -29,16 +29,19 @@ backend/
 │   ├── script.py.mako
 │   └── versions/
 ├── scripts/                  # Setup and maintenance scripts
+│   ├── baseline.py           # Writes the project's first migration, checked against the models
 │   ├── canonicalize_emails.py
 │   ├── cleanup_api_key_json.py
 │   ├── create_first_superuser.py
 │   ├── create_first_tier.py
 │   ├── create_tables.py
+│   ├── gen_secret.py         # Prints a SECRET_KEY the project's own rules accept
 │   ├── prune_key_usage.py    # The usage prune, for a project with no worker to schedule it
 │   ├── revoke_scrypt_api_keys.py
 │   ├── seeders.py            # The seeders the selected features contribute
 │   ├── setup_initial_data.py
-│   └── unlock_account.py
+│   ├── unlock_account.py
+│   └── validate_env.py       # Audits the environment the way production would
 ├── src/                      # Application source (the three layers below)
 └── tests/                    # Test suite (unit + integration)
 ```
@@ -176,6 +179,8 @@ wiring/
 ├── tables.py                 # TABLE_MODULES, declaring tables outside src/modules
 ├── transports.py             # EXTRA_TRANSPORTS, registered beside the session transport
 ├── cache.py                  # cached, the decorator a route caches its response with
+├── scope.py                  # SCOPE_FINGERPRINT, which keeps a scoped credential's cached responses its own
+├── signup.py                 # NEW_ACCOUNT_FIELDS, the columns features set on a new account
 └── admin.py                  # ADMIN_VIEWS (absent without the admin feature)
 ```
 
@@ -205,9 +210,12 @@ scripts/
 ├── create_first_superuser.py # Just the admin user
 ├── create_first_tier.py      # Just the default tier
 ├── create_tables.py          # Just the database tables
+├── baseline.py               # Writes the project's first migration, checked against the models
 ├── cleanup_api_key_json.py   # One-off repair for legacy API key rows
 ├── canonicalize_emails.py    # One-off repair for addresses stored with case or spaces
 ├── unlock_account.py         # Clears the login lockout one account is held in
+├── gen_secret.py             # Prints a SECRET_KEY the project's own rules accept
+├── validate_env.py           # Audits the environment the way production would
 ├── revoke_scrypt_api_keys.py # Names the API keys still stored as scrypt, revokes them on request
 └── prune_key_usage.py        # Deletes the API-key usage rows past KEY_USAGE_RETENTION_DAYS
 ```
@@ -340,7 +348,7 @@ The recommended flow:
 6. **Expose routes**: `backend/src/modules/widgets/routes.py`
 7. **Register the router**: add a `RouterMount` to `ROUTER_MOUNTS` in `backend/src/wiring/app.py`
 8. **Wire the rest of it**: its settings mixin in `wiring/settings.py`, its hook contributions in `wiring/hooks.py`, its admin views in `wiring/admin.py`, its fixtures in `tests/wiring.py` — whichever it has
-9. **Add it to the removal drill**: list its paths in `tools/removal_drill.py` so a build without it is checked
+9. **Declare it in the catalog**: list its paths under its feature's table in `blueprint.toml`, so `fastro blueprint verify` checks a build without it
 10. **Generate a migration**: `uv run --no-sync alembic revision --autogenerate -m "add widgets"`
 11. **Apply**: `uv run --no-sync alembic upgrade head`
 

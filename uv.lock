@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.11"
 resolution-markers = [
     "python_full_version >= '3.15'",
@@ -11,7 +11,6 @@ resolution-markers = [
 [manifest]
 members = [
     "fastapi-boilerplate",
-    "fastapi-boilerplate-cli",
     "fastapi-boilerplate-workspace",
 ]
 
@@ -230,15 +229,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/61/62/06741b579156360248d1ec624842ad0edf697050bbaf7c3e46394e106ad1/aiosignal-1.4.0.tar.gz", hash = "sha256:f47eecd9468083c2029cc99945502cb7708b082c232f9aca65da147157b251c7", size = 25007, upload-time = "2025-07-03T22:54:43.528Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/fb/76/641ae371508676492379f16e2fa48f4e2c11741bd63c48be4b12a6b09cba/aiosignal-1.4.0-py3-none-any.whl", hash = "sha256:053243f8b92b990551949e63930a839ff0cf0b0ebbe0597b0f3fb19e1a0fe82e", size = 7490, upload-time = "2025-07-03T22:54:42.156Z" },
-]
-
-[[package]]
-name = "aiosqlite"
-version = "0.22.1"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/4e/8a/64761f4005f17809769d23e518d915db74e6310474e733e3593cfc854ef1/aiosqlite-0.22.1.tar.gz", hash = "sha256:043e0bd78d32888c0a9ca90fc788b38796843360c855a7262a532813133a0650", size = 14821, upload-time = "2025-12-23T19:25:43.997Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/00/b7/e3bf5133d697a08128598c8d0abc5e16377b51465a33756de24fa7dee953/aiosqlite-0.22.1-py3-none-any.whl", hash = "sha256:21c002eb13823fad740196c5a2e9d8e62f6243bd9e7e4a1f87fb5e44ecb4fceb", size = 17405, upload-time = "2025-12-23T19:25:42.139Z" },
 ]
 
 [[package]]
@@ -884,19 +874,15 @@ version = "0.20.0"
 source = { editable = "backend" }
 dependencies = [
     { name = "aiomcache" },
-    { name = "aiosqlite" },
     { name = "alembic" },
     { name = "anyio" },
     { name = "asyncpg" },
     { name = "crudauth", extra = ["all"] },
     { name = "cryptography" },
-    { name = "faker" },
     { name = "fastapi", extra = ["standard"] },
     { name = "fastcrud" },
     { name = "greenlet" },
-    { name = "httpx" },
     { name = "itsdangerous" },
-    { name = "jinja2" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "redis" },
@@ -911,6 +897,9 @@ dependencies = [
 
 [package.optional-dependencies]
 dev = [
+    { name = "faker" },
+    { name = "httpx" },
+    { name = "jinja2" },
     { name = "mypy" },
     { name = "pre-commit" },
     { name = "pytest" },
@@ -925,19 +914,18 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "aiomcache", specifier = ">=0.8.2" },
-    { name = "aiosqlite", specifier = ">=0.21.0" },
     { name = "alembic", specifier = ">=1.16.4" },
     { name = "anyio", specifier = ">=4.15.1" },
     { name = "asyncpg", specifier = ">=0.30.0" },
     { name = "crudauth", extras = ["all"], specifier = ">=0.8.2,<0.9.0" },
     { name = "cryptography", specifier = ">=42.0.0" },
-    { name = "faker", specifier = ">=37.1.0" },
-    { name = "fastapi", extras = ["standard"], specifier = ">=0.115.8" },
+    { name = "faker", marker = "extra == 'dev'", specifier = ">=37.1.0" },
+    { name = "fastapi", extras = ["standard"], specifier = ">=0.115.8,<0.140.7" },
     { name = "fastcrud", specifier = ">=0.21.0" },
     { name = "greenlet", specifier = ">=3.1.1" },
-    { name = "httpx", specifier = ">=0.28.1" },
+    { name = "httpx", marker = "extra == 'dev'", specifier = ">=0.28.1" },
     { name = "itsdangerous", specifier = ">=2.2.0" },
-    { name = "jinja2", specifier = ">=3.1.6" },
+    { name = "jinja2", marker = "extra == 'dev'", specifier = ">=3.1.6" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.14.1" },
     { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=4.0.0" },
     { name = "pydantic", specifier = ">=2.10.6" },
@@ -961,35 +949,27 @@ requires-dist = [
 provides-extras = ["dev"]
 
 [[package]]
-name = "fastapi-boilerplate-cli"
-version = "0.1.0"
-source = { editable = "cli" }
-dependencies = [
-    { name = "fastapi-boilerplate" },
-    { name = "jinja2" },
-    { name = "typer" },
-]
-
-[package.optional-dependencies]
-dev = [
-    { name = "pytest" },
-    { name = "pyyaml" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "fastapi-boilerplate", editable = "backend" },
-    { name = "jinja2", specifier = ">=3.1" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.3.5" },
-    { name = "pyyaml", marker = "extra == 'dev'", specifier = ">=6.0.2" },
-    { name = "typer", specifier = ">=0.12" },
-]
-provides-extras = ["dev"]
-
-[[package]]
 name = "fastapi-boilerplate-workspace"
 version = "0"
 source = { virtual = "." }
+
+[package.dev-dependencies]
+dev = [
+    { name = "fastro" },
+    { name = "packaging" },
+    { name = "pyyaml" },
+    { name = "types-pyyaml" },
+]
+
+[package.metadata]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "fastro", git = "https://github.com/benavlabs/fastro?rev=640caae2d6f7c129ab0f03ee6a34088d4dede65f" },
+    { name = "packaging", specifier = ">=24.0" },
+    { name = "pyyaml", specifier = ">=6.0.2" },
+    { name = "types-pyyaml", specifier = ">=6.0.12" },
+]
 
 [[package]]
 name = "fastapi-cli"
@@ -1144,6 +1124,16 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/91/5c/2ee44d6cc63cc1f039cb218ea2681d6978c3a27b094e2a4bdf02f503f599/fastcrud-0.21.0.tar.gz", hash = "sha256:38990a96d4639e65e6f1c9b8f4cebfe5bf1a84ba731eb5c224fff593a7316e02", size = 79300, upload-time = "2026-01-23T19:30:07.347Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/5f/1b/85fb4c1cb771845e5ede668ef28c090e021020d117e891fa1e599c9e32d1/fastcrud-0.21.0-py3-none-any.whl", hash = "sha256:94daa5ca7815a268b700ee31b36455a8248a1a0547f3fcef5969df0047aab338", size = 107150, upload-time = "2026-01-23T19:30:05.895Z" },
+]
+
+[[package]]
+name = "fastro"
+version = "0.1.0.dev0"
+source = { git = "https://github.com/benavlabs/fastro?rev=640caae2d6f7c129ab0f03ee6a34088d4dede65f#640caae2d6f7c129ab0f03ee6a34088d4dede65f" }
+dependencies = [
+    { name = "jinja2" },
+    { name = "packaging" },
+    { name = "typer" },
 ]
 
 [[package]]
@@ -2786,6 +2776,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/e4/51/9aed62104cea109b820bbd6c14245af756112017d309da813ef107d42e7e/typer-0.25.1.tar.gz", hash = "sha256:9616eb8853a09ffeabab1698952f33c6f29ffdbceb4eaeecf571880e8d7664cc", size = 122276, upload-time = "2026-04-30T19:32:16.964Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/3f/f9/2b3ff4e56e5fa7debfaf9eb135d0da96f3e9a1d5b27222223c7296336e5f/typer-0.25.1-py3-none-any.whl", hash = "sha256:75caa44ed46a03fb2dab8808753ffacdbfea88495e74c85a28c5eefcf5f39c89", size = 58409, upload-time = "2026-04-30T19:32:18.271Z" },
+]
+
+[[package]]
+name = "types-pyyaml"
+version = "6.0.12.20261113"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/4d/8b/ba599d956693dbc98e170f32097128bdea0a17f9d42b0b490fa749c12b1a/types_pyyaml-6.0.12.20261113.tar.gz", hash = "sha256:0828be2580fd94151182364f4d0158e4de62fdbeeb8d4296f7f7d2b6c22bb640", size = 19017, upload-time = "2026-11-13T08:51:21.488Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/fd/2e/36fc0941a40ef066dbc8abac41bbbefb41389f547c779aef832aea6b873d/types_pyyaml-6.0.12.20261113-py3-none-any.whl", hash = "sha256:3600749e613748afdc4327f0b17c3296cf880cdbc7335f320007abd9dd815f67", size = 21321, upload-time = "2026-11-13T08:51:20.417Z" },
 ]
 
 [[package]]
