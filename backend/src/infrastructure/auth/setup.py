@@ -24,6 +24,7 @@ from crudauth.ratelimit import LockoutConfig
 from ...modules.user.constants import NAME_MAX_LENGTH
 from ...modules.user.models import User
 from ...wiring.email import EMAIL_SENDER
+from ...wiring.signup import NEW_ACCOUNT_FIELDS
 from ...wiring.transports import EXTRA_TRANSPORTS
 from ..composition import Lifecycle
 from ..config.enums import SessionBackend
@@ -101,9 +102,14 @@ def _session_transport() -> SessionTransport:
     )
 
 
-def _new_user_fields(context: NewUserContext) -> dict[str, Any]:
-    """The columns crudauth doesn't fill for an account it creates: the display name."""
-    return {"name": context.suggested_name[:NAME_MAX_LENGTH]}
+async def _new_user_fields(context: NewUserContext) -> dict[str, Any]:
+    """The columns crudauth doesn't fill for an account it creates: the display name, and
+    what ``NEW_ACCOUNT_FIELDS`` sets."""
+    fields: dict[str, Any] = {}
+    for contributed in NEW_ACCOUNT_FIELDS:
+        fields.update(await contributed(context.db))
+
+    return {**fields, "name": context.suggested_name[:NAME_MAX_LENGTH]}
 
 
 def _oauth_providers() -> dict[str, OAuthCredentials]:

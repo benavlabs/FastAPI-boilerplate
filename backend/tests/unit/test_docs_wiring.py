@@ -10,12 +10,15 @@ import re
 import tomllib
 from pathlib import Path
 
+from src.modules.tier.settings import TierSettings
+
 REPO_ROOT = Path(__file__).resolve().parents[3]
 WIRING = REPO_ROOT / "backend" / "src" / "wiring"
 STRUCTURE = REPO_ROOT / "docs" / "user-guide" / "project-structure.md"
 COMPOSABLE = REPO_ROOT / "docs" / "user-guide" / "composable-features.md"
 DIAGRAMS = REPO_ROOT / "docs" / "assets" / "build-diagrams.cjs"
 CHANGELOG = REPO_ROOT / "docs" / "changelog.md"
+ENVIRONMENT = REPO_ROOT / "docs" / "user-guide" / "configuration" / "environment-variables.md"
 
 DRAWN_TREE = re.compile(r"```text\n(.*?)```", re.DOTALL)
 
@@ -134,3 +137,38 @@ def test_the_composable_features_page_says_the_scope_fingerprint_is_none_without
     (slot,) = wiring["slots"]
 
     assert slot["fallback"] == "None" and "`None` without it" in row
+
+
+def _unreleased_entry(heading: str) -> str:
+    unreleased = CHANGELOG.read_text().split("## Unreleased", 1)[1].split("\n## ", 1)[0]
+
+    return " ".join(unreleased.split(f"**{heading}**", 1)[1].split("\n- **", 1)[0].split())
+
+
+def test_the_changelog_names_the_wiring_a_new_account_takes_its_default_tier_from():
+    entry = _unreleased_entry("A new account is given the default tier.")
+    wiring = next(module for module in _catalog()["wiring"] if module["path"] == "backend/src/wiring/signup.py")
+    (slot,) = wiring["slots"]
+
+    assert f"`{slot['name']}`" in entry and "`src/wiring/signup.py`" in entry
+    assert _catalog()["features"]["tiers"]["contributes"][slot["point"]] == ["src.modules.tier.hooks:default_tier"]
+    assert "`DEFAULT_TIER_NAME`" in entry
+
+
+def test_the_environment_page_says_both_signup_paths_take_the_default_tier():
+    page = ENVIRONMENT.read_text()
+    block, after = page.split("```env\nDEFAULT_TIER_NAME=", 1)[1].split("\n```", 1)
+    paragraph = " ".join(after.strip().split("\n\n", 1)[0].split())
+
+    assert block == TierSettings.model_fields["DEFAULT_TIER_NAME"].default
+    assert "signup route" in paragraph and "provider" in paragraph and "deleted" in paragraph
+
+
+def test_the_composable_features_page_says_tiers_sets_the_tier_default_tier_name_names():
+    (row,) = [line for line in COMPOSABLE.read_text().splitlines() if line.startswith("| `signup.py` |")]
+    wiring = next(module for module in _catalog()["wiring"] if module["path"] == "backend/src/wiring/signup.py")
+    (slot,) = wiring["slots"]
+
+    assert f"`{slot['name']}`" in row
+    assert _catalog()["features"]["tiers"]["contributes"][slot["point"]] == ["src.modules.tier.hooks:default_tier"]
+    assert "DEFAULT_TIER_NAME" in TierSettings.model_fields and "`DEFAULT_TIER_NAME`" in row

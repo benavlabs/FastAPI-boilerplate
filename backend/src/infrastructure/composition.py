@@ -48,6 +48,11 @@ TierDeleteRelease = Callable[[dict[str, Any], AsyncSession], Awaitable[None]]
 """Removes the rows a feature keeps for a tier that a soft delete already took out."""
 
 
+NewAccountFields = Callable[[AsyncSession], Awaitable[dict[str, Any]]]
+"""Answers the columns a feature sets on an account as it is created: its own, never the
+account's identity, credentials or privileges, which win over it. It reads, and never commits."""
+
+
 @dataclass(frozen=True)
 class ReadinessCheck:
     """A dependency the app needs before it can serve, and how to ask whether it is there.

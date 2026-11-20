@@ -1576,6 +1576,12 @@ def test_a_project_with_accounts_wires_the_scope_fingerprint_and_one_without_wir
         assert _local_names("scope_fingerprint", chosen) == expected, sorted(chosen)
 
 
+def test_a_project_with_tiers_gives_a_new_account_the_default_tier_and_one_without_sets_nothing():
+    for chosen in _selections():
+        expected = ["default_tier"] if "tiers" in chosen else []
+        assert _local_names("new_account_fields", chosen) == expected, sorted(chosen)
+
+
 def test_a_project_drains_what_it_handed_over_with_the_worker_or_on_its_own():
     """Accounts hands its mail over, and drains it once: in the worker's lifecycle where there is
     one, and in the handover's own where there isn't."""
@@ -2318,7 +2324,7 @@ def test_the_file_a_feature_brings_with_it_is_generated_only_for_that_feature():
     admin = next(entry for entry in _entries() if entry["path"].endswith("wiring/admin.py"))
 
     assert admin["if"] == "admin"
-    assert [entry.get("if") for entry in _entries()].count(None) == 12
+    assert [entry.get("if") for entry in _entries()].count(None) == 13
 
 
 def test_the_statement_a_raw_slot_carries_is_in_the_file():

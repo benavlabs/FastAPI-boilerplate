@@ -174,6 +174,10 @@ doc = "An authentication transport registered beside the session one."
 cardinality = "one"
 doc = "What tells a credential that carries a scope apart from its account's others."
 
+[points.new_account_fields]
+cardinality = "many"
+doc = "Columns a feature sets on an account as it is created, on every signup path."
+
 [points.seeders]
 cardinality = "many"
 doc = "A step the initial-data script runs, in order."
@@ -313,6 +317,7 @@ user_model = ["src.modules.tier.contrib:UserTierColumns"]
 user_schema = ["src.modules.tier.contrib:UserTierFields"]
 seeders = [{ ref = "scripts.create_first_tier:create_first_tier", order = 10 }]
 test_plugins = [{ value = "tests.fixtures.tiers" }]
+new_account_fields = ["src.modules.tier.hooks:default_tier"]
 
 [features.tiers.commands."tiers create-default"]
 module = "scripts.create_first_tier"
@@ -668,6 +673,19 @@ name = "SCOPE_FINGERPRINT"
 point = "scope_fingerprint"
 annotation = "Callable[[Principal], str | None] | None"
 fallback = "None"
+
+[[wiring]]
+path = "backend/src/wiring/signup.py"
+doc = """The columns features set on an account as it is created, on every signup path.
+
+The account setup reads it, so it is its own module: `wiring/hooks.py` reaches features that import the account setup back."""
+imports = ["from ..infrastructure.composition import NewAccountFields"]
+
+[[wiring.slots]]
+kind = "tuple"
+name = "NEW_ACCOUNT_FIELDS"
+point = "new_account_fields"
+annotation = "tuple[NewAccountFields, ...]"
 
 [[wiring]]
 path = "backend/src/wiring/transports.py"

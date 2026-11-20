@@ -180,6 +180,7 @@ wiring/
 ├── transports.py             # EXTRA_TRANSPORTS, registered beside the session transport
 ├── cache.py                  # cached, the decorator a route caches its response with
 ├── scope.py                  # SCOPE_FINGERPRINT, which keeps a scoped credential's cached responses its own
+├── signup.py                 # NEW_ACCOUNT_FIELDS, the columns features set on a new account
 └── admin.py                  # ADMIN_VIEWS (absent without the admin feature)
 ```
 

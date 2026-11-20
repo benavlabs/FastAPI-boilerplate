@@ -30,6 +30,7 @@ plain objects at stable paths, and one package collects them.
 | `transports.py` | `EXTRA_TRANSPORTS`, the authentication transports registered beside the session one |
 | `cache.py` | `cached`, the decorator a route caches its response with, re-exported so a route never imports the cache feature |
 | `scope.py` | `SCOPE_FINGERPRINT`, which accounts contributes so the cache keys a scoped credential apart from its account without importing accounts; `None` without it |
+| `signup.py` | `NEW_ACCOUNT_FIELDS`, the columns features set on an account as it is created, on the signup route and on a provider's first sign-in: tiers gives it the tier `DEFAULT_TIER_NAME` names |
 
 Two more live beside the code they drive: `backend/scripts/seeders.py` lists
 `SEEDERS`, and `backend/tests/wiring.py` lists the fixture modules pytest loads.

@@ -89,6 +89,10 @@ ___
   now contributes it through `SCOPE_FINGERPRINT` in the generated `src/wiring/scope.py`, which is
   `None` without accounts. A project with per-tier rate limits and without the cache no longer
   ships `tests/integration/tier_limits/test_cached_listing.py`, which imported the cache.
+- **A new account is given the default tier.** The signup route said it assigned one, and neither
+  it nor a provider's first sign-in did. With the tiers feature, both now give a new account the
+  tier `DEFAULT_TIER_NAME` names, through `NEW_ACCOUNT_FIELDS` in the generated
+  `src/wiring/signup.py`. While no such tier exists, or it is deleted, the account has none.
 
 ___
 

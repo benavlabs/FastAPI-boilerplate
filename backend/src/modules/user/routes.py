@@ -42,7 +42,8 @@ SIGNUP_ACCEPTED = "If the address is available, the account has been created."
            - Email address
            - Password (with security requirements)
 
-           New accounts are automatically assigned to the default tier.
+           Columns other features add to an account are set as it is created, through
+           `src/wiring/signup.py`.
 
            The answer says nothing about whether the address was free. An address that
            already has an account is answered the same way as one that did not, and the

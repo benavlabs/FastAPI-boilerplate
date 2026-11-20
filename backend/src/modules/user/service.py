@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...infrastructure.auth.setup import auth
 from ...infrastructure.logging import get_logger
+from ...wiring.signup import NEW_ACCOUNT_FIELDS
 from ..common.collisions import refused_constraint
 from ..common.exceptions import (
     PermissionDeniedError,
@@ -109,11 +110,17 @@ class UserService:
         if username_exists:
             raise UserExistsError("Username already taken")
 
+        contributed: dict[str, Any] = {}
+        for fields in NEW_ACCOUNT_FIELDS:
+            contributed.update(await fields(db))
         user_internal = UserCreateInternal(
-            name=user.name,
-            username=user.username,
-            email=email,
-            hashed_password=hashed_password,
+            **{
+                **auth.repo.filter_provisioning_data(contributed),
+                "name": user.name,
+                "username": user.username,
+                "email": email,
+                "hashed_password": hashed_password,
+            }
         )
         try:
             created_user = await crud_users.create(db=db, object=user_internal, schema_to_select=UserRead)

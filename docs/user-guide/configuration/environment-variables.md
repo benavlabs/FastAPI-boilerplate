@@ -385,6 +385,10 @@ The default tier name is also configurable (defaults to `free`):
 DEFAULT_TIER_NAME=free
 ```
 
+With the tiers feature, every new account is given this tier: one made on the signup route, and
+one a provider's first sign-in makes. While no tier has this name, or the one that had it is
+deleted, a new account has no tier.
+
 ## Logging
 
 ```env
