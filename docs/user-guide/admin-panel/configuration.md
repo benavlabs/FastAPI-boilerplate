@@ -20,10 +20,11 @@ That's the whole admin-specific config. Everything else (engine, models, mount p
 
 ### Backing Settings Classes
 
-The variables map to two settings classes in `src/infrastructure/config/settings.py`:
+The variables map to three settings classes:
 
-- **`AdminSettings`** — `ADMIN_NAME`, `ADMIN_EMAIL`, `ADMIN_USERNAME`, `ADMIN_PASSWORD`, `DEFAULT_TIER_NAME`. Used by both the admin panel login *and* `scripts/setup_initial_data.py` to bootstrap the first superuser.
-- **`SQLAdminSettings`** — `ADMIN_ENABLED`. Single toggle for the admin panel.
+- **`FirstSuperuserSettings`** in `src/infrastructure/auth/settings.py`: `ADMIN_NAME`, `ADMIN_EMAIL`, `ADMIN_USERNAME`, `ADMIN_PASSWORD`. Used by both the admin panel login *and* `scripts/setup_initial_data.py` to bootstrap the first superuser.
+- **`TierSettings`** in `src/modules/tier/settings.py`: `DEFAULT_TIER_NAME`, the tier `scripts/setup_initial_data.py` creates and a new account is given.
+- **`SQLAdminSettings`** in `src/interfaces/admin/settings.py`: `ADMIN_ENABLED`. Single toggle for the admin panel.
 
 ## What Happens at Startup
 

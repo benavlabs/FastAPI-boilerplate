@@ -325,7 +325,7 @@ closed). Fix the Redis connection, or take the limiter out of the path entirely 
 | Resolver + dependency | `backend/src/infrastructure/auth/setup.py`                |
 | RateLimit model       | `backend/src/modules/rate_limit/models.py`                |
 | Rate-limit routes     | `backend/src/modules/rate_limit/routes.py`                |
-| Settings              | `backend/src/infrastructure/config/settings.py` (`RateLimiterSettings`) |
+| Settings              | `backend/src/infrastructure/ratelimit/settings.py` (`RateLimitSettings`), `backend/src/infrastructure/auth/settings.py` (`LimiterBackendSettings`) |
 
 ## Next Steps
 

@@ -1,41 +1,31 @@
 # Settings Classes
 
-Settings live in `backend/src/infrastructure/config/settings.py` and are organized as Pydantic `BaseSettings` classes: each class groups related variables, and a single `Settings` class composes them all. Each class derives from `EnvSettings` in `src/infrastructure/config/base.py`, which reads the environment and `backend/.env` when the class is built: a variable set in the environment wins over the file, and the field's own default applies when neither sets it.
+Settings are organized as Pydantic `BaseSettings` classes: the core ones in `src/infrastructure/config/base.py`, and each feature's next to the feature. Each class groups related variables, and a single `Settings` class composes the ones the project's features bring. Each class derives from `EnvSettings` in `src/infrastructure/config/base.py`, which reads the environment and `backend/.env` when the class is built: a variable set in the environment wins over the file, and the field's own default applies when neither sets it.
 
 ## Settings Architecture
 
 ```python
-# src/infrastructure/config/settings.py
+# src/wiring/settings.py, which `fastro sync` writes for the features a project selected
 
 
 class Settings(
-    EnvironmentSettings,
-    DatabaseSettings,
-    CacheSettings,
-    RateLimiterSettings,
-    CORSSettings,
-    CompressionSettings,
-    APIDocSettings,
-    AuthSettings,
-    APISettings,
-    AppSettings,
-    AdminSettings,
+    AccountsSettings,
+    RateLimitSettings,
+    TierSettings,
+    APIKeySettings,
     SQLAdminSettings,
-    SecuritySettings,
-    LoggingSettings,
+    CacheSettings,
     TaskiqSettings,
+    CoreSettings,
 ):
-    """Main settings class that combines all setting categories."""
-
-    pass
+    """The settings of every selected feature, on top of the core."""
 
 
 settings = Settings()
-
-
-def get_settings() -> Settings:
-    return settings
 ```
+
+`src/infrastructure/config/settings.py` imports `Settings` and `settings` from there and adds
+`get_settings()`, so code imports them from it whatever features are installed.
 
 Anywhere in the app:
 
@@ -48,21 +38,23 @@ print(settings.APP_NAME)
 
 ## Built-in Settings Groups
 
-The actual classes that ship with the boilerplate, all in `src/infrastructure/config/settings.py`:
+The classes that ship with the boilerplate:
 
 | Class | Covers |
 |-------|--------|
 | `EnvironmentSettings` | `ENVIRONMENT` (production/staging/development/local) |
 | `DatabaseSettings` | All `POSTGRES_*` vars + `DATABASE_URL` computed property |
 | `CacheSettings` | `CACHE_*` (Redis + Memcached + client-side) |
-| `RateLimiterSettings` | `RATE_LIMITER_*` (Redis + Memcached + defaults) |
+| `RateLimitSettings` | `RATE_LIMITER_ENABLED`, `DEFAULT_RATE_LIMIT_LIMIT`, `DEFAULT_RATE_LIMIT_PERIOD` |
+| `LimiterBackendSettings` | `RATE_LIMITER_BACKEND`, `RATE_LIMITER_REDIS_*` (the limiter login lockout uses) |
 | `CORSSettings` | `CORS_*` |
 | `CompressionSettings` | `GZIP_*` |
 | `APIDocSettings` | `ENABLE_DOCS_IN_PRODUCTION`, `OPENAPI_PREFIX`, `DOCS_URL`, `REDOC_URL`, `OPENAPI_URL`, and the `API_*` document metadata (title, summary, description, version, terms, contact, licence, tags) |
-| `AuthSettings` | `SECRET_KEY`, `SESSION_*`, `CSRF_ENABLED`, `TRUSTED_PROXY_HOPS`, `OAUTH_*` |
+| `AuthSettings` | `SESSION_*`, `CSRF_ENABLED`, `TRUSTED_PROXY_HOPS`, `OAUTH_*` |
 | `APISettings` | `API_PREFIX` |
 | `AppSettings` | `APP_NAME`, `APP_DESCRIPTION`, `VERSION`, `DEBUG` |
-| `AdminSettings` | `ADMIN_NAME`, `ADMIN_EMAIL`, `ADMIN_USERNAME`, `ADMIN_PASSWORD`, `DEFAULT_TIER_NAME` |
+| `FirstSuperuserSettings` | `ADMIN_NAME`, `ADMIN_EMAIL`, `ADMIN_USERNAME`, `ADMIN_PASSWORD` |
+| `TierSettings` | `DEFAULT_TIER_NAME` |
 | `SQLAdminSettings` | `ADMIN_ENABLED` |
 | `SecuritySettings` | `SECRET_KEY`, `PRODUCTION_SECURITY_VALIDATION_ENABLED`, `SECURITY_HEADERS_ENABLED` |
 | `LoggingSettings` | All `LOG_*` |
@@ -249,7 +241,7 @@ class Settings(
     AppSettings,
     LoggingSettings,
     # CacheSettings — removed
-    # RateLimiterSettings — removed
+    # RateLimitSettings — removed
     # TaskiqSettings — removed
 ):
     pass

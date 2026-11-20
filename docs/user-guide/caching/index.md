@@ -130,7 +130,7 @@ If the cache backend becomes unavailable, the decorator catches the error and fa
 | Decorator | `backend/src/infrastructure/cache/decorator.py` |
 | Provider API | `backend/src/infrastructure/cache/provider.py` |
 | Backends | `backend/src/infrastructure/cache/backends/` |
-| Settings | `backend/src/infrastructure/config/settings.py` (`CacheSettings`) |
+| Settings | `backend/src/infrastructure/cache/settings.py` (`CacheSettings`) |
 | Client-cache middleware | `backend/src/infrastructure/middleware.py` |
 
 ## Next Steps
