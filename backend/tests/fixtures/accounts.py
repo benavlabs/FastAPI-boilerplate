@@ -2,6 +2,7 @@
 
 import time
 from collections.abc import AsyncIterator
+from uuid import uuid4
 
 import pytest
 import pytest_asyncio
@@ -17,18 +18,23 @@ from src.interfaces.main import app
 from src.modules.user.models import User
 
 
+def new_user(*, prefix: str = "u", password: str = "Password123!", is_superuser: bool = False, profile_image_url: str) -> User:
+    """A user whose username and email no other fixture user has."""
+    unique = uuid4().hex
+    return User(
+        name=Faker().name(),
+        username=f"{prefix}{unique[:20]}",
+        email=f"{unique}@example.com",
+        hashed_password=get_password_hash(password),
+        is_superuser=is_superuser,
+        profile_image_url=profile_image_url,
+    )
+
+
 @pytest_asyncio.fixture
 async def test_user(db_session: AsyncSession):
     """Create a test user."""
-    fake = Faker()
-    user = User(
-        name=fake.name(),
-        username=f"u{fake.random_int(10000, 99999)}",
-        email=fake.email(),
-        hashed_password=get_password_hash("Password123!"),
-        is_superuser=False,
-        profile_image_url="https://example.com/test.jpg",
-    )
+    user = new_user(profile_image_url="https://example.com/test.jpg")
     db_session.add(user)
     await db_session.commit()
     await reset_password_budget(user.id)
@@ -47,15 +53,7 @@ async def test_user(db_session: AsyncSession):
 @pytest_asyncio.fixture
 async def test_user_2(db_session: AsyncSession):
     """Second test user for permission tests."""
-    fake = Faker()
-    user = User(
-        name=fake.name(),
-        username=f"u{fake.random_int(10000, 99999)}",
-        email=fake.email(),
-        hashed_password=get_password_hash("Password123!"),
-        is_superuser=False,
-        profile_image_url="https://example.com/test2.jpg",
-    )
+    user = new_user(profile_image_url="https://example.com/test2.jpg")
     db_session.add(user)
     await db_session.commit()
     await reset_password_budget(user.id)
@@ -73,14 +71,8 @@ async def test_user_2(db_session: AsyncSession):
 @pytest_asyncio.fixture
 async def test_superuser(db_session: AsyncSession):
     """Create a test superuser."""
-    fake = Faker()
-    user = User(
-        name=fake.name(),
-        username=f"su{fake.random_int(10000, 99999)}",
-        email=fake.email(),
-        hashed_password=get_password_hash("SuperuserPass123!"),
-        is_superuser=True,
-        profile_image_url="https://example.com/superuser.jpg",
+    user = new_user(
+        prefix="su", password="SuperuserPass123!", is_superuser=True, profile_image_url="https://example.com/superuser.jpg"
     )
     db_session.add(user)
     await db_session.commit()

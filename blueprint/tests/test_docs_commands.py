@@ -15,7 +15,15 @@ from fastro.tools import installed_version
 from fastro.verify import verify_sets
 from retired import OLD_COMMAND, OLD_DRILL, REPO_ROOT, RUNS_OLD_COMMAND, SAYS_OLD_COMMAND_EXITS, shown_pages
 
-FASTRO = typer.main.get_command(app)
+
+def _fastro() -> click.Group:
+    command = typer.main.get_command(app)
+    assert isinstance(command, click.Group)
+
+    return command
+
+
+FASTRO = _fastro()
 
 LAUNCHERS = (("uv", "run", "--no-sync"), ("uv", "run"), ("uvx",), ("python", "-m"))
 

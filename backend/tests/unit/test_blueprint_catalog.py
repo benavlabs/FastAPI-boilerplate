@@ -14,6 +14,7 @@ import keyword
 import re
 import subprocess
 import sys
+import time
 import tomllib
 from collections.abc import Iterable
 from importlib.metadata import packages_distributions, requires
@@ -873,7 +874,54 @@ def _ci_runs_hook(hook: dict[str, str]) -> bool:
     """Whether a CI step runs a local hook's command, as it is or on every path instead of the ones it names."""
     line = _hook_shell_line(hook)
 
-    return line in _workflow_runs() or re.sub(r"(?: [\w.-]*[/.][\w./-]*)+$", "", line) in _workflow_runs()
+    return line in _workflow_runs() or _without_trailing_paths(line) in _workflow_runs()
+
+
+def _names_a_path(word: str) -> bool:
+    return any(mark in word for mark in "/.") and all(char.isalnum() or char in "_./-" for char in word)
+
+
+def _without_trailing_paths(line: str) -> str:
+    """The line with the space-separated paths it ends in dropped: a word of letters, digits,
+    ``_``, ``.``, ``/`` and ``-`` that holds a ``/`` or a ``.``. The first word always stays, and so
+    does a newline the line ends in."""
+    body, newline = (line[:-1], "\n") if line.endswith("\n") else (line, "")
+    words = body.split(" ")
+    while len(words) > 1 and _names_a_path(words[-1]):
+        words.pop()
+
+    return " ".join(words) + newline
+
+
+@pytest.mark.parametrize(
+    ("line", "kept"),
+    [
+        ("uv run --no-sync ruff check src/app.py tests/x.py", "uv run --no-sync ruff check"),
+        ("cd backend && mypy src/a.py", "cd backend && mypy"),
+        ("ruff format --check .", "ruff format --check"),
+        ("mypy src tests", "mypy src tests"),
+        ("pytest -q", "pytest -q"),
+        ("x.py", "x.py"),
+        ("ruff --config=a.toml", "ruff --config=a.toml"),
+        ("run a/b  c/d", "run a/b "),
+        ("mypy src/ ", "mypy src/ "),
+        ("run src/a.py tests", "run src/a.py tests"),
+        ("run ../up", "run"),
+        ("run tests/unit_2/my-file.py", "run"),
+        ("x a/b\n", "x\n"),
+    ],
+)
+def test_a_hook_line_drops_the_paths_it_ends_in(line: str, kept: str):
+    assert _without_trailing_paths(line) == kept
+
+
+def test_a_long_line_of_dots_is_read_at_once():
+    line = "run" + " .." * 100_000 + " !"
+    started = time.perf_counter()
+
+    assert _without_trailing_paths(line) == line
+    assert _without_trailing_paths(line[:-2]) == "run"
+    assert time.perf_counter() - started < 1
 
 
 def test_the_hooks_the_development_guide_says_ci_runs_run_what_ci_runs():
