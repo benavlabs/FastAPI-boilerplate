@@ -12,6 +12,13 @@ ___
 
 #### Changed
 
+- **A `422` says where and why each field failed.** Beside the generic `detail` and the
+  `support_id`, the body now carries `errors`, a list giving each failure's `loc`, `msg` and
+  `type`. pydantic's `input` and `ctx` are left out of the answer and the log, since `input` is
+  what was sent, and no `msg` repeats the value it refused: an unknown permission name or usage
+  limit is refused entry by entry, with the entry's index or key at the end of its `loc`. A URL
+  carrying a NUL character is answered the same way, and the OpenAPI document describes this
+  body instead of FastAPI's default one.
 - **Settings read the environment when they're built, not when the module is imported.** Every
   settings class derives from `EnvSettings` (`src/infrastructure/config/base.py`), whose fields
   carry plain defaults; the environment and `backend/.env` are read each time a class is built. A

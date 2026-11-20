@@ -20,7 +20,7 @@ pytestmark = pytest.mark.asyncio
     [("name", "Renamed"), ("is_active", False), ("permissions", []), ("usage_limits", {})],
 )
 async def test_an_explicit_null_is_refused(auth_client: AsyncClient, field: str, accepted):
-    """Every 422 carries the same generic body, so the control says the null caused this one."""
+    """The control says the null caused this one, and the refusal names the field it was sent for."""
     created = await auth_client.post("/api/v1/api-keys/", json={"name": "Null Key"})
     assert created.status_code == 201
     key_id = created.json()["id"]
@@ -32,7 +32,8 @@ async def test_an_explicit_null_is_refused(auth_client: AsyncClient, field: str,
     body = response.json()
     assert body["detail"] == INVALID_REQUEST
     assert len(body["support_id"]) == SUPPORT_ID_LENGTH
-    assert field not in str(body)
+    assert [(error["loc"], error["type"]) for error in body["errors"]] == [(["body"], "value_error")]
+    assert body["errors"][0]["msg"].endswith(f"cannot be set to null: {field}")
     assert control.status_code == 200, control.text
 
 

@@ -42,13 +42,16 @@ async def test_a_key_is_created_with_the_names_it_is_scoped_to(superuser_auth_cl
 
 
 async def test_a_name_the_registry_does_not_know_is_refused_on_create(superuser_auth_client: AsyncClient):
-    """The refusal carries the generic body, so it doesn't echo what was sent."""
-    response = await superuser_auth_client.post("/api/v1/api-keys/", json={"name": "Bad Scope", "permissions": [UNKNOWN]})
+    """The refusal names the entry by its place in the list, and doesn't echo what was sent."""
+    response = await superuser_auth_client.post(
+        "/api/v1/api-keys/", json={"name": "Bad Scope", "permissions": ["user.read", UNKNOWN, "user.update"]}
+    )
 
     assert response.status_code == 422
     body = response.json()
     assert body["detail"] == INVALID_REQUEST
     assert len(body["support_id"]) == SUPPORT_ID_LENGTH
+    assert [error["loc"] for error in body["errors"]] == [["body", "permissions", 1]]
     assert UNKNOWN not in str(body)
 
 
@@ -61,6 +64,7 @@ async def test_a_name_the_registry_does_not_know_is_refused_on_an_update(superus
     read = await superuser_auth_client.get(f"/api/v1/api-keys/{created['id']}")
 
     assert response.status_code == 422
+    assert [error["loc"] for error in response.json()["errors"]] == [["body", "permissions", 1]]
     assert UNKNOWN not in response.text
     assert read.json()["permissions"] == ["user.read"]
 

@@ -18,6 +18,7 @@ blueprint_only = [
   "backend/tests/unit/infrastructure/config/example_values.json",
   "backend/tests/unit/infrastructure/config/test_settings_tables.py",
   "backend/tests/unit/test_blueprint_catalog.py",
+  "backend/tests/unit/test_docs_errors.py",
   "backend/tests/unit/test_docs_imports.py",
   "backend/tests/unit/test_docs_recipes.py",
   "backend/tests/unit/test_docs_scripts.py",

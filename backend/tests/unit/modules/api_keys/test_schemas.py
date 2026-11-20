@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 import pytest
 from pydantic import ValidationError
 
+from src.modules.api_keys.limits import WINDOWS
 from src.modules.api_keys.models import APIKey
 from src.modules.api_keys.schemas import (
     USER_AGENT_MAX_LENGTH,
@@ -153,6 +154,22 @@ class TestAKeysUsageLimits:
 
     def test_no_limits_is_how_a_key_is_uncounted(self):
         assert APIKeyCreate(name="Key").usage_limits == {}
+
+    def test_each_bad_limit_is_named_by_its_key_and_its_value_is_not_repeated(self):
+        limits = {"requests_per_minute": 60, "requests_per_fortnight": 5, "requests_per_day": 0}
+
+        with pytest.raises(ValidationError) as refused:
+            APIKeyCreate(name="Key", usage_limits=limits)
+
+        errors = refused.value.errors()
+        assert [error["loc"] for error in errors] == [
+            ("usage_limits", "requests_per_fortnight", "[key]"),
+            ("usage_limits", "requests_per_day"),
+        ]
+        assert [error["msg"] for error in errors] == [
+            f"Value error, Not a usage window: use {', '.join(sorted(WINDOWS))}",
+            "Input should be greater than or equal to 1",
+        ]
 
 
 class TestTheInputSchemasKeepTheirRules:

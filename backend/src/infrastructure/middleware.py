@@ -4,12 +4,10 @@ from urllib.parse import unquote_to_bytes
 
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
-from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-from ..modules.common.constants import INVALID_REQUEST_MESSAGE
 from ..modules.common.schemas import NUL
-from ..modules.common.utils.error_handler import generate_support_id
+from ..modules.common.utils.error_handler import generate_support_id, invalid_request
 from .logging import get_logger
 
 logger = get_logger()
@@ -29,8 +27,8 @@ class NulCharacterMiddleware:
     a URL anybody can send. Request bodies are refused by the schemas instead, which name
     the field.
 
-    The refusal reads like every other ``422`` - the generic message and a support id -
-    so what the log says is the only place the reason is written down.
+    The refusal reads like every other ``422``: the generic message, where and why, and a
+    support id.
 
     Args:
         app: The ASGI app to wrap.
@@ -40,25 +38,27 @@ class NulCharacterMiddleware:
         self.app = app
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] != "http" or not self._carries_a_nul(scope):
+        where = self._where_a_nul_is(scope) if scope["type"] == "http" else None
+        if where is None:
             await self.app(scope, receive, send)
             return
 
         support_id = generate_support_id()
         logger.warning(f"NUL character refused [{support_id}] on {scope['method']} {scope['path']!r}")
-        refusal = JSONResponse(
-            status_code=422,
-            content={"detail": INVALID_REQUEST_MESSAGE, "support_id": support_id},
+        refusal = invalid_request(
+            support_id, [{"loc": [where], "msg": f"The {where} holds a NUL character", "type": "value_error"}]
         )
         await refusal(scope, receive, send)
 
     @staticmethod
-    def _carries_a_nul(scope: Scope) -> bool:
-        """Whether the request line holds a NUL, in the path or anywhere in the query."""
+    def _where_a_nul_is(scope: Scope) -> str | None:
+        """``path`` or ``query`` where the request line holds a NUL, or ``None`` where it holds none."""
         if NUL in scope["path"]:
-            return True
+            return "path"
+        if NUL.encode() in unquote_to_bytes(scope.get("query_string", b"")):
+            return "query"
 
-        return NUL.encode() in unquote_to_bytes(scope.get("query_string", b""))
+        return None
 
 
 class ClientCacheMiddleware(BaseHTTPMiddleware):

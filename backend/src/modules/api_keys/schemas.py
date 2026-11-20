@@ -3,9 +3,9 @@
 from datetime import datetime
 from typing import Annotated, Any, ClassVar
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, StrictInt, field_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator
 
-from ...infrastructure.permissions import registered_permissions
+from ...infrastructure.permissions import RegisteredPermission
 from ..common.schemas import (
     EncodableText,
     PartialUpdate,
@@ -15,7 +15,7 @@ from ..common.schemas import (
     within_utc_range,
 )
 from .enums import HTTPMethod
-from .limits import WINDOWS, validated_limits
+from .limits import WINDOWS, RequestCount, UsageWindow
 from .models import APIKey
 
 VALID_HTTP_METHODS = {m.value for m in HTTPMethod}
@@ -29,12 +29,12 @@ class APIKeyBase(EncodableText):
     _expiry_within_range = field_validator("expires_at")(within_utc_range)
 
     name: Annotated[str, Field(min_length=1, max_length=100, description="Human-readable name for the API key")]
-    permissions: list[str] = Field(
+    permissions: list[RegisteredPermission] = Field(
         default_factory=list,
         description="Registry permission names the key is scoped to",
         examples=[["user.read", "user.update"]],
     )
-    usage_limits: dict[str, StrictInt] = Field(
+    usage_limits: dict[UsageWindow, RequestCount] = Field(
         default_factory=dict,
         description=USAGE_LIMITS_DESCRIPTION,
         examples=[{"requests_per_minute": 60, "requests_per_day": 10000}],
@@ -44,13 +44,8 @@ class APIKeyBase(EncodableText):
 
     @field_validator("permissions")
     @classmethod
-    def _registered(cls, names: list[str]) -> list[str]:
-        return registered_permissions(names)
-
-    @field_validator("usage_limits")
-    @classmethod
-    def _countable(cls, limits: dict[str, StrictInt]) -> dict[str, StrictInt]:
-        return validated_limits(limits)
+    def _distinct(cls, names: list[str]) -> list[str]:
+        return sorted(set(names))
 
     @field_validator("key_metadata")
     @classmethod
@@ -84,21 +79,16 @@ class APIKeyUpdate(EncodableText, PartialUpdate):
     NOT_NULLABLE: ClassVar[tuple[str, ...]] = not_nullable_columns(APIKey)
 
     name: Annotated[str, Field(min_length=1, max_length=100)] | None = None
-    permissions: list[str] | None = None
-    usage_limits: dict[str, StrictInt] | None = None
+    permissions: list[RegisteredPermission] | None = None
+    usage_limits: dict[UsageWindow, RequestCount] | None = None
     is_active: bool | None = None
     expires_at: AwareDatetime | None = None
     key_metadata: dict[str, Any] | None = None
 
     @field_validator("permissions")
     @classmethod
-    def _registered(cls, names: list[str] | None) -> list[str] | None:
-        return None if names is None else registered_permissions(names)
-
-    @field_validator("usage_limits")
-    @classmethod
-    def _countable(cls, limits: dict[str, StrictInt] | None) -> dict[str, StrictInt] | None:
-        return None if limits is None else validated_limits(limits)
+    def _distinct(cls, names: list[str] | None) -> list[str] | None:
+        return None if names is None else sorted(set(names))
 
     @field_validator("key_metadata")
     @classmethod

@@ -5,9 +5,10 @@ import logging
 import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
-from src.modules.common.constants import GENERIC_ERROR_MESSAGE
+from src.interfaces.main import app as project_app
+from src.modules.common.constants import GENERIC_ERROR_MESSAGE, INVALID_REQUEST_MESSAGE
 from src.modules.common.exceptions import (
     PersistenceError,
     ResourceExistsError,
@@ -185,3 +186,81 @@ async def test_the_catch_all_message_does_not_repeat_the_exception(caplog):
     assert unhandled
     assert all("GET /unhandled" in record.getMessage() for record in unhandled)
     assert all("unexpected internal failure" not in record.getMessage() for record in unhandled)
+
+
+async def test_a_validation_failure_answers_where_and_why_each_field_failed_and_never_what_was_sent(caplog):
+    """pydantic's ``input`` is what was sent, the whole body for a missing field, and its
+    ``ctx`` can carry it too; neither reaches the answer."""
+    app = FastAPI()
+    register_exception_handlers(app)
+
+    class SignUp(BaseModel):
+        username: str
+        password: str = Field(min_length=20)
+        age: int
+
+    @app.post("/signup")
+    async def signup(body: SignUp) -> dict[str, str]:
+        return {"status": "created"}
+
+    with caplog.at_level(logging.WARNING):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            response = await client.post("/signup", json={"password": "hunter2-secret", "age": "seventy"})
+
+    body = response.json()
+    assert response.status_code == 422
+    assert body["detail"] == INVALID_REQUEST_MESSAGE
+    assert len(body["support_id"]) == 8 and body["support_id"] in caplog.text
+    assert body["errors"] == [
+        {"loc": ["body", "username"], "msg": "Field required", "type": "missing"},
+        {"loc": ["body", "password"], "msg": "String should have at least 20 characters", "type": "string_too_short"},
+        {
+            "loc": ["body", "age"],
+            "msg": "Input should be a valid integer, unable to parse string as an integer",
+            "type": "int_parsing",
+        },
+    ]
+    assert "hunter2-secret" not in response.text and "seventy" not in response.text
+
+
+def test_the_openapi_document_describes_the_422_this_app_answers():
+    app = FastAPI()
+    register_exception_handlers(app)
+
+    class SignUp(BaseModel):
+        username: str
+
+    @app.post("/signup")
+    async def signup(body: SignUp) -> dict[str, str]:
+        return {"status": "created"}
+
+    document = app.openapi()
+    schemas = document["components"]["schemas"]
+
+    assert document["paths"]["/signup"]["post"]["responses"]["422"]["content"]["application/json"]["schema"] == {
+        "$ref": "#/components/schemas/HTTPValidationError"
+    }
+    assert set(schemas["HTTPValidationError"]["properties"]) == {"detail", "errors", "support_id"}
+    assert schemas["HTTPValidationError"]["required"] == ["detail"]
+    assert set(schemas["ValidationError"]["properties"]) == {"loc", "msg", "type"}
+    assert app.openapi() is document
+
+
+def test_every_422_the_app_documents_points_at_the_body_it_answers():
+    document = project_app.openapi()
+    documented = [
+        (path, method, response)
+        for path, operations in document["paths"].items()
+        for method, operation in operations.items()
+        for status, response in operation.get("responses", {}).items()
+        if status == "422"
+    ]
+
+    assert not [
+        (path, method)
+        for path, method, response in documented
+        if response.get("content", {}).get("application/json", {}).get("schema")
+        != {"$ref": "#/components/schemas/HTTPValidationError"}
+    ]
+    if documented:
+        assert set(document["components"]["schemas"]["HTTPValidationError"]["properties"]) == {"detail", "errors", "support_id"}

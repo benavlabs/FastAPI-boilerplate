@@ -16,6 +16,9 @@ import importlib
 import pkgutil
 import re
 from enum import StrEnum
+from typing import Annotated
+
+from pydantic import AfterValidator
 
 PERMISSION_NAME_MAX_LENGTH = 100
 
@@ -106,17 +109,23 @@ def permission_groups() -> dict[str, tuple[str, ...]]:
     }
 
 
-def registered_permissions(names: list[str]) -> list[str]:
-    """``names`` with the duplicates dropped, refusing one the registry doesn't know.
+def registered_permission(name: str) -> str:
+    """``name``, refusing one the registry doesn't know.
+
+    The message doesn't repeat the name: a ``422`` answers it, and its ``loc`` already
+    says which entry it was.
 
     Raises:
-        ValueError: A name is not a registered permission, so nothing would ever check it.
+        ValueError: ``name`` is not a registered permission, so nothing would ever check it.
     """
-    unknown = sorted(set(names) - all_permissions())
-    if unknown:
-        raise ValueError(f"Unknown permission(s): {', '.join(unknown)}")
+    if name not in all_permissions():
+        raise ValueError("Not a registered permission")
 
-    return sorted(set(names))
+    return name
+
+
+RegisteredPermission = Annotated[str, AfterValidator(registered_permission)]
+"""A permission name the registry knows, refused entry by entry inside a list."""
 
 
 def is_known_permission(permission_name: str) -> bool:

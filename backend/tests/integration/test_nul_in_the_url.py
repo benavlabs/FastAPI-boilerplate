@@ -19,22 +19,23 @@ UNROUTED = "/api/v1/nothing-is-served-here"
 
 
 @pytest.mark.parametrize(
-    "url",
+    ("url", "where"),
     [
-        f"{UNROUTED}/%00",
-        f"{UNROUTED}/a%00b",
-        f"{UNROUTED}?name=%00",
-        f"{UNROUTED}?%00=value",
-        f"{UNROUTED}?name=a%00b",
+        (f"{UNROUTED}/%00", "path"),
+        (f"{UNROUTED}/a%00b", "path"),
+        (f"{UNROUTED}?name=%00", "query"),
+        (f"{UNROUTED}?%00=value", "query"),
+        (f"{UNROUTED}?name=a%00b", "query"),
     ],
 )
-async def test_a_url_carrying_a_nul_is_refused(client: AsyncClient, url: str, caplog):
+async def test_a_url_carrying_a_nul_is_refused(client: AsyncClient, url: str, where: str, caplog):
     with caplog.at_level(logging.WARNING):
         answer = await client.get(url)
 
     assert answer.status_code == 422
     assert answer.json()["detail"] == INVALID_REQUEST_MESSAGE
-    assert answer.json()["support_id"]
+    assert answer.json()["errors"] == [{"loc": [where], "msg": f"The {where} holds a NUL character", "type": "value_error"}]
+    assert answer.json()["support_id"] in caplog.text
     assert "NUL character refused" in caplog.text
     assert not [record for record in caplog.records if record.levelno >= logging.ERROR]
 
