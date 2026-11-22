@@ -6,6 +6,7 @@ and the facts it checks against are the repository's own files.
 """
 
 import ast
+import fnmatch
 import functools
 import importlib
 import ipaddress
@@ -28,6 +29,31 @@ from packaging.requirements import Requirement
 from tests.conftest import is_docker_running
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
+
+
+def _git_listing(*arguments: str) -> set[str]:
+    listed = subprocess.run(["git", "ls-files", "-z", *arguments], cwd=REPO_ROOT, capture_output=True, text=True, check=True)
+
+    return set(filter(None, listed.stdout.split("\0")))
+
+
+@functools.cache
+def _tracked_files() -> tuple[Path, ...]:
+    """Every file git tracks and still has, which is what fastro reads the blueprint from.
+
+    The scans here read these and nothing else, so no untracked folder, a virtualenv, a build
+    or a cache, can change what they find."""
+    return tuple(REPO_ROOT / name for name in sorted(_git_listing() - _git_listing("--deleted")))
+
+
+def _tracked(directory: Path, pattern: str = "*.py", *, recursive: bool = True) -> list[Path]:
+    """The tracked files under ``directory`` whose name matches ``pattern``, in order."""
+    return [
+        path
+        for path in _tracked_files()
+        if (path.is_relative_to(directory) if recursive else path.parent == directory) and fnmatch.fnmatch(path.name, pattern)
+    ]
+
 
 CATALOG = REPO_ROOT / "blueprint.toml"
 BACKEND_PYPROJECT = REPO_ROOT / "backend" / "pyproject.toml"
@@ -165,7 +191,7 @@ def _imported(*directories: str, skipping: tuple[str, ...] = ()) -> frozenset[st
     return frozenset(
         module.split(".")[0]
         for directory in directories
-        for path in sorted((root / directory).rglob("*.py"))
+        for path in _tracked(root / directory)
         if path not in skipped
         for module in _module_imports(path)
     )
@@ -205,7 +231,7 @@ def _importers() -> dict[str, frozenset[str]]:
     """Which files under the python root import each top-level module, as repo-relative paths."""
     root = REPO_ROOT / _catalog()["blueprint"]["python_root"]
     found: dict[str, set[str]] = {}
-    for path in sorted(root.rglob("*.py")):
+    for path in _tracked(root):
         for module in _module_imports(path):
             found.setdefault(module.split(".")[0], set()).add(path.relative_to(REPO_ROOT).as_posix())
 
@@ -352,7 +378,11 @@ def _project_modules_imported(file: str) -> frozenset[str]:
     counts as a submodule too, since it may be one.
     """
     root = _catalog()["blueprint"]["python_root"]
-    tops = {path.name for path in (REPO_ROOT / root).iterdir() if path.is_dir()}
+    tops = {
+        path.relative_to(REPO_ROOT / root).parts[0]
+        for path in _tracked(REPO_ROOT / root, "*")
+        if len(path.relative_to(REPO_ROOT / root).parts) > 1
+    }
     package = Path(file).relative_to(root).parts[:-1]
     found: set[tuple[str, ...]] = set()
     for node in ast.walk(ast.parse((REPO_ROOT / file).read_text())):
@@ -376,7 +406,7 @@ def test_no_file_a_project_keeps_imports_a_module_the_selection_removed():
     features = _catalog()["features"]
     generated = {entry["path"] for entry in _entries()}
     root = REPO_ROOT / _catalog()["blueprint"]["python_root"]
-    files = sorted(path.relative_to(REPO_ROOT).as_posix() for path in root.rglob("*.py"))
+    files = [path.relative_to(REPO_ROOT).as_posix() for path in _tracked(root)]
     broken: dict[str, set[str]] = {}
 
     for chosen in _selections():
@@ -977,7 +1007,7 @@ def test_some_unit_tests_start_containers_through_testcontainers():
     assert "`testcontainers`" in _development_guide_pre_commit_prose()
     assert any(
         isinstance(node, ast.ImportFrom) and re.fullmatch(r"testcontainers(?:\..+)?", node.module or "")
-        for path in unit.rglob("*.py")
+        for path in _tracked(unit)
         if path != Path(__file__).resolve()
         for node in ast.walk(ast.parse(path.read_text()))
     )
@@ -994,7 +1024,9 @@ def test_the_project_puts_an_attribute_docstring_under_a_module_level_name():
     """Why the development guide leaves `check-docstring-first` out."""
     documented = [
         path
-        for path in sorted((REPO_ROOT / "backend").glob("[st]*/**/*.py"))
+        for path in _tracked(REPO_ROOT / "backend")
+        if path.relative_to(REPO_ROOT / "backend").parts[0][0] in "st"
+        and len(path.relative_to(REPO_ROOT / "backend").parts) > 1
         if any(
             isinstance(name, ast.Assign | ast.AnnAssign)
             and isinstance(docstring, ast.Expr)
@@ -1063,7 +1095,9 @@ def test_each_pre_commit_command_the_development_guide_gives_takes_the_flags_it_
 def _workflow_runs(workflows: Iterable[str] | None = None) -> list[str]:
     """Each line every `run:` in the repository's own CI runs, a block's line by line."""
     if workflows is None:
-        workflows = [workflow.read_text() for workflow in sorted((REPO_ROOT / ".github" / "workflows").glob("*.yml"))]
+        workflows = [
+            workflow.read_text() for workflow in _tracked(REPO_ROOT / ".github" / "workflows", "*.yml", recursive=False)
+        ]
 
     return [
         line.strip()
@@ -1162,7 +1196,7 @@ def test_ci_runs_fastros_checks_where_fastro_is_installed(command: str):
     """From the repository root, the project that declares fastro, never after a `cd`, and always gating the job."""
     assert [run for run in _workflow_runs() if command in run] == [f"uv run --no-sync {command}"]
 
-    for workflow in sorted((REPO_ROOT / ".github" / "workflows").glob("*.yml")):
+    for workflow in _tracked(REPO_ROOT / ".github" / "workflows", "*.yml", recursive=False):
         text = workflow.read_text()
         steps = [step for step in re.split(r"\n(?= +- )", text) if command in step]
         if steps:
@@ -1205,7 +1239,7 @@ def _imported_modules(module: str, source: str) -> set[str]:
 
 def test_every_test_that_reads_the_docs_or_imports_a_withheld_test_stays_in_the_blueprint():
     backend = REPO_ROOT / "backend"
-    files = {".".join(path.relative_to(backend).with_suffix("").parts): path for path in (backend / "tests").rglob("*.py")}
+    files = {".".join(path.relative_to(backend).with_suffix("").parts): path for path in _tracked(backend / "tests")}
     withheld = {module for module, path in files.items() if _withheld(str(path.relative_to(REPO_ROOT)))}
     reading = []
     for module, path in sorted(files.items()):
@@ -1331,7 +1365,7 @@ def test_no_test_a_project_receives_names_a_tree_it_does_not_get():
     """
     trees = [entry for entry in _catalog()["blueprint"]["blueprint_only"] if entry.endswith("/")]
     reaching = {}
-    for module in sorted((REPO_ROOT / "backend" / "tests").rglob("*.py")):
+    for module in _tracked(REPO_ROOT / "backend" / "tests"):
         relative = module.relative_to(REPO_ROOT).as_posix()
         if _withheld(relative):
             continue
@@ -2178,7 +2212,7 @@ NEARBY_LINES = 2
 """How far from a mention of the panel the flag may be and still be read as part of the same claim."""
 
 
-@pytest.mark.parametrize("page", sorted(path.name for path in FIRST_RUN.glob("*.md")))
+@pytest.mark.parametrize("page", [path.name for path in _tracked(FIRST_RUN, "*.md", recursive=False)])
 def test_no_first_run_page_offers_the_admin_panel_without_saying_what_turns_it_on(page: str):
     """A new reader follows these pages in order, and `/admin` answers 404 until the flag is set
     and both credentials are there. A page that lists it among the things that now work sends
@@ -2553,7 +2587,7 @@ def test_every_generators_templates_are_a_directory_this_repo_has(name: str):
     templates = REPO_ROOT / generator["templates"]
 
     assert templates.is_dir()
-    assert any(child.is_dir() for child in templates.iterdir())
+    assert any(path.parent != templates for path in _tracked(templates, "*"))
 
 
 @pytest.mark.parametrize(
@@ -2598,7 +2632,7 @@ def test_every_param_the_templates_read_is_a_param_the_catalog_declares():
     """Both ways: an undeclared param is a StrictUndefined crash, a declared one nothing reads is dead."""
     generator = _catalog()["generators"]["deploy"]
     templates = REPO_ROOT / generator["templates"]
-    read = {name for template in templates.rglob("*.j2") for name in re.findall(r"params\.([a-z_]+)", template.read_text())}
+    read = {name for template in _tracked(templates, "*.j2") for name in re.findall(r"params\.([a-z_]+)", template.read_text())}
 
     assert read == set(generator["params"])
 
@@ -2703,7 +2737,7 @@ def test_the_feature_commands_are_every_feature_owned_script_a_project_could_run
     directory = REPO_ROOT / python_root / "scripts"
     runnable = {
         f"{python_root}/scripts/{script.name}"
-        for script in sorted(directory.glob("*.py"))
+        for script in _tracked(directory, recursive=False)
         if _under(f"{python_root}/scripts/{script.name}", _owned_paths()) and '__name__ == "__main__"' in script.read_text()
     }
 
@@ -2778,11 +2812,10 @@ def test_no_tracked_file_calls_the_blueprint_by_its_retired_name():
     capitalised tool name, standing alone, names nothing. A wordmark that sets AI in its own
     `<tspan>` straight after it still spells FastroAI."""
     alone = re.compile(rf"\b{RETIRED_NAME}\b(?!<tspan[^>]*>AI</tspan>)")
-    tracked = subprocess.run(["git", "ls-files", "-z"], cwd=REPO_ROOT, capture_output=True, text=True, check=True)
     found = []
     carrying = set()
-    for name in filter(None, tracked.stdout.split("\0")):
-        path = REPO_ROOT / name
+    for path in _tracked_files():
+        name = path.relative_to(REPO_ROOT).as_posix()
         if not path.is_file():
             continue
         try:
