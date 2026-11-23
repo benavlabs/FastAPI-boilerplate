@@ -12,6 +12,12 @@ ___
 
 #### Changed
 
+- **`fastro make deploy` runs the service a choice brings.** With `cache.backend=memcached` each
+  stack has a `memcached` service, and with `taskiq.broker=rabbitmq` a `rabbitmq` one, where
+  before the catalog named them and no compose file had them. The app containers are pointed at
+  the service and wait on its healthcheck. RabbitMQ starts with the user, password and vhost
+  `backend/.env` gives the app, and keeps its queues in a `rabbitmq-data` volume. The Docker page
+  lists both services instead of a block to paste in.
 - **A project on Redis has no Memcached settings in its `.env.example`.** The `CACHE_MEMCACHED_*`
   lines moved into a section of their own that only `cache.backend=memcached` keeps, and the
   comment above `CACHE_BACKEND` says Redis is always there and Memcached comes with that choice,

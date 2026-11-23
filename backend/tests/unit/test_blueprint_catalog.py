@@ -2339,13 +2339,14 @@ def test_the_memcached_settings_are_kept_only_where_memcached_is_chosen():
 def test_every_page_that_sets_memcached_names_the_choice_that_brings_it():
     """A page setting `CACHE_BACKEND=memcached` is speaking to a project generated with
     `cache.backend=memcached`, and has to say so, or a reader on Redis follows it to a refusal."""
+    pages = [page for page in _tracked(REPO_ROOT / "docs", "*.md") if page.name != "changelog.md"]
     setting = [
         page.relative_to(REPO_ROOT).as_posix()
-        for page in _tracked(REPO_ROOT / "docs", "*.md")
-        if page.name != "changelog.md" and re.search(r"^\s*CACHE_BACKEND=memcached\b", page.read_text(), re.M)
+        for page in pages
+        if re.search(r"^\s*CACHE_BACKEND=memcached\b", page.read_text(), re.M)
     ]
 
-    assert setting
+    assert pages
     assert [page for page in setting if "`cache.backend=memcached`" not in (REPO_ROOT / page).read_text()] == []
 
 

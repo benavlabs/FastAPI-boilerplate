@@ -73,7 +73,9 @@ services:
 `worker` is the same image running `taskiq worker infrastructure.taskiq.worker:default_broker
 --reload`; `postgres` and `redis` carry healthchecks that the other two wait on, and keep their
 data in the named volumes `postgres-data` and `redis-data`. `--api-port` moves the published port,
-and `--dry-run` prints the file without writing it.
+and `--dry-run` prints the file without writing it. A choice that needs a service of its own adds
+it, in all three stacks: `memcached` with `cache.backend=memcached` and `rabbitmq` with
+`taskiq.broker=rabbitmq` (see the [Service Reference](#service-reference)).
 
 ### Matching `.env` for Compose
 
@@ -112,6 +114,22 @@ it with `docker compose up --scale worker=3`.
 ### `redis` — Redis 7
 
 Used for cache (`CACHE_REDIS_DB=0`), rate limiting (`RATE_LIMITER_REDIS_DB=1`), sessions (`SESSION_REDIS_DB=2`), and the Taskiq broker (`TASKIQ_REDIS_DB=3`). The boilerplate uses different DB numbers so they don't interfere.
+
+### `memcached`: Memcached 1.6
+
+Only in a project generated with `cache.backend=memcached`. `memcached:1.6-alpine`, with a
+healthcheck the app containers wait on; the file sets `CACHE_MEMCACHED_HOST=memcached` on each of
+them. The rate limiter is always Redis-backed, so it still needs the `redis` service.
+
+### `rabbitmq`: RabbitMQ 4
+
+Only in a project generated with `taskiq.broker=rabbitmq`. `rabbitmq:4-alpine`, started with the
+user, password and vhost that `TASKIQ_RABBITMQ_USER`, `TASKIQ_RABBITMQ_PASSWORD` and
+`TASKIQ_RABBITMQ_VHOST` set in `backend/.env`, so the app logs in as the user the broker creates.
+The file sets `TASKIQ_RABBITMQ_HOST=rabbitmq` on the app containers, which wait on its healthcheck,
+and keeps the queues in the named volume `rabbitmq-data`. The image creates that user only when
+`rabbitmq-data` is empty: after changing them in `backend/.env`, change the user with `rabbitmqctl`
+inside the container, or start over with `docker compose down -v`, which deletes the queued tasks.
 
 ## Optional Services
 
@@ -183,47 +201,6 @@ If you want a web UI for the database, add:
 ```
 
 Visit <http://localhost:5050>, log in, and add a server with hostname `postgres`, port `5432`, user `postgres` (or whatever you set in `backend/.env`).
-
-### Memcached (alternative cache backend)
-
-In a project generated with `cache.backend=memcached`, the one that has the Memcached backend
-(a project on Redis has nothing to switch to), add the service:
-
-```yaml
-  memcached:
-    image: memcached:1.6-alpine
-    ports:
-      - "11211:11211"
-```
-
-And in `.env`:
-
-```env
-CACHE_BACKEND=memcached
-CACHE_MEMCACHED_HOST=memcached
-```
-
-The rate limiter is always Redis-backed, so it still needs the `redis` service.
-
-### RabbitMQ (alternative Taskiq broker)
-
-```yaml
-  rabbitmq:
-    image: rabbitmq:3.13-management-alpine
-    environment:
-      RABBITMQ_DEFAULT_USER: ${TASKIQ_RABBITMQ_USER:-guest}
-      RABBITMQ_DEFAULT_PASS: ${TASKIQ_RABBITMQ_PASSWORD:-guest}
-    ports:
-      - "5672:5672"
-      - "15672:15672"   # management UI
-```
-
-In `.env`:
-
-```env
-TASKIQ_BROKER_TYPE=rabbitmq
-TASKIQ_RABBITMQ_HOST=rabbitmq
-```
 
 ## Common Commands
 

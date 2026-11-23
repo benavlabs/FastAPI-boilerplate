@@ -37,6 +37,12 @@ services:
       CACHE_REDIS_HOST: redis
       RATE_LIMITER_REDIS_HOST: redis
       TASKIQ_REDIS_HOST: redis
+{%- if "memcached" in services %}
+      CACHE_MEMCACHED_HOST: memcached
+{%- endif %}
+{%- if "rabbitmq" in services %}
+      TASKIQ_RABBITMQ_HOST: rabbitmq
+{%- endif %}
       TRUSTED_PROXY_HOPS: "1"
       FORWARDED_ALLOW_IPS: "{{ params.internal_subnet }}"
       WORKERS: "{{ params.workers }}"
@@ -47,6 +53,14 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+{%- if "memcached" in services %}
+      memcached:
+        condition: service_healthy
+{%- endif %}
+{%- if "rabbitmq" in services %}
+      rabbitmq:
+        condition: service_healthy
+{%- endif %}
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/ready').read()"]
       interval: 15s
@@ -67,6 +81,12 @@ services:
       CACHE_REDIS_HOST: redis
       RATE_LIMITER_REDIS_HOST: redis
       TASKIQ_REDIS_HOST: redis
+{%- if "memcached" in services %}
+      CACHE_MEMCACHED_HOST: memcached
+{%- endif %}
+{%- if "rabbitmq" in services %}
+      TASKIQ_RABBITMQ_HOST: rabbitmq
+{%- endif %}
     working_dir: /app/src
     command: taskiq worker src.infrastructure.taskiq.worker:default_broker --workers 2
     depends_on:
@@ -74,6 +94,14 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+{%- if "memcached" in services %}
+      memcached:
+        condition: service_healthy
+{%- endif %}
+{%- if "rabbitmq" in services %}
+      rabbitmq:
+        condition: service_healthy
+{%- endif %}
     restart: unless-stopped
 {% endif %}
 {%- if "scheduler" in services %}
@@ -90,6 +118,12 @@ services:
       CACHE_REDIS_HOST: redis
       RATE_LIMITER_REDIS_HOST: redis
       TASKIQ_REDIS_HOST: redis
+{%- if "memcached" in services %}
+      CACHE_MEMCACHED_HOST: memcached
+{%- endif %}
+{%- if "rabbitmq" in services %}
+      TASKIQ_RABBITMQ_HOST: rabbitmq
+{%- endif %}
     working_dir: /app/src
     command: taskiq scheduler src.infrastructure.taskiq.scheduler:scheduler
     depends_on:
@@ -97,6 +131,48 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+{%- if "memcached" in services %}
+      memcached:
+        condition: service_healthy
+{%- endif %}
+{%- if "rabbitmq" in services %}
+      rabbitmq:
+        condition: service_healthy
+{%- endif %}
+    restart: unless-stopped
+{% endif %}
+{%- if "memcached" in services %}
+  memcached:
+    image: memcached:1.6-alpine
+    healthcheck:
+      test: ["CMD-SHELL", "echo stats | nc -w 1 127.0.0.1 11211 | grep -q uptime"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+{% endif %}
+{%- if "rabbitmq" in services %}
+  rabbitmq:
+    image: rabbitmq:4-alpine
+    hostname: rabbitmq
+    env_file:
+      - ./backend/.env
+    entrypoint:
+      - sh
+      - -c
+      - >-
+        RABBITMQ_DEFAULT_USER="$${TASKIQ_RABBITMQ_USER:-guest}"
+        RABBITMQ_DEFAULT_PASS="$${TASKIQ_RABBITMQ_PASSWORD:-guest}"
+        RABBITMQ_DEFAULT_VHOST="$${TASKIQ_RABBITMQ_VHOST:-/}"
+        exec docker-entrypoint.sh rabbitmq-server
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
     restart: unless-stopped
 {% endif %}
   nginx:
@@ -137,6 +213,9 @@ services:
 volumes:
   postgres-data:
   redis-data:
+{%- if "rabbitmq" in services %}
+  rabbitmq-data:
+{%- endif %}
 
 # The API trusts forwarded headers only from this range, so a client can neither
 # claim another address nor say the request arrived over HTTPS. Change both this
