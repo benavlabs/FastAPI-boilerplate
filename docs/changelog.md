@@ -116,6 +116,12 @@ ___
 
 #### Fixed
 
+- **The docs give the rate limiter the backends it has.** Its counters live on `redis`, `database`
+  or `memory`, whatever `RATE_LIMITER_BACKEND` names. The Sessions page no longer says Memcached
+  remains available for it; the Rate Limiting page, the user guide index, the getting-started
+  overview, the Docker page and the production example no longer make it Redis's alone; the
+  production example sets a backend production accepts; and the getting-started configuration
+  lists `database` beside `memory`.
 - **A project with the cache feature and without accounts imports.** The cache used to import the
   accounts feature's scope fingerprint to key a scoped credential apart from its account. Accounts
   now contributes it through `SCOPE_FINGERPRINT` in the generated `src/wiring/scope.py`, which is

@@ -110,7 +110,8 @@ You now have a working FastAPI app with:
 
 - REST API with automatic OpenAPI docs
 - PostgreSQL database with Alembic migrations
-- Redis-backed cache and rate limiting
+- Redis-backed cache
+- Rate limiting per tier and path
 - Session-based authentication with optional OAuth (Google, GitHub)
 - API keys with per-key permissions
 - SQLAdmin admin interface at `/admin`, off until you set `ADMIN_ENABLED=true`

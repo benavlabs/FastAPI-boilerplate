@@ -2365,6 +2365,94 @@ def test_no_page_offers_the_other_cache_backend_as_a_setting():
     assert offered == []
 
 
+RATE_LIMITER_PAGE = REPO_ROOT / "docs" / "user-guide" / "rate-limiting" / "index.md"
+
+NAMES_THE_LIMITER = re.compile(r"\brate[- ]limit|\blimiter\b", re.I)
+
+PRODUCTION_PAGE = REPO_ROOT / "docs" / "user-guide" / "production.md"
+
+REDIS_ALONE = re.compile(
+    r"redis[- ](?:backed|based|only)|backed by redis|always redis|only redis|redis alone"
+    r"|\bredis (?:rate[- ]limit|limiter)|\b(?:limit\w*|limiter|count\w*) (?:in|on) redis\b",
+    re.I,
+)
+"""The ways a line says Redis is the store, where the limiter's is whichever ``RATE_LIMITER_BACKEND`` names."""
+
+
+def _limiter_backends() -> set[str]:
+    """The values ``RATE_LIMITER_BACKEND`` takes."""
+    return {backend.value for backend in importlib.import_module("src.infrastructure.config.enums").RateLimiterBackend}
+
+
+def _doc_lines() -> list[tuple[str, str]]:
+    """Each line of every page but the changelog, with where it is."""
+    return [
+        (f"{page.relative_to(REPO_ROOT)}:{number}", line)
+        for page in _tracked(REPO_ROOT / "docs", "*.md")
+        if page.name != "changelog.md"
+        for number, line in enumerate(page.read_text().splitlines(), 1)
+    ]
+
+
+def _backends_named(text: str) -> set[str]:
+    """The limiter backends, Memcached among them, that ``text`` names outside the words saying Memcached's went."""
+    kept = re.sub(r"memcached (?:backend|limiter)s? (?:was|were)(?: both)? removed", "", text, flags=re.I)
+    return {word for word in re.findall(r"[a-z]+", kept.lower()) if word in _limiter_backends() | {"memcached"}}
+
+
+def test_every_limiter_backend_a_page_sets_is_one_the_code_has():
+    setting = [(where, value) for where, line in _doc_lines() for value in re.findall(r"RATE_LIMITER_BACKEND=(\w+)", line)]
+
+    assert setting
+    assert [(where, value) for where, value in setting if value not in _limiter_backends()] == []
+
+
+def test_a_page_that_offers_the_limiter_backends_offers_each_one_the_code_has():
+    """A list that leaves one out hides it from the reader choosing, and one with Memcached in it sends
+    them to a refusal at startup. The rate limiting page lists them in the first sentence above the
+    setting."""
+    offering = [
+        (where, line)
+        for where, line in _doc_lines()
+        if (commented := re.search(r"RATE_LIMITER_BACKEND=(\w+)\s+#(.*)", line))
+        and len(_backends_named(commented[2]) | {commented[1]}) > 1
+    ]
+    explained = re.search(r"((?:^#.*\n)+)RATE_LIMITER_BACKEND=", RATE_LIMITER_PAGE.read_text(), re.M)
+
+    assert offering
+    assert explained is not None
+    listing = re.split(r"(?<=\.)\s", " ".join(line.lstrip("# ") for line in explained[1].splitlines()))[0]
+    assert _backends_named(listing) == _limiter_backends()
+    assert [(where, line) for where, line in offering if _backends_named(line) != _limiter_backends()] == []
+
+
+def test_no_page_gives_the_limiter_a_backend_it_does_not_have():
+    """The counters live where ``RATE_LIMITER_BACKEND`` says, so the limiter is not Redis's alone, and
+    never in Memcached, whose limiter was removed."""
+    claiming = [
+        f"{where}: {line.strip()}"
+        for where, line in _doc_lines()
+        if NAMES_THE_LIMITER.search(line) and ("memcached" in _backends_named(line) or REDIS_ALONE.search(line))
+    ]
+
+    assert claiming == []
+
+
+def test_the_production_example_counts_where_the_production_check_lets_it():
+    """The example is what a reader copies into production, where the validator refuses a limiter
+    counting in the process; the backends its comment calls refused are the ones the validator refuses."""
+    validator = importlib.import_module("src.infrastructure.security.production_validator").ProductionSecurityValidator
+    line = re.search(r"^RATE_LIMITER_BACKEND=(\w+)\s+#(.*)$", PRODUCTION_PAGE.read_text(), re.M)
+
+    def refused(backend: str) -> bool:
+        return bool(validator(type("Settings", (), {"RATE_LIMITER_BACKEND": backend})())._counts_rate_limits_in_the_process())
+
+    assert line is not None
+    said_refused = _backends_named(next(clause for clause in line[2].split(";") if "refused" in clause))
+    assert not refused(line[1])
+    assert said_refused == {backend for backend in _limiter_backends() if refused(backend)}
+
+
 ADMIN_GUIDE = REPO_ROOT / "docs" / "user-guide" / "admin-panel" / "configuration.md"
 
 QUOTED_EXAMPLE = "The default `.env.example`"

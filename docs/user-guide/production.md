@@ -88,8 +88,9 @@ CSRF_ENABLED=true
 TRUSTED_PROXY_HOPS=1                    # set to the number of proxies in front of the app
 FORWARDED_ALLOW_IPS=<proxy-subnet>     # which peers uvicorn takes forwarded headers from
 
-# Rate limiting (Redis-backed, provided by crudauth)
+# Rate limiting (provided by crudauth)
 RATE_LIMITER_ENABLED=true
+RATE_LIMITER_BACKEND=redis              # or database; memory is refused in production
 RATE_LIMITER_REDIS_HOST=<redis-host>
 RATE_LIMITER_REDIS_PASSWORD=<redis-password>
 

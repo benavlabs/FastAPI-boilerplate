@@ -385,7 +385,7 @@ Sessions are stored server-side. Configure via `SESSION_BACKEND`:
 | `redis` *(default)* | Production. Supports key expiration, pattern scans for cleanup, persists across restarts |
 | `memory` | Tests only. Cleared on restart, not safe for multi-process deploys |
 
-The backends ship inside the `crudauth` library, not the boilerplate — `setup.py` just selects `redis`, `database` or `memory` based on `SESSION_BACKEND`, and a value it has no store for is refused when the app starts. (Memcached is no longer a session option; it remains available for the general cache and rate limiter.)
+The backends ship inside the `crudauth` library, not the boilerplate — `setup.py` just selects `redis`, `database` or `memory` based on `SESSION_BACKEND`, and a value it has no store for is refused when the app starts. (The session store's and the rate limiter's Memcached backends were both removed; [Rate Limiting](../rate-limiting/index.md#configuration) says where its counters live.)
 
 `database` keeps sessions, CSRF tokens, the one-time tokens behind the email flows and the OAuth
 state in two tables of this project's own database — `crudauth_store` and `crudauth_counters` —

@@ -1,7 +1,8 @@
 # Rate Limiting
 
-The boilerplate ships crudauth's rate limiter with per-tier, per-path limits backed by Redis. API
-routes are protected by default; authenticated requests key by user ID and anonymous requests by
+The boilerplate ships crudauth's rate limiter with per-tier, per-path limits, counted on the
+backend `RATE_LIMITER_BACKEND` names (see [Configuration](#configuration)). API routes are
+protected by default; authenticated requests key by user ID and anonymous requests by
 trusted-proxy-aware client IP.
 
 Two features carry this: `ratelimit` is the throttle itself, and `tier_limits` adds the per-tier rules

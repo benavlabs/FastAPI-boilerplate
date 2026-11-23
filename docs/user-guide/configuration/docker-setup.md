@@ -119,7 +119,8 @@ Used for cache (`CACHE_REDIS_DB=0`), rate limiting (`RATE_LIMITER_REDIS_DB=1`), 
 
 Only in a project generated with `cache.backend=memcached`. `memcached:1.6-alpine`, with a
 healthcheck the app containers wait on; the file sets `CACHE_MEMCACHED_HOST=memcached` on each of
-them. The rate limiter is always Redis-backed, so it still needs the `redis` service.
+them. It holds the cache alone: the rate limiter's Memcached backend was removed, and
+[Rate Limiting](../rate-limiting/index.md#configuration) says where its counters live.
 
 ### `rabbitmq`: RabbitMQ 4
 
