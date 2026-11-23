@@ -123,7 +123,7 @@ Login lockout is applied internally by `crudauth` (escalating per-IP / per-ident
 
 ```env
 CACHE_ENABLED=true
-CACHE_BACKEND=redis           # or "memcached"
+CACHE_BACKEND=redis           # the cache.backend the project was generated with
 CACHE_REDIS_HOST=localhost    # use "redis" with Docker Compose
 CACHE_REDIS_PORT=6379
 CACHE_REDIS_DB=0

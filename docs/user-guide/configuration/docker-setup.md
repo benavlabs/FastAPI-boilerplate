@@ -186,7 +186,8 @@ Visit <http://localhost:5050>, log in, and add a server with hostname `postgres`
 
 ### Memcached (alternative cache backend)
 
-If you prefer Memcached over Redis:
+In a project generated with `cache.backend=memcached`, the one that has the Memcached backend
+(a project on Redis has nothing to switch to), add the service:
 
 ```yaml
   memcached:

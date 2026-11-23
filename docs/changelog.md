@@ -12,6 +12,10 @@ ___
 
 #### Changed
 
+- **A project on Redis has no Memcached settings in its `.env.example`.** The `CACHE_MEMCACHED_*`
+  lines moved into a section of their own that only `cache.backend=memcached` keeps, and the
+  comment above `CACHE_BACKEND` says Redis is always there and Memcached comes with that choice,
+  so only a project on Redis can't switch. The docs stop offering Memcached to every project.
 - **A project on Redis no longer ships the Memcached backend.** `cache/backends/memcached.py` and
   its test come with `cache.backend=memcached`, the choice that installs `aiomcache`, so a project
   on the default `redis` choice imports every module it has. `initialize_cache` loads the

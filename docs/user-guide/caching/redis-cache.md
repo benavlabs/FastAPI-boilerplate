@@ -2,7 +2,10 @@
 
 Server-side caching stores responses keyed by request shape so subsequent identical requests skip the database. This page covers the `@cache` decorator and the provider API.
 
-The same code works against Redis or Memcached — pick via `CACHE_BACKEND`. The "Redis" label on this page is historical; everything below works for both backends unless explicitly called out.
+The same code works against Redis or Memcached. Every project has the Redis backend, and one
+generated with `cache.backend=memcached` has the Memcached backend too; `CACHE_BACKEND` names the
+one in use (see [Picking a Backend](index.md#picking-a-backend)). The "Redis" label on this page is historical;
+everything below works for both backends unless explicitly called out.
 
 ## The `@cache` Decorator
 
@@ -282,7 +285,7 @@ Pick prefixes that:
 
 ```env
 CACHE_ENABLED=true
-CACHE_BACKEND=redis              # or "memcached"
+CACHE_BACKEND=redis              # the cache.backend the project was generated with
 
 # Redis backend
 CACHE_REDIS_HOST=redis           # use "localhost" without Docker
@@ -369,7 +372,7 @@ You're keying by resource ID without including the user. See "Don't Cache Person
 | Decorator | `backend/src/infrastructure/cache/decorator.py` |
 | Provider API | `backend/src/infrastructure/cache/provider.py` |
 | Redis backend | `backend/src/infrastructure/cache/backends/redis.py` |
-| Memcached backend | `backend/src/infrastructure/cache/backends/memcached.py` |
+| Memcached backend | `backend/src/infrastructure/cache/backends/memcached.py`, in a project generated with `cache.backend=memcached` |
 | Settings | `backend/src/infrastructure/cache/settings.py` (`CacheSettings`) |
 
 ## Next Steps

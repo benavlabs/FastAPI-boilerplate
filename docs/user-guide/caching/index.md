@@ -73,7 +73,7 @@ When the cache hits, the handler doesn't run at all — the cached value is retu
 
 ```env
 CACHE_ENABLED=true
-CACHE_BACKEND=redis           # or "memcached"
+CACHE_BACKEND=redis           # the cache.backend the project was generated with
 
 # Redis backend
 CACHE_REDIS_HOST=redis        # use "localhost" without Docker
@@ -82,7 +82,7 @@ CACHE_REDIS_DB=0
 CACHE_REDIS_PASSWORD=
 CACHE_REDIS_POOL_SIZE=10
 
-# Memcached backend (only when CACHE_BACKEND=memcached)
+# Memcached backend (only in a project generated with cache.backend=memcached)
 CACHE_MEMCACHED_HOST=localhost
 CACHE_MEMCACHED_PORT=11211
 CACHE_MEMCACHED_POOL_SIZE=10

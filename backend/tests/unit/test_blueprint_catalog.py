@@ -2201,10 +2201,15 @@ def _common_owners_of(title: str) -> set[str]:
     return set.intersection(*(set(_owner_of(variable)) for variable in variables)) if variables else {"core"}
 
 
-def _marked_feature(title: str) -> str:
+def _marked_condition(title: str) -> str:
     marker = next(found for name, found, _ in _env_sections() if name == title)
 
     return marker.removeprefix("# @fastro if=") if marker else "core"
+
+
+def _marked_feature(title: str) -> str:
+    """The feature a section's marker names: the condition itself, or an option atom's feature."""
+    return _marked_condition(title).split(".")[0]
 
 
 @pytest.mark.parametrize("title", [title for title, _, _ in _env_sections()])
@@ -2231,7 +2236,7 @@ def test_every_section_a_feature_owns_says_which_feature_keeps_it(title: str):
         return
 
     assert marker is not None, sorted(common)
-    assert marker.removeprefix("# @fastro if=") in common - {"core"}
+    assert _marked_feature(title) in common - {"core"}
 
 
 @pytest.mark.parametrize("title", [title for title, _, _ in _env_sections()])
@@ -2312,7 +2317,51 @@ def test_no_marker_sits_anywhere_but_under_a_header():
     under_headers = [marker for _, marker, _ in _env_sections() if marker is not None]
 
     assert marked == under_headers
-    assert all(_true(marker.removeprefix("# @fastro if="), set(_catalog()["features"])) for marker in marked)
+    for marker in marked:
+        condition = marker.removeprefix("# @fastro if=")
+        choosing = set(re.findall(r"[^\s()]+=[^\s()]+", condition))
+        for atom in choosing:
+            feature, _, rest = atom.partition(".")
+            option, _, value = rest.partition("=")
+            assert value in _catalog()["features"][feature]["options"][option]["choices"], atom
+        assert _true(condition, set(_catalog()["features"]) | choosing), condition
+
+
+def test_the_memcached_settings_are_kept_only_where_memcached_is_chosen():
+    """A project on Redis has no Memcached backend to point anywhere, so its example names none."""
+    memcached = {name for name in _settings_fields() if name.startswith("CACHE_MEMCACHED_")}
+    holding = [(title, marker, set(variables)) for title, marker, variables in _env_sections() if memcached & set(variables)]
+
+    assert memcached
+    assert [(marker, variables) for _, marker, variables in holding] == [("# @fastro if=cache.backend=memcached", memcached)]
+
+
+def test_every_page_that_sets_memcached_names_the_choice_that_brings_it():
+    """A page setting `CACHE_BACKEND=memcached` is speaking to a project generated with
+    `cache.backend=memcached`, and has to say so, or a reader on Redis follows it to a refusal."""
+    setting = [
+        page.relative_to(REPO_ROOT).as_posix()
+        for page in _tracked(REPO_ROOT / "docs", "*.md")
+        if page.name != "changelog.md" and re.search(r"^\s*CACHE_BACKEND=memcached\b", page.read_text(), re.M)
+    ]
+
+    assert setting
+    assert [page for page in setting if "`cache.backend=memcached`" not in (REPO_ROOT / page).read_text()] == []
+
+
+def test_no_page_offers_the_other_cache_backend_as_a_setting():
+    """Every project has Redis, and only one generated with `cache.backend=memcached` has
+    Memcached, so a page that offers a backend as the alternative value of `CACHE_BACKEND` sends a
+    reader on Redis to a backend that isn't there."""
+    offered = [
+        f"{page.relative_to(REPO_ROOT)}: {line.strip()}"
+        for page in _tracked(REPO_ROOT / "docs", "*.md")
+        if page.name != "changelog.md"
+        for line in page.read_text().splitlines()
+        if re.match(r"^\s*CACHE_BACKEND=\w+.*#.*\b(?:redis|memcached)\b", line)
+    ]
+
+    assert offered == []
 
 
 ADMIN_GUIDE = REPO_ROOT / "docs" / "user-guide" / "admin-panel" / "configuration.md"

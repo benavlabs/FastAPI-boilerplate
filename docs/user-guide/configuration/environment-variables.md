@@ -53,7 +53,7 @@ The URL must use the `postgresql+asyncpg://` prefix, and query parameters are pa
 
 ```env
 CACHE_ENABLED=true
-CACHE_BACKEND=redis           # or "memcached"
+CACHE_BACKEND=redis           # the cache.backend the project was generated with
 
 # Client-side cache (Cache-Control headers)
 CLIENT_CACHE_ENABLED=true
@@ -72,6 +72,9 @@ CACHE_REDIS_POOL_SIZE=10
 ```
 
 ### Memcached backend
+
+In a project generated with `cache.backend=memcached`, whose `.env.example` is the only one that
+has them:
 
 ```env
 CACHE_MEMCACHED_HOST=localhost
