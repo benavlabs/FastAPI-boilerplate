@@ -5,11 +5,9 @@ Every needle is assembled from pieces, so the files that hold them never match t
 """
 
 import re
-import subprocess
 from collections.abc import Iterator
-from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+from tracked import REPO_ROOT, tracked_names
 
 OLD_COMMAND = "b" + "p"
 
@@ -35,15 +33,8 @@ NAMES_OLD_DRILL = re.compile(rf"{OLD_DRILL}|\b{OLD_COMMAND}-and-fastro\b")
 
 
 def tracked_text() -> Iterator[tuple[str, str]]:
-    """Every file git tracks or would add, that reads as UTF-8, by its path from the root, with its text."""
-    listed = subprocess.run(
-        ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
-        cwd=REPO_ROOT,
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    for name in filter(None, listed.stdout.split("\0")):
+    """Every file git tracks and still has, that reads as UTF-8, by its path from the root, with its text."""
+    for name in sorted(tracked_names()):
         path = REPO_ROOT / name
         if not path.is_file():
             continue

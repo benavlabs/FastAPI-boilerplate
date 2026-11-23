@@ -13,6 +13,7 @@ from typing import Any
 import pytest
 import yaml
 from jinja2 import Environment, FileSystemLoader, StrictUndefined, meta
+from tracked import is_tracked_dir, tracked_names, tracked_under
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -55,7 +56,7 @@ def _context(features: tuple[str, ...] = (), **options: str) -> dict[str, Any]:
 
 
 def _files() -> list[Path]:
-    return sorted(path for path in OVERLAY.rglob("*") if path.is_file())
+    return tracked_under(OVERLAY)
 
 
 def _declared_commands() -> set[str]:
@@ -80,11 +81,7 @@ def _received() -> set[str]:
     has the file yet."""
     written = {entry["path"] for entry in CATALOG["wiring"]}
 
-    return written | {
-        path.relative_to(REPO_ROOT).as_posix()
-        for path in REPO_ROOT.rglob("*")
-        if path.is_file() and not _withheld(path.relative_to(REPO_ROOT).as_posix())
-    }
+    return written | {name for name in tracked_names() if not _withheld(name)}
 
 
 def _withheld(path: str) -> bool:
@@ -95,7 +92,7 @@ def _withheld(path: str) -> bool:
 
 
 def test_the_overlay_is_where_the_catalog_says():
-    assert OVERLAY.is_dir()
+    assert is_tracked_dir(OVERLAY)
     assert _files(), OVERLAY
 
 

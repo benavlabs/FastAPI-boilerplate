@@ -20,6 +20,7 @@ import yaml
 from fastro.cli import app
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 from retired import OLD_COMMAND
+from tracked import is_tracked_dir, is_tracked_file
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PAGE = REPO_ROOT / "docs" / "user-guide" / "fastro.md"
@@ -368,7 +369,7 @@ def test_the_env_commands_run_the_scripts_the_page_names():
     for words in ("env secret", "env validate"):
         module = CATALOG["commands"][words]["module"]
         assert f"`{module}`" in section
-        assert (REPO_ROOT / "backend" / f"{module.replace('.', '/')}.py").is_file()
+        assert is_tracked_file(REPO_ROOT / "backend" / f"{module.replace('.', '/')}.py")
 
 
 @pytest.mark.parametrize(("found", "code"), [((["critical"], ["warning"]), 1), (([], ["warning"]), 0)])
@@ -401,7 +402,7 @@ def test_the_wiring_the_page_names_is_where_sync_writes():
     assert named
     paths = [wiring["path"] for wiring in CATALOG["wiring"]]
 
-    assert (REPO_ROOT / named[1]).is_dir()
+    assert is_tracked_dir(REPO_ROOT / named[1])
     assert 2 * sum(path.startswith(named[1]) for path in paths) > len(paths)
 
 

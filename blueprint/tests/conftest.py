@@ -5,28 +5,18 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
-
-REPO_ROOT = Path(__file__).resolve().parents[2]
+from tracked import REPO_ROOT, tracked_names
 
 FastroRunner = Callable[..., subprocess.CompletedProcess[str]]
 
 
 @pytest.fixture
 def tracked_tree(tmp_path: Path) -> Path:
-    """A copy of every file git tracks or would track, so a test can change it freely."""
+    """A copy of every file git tracks and still has, so a test can change it freely."""
     destination = tmp_path / "blueprint"
-    listed = subprocess.run(
-        ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
-        cwd=REPO_ROOT,
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout
-    for name in filter(None, listed.split("\0")):
-        source = REPO_ROOT / name
-        if source.is_file():
-            (destination / name).parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(source, destination / name)
+    for name in tracked_names():
+        (destination / name).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(REPO_ROOT / name, destination / name)
 
     return destination
 

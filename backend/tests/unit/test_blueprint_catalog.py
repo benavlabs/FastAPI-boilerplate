@@ -55,6 +55,19 @@ def _tracked(directory: Path, pattern: str = "*.py", *, recursive: bool = True) 
     ]
 
 
+def _is_tracked_file(path: Path) -> bool:
+    return path in _tracked_files()
+
+
+def _is_tracked_dir(path: Path) -> bool:
+    """Whether ``path`` holds a tracked file, which is what git, and fastro, call a directory."""
+    return any(file != path and file.is_relative_to(path) for file in _tracked_files())
+
+
+def _is_tracked(path: Path) -> bool:
+    return _is_tracked_file(path) or _is_tracked_dir(path)
+
+
 CATALOG = REPO_ROOT / "blueprint.toml"
 BACKEND_PYPROJECT = REPO_ROOT / "backend" / "pyproject.toml"
 
@@ -525,13 +538,13 @@ def test_every_blueprint_only_path_is_written_the_way_the_spec_reads_them(entry:
     """
     assert not entry.startswith("/")
     assert ".." not in Path(entry).parts
-    assert entry.endswith("/") == (REPO_ROOT / entry).is_dir()
+    assert entry.endswith("/") == _is_tracked_dir(REPO_ROOT / entry)
 
 
 @pytest.mark.parametrize("entry", sorted(_catalog()["blueprint"]["blueprint_only"]))
 def test_every_blueprint_only_path_is_one_this_repo_has(entry: str):
     """A path that no longer exists keeps a file out of projects that nobody meant to keep out."""
-    assert (REPO_ROOT / entry).exists()
+    assert _is_tracked(REPO_ROOT / entry)
 
 
 def _withheld(path: str) -> bool:
@@ -1464,7 +1477,7 @@ def _bindings(source: str) -> set[tuple[str, str, str]]:
 def _defines(module: str, attribute: str) -> bool:
     """Whether ``module`` defines ``attribute`` at its top level, read without importing."""
     path = REPO_ROOT / "backend" / Path(*module.split(".")).with_suffix(".py")
-    if not path.exists():
+    if not _is_tracked_file(path):
         return False
 
     tree = ast.parse(path.read_text())
@@ -1684,18 +1697,18 @@ def test_every_feature_path_is_one_this_repo_has(entry: str):
     """A path that no longer exists leaves a file in projects that nobody meant to keep."""
     assert not entry.startswith("/")
     assert ".." not in Path(entry).parts
-    assert (REPO_ROOT / entry).exists()
+    assert _is_tracked(REPO_ROOT / entry)
 
 
 @pytest.mark.parametrize("name", sorted(_catalog()["features"]))
 def test_a_directory_is_spelled_as_a_subtree_and_a_file_is_not(name: str):
     """Spec 1.1: `src/modules/user` without the slash would name one file nobody has."""
     for path in _catalog()["features"][name].get("paths", ()):
-        assert path.endswith("/") == (REPO_ROOT / path).is_dir(), path
+        assert path.endswith("/") == _is_tracked_dir(REPO_ROOT / path), path
 
     for block in _catalog()["features"][name].get("when", ()):
         for path in block.get("paths", ()):
-            assert path.endswith("/") == (REPO_ROOT / path).is_dir(), path
+            assert path.endswith("/") == _is_tracked_dir(REPO_ROOT / path), path
 
 
 def test_no_path_is_declared_twice():
@@ -1722,7 +1735,7 @@ def test_the_app_the_verification_imports_is_this_project_s_own():
     path = REPO_ROOT / blueprint["python_root"] / Path(*module.split(".")).with_suffix(".py")
 
     assert module.split(".")[0] == blueprint["import_root"]
-    assert path.is_file(), module
+    assert _is_tracked_file(path), module
     assert _defines(module, "app"), "the check imports the module for its app"
 
 
@@ -2290,7 +2303,7 @@ def test_every_wiring_file_is_under_the_python_root_and_is_a_file(path: str):
 
     assert path.startswith(blueprint["python_root"] + "/")
     assert not path.endswith("/")
-    assert (REPO_ROOT / path).is_file()
+    assert _is_tracked_file(REPO_ROOT / path)
 
 
 @pytest.mark.parametrize(
@@ -2586,7 +2599,7 @@ def test_every_generators_templates_are_a_directory_this_repo_has(name: str):
     generator = _catalog()["generators"][name]
     templates = REPO_ROOT / generator["templates"]
 
-    assert templates.is_dir()
+    assert _is_tracked_dir(templates)
     assert any(path.parent != templates for path in _tracked(templates, "*"))
 
 
@@ -2690,7 +2703,7 @@ def test_every_command_runs_a_module_this_repo_can_run(words: str, command: dict
     """It is run as `python -m <module>`, which needs the entry point that makes that work."""
     path = REPO_ROOT / _catalog()["blueprint"]["python_root"] / Path(*command["module"].split(".")).with_suffix(".py")
 
-    assert path.is_file(), words
+    assert _is_tracked_file(path), words
     assert '__name__ == "__main__"' in path.read_text()
 
 

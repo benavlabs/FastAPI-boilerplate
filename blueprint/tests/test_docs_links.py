@@ -4,6 +4,7 @@ zensical builds with `toc` and no custom slugify, so a heading's id is Python-Ma
 slug of its text, or the `{#id}` it sets.
 """
 
+import os
 import re
 import tomllib
 import unicodedata
@@ -13,6 +14,7 @@ from typing import Any
 
 import pytest
 from retired import OLD_PACKAGE
+from tracked import is_tracked_file, tracked_under
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DOCS = REPO_ROOT / "docs"
@@ -22,7 +24,7 @@ LINK = re.compile(r"!?\[[^\]]*\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)")
 
 
 def _pages() -> list[Path]:
-    return sorted(DOCS.rglob("*.md"))
+    return tracked_under(DOCS, "*.md")
 
 
 def _outside_fences(text: str) -> Iterator[tuple[int, str]]:
@@ -70,7 +72,7 @@ def _resolved(where: str, target: str) -> tuple[Path, str]:
     page = DOCS / where.rsplit(":", 1)[0]
     path, _, anchor = target.partition("#")
 
-    return ((page.parent / path).resolve() if path else page), anchor
+    return (Path(os.path.normpath(page.parent / path)) if path else page), anchor
 
 
 def test_the_docs_link_to_one_another():
@@ -82,7 +84,7 @@ def test_the_docs_link_to_one_another():
 def test_every_relative_link_lands_on_a_file_and_a_heading(where: str, target: str):
     path, anchor = _resolved(where, target)
 
-    assert path.is_file(), (where, target)
+    assert is_tracked_file(path), (where, target)
     if anchor and path.suffix == ".md":
         assert anchor in _anchors(path), (where, target, sorted(_anchors(path)))
 
@@ -110,8 +112,8 @@ def test_every_redirect_leaves_a_page_that_is_gone_for_one_that_is_there():
 
     assert redirects == {f"{OLD_PACKAGE}/{page}.md": "user-guide/fastro.md" for page in ("index", "commands", "plugins")}
     for gone, there in redirects.items():
-        assert not (DOCS / gone).exists(), gone
-        assert (DOCS / there).is_file(), there
+        assert not is_tracked_file(DOCS / gone), gone
+        assert is_tracked_file(DOCS / there), there
 
 
 @pytest.mark.parametrize(
