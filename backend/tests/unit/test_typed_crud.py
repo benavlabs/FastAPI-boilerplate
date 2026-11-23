@@ -22,6 +22,9 @@ HISTORY = REPO_ROOT / "docs" / "changelog.md"
 FENCED_PYTHON = re.compile(r"^\s*```python\n(.*?)^\s*```", re.M | re.S)
 PUBLIC_CREATE = re.compile(r"^\s*(\w+) = (\w+Create)\(", re.M)
 CREATE_CALL = re.compile(r"\bcrud_\w+\.create\(")
+WRITE_CALL = re.compile(r"\bcrud_\w+\.(?:create|update)\(")
+DICT_OBJECT = re.compile(r"\bobject=(?:\{|dict\()")
+NAMED_OBJECT = re.compile(r"\bobject=(\w+)\b")
 
 WRONG_CALLS = """
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -183,10 +186,10 @@ def test_every_crud_file_the_docs_show_is_the_file_the_code_has():
         assert text == (SRC / module).read_text(), (page.name, module)
 
 
-def _create_arguments(block: str) -> list[str]:
-    """The argument text of each ``crud_*.create(...)`` call in ``block``, to its own closing paren."""
+def _call_arguments(block: str, calls: re.Pattern[str] = CREATE_CALL) -> list[str]:
+    """The argument text of each call ``calls`` finds in ``block``, to its own closing paren."""
     found = []
-    for call in CREATE_CALL.finditer(block):
+    for call in calls.finditer(block):
         depth, start = 1, call.end()
         for index in range(start, len(block)):
             depth += {"(": 1, ")": -1}.get(block[index], 0)
@@ -205,9 +208,31 @@ def test_no_example_hands_create_the_public_schema():
         for page in _tracked(REPO_ROOT / "docs", ".md")
         if page != HISTORY
         for block in FENCED_PYTHON.findall(page.read_text())
-        for arguments in _create_arguments(block)
+        for arguments in _call_arguments(block)
         if re.search(r"\bobject=\w+Create\(", arguments)
         or any(re.search(rf"\bobject={name}\b", arguments) for name, _ in PUBLIC_CREATE.findall(block))
+    ]
+
+    assert found == []
+
+
+def _names_a_dict(arguments: str, block: str) -> bool:
+    """Whether ``object=`` names a variable the block assigns a dict literal to."""
+    named = NAMED_OBJECT.search(arguments)
+
+    return named is not None and re.search(rf"^\s*{named[1]}\s*=\s*(?:\{{|dict\()", block, re.M) is not None
+
+
+def test_no_example_hands_create_or_update_a_dict():
+    """`create` calls `model_dump()` on what it is given, so a dict fails there at run time, and
+    mypy refuses it; `update` takes one, but an example shows the schema, which names its fields."""
+    found = [
+        f"{page.relative_to(REPO_ROOT)}: {arguments.strip()[:60]}"
+        for page in _tracked(REPO_ROOT / "docs", ".md")
+        if page != HISTORY
+        for block in FENCED_PYTHON.findall(page.read_text())
+        for arguments in _call_arguments(block, WRITE_CALL)
+        if DICT_OBJECT.search(arguments) or _names_a_dict(arguments, block)
     ]
 
     assert found == []

@@ -230,14 +230,17 @@ import asyncio
 
 from src.infrastructure.database.session import local_session
 from src.modules.rate_limit.crud import crud_rate_limits
+from src.modules.rate_limit.schemas import RateLimitCreateInternal
 
 
 async def main():
     async with local_session() as db:
-        await crud_rate_limits.create(db=db, object={
-            "tier_id": 1, "name": "free_widgets_create",
-            "path": "/api/v1/widgets/", "limit": 10, "period": 60,
-        })
+        await crud_rate_limits.create(
+            db=db,
+            object=RateLimitCreateInternal(
+                tier_id=1, name="free_widgets_create", path="/api/v1/widgets/", limit=10, period=60
+            ),
+        )
         await db.commit()
 
 
