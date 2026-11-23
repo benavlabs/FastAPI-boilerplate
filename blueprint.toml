@@ -452,6 +452,13 @@ paths = [
   "backend/tests/unit/infrastructure/cache/test_scoped_callers.py",
 ]
 
+[[features.cache.when]]
+if = "cache.backend=memcached"
+paths = [
+  "backend/src/infrastructure/cache/backends/memcached.py",
+  "backend/tests/unit/infrastructure/cache/backends/test_memcached.py",
+]
+
 [features.cache.options.backend]
 choices = ["redis", "memcached"]
 default = "redis"

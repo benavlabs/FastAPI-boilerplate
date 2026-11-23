@@ -12,6 +12,11 @@ ___
 
 #### Changed
 
+- **A project on Redis no longer ships the Memcached backend.** `cache/backends/memcached.py` and
+  its test come with `cache.backend=memcached`, the choice that installs `aiomcache`, so a project
+  on the default `redis` choice imports every module it has. `initialize_cache` loads the
+  Memcached backend by name when `CACHE_BACKEND=memcached`, `cache.backends` exports only the
+  Redis backend, and `PatternMatchingNotSupportedError` is one class, in `cache.exceptions`.
 - **Every CRUD object names its model and schemas.** Each `crud.py` builds a
   `FastCRUD[Model, CreateInternal, Update, UpdateInternal, Delete, BaseModel]`, so mypy refuses
   a `create` or `update` handed the wrong schema, and `init_forbid_extra` is on for pydantic's

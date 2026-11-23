@@ -2,7 +2,7 @@
 
 from collections.abc import Callable
 from typing import Annotated, Any
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from crudauth import Principal
@@ -11,7 +11,7 @@ from fastapi.routing import APIRoute
 from pydantic import BaseModel, Field
 
 from src.infrastructure.cache.decorator import cache
-from src.infrastructure.cache.exceptions import InvalidRequestError
+from src.infrastructure.cache.exceptions import InvalidRequestError, PatternMatchingNotSupportedError
 from src.infrastructure.uncached import cached as uncached
 
 pytestmark = pytest.mark.asyncio
@@ -324,6 +324,23 @@ class TestInvalidation:
 
         backend.delete.assert_called_once_with("tiers:123")
         backend.delete_pattern.assert_called_once_with("tiers:*")
+
+    async def test_a_backend_without_patterns_logs_an_error_and_keeps_the_keyed_delete(self, backend):
+        """Memcached raises this for every pattern: it is said once, at error level, and the cache is
+        not reported unavailable."""
+        backend.delete_pattern.side_effect = PatternMatchingNotSupportedError("tiers:*")
+
+        @cache(key_prefix="tiers", resource_id_name="item_id", pattern_to_invalidate_extra=["tiers:*"], per_caller=False)
+        async def endpoint(request: Request, item_id: int) -> dict[str, Any]:
+            return {"data": "updated"}
+
+        with patch("src.infrastructure.cache.decorator.logger", MagicMock()) as logged:
+            assert await endpoint(_request(method="PUT"), item_id=123) == {"data": "updated"}
+
+        backend.delete.assert_called_once_with("tiers:123")
+        logged.error.assert_called_once()
+        assert "tiers:*" in logged.error.call_args.args[0]
+        logged.warning.assert_not_called()
 
     async def test_a_read_that_asks_to_invalidate_is_a_programming_error(self, backend):
         @cache(

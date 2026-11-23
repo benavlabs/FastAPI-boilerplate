@@ -468,7 +468,9 @@ def test_every_feature_development_dependency_belongs_to_that_feature(feature: s
 )
 def test_every_option_dependency_is_one_its_value_needs(feature: str, option: str, value: str, specifier: str):
     """Spec 2.5: the value has to be one of the option's choices, and the file that imports the
-    distribution has to belong to the feature that offers it."""
+    distribution has to belong to the feature that offers it. A file that ships only with this
+    value imports it plainly; any other has to guard the import, since a project that chose
+    another value doesn't install it."""
     declared = _catalog()["features"][feature]["options"][option]
     owned = [path for path, _ in _declared(_catalog()["features"][feature])]
     importers = {file for module in _provided()[_distribution(specifier)] for file in _importers().get(module, ())}
@@ -477,6 +479,8 @@ def test_every_option_dependency_is_one_its_value_needs(feature: str, option: st
     assert importers, specifier
     assert all(_under(file, owned) for file in importers), sorted(importers)
     for file in importers:
+        if _owning_condition(file) == f"{feature}.{option}={value}":
+            continue
         assert not _provided()[_distribution(specifier)] & _imports_outright(REPO_ROOT / file), (
             f"{file} imports {specifier} without a guard, and a project that chose another value has it absent"
         )
@@ -1563,6 +1567,54 @@ def _kept_by_the_catalog(features: dict[str, Any], chosen: set[str]) -> set[str]
     }
 
 
+def _owning_condition(relative: str) -> str | None:
+    """The condition the declaration that owns this path keeps it under: the longest declared path
+    that matches wins (spec 1.1), and a path nothing declares is the core's, kept always."""
+    owning = [
+        (path, condition)
+        for feature in _catalog()["features"].values()
+        for path, condition in _declared(feature)
+        if relative == path or relative.startswith(f"{path}/")
+    ]
+
+    return max(owning, key=lambda declared: len(declared[0]))[1] if owning else None
+
+
+def _declared_by_an_option_alone() -> list[tuple[str, str]]:
+    """Each distribution only an option's choice declares, with that choice as a condition."""
+    elsewhere = set(_catalog()["blueprint"]["dependencies"]["runtime"])
+    for feature in _catalog()["features"].values():
+        elsewhere.update(feature.get("dependencies", ()))
+        for block in feature.get("when", ()):
+            elsewhere.update(block.get("dependencies", ()))
+    elsewhere_named = {_distribution(specifier) for specifier in elsewhere}
+
+    return sorted(
+        (_distribution(specifier), f"{name}.{option}={choice}")
+        for name, feature in _catalog()["features"].items()
+        for option, declared in feature.get("options", {}).items()
+        for choice, specifiers in declared.get("dependencies", {}).items()
+        for specifier in specifiers
+        if _distribution(specifier) not in elsewhere_named
+    )
+
+
+@pytest.mark.parametrize(("distribution", "condition"), _declared_by_an_option_alone())
+def test_a_module_that_imports_what_one_choice_installs_ships_only_with_that_choice(distribution: str, condition: str):
+    """A project that chose otherwise doesn't install it, so the module would fail to import there
+    and `blueprint verify` refuses the build: `cache.backend=redis` leaves `aiomcache` out."""
+    modules = _provided()[distribution]
+    root = REPO_ROOT / _catalog()["blueprint"]["python_root"]
+    importing = [
+        path.relative_to(REPO_ROOT).as_posix()
+        for path in _tracked(root)
+        if any(module.split(".")[0] in modules for module in _module_imports(path))
+    ]
+
+    assert importing
+    assert {path: _owning_condition(path) for path in importing} == dict.fromkeys(importing, condition)
+
+
 @pytest.mark.parametrize(
     ("path", "kept_with"),
     [
@@ -1597,6 +1649,57 @@ def test_a_file_is_kept_exactly_where_its_features_are(path: str, kept_with: set
         assert kept is (kept_with <= chosen), sorted(chosen)
         if path in declared:
             assert (path in kept_paths) is (kept_with <= chosen), sorted(chosen)
+
+
+@pytest.mark.parametrize(
+    ("condition", "chosen", "held"),
+    [
+        ("cache.backend=redis", {"cache"}, True),
+        ("cache.backend=redis", set(), False),
+        ("cache.backend=memcached", {"cache"}, False),
+        ("cache.backend=memcached", {"cache", "cache.backend=memcached"}, True),
+        ("cache.backend=redis", {"cache", "cache.backend=memcached"}, False),
+        ("cache.backend=memcached", {"cache.backend=memcached"}, False),
+        ("not cache.backend=memcached", {"cache"}, True),
+    ],
+)
+def test_an_option_atom_holds_where_its_feature_is_selected_with_that_value(condition: str, chosen: set[str], held: bool):
+    """Spec 1.3: the feature selected and its option equal to the value, the default when the
+    selection doesn't choose one."""
+    assert _true(condition, chosen) is held
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "backend/src/infrastructure/cache/backends/memcached.py",
+        "backend/tests/unit/infrastructure/cache/backends/test_memcached.py",
+    ],
+)
+def test_the_memcached_backend_is_kept_only_where_memcached_is_chosen(path: str):
+    features = _catalog()["features"]
+
+    for chosen, kept in [
+        ({"cache", "cache.backend=memcached"}, True),
+        ({"cache"}, False),
+        ({"cache", "cache.backend=redis"}, False),
+        ({"cache.backend=memcached"}, False),
+    ]:
+        removed = _removed_for(features, chosen)
+        assert (_under(path, _kept_by_the_catalog(features, chosen)) and not _under(path, removed)) is kept, sorted(chosen)
+
+
+def test_the_caching_page_says_where_the_memcached_backend_comes_from():
+    whens = {block["if"]: block["paths"] for block in _catalog()["features"]["cache"]["when"]}
+    page = (REPO_ROOT / "docs" / "user-guide" / "caching" / "index.md").read_text()
+
+    chosen = _catalog()["features"]["cache"]["options"]["backend"]["dependencies"]["memcached"]
+
+    assert "backend/src/infrastructure/cache/backends/memcached.py" in whens["cache.backend=memcached"]
+    assert any(_distribution(specifier) == "aiomcache" for specifier in chosen)
+    assert "`cache.backend=memcached` brings `aiomcache` and `infrastructure/cache/backends/memcached.py`" in " ".join(
+        page.split()
+    )
 
 
 def _local_names(point: str, chosen: set[str]) -> list[str]:
@@ -1682,9 +1785,15 @@ def test_every_feature_is_declared_the_way_the_spec_asks(name: str):
     sorted((name, block["if"]) for name, feature in _catalog()["features"].items() for block in feature.get("when", ())),
 )
 def test_every_condition_names_a_feature_this_repository_has(name: str, condition: str):
-    """Spec 1.3: an unknown name is an error rather than something that reads as false."""
-    assert condition in _catalog()["features"]
-    assert condition != name
+    """Spec 1.3: an unknown name is an error rather than something that reads as false. An option
+    atom names one of the feature's options and one of its choices."""
+    if "=" in condition:
+        feature, _, rest = condition.partition(".")
+        option, _, value = rest.partition("=")
+        assert value in _catalog()["features"][feature]["options"][option]["choices"]
+    else:
+        assert condition in _catalog()["features"]
+        assert condition != name
 
 
 @pytest.mark.parametrize(
@@ -1756,7 +1865,9 @@ def test_the_toolchain_environment_is_what_the_app_needs_to_import():
 
 
 def _true(condition: str, chosen: set[str]) -> bool:
-    """Whether a spec 1.3 condition holds for this selection."""
+    """Whether a spec 1.3 condition holds for this selection: features, and any option choices
+    written as atoms (``cache.backend=memcached``). An option the selection doesn't choose has its
+    default."""
     tokens = re.findall(r"\(|\)|[^\s()]+", condition)
     position = 0
 
@@ -1799,7 +1910,12 @@ def _true(condition: str, chosen: set[str]) -> bool:
             return value
 
         if "=" in token:
-            raise NotImplementedError(f"{token!r} names an option; this test only selects features.")
+            feature, _, rest = token.partition(".")
+            option, _, value = rest.partition("=")
+            named = {choice for choice in chosen if choice.startswith(f"{feature}.{option}=")}
+            default = _catalog()["features"][feature]["options"][option]["default"]
+
+            return feature in chosen and (token in named if named else value == default)
 
         return token in chosen
 
@@ -1910,7 +2026,7 @@ def test_a_transport_that_is_constructed_says_so():
     ),
 )
 def test_every_condition_is_one_this_test_can_evaluate(condition: str):
-    """An option atom would need a selection to carry option values, which this test doesn't."""
+    """An option atom reads the option's default when the selection doesn't choose one."""
     assert _true(condition, set(_catalog()["features"])) in {True, False}
 
 

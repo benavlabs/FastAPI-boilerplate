@@ -66,7 +66,7 @@ When the cache hits, the handler doesn't run at all — the cached value is retu
 | `@cache` decorator | Endpoint-level caching with auto-invalidation | `infrastructure/cache/decorator.py` |
 | Provider API | Direct cache ops (`get`, `set`, `delete`, …) | `infrastructure/cache/provider.py` |
 | Redis backend | Pattern matching, persistence, rich types | `infrastructure/cache/backends/redis.py` |
-| Memcached backend | Lightweight, key/value only | `infrastructure/cache/backends/memcached.py` |
+| Memcached backend | Lightweight, key/value only | `infrastructure/cache/backends/memcached.py`, in a project generated with `cache.backend=memcached` |
 | `ClientCacheMiddleware` | Adds `Cache-Control` headers | `infrastructure/middleware.py` |
 
 ## Configuration
@@ -110,6 +110,11 @@ Both backends work with the decorator and provider. They have different strength
 **Pick Redis** if you need pattern-based invalidation (`pattern_to_invalidate_extra` on the decorator, or `delete_pattern` directly), persistence across restarts, or you're already running Redis for sessions / rate limits / Taskiq.
 
 **Pick Memcached** if you have an existing Memcached deployment or you specifically want simpler key/value semantics.
+
+The backend is the cache feature's `backend` option, chosen when the project is generated:
+`cache.backend=memcached` brings `aiomcache` and `infrastructure/cache/backends/memcached.py`, and
+the default, `redis`, brings neither. In a
+project on Redis, `CACHE_BACKEND=memcached` refuses to start, since the backend isn't there to load.
 
 The boilerplate's defaults run Redis everywhere because it doubles as the session and rate-limit backend.
 

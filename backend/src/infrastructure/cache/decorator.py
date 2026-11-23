@@ -6,25 +6,9 @@ from fastapi import Request, Response
 from fastapi.encoders import jsonable_encoder
 
 from ..logging import get_logger
-from .exceptions import CacheException, InvalidRequestError
+from .exceptions import InvalidRequestError, PatternMatchingNotSupportedError
 from .provider import cache_provider
 from .utils import build_cache_key, caller_marks, declared_query_names, format_extra_data, format_prefix, format_query
-
-
-class PatternMatchingNotSupportedError(CacheException):
-    """Exception raised when pattern-based deletion is not supported by the backend."""
-
-    def __init__(self, pattern: str):
-        self.message = f"Pattern-based deletion is not supported. Pattern '{pattern}' cannot be used."
-        super().__init__(self.message)
-
-
-try:
-    from .backends.memcached import (
-        PatternMatchingNotSupportedError as MemcachedPatternMatchingNotSupportedError,
-    )
-except (ImportError, AttributeError):
-    pass
 
 logger = get_logger()
 
@@ -128,10 +112,7 @@ def cache(
                             try:
                                 formatted_pattern = format_prefix(pattern, kwargs)
                                 await backend.delete_pattern(formatted_pattern)
-                            except (
-                                PatternMatchingNotSupportedError,
-                                MemcachedPatternMatchingNotSupportedError,
-                            ) as e:
+                            except PatternMatchingNotSupportedError as e:
                                 logger.error(str(e))
             except Exception as error:
                 logger.warning(f"Cache unavailable while writing '{read_key}': {type(error).__name__}")

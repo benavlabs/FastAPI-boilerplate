@@ -1,14 +1,13 @@
 """Module for initializing the cache backends."""
 
+import importlib
+
 from ..composition import Lifecycle
 from ..config.enums import CacheBackend
 from ..config.settings import get_settings
 from . import MEMCACHED_INSTALLED, REDIS_INSTALLED
 from .client import cache_redis_client
 from .provider import cache_provider
-
-if MEMCACHED_INSTALLED:
-    from .backends import MemcachedBackend, MemcachedSettings
 
 if REDIS_INSTALLED:
     from .backends import RedisBackend, RedisSettings
@@ -27,15 +26,19 @@ async def initialize_cache() -> None:
 
     if settings.CACHE_BACKEND == CacheBackend.MEMCACHED.value:
         if not MEMCACHED_INSTALLED:
-            raise ImportError("The aiomcache package is not installed. Please install it with 'pip install aiomcache'.")
+            raise ImportError(
+                "CACHE_BACKEND=memcached needs aiomcache and the memcached backend, which a project gets "
+                "by being generated with cache.backend=memcached."
+            )
 
-        memcached_settings = MemcachedSettings(
+        memcached = importlib.import_module(".backends.memcached", __package__)
+        memcached_settings = memcached.MemcachedSettings(
             host=settings.CACHE_MEMCACHED_HOST,
             port=settings.CACHE_MEMCACHED_PORT,
             pool_size=settings.CACHE_MEMCACHED_POOL_SIZE,
             connect_timeout=settings.CACHE_MEMCACHED_CONNECT_TIMEOUT,
         )
-        memcached_backend = MemcachedBackend(settings=memcached_settings)
+        memcached_backend = memcached.MemcachedBackend(settings=memcached_settings)
         cache_provider.register_backend(CacheBackend.MEMCACHED.value, memcached_backend, default=True)
 
     elif settings.CACHE_BACKEND == CacheBackend.REDIS.value:

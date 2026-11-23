@@ -160,3 +160,11 @@ class MissingClientError(CacheException):
     def __init__(self, message: str = "Cache client is missing or not initialized."):
         self.message = message
         super().__init__(self.message)
+
+
+class PatternMatchingNotSupportedError(CacheException):
+    """Raised when a backend can't delete keys by pattern, as Memcached can't."""
+
+    def __init__(self, pattern: str):
+        self.message = f"Pattern-based deletion is not supported. Pattern '{pattern}' cannot be used."
+        super().__init__(self.message)
