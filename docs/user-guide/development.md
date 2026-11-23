@@ -154,9 +154,15 @@ The full pattern (with concrete code) is in [Database → Models](database/model
 3. **Wire FastCRUD** in `crud.py`:
    ```python
    from fastcrud import FastCRUD
+   from pydantic import BaseModel
+
    from .models import Widget
-   crud_widgets = FastCRUD(Widget)
+   from .schemas import WidgetCreate, WidgetUpdate
+
+   crud_widgets = FastCRUD[Widget, WidgetCreate, WidgetUpdate, WidgetUpdate, BaseModel, BaseModel](Widget)
    ```
+   The six types are the model and the schemas each operation takes, so mypy refuses the wrong
+   one ([Database → CRUD](database/crud.md#where-crud-lives)).
 4. **Implement the service** in `service.py` with class methods that call `crud_widgets`, raise `DomainError` subclasses on bad state.
 5. **Define routes** in `routes.py`. Call the service and return dicts (FastAPI serializes through `response_model=WidgetRead`); let domain errors propagate to the global handler.
 6. **Register the router** in `interfaces/main.py` (or wherever your top-level routers are aggregated):

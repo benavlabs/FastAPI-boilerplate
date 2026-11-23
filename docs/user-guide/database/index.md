@@ -24,9 +24,9 @@ async def create_user(
 ):
     return await user_service.create(user, db)
 
-# modules/user/service.py — business logic, calls into FastCRUD
-# modules/user/crud.py    — crud_users = FastCRUD(User)
-# modules/user/models.py  — User SQLAlchemy model
+# modules/user/service.py: business logic, calls into FastCRUD
+# modules/user/crud.py:    crud_users = FastCRUD[User, ...](User)
+# modules/user/models.py:  User SQLAlchemy model
 ```
 
 ## Architecture
@@ -110,9 +110,12 @@ Each module exposes a thin FastCRUD wrapper:
 ```python
 # modules/user/crud.py
 from fastcrud import FastCRUD
-from .models import User
+from pydantic import BaseModel
 
-crud_users: FastCRUD = FastCRUD(User)
+from .models import User
+from .schemas import UserAnonymize, UserCreateInternal, UserDelete, UserUpdate, UserUpdateInternal
+
+crud_users = FastCRUD[User, UserCreateInternal, UserUpdate | UserAnonymize, UserUpdateInternal, UserDelete, BaseModel](User)
 ```
 
 Then in the service:
@@ -121,8 +124,8 @@ Then in the service:
 # modules/user/service.py
 from .crud import crud_users
 
-# Create
-user = await crud_users.create(db=db, object=user_create)
+# Create, with the internal schema that carries the hashed password
+user = await crud_users.create(db=db, object=user_internal)
 
 # Read one
 user = await crud_users.get(db=db, id=user_id)
@@ -251,7 +254,7 @@ backend/src/
     ├── user/
     │   ├── models.py         # SQLAlchemy User
     │   ├── schemas.py        # Pydantic UserCreate/UserRead/UserUpdate
-    │   ├── crud.py           # crud_users = FastCRUD(User)
+    │   ├── crud.py           # crud_users = FastCRUD[User, ...](User)
     │   ├── service.py        # UserService (business rules)
     │   └── routes.py         # /api/v1/users endpoints
     ├── tier/

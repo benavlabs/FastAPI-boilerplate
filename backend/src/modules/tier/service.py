@@ -161,7 +161,10 @@ class TierService:
             raise TierNotFoundError(f"Tier with ID {tier_update.tier_id} not found")
 
         updated_user = await crud_users.update(
-            db=db, object=tier_update, id=user_id, return_columns=list(UserSchema.model_fields.keys())
+            db=db,
+            object=tier_update.model_dump(exclude_unset=True),
+            id=user_id,
+            return_columns=list(UserSchema.model_fields.keys()),
         )
         if not updated_user:
             raise UserNotFoundError(f"User with ID {user_id} not found")
@@ -210,7 +213,7 @@ class TierService:
 
         result = await crud_users.get_joined(
             db=db,
-            join_model=Tier,
+            join_model=cast(Any, Tier),
             join_prefix="tier_",
             schema_to_select=UserRead,
             join_schema_to_select=TierRead,

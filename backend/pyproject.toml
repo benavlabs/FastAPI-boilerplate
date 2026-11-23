@@ -85,6 +85,9 @@ warn_unreachable = true
 namespace_packages = true
 explicit_package_bases = true
 
+[tool.pydantic-mypy]
+init_forbid_extra = true
+
 [[tool.mypy.overrides]]
 module = "src.wiring.settings"
 disable_error_code = ["misc"]

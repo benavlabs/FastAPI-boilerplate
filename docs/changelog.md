@@ -12,6 +12,12 @@ ___
 
 #### Changed
 
+- **Every CRUD object names its model and schemas.** Each `crud.py` builds a
+  `FastCRUD[Model, CreateInternal, Update, UpdateInternal, Delete, BaseModel]`, so mypy refuses
+  a `create` or `update` handed the wrong schema, and `init_forbid_extra` is on for pydantic's
+  mypy plugin, so it refuses a schema built with a field it doesn't declare. A CRUD object of
+  your own built as a bare `FastCRUD(Model)` still works, with every argument `Any`; see
+  [Database → CRUD](user-guide/database/crud.md#where-crud-lives) for the typed form.
 - **A generated project names itself.** Unset, `APP_NAME` is the name the project was generated
   with, which fastro writes to `src/infrastructure/config/project.py`, so the OpenAPI title is
   the project's own rather than "FastAPI Boilerplate". This repository has no such file and keeps
