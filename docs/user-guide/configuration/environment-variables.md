@@ -322,7 +322,7 @@ ADMIN_BASE_URL=/admin           # where it is mounted, and the admin cookie's pa
 
 ```env
 DEBUG=false
-APP_NAME=FastAPI Boilerplate
+# APP_NAME=
 APP_DESCRIPTION=Modular FastAPI starter
 VERSION=0.1.0
 API_CONTACT_NAME=Support
@@ -335,6 +335,10 @@ API_SUMMARY=
 API_TERMS_OF_SERVICE=
 API_TAGS_METADATA=[]
 ```
+
+Unset, `APP_NAME` is the name the project was generated with: fastro writes it to
+`src/infrastructure/config/project.py`. This repository has no such file, so its own default is
+"FastAPI Boilerplate".
 
 `API_SUMMARY` is the one-line summary beside the description, `API_TERMS_OF_SERVICE`,
 `API_CONTACT_URL` and `API_LICENSE_URL` take URLs, `API_LICENSE_IDENTIFIER` takes an SPDX identifier

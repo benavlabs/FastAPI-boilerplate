@@ -12,6 +12,10 @@ ___
 
 #### Changed
 
+- **A generated project names itself.** Unset, `APP_NAME` is the name the project was generated
+  with, which fastro writes to `src/infrastructure/config/project.py`, so the OpenAPI title is
+  the project's own rather than "FastAPI Boilerplate". This repository has no such file and keeps
+  that default. `.env.example` no longer sets `APP_NAME`, since a copy of it in `.env` would win.
 - **A `422` says where and why each field failed.** Beside the generic `detail` and the
   `support_id`, the body now carries `errors`, a list giving each failure's `loc`, `msg` and
   `type`. pydantic's `input` and `ctx` are left out of the answer and the log, since `input` is

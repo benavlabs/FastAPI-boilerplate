@@ -3,6 +3,7 @@
 Feature settings live with their feature and are composed in ``src/wiring/settings.py``.
 """
 
+import importlib
 import logging
 import os
 from collections.abc import Mapping
@@ -277,11 +278,26 @@ class APISettings(EnvSettings):
         return value
 
 
+def _project_name() -> str:
+    """The name ``fastro`` generated the project with, from the module it wrote, or
+    "FastAPI Boilerplate" when that module is missing."""
+    module = f"{__package__}.project"
+    try:
+        project = importlib.import_module(module)
+    except ModuleNotFoundError as missing:
+        if missing.name != module:
+            raise
+
+        return "FastAPI Boilerplate"
+
+    return str(project.NAME)
+
+
 class AppSettings(EnvSettings):
     """Application-related settings."""
 
     # Note: For API documentation, prefer using API_* fields in APIDocSettings
-    APP_NAME: str = "FastAPI Boilerplate"
+    APP_NAME: str = Field(default_factory=_project_name)
     APP_DESCRIPTION: str = ""
     DEBUG: bool = False
     VERSION: str = "0.1.0"
