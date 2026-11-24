@@ -164,7 +164,7 @@ requests are keyed by user ID; anonymous requests are keyed by the client IP, ho
 ### Background Tasks (Taskiq)
 
 ```env
-TASKIQ_BROKER_TYPE=redis        # or "rabbitmq"
+TASKIQ_BROKER_TYPE=redis        # the taskiq.broker the project was generated with
 
 # Redis broker (uses DB 3 by default)
 TASKIQ_REDIS_HOST=redis         # use "localhost" without Docker

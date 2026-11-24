@@ -1,8 +1,10 @@
 """Taskiq broker configuration and initialization."""
 
+import importlib
+from importlib.util import find_spec
+
 from taskiq import AsyncBroker
 from taskiq.serializers import JSONSerializer
-from taskiq_aio_pika import AioPikaBroker
 from taskiq_redis import ListQueueBroker, RedisAsyncResultBackend
 
 from ..config.enums import TaskiqBrokerType
@@ -62,16 +64,18 @@ def _create_redis_broker() -> AsyncBroker:
     return broker
 
 
+RABBITMQ_MODULE = f"{__package__}.rabbitmq"
+
+
 def _create_rabbitmq_broker() -> AsyncBroker:
-    """Create RabbitMQ-based broker for taskiq, on the queue ``AioPikaBroker`` names by default.
+    """The broker ``.rabbitmq`` builds, loaded by name: a project on redis has neither it nor taskiq-aio-pika."""
+    if find_spec(RABBITMQ_MODULE) is None:
+        raise ImportError(
+            "TASKIQ_BROKER_TYPE=rabbitmq needs taskiq-aio-pika and the rabbitmq broker, which a project gets "
+            "by being generated with taskiq.broker=rabbitmq."
+        )
 
-    ``timeout`` reaches aio-pika's ``connect_robust`` through the broker's connection
-    keywords, so a host that accepts the socket and says nothing fails the attempt within
-    ``BROKER_CONNECT_SECONDS`` rather than holding it open.
-    """
-    rabbitmq_url = settings.TASKIQ_BROKER_URL
-
-    broker = AioPikaBroker(url=rabbitmq_url, timeout=BROKER_CONNECT_SECONDS)
+    broker: AsyncBroker = importlib.import_module(RABBITMQ_MODULE).create_broker()
 
     return broker
 

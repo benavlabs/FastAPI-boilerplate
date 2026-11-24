@@ -12,6 +12,14 @@ ___
 
 #### Changed
 
+- **A project on the Redis broker no longer ships the RabbitMQ broker.** `taskiq-aio-pika`,
+  `infrastructure/taskiq/rabbitmq.py` and its test come with `taskiq.broker=rabbitmq`, as
+  `aiomcache` and the Memcached backend come with `cache.backend=memcached`. A project on Redis
+  could set `TASKIQ_BROKER_TYPE=rabbitmq` and connect with the guest/guest defaults, since its
+  `.env.example` has no `TASKIQ_RABBITMQ_*` settings; it now refuses the setting when it builds the
+  broker, which is loaded by name. The comment above `TASKIQ_BROKER_TYPE` says only
+  a project on Redis can't switch, and the Background Tasks page stops telling a reader to
+  `uv add taskiq-aio-pika`.
 - **Verify builds every choice.** Two sets build the choices no other set did:
   `cache-memcached` (`cache.backend=memcached`) and `taskiq-rabbitmq` (`taskiq.broker=rabbitmq`).
   Each is its own CI job. The blueprint pins fastro 0.1.0.dev1, the first build that reads a set's

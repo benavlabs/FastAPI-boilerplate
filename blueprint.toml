@@ -475,7 +475,6 @@ services = ["worker", "scheduler"]
 dependencies = [
   "taskiq>=0.11.20",
   "taskiq-redis>=1.1.2",
-  "taskiq-aio-pika>=0.4.3",
   "cryptography>=42.0.0",
 ]
 dev_dependencies = ["taskiq[reload]>=0.11.20"]
@@ -494,6 +493,14 @@ choices = ["redis", "rabbitmq"]
 default = "redis"
 env = { TASKIQ_BROKER_TYPE = "{value}" }
 services = { rabbitmq = ["rabbitmq"] }
+dependencies = { rabbitmq = ["taskiq-aio-pika>=0.4.3"] }
+
+[[features.taskiq.when]]
+if = "taskiq.broker=rabbitmq"
+paths = [
+  "backend/src/infrastructure/taskiq/rabbitmq.py",
+  "backend/tests/unit/infrastructure/taskiq/test_rabbitmq.py",
+]
 
 [[features.taskiq.when]]
 if = "accounts"

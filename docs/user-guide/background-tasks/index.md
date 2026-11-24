@@ -25,7 +25,8 @@ Don't reach for a task when the operation needs to surface a result to the user 
 ```text
 backend/src/infrastructure/taskiq/
 ├── __init__.py        Docstring only: the package is kept import-free
-├── brokers.py         Builds the Redis or RabbitMQ broker from settings
+├── brokers.py         Builds the Redis broker, or loads the RabbitMQ one, from settings
+├── rabbitmq.py        The RabbitMQ broker, in a project generated with `taskiq.broker=rabbitmq`
 ├── app.py             WORKER_STARTUP / WORKER_SHUTDOWN handlers (logging, engine disposal)
 ├── lifecycle.py       Opens and closes the broker in the API process
 ├── email.py           The email:send task, and the sender that enqueues it
@@ -83,7 +84,7 @@ Only a project generated with `taskiq.broker=rabbitmq` has the RabbitMQ ones in 
 
 ```env
 # Broker selection
-TASKIQ_BROKER_TYPE=redis            # or "rabbitmq"
+TASKIQ_BROKER_TYPE=redis            # the taskiq.broker the project was generated with
 
 # Retries
 TASKIQ_DEFAULT_RETRY_COUNT=3        # runs in all, for a task that asks; 0 turns retries off
@@ -105,13 +106,8 @@ TASKIQ_RABBITMQ_VHOST=/
 
 The default `TASKIQ_REDIS_DB=3` keeps Taskiq isolated from the Cache (DB 0), the Rate Limiter (DB 1), and Sessions (DB 2) — so `redis-cli FLUSHDB` on one doesn't trash the others.
 
-If you pick `TASKIQ_BROKER_TYPE=rabbitmq`, install the optional broker:
-
-```bash
-uv add taskiq-aio-pika
-```
-
-The boilerplate already ships it as a dependency, but the `aio_pika` import is gated to keep Redis-only deployments lean.
+`taskiq.broker=rabbitmq` brings `taskiq-aio-pika` and `infrastructure/taskiq/rabbitmq.py`, and a
+project generated without it refuses `TASKIQ_BROKER_TYPE=rabbitmq` when it builds the broker.
 
 ## Writing a Task
 

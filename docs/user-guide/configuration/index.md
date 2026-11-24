@@ -132,7 +132,7 @@ CACHE_REDIS_DB=0
 ### Background Tasks (Taskiq)
 
 ```env
-TASKIQ_BROKER_TYPE=redis      # or "rabbitmq"
+TASKIQ_BROKER_TYPE=redis      # the taskiq.broker the project was generated with
 TASKIQ_REDIS_HOST=localhost   # use "redis" with Docker Compose
 TASKIQ_REDIS_PORT=6379
 TASKIQ_REDIS_DB=3

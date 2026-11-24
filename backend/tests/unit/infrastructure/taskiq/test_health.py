@@ -10,12 +10,8 @@ from tests.silent_server import silent_server
 pytestmark = pytest.mark.asyncio
 
 
-async def test_a_rabbitmq_broker_nothing_connected_is_unavailable(monkeypatch):
-    """No lifespan has opened the broker in this process, which is what the check reports on."""
+async def test_a_rabbitmq_broker_is_reported_by_its_amqp_url(monkeypatch):
     monkeypatch.setattr(settings, "TASKIQ_BROKER_TYPE", "rabbitmq")
-
-    with pytest.raises(ConnectionError):
-        await health.broker_is_reachable()
 
     target = health.broker_target()
     assert target is not None and target.startswith("amqp://")

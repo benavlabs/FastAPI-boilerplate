@@ -1,12 +1,12 @@
 """Opening and closing the broker the API publishes to."""
 
 import asyncio
+import importlib
 import logging
 from contextlib import suppress
 
-from taskiq_aio_pika import AioPikaBroker
-
 from ..composition import Lifecycle
+from ..config.enums import TaskiqBrokerType
 from ..config.settings import get_settings
 from ..handover import drain
 from . import brokers
@@ -23,16 +23,16 @@ _retrying: asyncio.Task[None] | None = None
 
 
 def broker_connection_is_up() -> bool:
-    """Whether the AMQP connection the broker holds is open.
+    """Whether the AMQP connection the broker holds is open, as ``.rabbitmq`` reads it.
 
-    ``False`` until a startup connects, and from a dropped connection until aio-pika's
-    reconnect opens it again. A broker that holds no AMQP connection answers ``False``.
+    ``False`` on any other broker, which holds no AMQP connection.
     """
-    broker = brokers.default_broker
-    if not isinstance(broker, AioPikaBroker) or broker.write_conn is None:
+    if settings.TASKIQ_BROKER_TYPE != TaskiqBrokerType.RABBITMQ.value:
         return False
 
-    return broker.write_conn.connected.is_set()
+    up: bool = importlib.import_module(brokers.RABBITMQ_MODULE).connection_is_up(brokers.default_broker)
+
+    return up
 
 
 async def _connection_error() -> Exception | None:

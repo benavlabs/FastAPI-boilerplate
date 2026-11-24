@@ -1,6 +1,5 @@
 """The broker the app builds, and the format it stores results in."""
 
-import inspect
 import json
 import pickle
 from collections.abc import Iterator
@@ -8,11 +7,9 @@ from datetime import UTC, datetime
 from typing import Any, NamedTuple
 
 import pytest
-from aio_pika import connect_robust
 from pydantic_core import PydanticSerializationError
 from taskiq.result import TaskiqResult
 from taskiq.serializers import JSONSerializer
-from taskiq_aio_pika import AioPikaBroker
 from taskiq_redis import ListQueueBroker, RedisAsyncResultBackend, redis_backend
 
 from src.infrastructure.config.enums import TaskiqBrokerType
@@ -115,19 +112,14 @@ class TestTheRedisResultBackend:
 class TestTheBrokerTheProjectBuilds:
     """What the factory passes has to be what the broker takes."""
 
-    def test_the_rabbitmq_broker_passes_the_connect_timeout_and_nothing_else_to_the_connection(self, monkeypatch):
-        """A keyword ``AioPikaBroker`` doesn't declare is forwarded to the AMQP connection instead.
-
-        Nested under a ``connection_kwargs`` key of its own, the timeout reaches
-        ``connect_robust`` as an argument it ignores, and the attempt stays unbounded.
-        """
+    def test_a_rabbitmq_broker_without_its_module_refuses_to_build(self, monkeypatch):
+        """A project on redis has neither taskiq-aio-pika nor the rabbitmq module, nor the
+        rabbitmq settings in its .env.example, so the setting is refused instead."""
         monkeypatch.setattr(brokers.settings, "TASKIQ_BROKER_TYPE", TaskiqBrokerType.RABBITMQ.value)
+        monkeypatch.setattr(brokers, "RABBITMQ_MODULE", f"{brokers.__package__}.not_generated")
 
-        broker = create_default_broker()
-
-        assert isinstance(broker, AioPikaBroker)
-        assert broker._conn_kwargs == {"timeout": BROKER_CONNECT_SECONDS}
-        assert "timeout" in inspect.signature(connect_robust).parameters
+        with pytest.raises(ImportError, match=r"taskiq\.broker=rabbitmq"):
+            create_default_broker()
 
     def test_the_redis_broker_publishes_to_the_queue_it_is_given(self):
         broker = create_default_broker()

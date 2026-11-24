@@ -352,17 +352,59 @@ def test_every_feature_dependency_is_one_that_feature_needs(feature: str, specif
     assert any(_under(file, owned) for file in outright), sorted(importers)
 
 
+def _installed_with(specifiers: Iterable[str]) -> set[str]:
+    """These distributions and every one they require, with the extras each asks for, where its
+    marker holds for this interpreter. Every one is installed here, since this repository installs
+    every feature and choice."""
+    names: set[str] = set()
+    seen: set[tuple[str, frozenset[str]]] = set()
+    waiting = [(Requirement(specifier), frozenset({""})) for specifier in specifiers]
+    while waiting:
+        requirement, asked_by = waiting.pop()
+        if requirement.marker is not None and not any(requirement.marker.evaluate({"extra": e}) for e in asked_by):
+            continue
+        name, extras = _distribution(requirement.name), frozenset({"", *requirement.extras})
+        if (name, extras) in seen:
+            continue
+        seen.add((name, extras))
+        names.add(name)
+        waiting += [(Requirement(listed), extras) for listed in requires(name) or ()]
+
+    return names
+
+
+def test_what_is_installed_with_a_distribution_follows_the_extras_it_asks_for():
+    """`taskiq[reload]`, which the taskiq feature's dev dependencies name, brings `watchdog`; plain `taskiq` doesn't."""
+    assert "watchdog" in _installed_with(["taskiq[reload]"]) - _installed_with(["taskiq"])
+
+
+def _installed_by_an_option_alone() -> set[str]:
+    """What an option's choices install that nothing a project always gets does: `taskiq-aio-pika`
+    and `aio-pika` with it, whose modules a project on another value doesn't have."""
+    catalog = _catalog()
+    always = [*catalog["blueprint"]["dependencies"]["runtime"], *catalog["blueprint"]["dependencies"]["dev"]]
+    chosen = []
+    for feature in catalog["features"].values():
+        always += [*feature.get("dependencies", ()), *feature.get("dev_dependencies", ())]
+        for block in feature.get("when", ()):
+            always += block.get("dependencies", ())
+        for option in feature.get("options", {}).values():
+            for specifiers in option.get("dependencies", {}).values():
+                chosen += specifiers
+
+    return _installed_with(chosen) - _installed_with(always)
+
+
 def _needed_by(features: dict[str, Any]) -> dict[str, set[str]]:
-    """Each declared distribution, with the features that bring it. An option's brings an empty
-    set: a project selects the feature and still chooses another value, so nothing guarantees it."""
+    """Each declared distribution, with the features that bring it. What an option installs, and
+    what that requires, brings an empty set: a project selects the feature and still chooses
+    another value, so nothing guarantees it."""
     needed: dict[str, set[str]] = {}
     for name, feature in features.items():
         for specifier in feature.get("dependencies", ()):
             needed.setdefault(_distribution(specifier), set()).add(name)
-        for option in feature.get("options", {}).values():
-            for specifiers in option.get("dependencies", {}).values():
-                for specifier in specifiers:
-                    needed.setdefault(_distribution(specifier), set())
+    for name in _installed_by_an_option_alone():
+        needed[name] = set()
 
     return needed
 
@@ -389,6 +431,7 @@ def test_no_file_a_project_keeps_imports_a_dependency_it_did_not_select():
 
     assert needed["sqladmin"] == {"admin"}
     assert needed["aiomcache"] == set(), "an option's dependency is never guaranteed"
+    assert needed["aio-pika"] == set(), "nor what it requires"
 
     for chosen in _selections():
         removed = _removed_for(features, chosen)
@@ -1691,23 +1734,40 @@ def test_an_option_atom_holds_where_its_feature_is_selected_with_that_value(cond
 
 
 @pytest.mark.parametrize(
-    "path",
+    ("path", "choice", "other"),
     [
-        "backend/src/infrastructure/cache/backends/memcached.py",
-        "backend/tests/unit/infrastructure/cache/backends/test_memcached.py",
+        ("backend/src/infrastructure/cache/backends/memcached.py", "cache.backend=memcached", "redis"),
+        ("backend/tests/unit/infrastructure/cache/backends/test_memcached.py", "cache.backend=memcached", "redis"),
+        ("backend/src/infrastructure/taskiq/rabbitmq.py", "taskiq.broker=rabbitmq", "redis"),
+        ("backend/tests/unit/infrastructure/taskiq/test_rabbitmq.py", "taskiq.broker=rabbitmq", "redis"),
     ],
 )
-def test_the_memcached_backend_is_kept_only_where_memcached_is_chosen(path: str):
+def test_a_chosen_backend_is_kept_only_where_it_is_chosen(path: str, choice: str, other: str):
     features = _catalog()["features"]
+    feature, option = choice.split("=")[0].split(".")
 
     for chosen, kept in [
-        ({"cache", "cache.backend=memcached"}, True),
-        ({"cache"}, False),
-        ({"cache", "cache.backend=redis"}, False),
-        ({"cache.backend=memcached"}, False),
+        ({feature, choice}, True),
+        ({feature}, False),
+        ({feature, f"{feature}.{option}={other}"}, False),
+        ({choice}, False),
     ]:
         removed = _removed_for(features, chosen)
         assert (_under(path, _kept_by_the_catalog(features, chosen)) and not _under(path, removed)) is kept, sorted(chosen)
+
+
+def test_the_background_tasks_page_says_where_the_rabbitmq_broker_comes_from():
+    whens = {block["if"]: block["paths"] for block in _catalog()["features"]["taskiq"]["when"]}
+    page = (REPO_ROOT / "docs" / "user-guide" / "background-tasks" / "index.md").read_text()
+
+    chosen = _catalog()["features"]["taskiq"]["options"]["broker"]["dependencies"]["rabbitmq"]
+
+    assert "backend/src/infrastructure/taskiq/rabbitmq.py" in whens["taskiq.broker=rabbitmq"]
+    assert any(_distribution(specifier) == "taskiq-aio-pika" for specifier in chosen)
+    prose = " ".join(page.split())
+    assert "`taskiq.broker=rabbitmq` brings `taskiq-aio-pika` and `infrastructure/taskiq/rabbitmq.py`" in prose
+    assert "generated without it refuses `TASKIQ_BROKER_TYPE=rabbitmq`" in prose
+    assert "rabbitmq.py" in page.split("## What Ships Out of the Box", 1)[1].split("\n## ", 1)[0]
 
 
 def test_the_caching_page_says_where_the_memcached_backend_comes_from():
@@ -2383,18 +2443,28 @@ def test_every_page_that_sets_a_chosen_service_names_the_choice_that_brings_it(c
     assert [page for page in setting_it if f"`{choice}`" not in (REPO_ROOT / page).read_text()] == []
 
 
-def test_no_page_offers_the_other_cache_backend_as_a_setting():
-    """Every project has Redis, and only one generated with `cache.backend=memcached` has
-    Memcached, so a page that offers a backend as the alternative value of `CACHE_BACKEND` sends a
-    reader on Redis to a backend that isn't there."""
+@pytest.mark.parametrize(
+    "option",
+    [f"{name}.{option}" for name, feature in _catalog()["features"].items() for option in feature.get("options", {})],
+)
+def test_no_page_offers_another_choice_as_a_setting(option: str):
+    """A project has only the choice it was generated with, and Redis, so a page that offers
+    another choice as the alternative value of the option's variable sends a reader on Redis to
+    something that isn't there: `cache.backend=memcached` brings Memcached, `taskiq.broker=rabbitmq`
+    the RabbitMQ broker."""
+    feature, _, name = option.partition(".")
+    declared = _catalog()["features"][feature]["options"][name]
+    (variable,) = declared["env"]
+    choices = "|".join(re.escape(choice) for choice in declared["choices"])
     offered = [
         f"{page.relative_to(REPO_ROOT)}: {line.strip()}"
         for page in _tracked(REPO_ROOT / "docs", "*.md")
         if page.name != "changelog.md"
         for line in page.read_text().splitlines()
-        if re.match(r"^\s*CACHE_BACKEND=\w+.*#.*\b(?:redis|memcached)\b", line)
+        if re.match(rf"^\s*{re.escape(variable)}=\w+.*#.*\b(?:{choices})\b", line)
     ]
 
+    assert declared["choices"]
     assert offered == []
 
 
