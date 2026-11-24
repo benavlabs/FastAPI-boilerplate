@@ -94,6 +94,25 @@ def test_the_ci_table_is_every_declared_set_and_names_the_presets_beside_it():
     assert [preset for preset in catalog["presets"] if f"`{preset}`" not in section] == []
 
 
+def test_each_row_of_the_ci_table_names_the_options_its_set_chooses():
+    """A set written with options builds those choices, so its row is about them."""
+    section = _section(COMPOSABLE, "## Checking that removal still works")
+    rows = dict(re.findall(r"^\| `([a-z0-9-]+)` \|(.*)$", section, re.M))
+    chosen = {
+        name: entry["options"]
+        for name, entry in _catalog()["verify"]["sets"].items()
+        if isinstance(entry, dict) and entry.get("options")
+    }
+
+    assert chosen
+    assert {
+        name: option
+        for name, options in chosen.items()
+        for option, value in options.items()
+        if f"`{option}={value}`" not in rows[name]
+    } == {}
+
+
 def test_the_steps_for_a_removable_feature_declare_it_in_the_catalog_and_verify_it():
     section = _section(COMPOSABLE, "## Writing a feature that can be removed")
 

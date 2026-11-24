@@ -129,6 +129,8 @@ the presets `minimal`, `standard` and `full`.
 | `accounts-api-keys` | keys authenticate, narrow and count without rbac, tiers or the cache |
 | `accounts-rbac-tiers` | tiers and the API throttle work without per-tier limits |
 | `accounts-cache-taskiq` | the infrastructure features stand alone |
+| `cache-memcached` | the Memcached backend and its test, which ship with `cache.backend=memcached`, pass every check |
+| `taskiq-rabbitmq` | a project on `taskiq.broker=rabbitmq`, with that choice's `.env.example`, passes every check |
 | `everything` | a regenerated wiring reproduces this repository |
 
 Verify is also how a misplaced test gets caught: a test that quietly depends on a feature it

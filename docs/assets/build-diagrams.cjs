@@ -123,7 +123,7 @@ const removalDrill = ({ primary, body, muted, line, panel }) => `<svg xmlns="htt
   </g>
   <line x1="972" y1="156" x2="972" y2="176" stroke="${line}" stroke-width="1.5" marker-end="url(#arrow)"/>
 
-  <text x="40" y="200" font-family="${SANS}" font-size="16" font-weight="700" fill="${primary}">nine presets run as a CI matrix</text>
+  <text x="40" y="200" font-family="${SANS}" font-size="16" font-weight="700" fill="${primary}">eleven presets run as a CI matrix</text>
   <g font-family="${MONO}" font-size="13" fill="${muted}">
     <text x="40" y="232">core-only</text>
     <text x="40" y="258">core-taskiq</text>
@@ -133,7 +133,9 @@ const removalDrill = ({ primary, body, muted, line, panel }) => `<svg xmlns="htt
     <text x="260" y="232">accounts-api-keys</text>
     <text x="260" y="258">accounts-rbac-tiers</text>
     <text x="260" y="284">accounts-cache-taskiq</text>
-    <text x="260" y="310" fill="${TEAL}">everything</text>
+    <text x="260" y="310">cache-memcached</text>
+    <text x="260" y="336">taskiq-rabbitmq</text>
+    <text x="260" y="362" fill="${TEAL}">everything</text>
   </g>
 
   <line x1="40" y1="396" x2="1160" y2="396" stroke="${panel}" stroke-width="1"/>

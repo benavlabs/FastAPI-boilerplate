@@ -2,7 +2,7 @@
 name = "fastapi-boilerplate"
 version = "0.20.0"
 schema = 1
-requires_fastro = ">=0.1.0.dev0,<0.2"
+requires_fastro = ">=0.1.0.dev1,<0.2"
 python_root = "backend"
 overlay = "blueprint/overlay"
 import_root = "src"
@@ -82,6 +82,8 @@ accounts-admin = ["accounts", "admin"]
 accounts-api-keys = ["accounts", "api_keys"]
 accounts-rbac-tiers = ["accounts", "rbac", "tiers", "ratelimit"]
 accounts-cache-taskiq = ["accounts", "cache", "taskiq"]
+cache-memcached = { features = ["cache"], options = { "cache.backend" = "memcached" } }
+taskiq-rabbitmq = { features = ["taskiq"], options = { "taskiq.broker" = "rabbitmq" } }
 
 [core.contributes]
 critical_readiness = [

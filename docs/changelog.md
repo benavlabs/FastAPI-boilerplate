@@ -12,6 +12,10 @@ ___
 
 #### Changed
 
+- **Verify builds every choice.** Two sets build the choices no other set did:
+  `cache-memcached` (`cache.backend=memcached`) and `taskiq-rabbitmq` (`taskiq.broker=rabbitmq`).
+  Each is its own CI job. The blueprint pins fastro 0.1.0.dev1, the first build that reads a set's
+  options, and `requires_fastro` asks for at least that.
 - **A project on the Redis broker has no RabbitMQ settings in its `.env.example`.** The
   `TASKIQ_RABBITMQ_*` lines and the advice to replace guest/guest moved into a section of their
   own that only `taskiq.broker=rabbitmq` keeps. The Background Tasks and Environment Variables

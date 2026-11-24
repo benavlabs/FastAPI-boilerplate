@@ -48,6 +48,8 @@ jobs:
           - accounts-api-keys
           - accounts-rbac-tiers
           - accounts-cache-taskiq
+          - cache-memcached
+          - taskiq-rabbitmq
           - minimal
           - standard
           - full

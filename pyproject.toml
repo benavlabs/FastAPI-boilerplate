@@ -28,7 +28,7 @@ dev = ["fastro", "packaging>=24.0", "pyyaml>=6.0.2", "types-pyyaml>=6.0.12"]
 members = ["backend"]
 
 [tool.uv.sources]
-fastro = { git = "https://github.com/benavlabs/fastro", rev = "640caae2d6f7c129ab0f03ee6a34088d4dede65f" }
+fastro = { git = "https://github.com/benavlabs/fastro", rev = "d74640741beff33d1923301c86d32eefef52d53f" }
 
 [tool.pytest.ini_options]
 testpaths = ["blueprint/tests"]

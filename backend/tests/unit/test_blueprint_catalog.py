@@ -108,8 +108,29 @@ def test_the_version_is_the_one_the_backend_ships():
 
 
 def test_development_builds_of_the_tool_can_read_it():
-    """Spec 1.6: `0.1.0.dev0` sorts below `0.1`, so the lower bound has to name it."""
-    assert _catalog()["blueprint"]["requires_fastro"] == ">=0.1.0.dev0,<0.2"
+    """Spec 1.6: `0.1.0.dev1` sorts below `0.1`, so the lower bound has to name it. It is the first
+    build that reads a verify set written as a table with options."""
+    assert _catalog()["blueprint"]["requires_fastro"] == ">=0.1.0.dev1,<0.2"
+
+
+def test_every_choice_of_an_option_is_verified_by_a_set():
+    """A choice no set builds is a project nobody checks imports and passes its tests."""
+    verified = set()
+    for entry in _catalog()["verify"]["sets"].values():
+        chosen = entry.get("options", {}) if isinstance(entry, dict) else {}
+        listed = entry["features"] if isinstance(entry, dict) else entry
+        for feature in listed:
+            for option, table in _catalog()["features"][feature].get("options", {}).items():
+                verified.add((feature, option, chosen.get(f"{feature}.{option}", table["default"])))
+    choices = {
+        (feature, option, choice)
+        for feature, table in _catalog()["features"].items()
+        for option, spec in table.get("options", {}).items()
+        for choice in spec["choices"]
+    }
+
+    assert choices
+    assert sorted(choices - verified) == []
 
 
 def _declared_specifiers(listing: str = "runtime") -> set[str]:
