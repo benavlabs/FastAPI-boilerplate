@@ -354,6 +354,8 @@ def _setting_default(name: str) -> str:
         and node.target.id == name
         and isinstance(node.value, ast.Constant)
     ]
+    assert isinstance(default, str), (name, default)
+
     return default
 
 
