@@ -161,6 +161,9 @@ TASKIQ_REDIS_PASSWORD=
 
 ### RabbitMQ broker
 
+In a project generated with `taskiq.broker=rabbitmq`, whose `.env.example` is the only one that
+has them:
+
 ```env
 TASKIQ_RABBITMQ_HOST=localhost
 TASKIQ_RABBITMQ_PORT=5672

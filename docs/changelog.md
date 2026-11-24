@@ -12,6 +12,10 @@ ___
 
 #### Changed
 
+- **A project on the Redis broker has no RabbitMQ settings in its `.env.example`.** The
+  `TASKIQ_RABBITMQ_*` lines and the advice to replace guest/guest moved into a section of their
+  own that only `taskiq.broker=rabbitmq` keeps. The Background Tasks and Environment Variables
+  pages say which projects have them.
 - **`fastro make deploy` runs the service a choice brings.** With `cache.backend=memcached` each
   stack has a `memcached` service, and with `taskiq.broker=rabbitmq` a `rabbitmq` one, where
   before the catalog named them and no compose file had them. The app containers are pointed at

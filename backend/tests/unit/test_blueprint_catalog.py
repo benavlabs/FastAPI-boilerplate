@@ -2327,27 +2327,39 @@ def test_no_marker_sits_anywhere_but_under_a_header():
         assert _true(condition, set(_catalog()["features"]) | choosing), condition
 
 
-def test_the_memcached_settings_are_kept_only_where_memcached_is_chosen():
-    """A project on Redis has no Memcached backend to point anywhere, so its example names none."""
-    memcached = {name for name in _settings_fields() if name.startswith("CACHE_MEMCACHED_")}
-    holding = [(title, marker, set(variables)) for title, marker, variables in _env_sections() if memcached & set(variables)]
-
-    assert memcached
-    assert [(marker, variables) for _, marker, variables in holding] == [("# @fastro if=cache.backend=memcached", memcached)]
+CHOSEN_SERVICES = {"cache.backend=memcached": "CACHE_MEMCACHED_", "taskiq.broker=rabbitmq": "TASKIQ_RABBITMQ_"}
 
 
-def test_every_page_that_sets_memcached_names_the_choice_that_brings_it():
-    """A page setting `CACHE_BACKEND=memcached` is speaking to a project generated with
-    `cache.backend=memcached`, and has to say so, or a reader on Redis follows it to a refusal."""
+@pytest.mark.parametrize(("choice", "prefix"), CHOSEN_SERVICES.items())
+def test_a_chosen_service_s_settings_are_kept_only_where_it_is_chosen(choice: str, prefix: str):
+    """A project without the choice runs no such service to point anywhere, so its example names
+    none, neither as a setting nor in the comments of a section it keeps."""
+    settings = {name for name in _settings_fields() if name.startswith(prefix)}
+    holding = [(title, marker, set(variables)) for title, marker, variables in _env_sections() if settings & set(variables)]
+    naming = {
+        title
+        for title, comments in _env_comments().items()
+        if any(word.startswith(prefix) for line in comments for word in re.findall(r"\b[A-Z][A-Z0-9_]{2,}", line))
+    }
+
+    assert settings
+    assert [(marker, variables) for _, marker, variables in holding] == [(f"# @fastro if={choice}", settings)]
+    assert naming <= {title for title, _, _ in holding}
+
+
+@pytest.mark.parametrize(("choice", "prefix"), CHOSEN_SERVICES.items())
+def test_every_page_that_sets_a_chosen_service_names_the_choice_that_brings_it(choice: str, prefix: str):
+    """A page choosing the service, or setting its own settings, is speaking to a project generated
+    with that choice, and has to say so, or a reader without it follows it to a service that isn't there."""
+    feature, _, rest = choice.partition(".")
+    option, _, value = rest.partition("=")
+    (variable,) = _catalog()["features"][feature]["options"][option]["env"]
+    setting = rf"^\s*(?:{re.escape(prefix)}\w+=|{re.escape(variable)}={re.escape(value)}\b)"
     pages = [page for page in _tracked(REPO_ROOT / "docs", "*.md") if page.name != "changelog.md"]
-    setting = [
-        page.relative_to(REPO_ROOT).as_posix()
-        for page in pages
-        if re.search(r"^\s*CACHE_BACKEND=memcached\b", page.read_text(), re.M)
-    ]
+    setting_it = [page.relative_to(REPO_ROOT).as_posix() for page in pages if re.search(setting, page.read_text(), re.M)]
 
-    assert pages
-    assert [page for page in setting if "`cache.backend=memcached`" not in (REPO_ROOT / page).read_text()] == []
+    assert setting_it
+    assert [page for page in setting_it if f"`{choice}`" not in (REPO_ROOT / page).read_text()] == []
 
 
 def test_no_page_offers_the_other_cache_backend_as_a_setting():

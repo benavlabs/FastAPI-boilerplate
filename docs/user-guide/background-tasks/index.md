@@ -78,7 +78,8 @@ them the infrastructure is wired up and the task modules are yours to add.
 
 ## Configuration
 
-The relevant settings live in `TaskiqSettings` (`infrastructure/config/settings.py`) and read from `backend/.env`:
+The relevant settings live in `TaskiqSettings` (`infrastructure/config/settings.py`) and read from `backend/.env`.
+Only a project generated with `taskiq.broker=rabbitmq` has the RabbitMQ ones in its `.env.example`:
 
 ```env
 # Broker selection
