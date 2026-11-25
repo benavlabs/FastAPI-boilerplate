@@ -232,19 +232,37 @@ def _imported(*directories: str, skipping: tuple[str, ...] = ()) -> frozenset[st
     )
 
 
+IMPORT_FAILURES = {"ImportError", "ModuleNotFoundError", "Exception", "BaseException"}
+"""The names an `except` can catch a failed import under."""
+
+
+def _carries_on_after_a_failed_import(handler: ast.ExceptHandler) -> bool:
+    """Whether this handler catches a failed import and has no ``raise`` of its own at its top level;
+    a raise further in, under an ``if``, leaves the import guarded."""
+    caught = handler.type
+    names = caught.elts if isinstance(caught, ast.Tuple) else [caught] if caught is not None else []
+    catches = caught is None or any(isinstance(name, ast.Name) and name.id in IMPORT_FAILURES for name in names)
+
+    return catches and not any(isinstance(statement, ast.Raise) for statement in handler.body)
+
+
 @functools.cache
 def _imports_outright(path: Path) -> frozenset[str]:
     """The top-level modules this file imports with no guard, counted statement by statement.
 
     One import of a module inside a `try` doesn't excuse another outside it: the unguarded one is
-    what runs first and what fails, so a module imported both ways is imported outright.
+    what runs first and what fails, so a module imported both ways is imported outright. And a `try`
+    is a guard only for the imports in its body, and only when a handler catches the failed import
+    and carries on: one that re-raises, or a different error, leaves the project failing all the same.
     """
     tree = ast.parse(path.read_text())
     guarded = {
         id(inner)
         for node in ast.walk(tree)
-        if isinstance(node, ast.Try)
-        for inner in ast.walk(node)
+        if isinstance(node, ast.Try | ast.TryStar)
+        and any(_carries_on_after_a_failed_import(handler) for handler in node.handlers)
+        for statement in node.body
+        for inner in ast.walk(statement)
         if isinstance(inner, ast.Import | ast.ImportFrom)
     }
 
@@ -259,6 +277,37 @@ def _imports_outright(path: Path) -> frozenset[str]:
             found.add(node.module.split(".")[0])
 
     return frozenset(found)
+
+
+GUARD_CASES = {
+    "try:\n    import a\nexcept ImportError:\n    a = None\n": set(),
+    "try:\n    import a\nexcept (ValueError, ModuleNotFoundError):\n    pass\n": set(),
+    "try:\n    import a\nexcept Exception:\n    a = None\n": set(),
+    "try:\n    import a\nexcept:\n    a = None\n": set(),
+    "try:\n    import a\nexcept BaseException:\n    a = None\n": set(),
+    "try:\n    import a\nexcept* ImportError:\n    a = None\n": set(),
+    "try:\n    import a\nexcept* ImportError:\n    raise\n": {"a"},
+    "try:\n    import a\nexcept ModuleNotFoundError as missing:\n    if missing.name != 'a':\n        raise\n": set(),
+    "try:\n    import a\nexcept ImportError:\n    raise\n": {"a"},
+    "try:\n    import a\nexcept ImportError:\n    raise ImportError('install a')\n": {"a"},
+    "try:\n    import a\nexcept ValueError:\n    a = None\n": {"a"},
+    "try:\n    import a\nfinally:\n    pass\n": {"a"},
+    "try:\n    pass\nexcept ImportError:\n    import a\n": {"a"},
+    "try:\n    import a\nexcept ImportError:\n    a = None\nelse:\n    import b\n": {"b"},
+    "try:\n    try:\n        import a\n    except ImportError:\n        raise\nexcept ImportError:\n    a = None\n": set(),
+}
+"""Files, and what each imports outright: a `try` guards the imports in its body when one of its
+handlers catches the import's failure and doesn't re-raise it unconditionally."""
+
+
+@pytest.mark.parametrize(("source", "outright"), GUARD_CASES.items())
+def test_a_try_guards_an_import_only_when_a_handler_catches_its_failure_and_carries_on(
+    source: str, outright: set[str], tmp_path: Path
+):
+    written = tmp_path / "module.py"
+    written.write_text(source)
+
+    assert _imports_outright(written) == outright
 
 
 @functools.cache
