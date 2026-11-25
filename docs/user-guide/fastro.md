@@ -13,8 +13,10 @@ uv run --no-sync fastro make deploy local
 `fastro make deploy` renders `[generators.deploy]` from `blueprint.toml`: `docker-compose.yml` for
 the mode it is given, and for `nginx` also `nginx/default.conf`, at the repository root unless
 `--output-dir` says otherwise. Each file starts with a header naming the command that wrote it,
-and the compose project is named after the project's slug, `fastapi-boilerplate` here. Apart from
-the header and the project name, the files are byte for byte what the legacy deploy command wrote.
+and a compose file's opening comment goes on to name the services that project's file runs. The
+compose project is named after the project's slug, `fastapi-boilerplate` here. Apart from that
+opening comment, the header line and the project name, the files are byte for byte what the legacy
+deploy command wrote.
 
 It runs in the blueprint repository. In a project fastro created it exits 2 for now.
 `bp deploy generate` exits 2 too, in a project made before fastro.

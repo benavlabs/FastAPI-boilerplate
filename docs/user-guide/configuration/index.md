@@ -59,7 +59,9 @@ SECRET_KEY=your-secret-key
 
 ### Layer 2: Settings Classes
 
-Pydantic `BaseSettings` classes in `src/infrastructure/config/settings.py` validate and structure config:
+Pydantic `BaseSettings` classes validate and structure config: the core ones in
+`src/infrastructure/config/base.py`, and each feature's next to the feature
+([Settings Classes](settings-classes.md)):
 
 ```python
 class DatabaseSettings(EnvSettings):

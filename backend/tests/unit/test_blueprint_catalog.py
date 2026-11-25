@@ -2637,6 +2637,30 @@ def test_the_settings_pointer_reader_reads_each_form():
     assert _settings_pointers(text) == [("ASettings", "src/a.py"), ("BSettings", "backend/src/b.py"), ("CSettings", "src/c.py")]
 
 
+def test_a_page_that_says_where_the_settings_classes_are_names_files_that_define_them():
+    """The core classes sit in ``config/base.py`` and each feature's next to the feature; ``config/settings.py``
+    only re-exports the composed one, so a page sending a reader there finds no class to read. A
+    paragraph is read whole, wrapped lines and all; a table row by itself."""
+    saying = [
+        (f"{page.relative_to(REPO_ROOT)}", line)
+        for page in _tracked(REPO_ROOT / "docs", "*.md")
+        if page.name != "changelog.md"
+        for paragraph in re.split(r"\n\s*\n", page.read_text())
+        for line in (paragraph.splitlines() if paragraph.lstrip().startswith("|") else [paragraph])
+        if re.search(r"settings`?\s+classes\b", line, re.I)
+    ]
+    source = REPO_ROOT / "backend" / "src"
+    defining = [
+        (where, path)
+        for where, line in saying
+        for path in re.findall(r"`((?:backend/)?src/[\w/]+\.py)`", line)
+        if not re.search(r"^class \w+Settings\b", (source / re.sub(r"^(?:backend/)?src/", "", path)).read_text(), re.M)
+    ]
+
+    assert saying
+    assert defining == []
+
+
 def test_a_settings_class_a_page_points_at_is_defined_there():
     """``TaskiqSettings`` moved to the taskiq package with the feature, and a page still pointing at
     the shared config module sends a reader to a file that doesn't have it."""

@@ -137,6 +137,17 @@ ___
 
 #### Fixed
 
+- **The generated compose files say what they run.** The opening comment of the local, prod and
+  nginx compose files names the services that project's file runs, the scheduler among them, and
+  leaves out the worker and scheduler a project without taskiq doesn't get. The fastro page says
+  that comment, not only its first line, is where they differ from what the legacy command wrote.
+- **The production worker commands run.** `docker run` takes no `--target`, so both examples on
+  the Production page failed; they now run the worker and the scheduler from the `prod` image, with
+  the commands the generated compose gives them. The page says a scheduler is needed for the
+  api_keys usage cleanup and delayed retries too, not only for tasks with a `schedule` label.
+- **The configuration pages say where the settings classes are.** The Environment Variables and
+  Configuration pages pointed them at `config/settings.py`, which defines none; the core ones are
+  in `config/base.py` and each feature's next to the feature.
 - **The docs give the rate limiter the backends it has.** Its counters live on `redis`, `database`
   or `memory`, whatever `RATE_LIMITER_BACKEND` names. The Sessions page no longer says Memcached
   remains available for it; the Rate Limiting page, the user guide index, the getting-started

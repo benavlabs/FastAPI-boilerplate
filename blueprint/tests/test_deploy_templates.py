@@ -6,6 +6,7 @@ The templates are rendered with the generator context of catalog spec 6.2, under
 
 import ast
 import re
+import shlex
 import tomllib
 from collections.abc import Iterator
 from pathlib import Path
@@ -128,7 +129,7 @@ def test_a_production_stack_publishes_only_its_entrypoint(mode: str, entrypoint:
     services = _compose(mode, services=(*TASKIQ_SERVICES, *_option_services()))["services"]
     published = {name for name, service in services.items() if "ports" in service}
 
-    assert {"postgres", "redis"} <= set(services)
+    assert {"postgres", "redis", *_option_services()} <= set(services)
     assert published == {entrypoint}
     assert [name for name, service in services.items() if "network_mode" in service] == []
 
@@ -277,6 +278,46 @@ def _selection_id(features: tuple[str, ...], options: dict[str, str]) -> str:
     return ",".join([*features, *(f"{option}={value}" for option, value in options.items())]) or "none"
 
 
+def test_some_choice_brings_a_service():
+    """The tests built on the list would check nothing if a renamed key left it empty."""
+    assert _option_services()
+
+
+HEADER_NAMES = {
+    "api": "API",
+    "migrate": "migration",
+    "worker": "Taskiq worker",
+    "scheduler": "scheduler",
+    "postgres": "Postgres",
+    "redis": "Redis",
+    "memcached": "Memcached",
+    "rabbitmq": "RabbitMQ",
+    "nginx": "nginx reverse proxy",
+}
+"""How a compose file's opening comment names each service it may run."""
+
+
+def _header(rendered: str) -> str:
+    return " ".join(line.lstrip("# ") for line in rendered.split("\n\n", 1)[0].splitlines())
+
+
+@pytest.mark.parametrize("mode", MODES)
+@pytest.mark.parametrize(("features", "options"), SELECTIONS, ids=[_selection_id(*selection) for selection in SELECTIONS])
+def test_each_compose_file_says_in_its_opening_comment_what_it_runs(
+    mode: str, features: tuple[str, ...], options: dict[str, str]
+):
+    """The comment lands in every generated project, so it names what that project's file runs and nothing else."""
+    services = tuple(sorted(_catalog_services(features, options)))
+    rendered = _render(f"{mode}/docker-compose.yml.j2", features=features, options=options, services=services)
+    header = _header(rendered)
+    running = set(yaml.safe_load(rendered)["services"])
+
+    assert set(HEADER_NAMES) >= running
+    for name, words in HEADER_NAMES.items():
+        assert (words in header) is (name in running), (name, header)
+    assert "\u2014" not in rendered
+
+
 @pytest.mark.parametrize("mode", MODES)
 @pytest.mark.parametrize(("features", "options"), SELECTIONS, ids=[_selection_id(*selection) for selection in SELECTIONS])
 def test_the_compose_runs_the_services_the_catalog_gives_each_choice(
@@ -314,7 +355,6 @@ def test_a_production_stack_keeps_a_service_a_choice_brings_off_the_host_and_res
     """Neither Memcached nor a broker on the compose network has to be reachable from outside it."""
     service = _compose(mode, services=(*TASKIQ_SERVICES, brought))["services"][brought]
 
-    assert "ports" not in service
     assert service["restart"] == "unless-stopped"
 
 
@@ -495,3 +535,108 @@ def test_the_background_tasks_page_leaves_the_worker_service_to_fastro_make_depl
     assert not re.search(r"\b(?:add|write|define|create)\b[^.]*\bservice\b", running, re.I)
     assert all(f"`{name}`" in running for name in TASKIQ_SERVICES)
     assert not re.search(r"^```ya?ml\n(?:(?!^```).)*?^\s+(?:worker|scheduler):\s*$", page, re.M | re.S)
+
+
+PRODUCTION_PAGE = REPO_ROOT / "docs" / "user-guide" / "production.md"
+
+DOCKER_RUN_OPTIONS = {
+    "-d": False,
+    "--detach": False,
+    "--rm": False,
+    "-i": False,
+    "-t": False,
+    "-it": False,
+    "--env-file": True,
+    "-e": True,
+    "--env": True,
+    "--name": True,
+    "--network": True,
+    "--restart": True,
+    "-p": True,
+    "--publish": True,
+    "-v": True,
+    "--volume": True,
+    "-w": True,
+    "--workdir": True,
+    "-u": True,
+    "--user": True,
+}
+"""The ``docker run`` options a page may use, and whether each takes a value. ``--target`` is ``docker build``'s."""
+
+
+def _shell_commands(text: str) -> list[list[str]]:
+    """Each command in the page's bash blocks, continuation lines joined, split as the shell would."""
+    lines: list[str] = []
+    language: str | None = None
+    for line in text.splitlines():
+        if line.startswith("```"):
+            language = line[3:].strip() if language is None else None
+        elif language in {"bash", "sh"}:
+            lines.append(line)
+    joined = "\n".join(lines).replace("\\\n", " ")
+    return [shlex.split(line) for line in joined.splitlines() if line.strip() and not line.lstrip().startswith("#")]
+
+
+def _docker_run(argv: list[str]) -> tuple[list[str], str, list[str]]:
+    """The options, the image and the command of a ``docker run``."""
+    position = 2
+    while argv[position].startswith("-"):
+        option = argv[position].split("=", 1)[0]
+        assert option in DOCKER_RUN_OPTIONS, argv
+        position += 2 if DOCKER_RUN_OPTIONS[option] and "=" not in argv[position] else 1
+    command = argv[position + 1 :]
+    if command[:2] == ["sh", "-c"]:
+        command = shlex.split(command[2])
+    return argv[2:position], argv[position], command
+
+
+def test_the_docker_run_reader_splits_options_image_and_command():
+    argv = shlex.split("docker run -d --env-file .env -e A=1 --rm image:1 sh -c 'taskiq worker m:b --workers 4'")
+
+    assert _docker_run(argv) == (
+        ["-d", "--env-file", ".env", "-e", "A=1", "--rm"],
+        "image:1",
+        ["taskiq", "worker", "m:b", "--workers", "4"],
+    )
+    with pytest.raises(AssertionError):
+        _docker_run(shlex.split("docker run --target base image:1"))
+
+
+def test_every_docker_run_on_the_production_page_runs_what_the_compose_runs():
+    """Each one takes only ``docker run``'s options, runs an image the page builds, and a background
+    service runs the command the prod compose gives it, from the stage the compose builds it from."""
+    commands = _shell_commands(PRODUCTION_PAGE.read_text())
+    built = {}
+    for argv in commands:
+        if argv[:2] == ["docker", "build"]:
+            built[argv[argv.index("-t") + 1]] = argv[argv.index("--target") + 1]
+    services = _compose("prod")["services"]
+    runs = [_docker_run(argv) for argv in commands if argv[:2] == ["docker", "run"]]
+    running = set()
+
+    for _, image, command in runs:
+        assert image in built, image
+        if not command:
+            continue
+        (name,) = [name for name in TASKIQ_SERVICES if services[name]["command"].split()[:3] == command[:3]]
+        assert services[name]["build"]["target"] == built[image], name
+        options = {word.split("=", 1)[0] for word in services[name]["command"].split() if word.startswith("-")}
+        assert {word.split("=", 1)[0] for word in command if word.startswith("-")} <= options, (name, command)
+        running.add(name)
+
+    assert running == set(TASKIQ_SERVICES)
+
+
+def test_the_production_page_says_what_needs_the_scheduler():
+    """Not only the tasks with a ``schedule`` label: the scheduler is what enqueues a delayed retry when it
+    is due and the api_keys usage cleanup, so a page asking for it on labels alone loses both."""
+    section = PRODUCTION_PAGE.read_text().split("## Running the Background Worker\n", 1)[1].split("\n## ", 1)[0]
+    (cleanup,) = re.findall(
+        r'^PRUNE_TASK_NAME = "([^"]+)"', (REPO_ROOT / "backend/src/modules/api_keys/tasks.py").read_text(), re.M
+    )
+    (delay,) = re.findall(r"^\s+(TASKIQ_RETRY_DELAY_\w+):", TASKIQ_SETTINGS.read_text(), re.M)
+    prose = " ".join(section.split("```")[0::2])
+
+    assert "`schedule`" in prose
+    assert f"`{cleanup}`" in prose
+    assert f"`{delay}`" in prose

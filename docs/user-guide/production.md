@@ -192,26 +192,29 @@ For most APIs, **don't reach for gunicorn**. `fastapi run` (which wraps uvicorn)
 
 ## Running the Background Worker
 
-In production, run a separate worker container/service:
+In production, run a separate worker container from the image built above, with the worker's command
+in place of the API's:
 
 ```bash
 docker run -d \
     --env-file .env.production \
-    --target base \
     myapp-api:1.0.0 \
-    sh -c "taskiq worker src.infrastructure.taskiq.worker:default_broker --workers 4"
+    taskiq worker src.infrastructure.taskiq.worker:default_broker --workers 4
 ```
 
 In Kubernetes / ECS, that's a separate `Deployment` / `Service` with its own scaling. The worker doesn't accept HTTP traffic — it only consumes from the broker.
 
-If any task declares a `schedule` label, one scheduler has to run too, and **only one** — each scheduler enqueues every schedule it finds, so two of them run every cron entry twice:
+One scheduler has to run too, and **only one**: each scheduler enqueues every schedule it finds, so
+two of them run every cron entry twice. It enqueues the tasks that declare a `schedule` label, the
+api_keys feature's `api_keys:prune_usage` among them, and with `TASKIQ_RETRY_DELAY_SECONDS` set it
+enqueues each delayed retry when it is due. Without one, the usage rows are never pruned and a
+delayed retry never runs:
 
 ```bash
 docker run -d \
     --env-file .env.production \
-    --target base \
     myapp-api:1.0.0 \
-    sh -c "taskiq scheduler src.infrastructure.taskiq.scheduler:scheduler"
+    taskiq scheduler src.infrastructure.taskiq.scheduler:scheduler
 ```
 
 Tune via:

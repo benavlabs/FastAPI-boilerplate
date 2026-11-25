@@ -2,7 +2,7 @@
 
 This page is the complete reference for every environment variable the boilerplate reads. `backend/.env.example` ships the ones a new project usually sets, with the same defaults; the rest are here, and a variable a project never sets keeps the default named below.
 
-All variables are loaded from `backend/.env` at application startup via Pydantic `BaseSettings` classes in `src/infrastructure/config/settings.py`.
+All variables are loaded from `backend/.env` at application startup via Pydantic `BaseSettings` classes: the core ones in `src/infrastructure/config/base.py`, and each feature's next to the feature ([Settings Classes](settings-classes.md)).
 
 ## Environment
 
