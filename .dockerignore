@@ -12,3 +12,6 @@ nginx/
 docker-compose.yml
 .env
 **/.env
+.env.*
+**/.env.*
+!**/.env.example

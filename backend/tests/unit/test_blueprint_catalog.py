@@ -2796,19 +2796,21 @@ PROJECT_GITIGNORE = REPO_ROOT / "blueprint" / "overlay" / ".gitignore"
 
 
 def _git_ignores(gitignore: Path, path: str, tmp_path: Path) -> bool:
-    """Whether a repository whose only ignore rules are ``gitignore``'s ignores ``path``."""
-    repository = tmp_path / f"ignores-{gitignore.parent.name}"
-    repository.mkdir()
+    """Whether a repository whose only ignore rules are ``gitignore``'s ignores ``path``, the user's own
+    global excludes left out."""
+    repository = tmp_path / ("ignores-" + gitignore.relative_to(REPO_ROOT).as_posix().replace("/", "-"))
+    repository.mkdir(parents=True)
     subprocess.run(["git", "init", "-q"], cwd=repository, check=True)
     (repository / ".gitignore").write_text(gitignore.read_text())
-    return subprocess.run(["git", "check-ignore", "-q", path], cwd=repository, check=False).returncode == 0
+    checking = ["git", "-c", "core.excludesFile=/dev/null", "check-ignore", "-q", path]
+    return subprocess.run(checking, cwd=repository, check=False).returncode == 0
 
 
 def test_the_production_page_runs_the_env_file_its_checklist_writes(tmp_path: Path):
     """Its commands run from the repository root, the build context they give, so the file the
     checklist has the reader write sits next to ``backend/.env.example`` and every ``--env-file``
-    names that one path. A generated project's ``.gitignore`` ignores it; while a clone's doesn't, the
-    checklist tells the reader to add it."""
+    names that one path. The file holds production secrets, so a generated project's ``.gitignore``
+    and a clone's both ignore it, as the checklist says."""
     page = PRODUCTION_PAGE.read_text()
     builds = re.findall(r"^docker build .*$", page, re.M)
     env_files = set(re.findall(r"--env-file[= ](\S+)", page))
@@ -2821,10 +2823,11 @@ def test_the_production_page_runs_the_env_file_its_checklist_writes(tmp_path: Pa
     assert (REPO_ROOT / env_file).parent == ENV_EXAMPLE.parent
     assert f"`{env_file}`" in opening
     assert _git_ignores(PROJECT_GITIGNORE, env_file, tmp_path), "a generated project's .gitignore"
-    if not _git_ignores(REPO_ROOT / ".gitignore", env_file, tmp_path):
-        assert re.search(r"\badd\b[^.]*`\.gitignore`", opening), (
-            "the file holds production secrets and a clone's git would take it"
-        )
+    assert _git_ignores(REPO_ROOT / ".gitignore", env_file, tmp_path), "a clone of this repository's .gitignore"
+    assert not _git_ignores(PROJECT_GITIGNORE, "backend/.env.example", tmp_path / "example")
+    assert not _git_ignores(REPO_ROOT / ".gitignore", "backend/.env.example", tmp_path / "example")
+    assert "`.gitignore`" in opening
+    assert "`.dockerignore`" in opening
 
 
 ADMIN_GUIDE = REPO_ROOT / "docs" / "user-guide" / "admin-panel" / "configuration.md"

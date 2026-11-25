@@ -137,6 +137,10 @@ ___
 
 #### Fixed
 
+- **No `.env.*` file reaches git or the image's build context.** This repository's `.gitignore`
+  ignores `.env.*` other than `.env.example`, as a generated project's already did, and
+  `.dockerignore` keeps every `.env` and `.env.*` but `.env.example` out of what `docker build .`
+  sends, where `backend/.env.production` and its kind went with every build.
 - **Every production example in the docs starts.** The Production, Configuration and
   Environment-Specific pages' production `.env` examples, laid over `.env.example`, were each
   refused by the production check: none set `EMAIL_BACKEND=smtp` or an HTTPS `FRONTEND_URL`, and
@@ -149,8 +153,7 @@ ___
   comma-separated list the app splits, where a JSON list gave it two origins that match nothing.
   The Configuration page's example sets its own HTTPS origin instead of keeping `.env.example`'s
   localhost ones. The checklist no longer puts `CONFIRM_PRODUCTION_MIGRATION=yes` in that long-lived
-  file, and says a generated project's `.gitignore` already keeps the file out of git while a clone
-  of this repository has to add it.
+  file, and says git keeps the file out.
 - **The generated compose files say what they run.** The opening comment of the local, prod and
   nginx compose files names the services that project's file runs, the scheduler among them, and
   leaves out the worker and scheduler a project without taskiq doesn't get. The fastro page says

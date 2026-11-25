@@ -45,9 +45,9 @@ The validator is **not** a substitute for a thorough threat model — it catches
 
 ## Production `.env` Checklist
 
-Generate `backend/.env.production` from `backend/.env.example`, and keep it out of git. A project
-fastro creates already does: its `.gitignore` ignores `.env.*` other than `.env.example`. A clone of
-this repository ignores only `.env`, so add the file to its `.gitignore`. The file is read
+Generate `backend/.env.production` from `backend/.env.example`. It stays out of git and out of the
+image's build context: the `.gitignore` of a project fastro creates and this repository's own both
+ignore `.env.*` other than `.env.example`, and so does `.dockerignore`. The file is read
 literally, by the app and by `docker run --env-file`, so a comment goes on its own line and a value
 takes no quotes. The bare-minimum changes:
 
