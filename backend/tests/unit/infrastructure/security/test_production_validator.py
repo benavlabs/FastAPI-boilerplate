@@ -595,6 +595,29 @@ class TestWhatStagingRefuses:
     def test_a_staging_deployment_that_holds_up_passes(self):
         self._staging().validate_production_security()
 
+    def test_a_frontend_url_over_http_is_warned_about_not_refused(self, caplog):
+        """Plenty of staging deployments answer on an internal http address, so refusing one would
+        break them; the links built from it still carry their tokens in the clear, so it is said."""
+        self._staging(FRONTEND_URL="http://staging.internal").validate_production_security()
+
+        assert [record for record in caplog.records if record.levelname == "WARNING" and "FRONTEND_URL" in record.message]
+
+    def test_a_frontend_url_over_https_draws_no_warning(self, caplog):
+        self._staging().validate_production_security()
+
+        assert not [record for record in caplog.records if record.levelname == "WARNING"]
+
+    def test_what_only_production_warns_about_is_left_to_production(self, caplog):
+        self._staging(DEBUG=True, CACHE_BACKEND="redis").validate_production_security()
+
+        assert not [record for record in caplog.records if record.levelname == "WARNING"]
+
+    def test_a_frontend_url_over_http_is_left_alone_without_the_accounts_feature(self):
+        """A project with no accounts builds no link from ``FRONTEND_URL``."""
+        settings = CoreSettings(ENVIRONMENT=EnvironmentOption.STAGING, FRONTEND_URL="http://staging.internal")
+
+        assert ProductionSecurityValidator(cast(Settings, settings))._collect_staging_warnings() == []
+
 
 class TestAProjectWithoutTheseFeatures:
     """The validator runs whatever features a project selected, and no more.

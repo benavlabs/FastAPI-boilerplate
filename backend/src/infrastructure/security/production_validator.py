@@ -144,8 +144,7 @@ class ProductionSecurityValidator:
             self.logger.error(error_msg)
             raise ProductionSecurityError(error_msg)
 
-        if self._is_production():
-            self._validate_warning_security()
+        self._validate_warning_security()
 
         self.logger.info(f"{environment.capitalize()} security validation completed successfully")
 
@@ -389,22 +388,43 @@ class ProductionSecurityValidator:
             While these don't prevent startup, they should be addressed
             to maintain optimal security posture.
 
+            Staging collects only ``_collect_staging_warnings()``, a
+            ``FRONTEND_URL`` that isn't HTTPS.
+
         Example:
             Warning issues that would be detected:
             - Redis without password authentication
             - Session timeout too long
             - Weak admin usernames or passwords
         """
-        warnings = self._collect_warnings()
+        warnings = self._collect_warnings() if self._is_production() else self._collect_staging_warnings()
+        environment = self.settings.ENVIRONMENT
 
         for warning in warnings:
-            self.logger.warning(f"PRODUCTION SECURITY WARNING: {warning}")
+            self.logger.warning(f"{environment.upper()} SECURITY WARNING: {warning}")
 
         if warnings:
             self.logger.warning(
-                f"Found {len(warnings)} production security warnings. "
+                f"Found {len(warnings)} {environment} security warnings. "
                 "While not critical, these should be reviewed for optimal security."
             )
+
+    def _collect_staging_warnings(self) -> list[str]:
+        """The concerns worth raising in staging that don't prevent its startup.
+
+        Plenty of staging deployments answer on an internal ``http`` address, so a plaintext
+        ``FRONTEND_URL`` is said rather than refused there; the links built from it still carry
+        their tokens in the clear.
+        """
+        if not self._has_accounts_to_email() or not self._is_frontend_url_plaintext():
+            return []
+
+        return [
+            f"FRONTEND_URL is {self.settings.FRONTEND_URL!r} in staging, which is not HTTPS. Every "
+            "verification, password-reset and email-change link is built from it, so each one "
+            "carries its token over a connection anybody on the path can read. Fine on a network "
+            "only the team reaches; use HTTPS anywhere else."
+        ]
 
     def _collect_warnings(self) -> list[str]:
         """The security concerns worth raising that don't prevent startup."""

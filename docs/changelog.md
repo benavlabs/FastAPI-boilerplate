@@ -21,6 +21,12 @@ ___
 
 #### Changed
 
+- **Staging warns on a `FRONTEND_URL` over plain `http`.** It used to say nothing; production
+  refuses one. Staging logs a warning and starts, since plenty of staging deployments answer on an
+  internal `http` address, while the verification, password-reset and email-change links built from
+  it still carry their tokens in the clear. A project without accounts builds no such link and gets
+  no warning. Staging logs none of production's other warnings.
+
 - **`requires-python` stops at 3.14.** Both `pyproject.toml` files allow `>=3.11,<3.15`, the
   newest Python every dependency installs on (`watchfiles` and `rignore` don't build on 3.15), so
   uv, `fastro blueprint verify` and a generated project pick a Python that works without

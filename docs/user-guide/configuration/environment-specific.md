@@ -25,7 +25,7 @@ The boilerplate already changes its own behavior based on `ENVIRONMENT`. You don
 | **Logging style** | Detailed text, color console | Structured key/value | JSON |
 | **Default log level** | DEBUG (when `LOG_DEVELOPMENT_VERBOSE=true`) | INFO | WARNING (when `LOG_PRODUCTION_OPTIMIZE=true`) |
 | **Noisy library loggers** | Normal level | Normal level | Quieted (urllib3, sqlalchemy, redis, etc.) |
-| **Security validator** | Skipped | The secret key, the mail backend and `CREATE_TABLES_ON_STARTUP` | Every check, at startup, if `PRODUCTION_SECURITY_VALIDATION_ENABLED=true` (default) |
+| **Security validator** | Skipped | Refuses a weak `SECRET_KEY`, `EMAIL_BACKEND=console` and `CREATE_TABLES_ON_STARTUP=true`; warns on a `FRONTEND_URL` that isn't `https://` | Every check, at startup, if `PRODUCTION_SECURITY_VALIDATION_ENABLED=true` (default) |
 | **Docs at `/docs`** | Available | Available | Disabled unless `ENABLE_DOCS_IN_PRODUCTION=true` |
 
 The logging behavior is driven by `src/infrastructure/logging/config.py`. The security validator lives in `src/infrastructure/security/`.

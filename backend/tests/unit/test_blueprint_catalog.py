@@ -2870,6 +2870,18 @@ def test_every_staging_example_in_the_docs_passes_the_staging_check(
     validator.validate_production_security(settings)
 
 
+def test_the_environment_page_says_what_staging_refuses_and_what_it_only_warns_about():
+    """Staging refuses a weak secret, the console email backend and tables built on startup, and
+    only warns on an ``http`` ``FRONTEND_URL``, since plenty of staging setups run on internal http."""
+    page = (REPO_ROOT / "docs/user-guide/configuration/environment-specific.md").read_text()
+    row = next(line for line in page.splitlines() if line.startswith("| **Security validator**"))
+    staging = row.split("|")[3]
+    refused, _, warned = staging.partition("warns")
+
+    assert all(setting in refused for setting in ("SECRET_KEY", "EMAIL_BACKEND", "CREATE_TABLES_ON_STARTUP"))
+    assert "FRONTEND_URL" in warned and "FRONTEND_URL" not in refused
+
+
 @pytest.mark.parametrize(("page", "lines"), PRODUCTION_EXAMPLES, ids=[page for page, _ in PRODUCTION_EXAMPLES])
 def test_every_production_example_in_the_docs_passes_the_production_check(
     page: str, lines: list[str], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
