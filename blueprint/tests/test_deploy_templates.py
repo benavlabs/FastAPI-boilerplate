@@ -121,6 +121,18 @@ def test_the_local_compose_publishes_its_databases_to_the_host_only():
         assert all(port.startswith("127.0.0.1:") for port in ports), name
 
 
+@pytest.mark.parametrize(("mode", "entrypoint"), [("prod", "api"), ("nginx", "nginx")])
+def test_a_production_stack_publishes_only_its_entrypoint(mode: str, entrypoint: str):
+    """Postgres and Redis, and whatever the choices bring, are reached on the compose network only:
+    a published database port is a database on the host's public address."""
+    services = _compose(mode, services=(*TASKIQ_SERVICES, *_option_services()))["services"]
+    published = {name for name, service in services.items() if "ports" in service}
+
+    assert {"postgres", "redis"} <= set(services)
+    assert published == {entrypoint}
+    assert [name for name, service in services.items() if "network_mode" in service] == []
+
+
 def test_nginx_sends_only_the_address_it_saw():
     """A client's own X-Forwarded-For must not reach the app as its address."""
     conf = _render("nginx/nginx/default.conf.j2")
