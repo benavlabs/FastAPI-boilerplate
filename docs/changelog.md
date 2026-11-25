@@ -137,6 +137,20 @@ ___
 
 #### Fixed
 
+- **Every production example in the docs starts.** The Production, Configuration and
+  Environment-Specific pages' production `.env` examples, laid over `.env.example`, were each
+  refused by the production check: none set `EMAIL_BACKEND=smtp` or an HTTPS `FRONTEND_URL`, and
+  the Configuration page's kept the default `SECRET_KEY` and database password. They set them now,
+  and the Production page's commands all read `backend/.env.production`, the file its checklist
+  has the reader write, where three of them read `.env.production`. The file is read literally, by
+  the app and by `docker run --env-file`, so the checklist's comments sit on their own lines (a
+  comment after a value was part of it, and `ADMIN_ENABLED`, `SESSION_SECURE_COOKIES` and
+  `TRUSTED_PROXY_HOPS` failed to parse), `APP_NAME` takes no quotes, and `CORS_ORIGINS` is the
+  comma-separated list the app splits, where a JSON list gave it two origins that match nothing.
+  The Configuration page's example sets its own HTTPS origin instead of keeping `.env.example`'s
+  localhost ones. The checklist no longer puts `CONFIRM_PRODUCTION_MIGRATION=yes` in that long-lived
+  file, and says a generated project's `.gitignore` already keeps the file out of git while a clone
+  of this repository has to add it.
 - **The generated compose files say what they run.** The opening comment of the local, prod and
   nginx compose files names the services that project's file runs, the scheduler among them, and
   leaves out the worker and scheduler a project without taskiq doesn't get. The fastro page says

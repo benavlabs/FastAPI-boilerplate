@@ -170,6 +170,13 @@ CORS_ALLOW_HEADERS=Authorization,Content-Type
 # Docs gated off by default in production
 ENABLE_DOCS_IN_PRODUCTION=false
 
+# Account email, with the accounts feature: links are built from FRONTEND_URL
+EMAIL_BACKEND=smtp
+EMAIL_SMTP_HOST=smtp.example.com
+EMAIL_SMTP_USER=<from secrets manager>
+EMAIL_SMTP_PASSWORD=<from secrets manager>
+FRONTEND_URL=https://app.example.com
+
 # Real Redis with passwords; separate DBs per concern
 CACHE_REDIS_HOST=prod-redis.example.com
 CACHE_REDIS_PASSWORD=<from secrets manager>

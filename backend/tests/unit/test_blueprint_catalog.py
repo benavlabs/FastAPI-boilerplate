@@ -25,6 +25,7 @@ from typing import Any
 import pytest
 import yaml
 from packaging.requirements import Requirement
+from starlette.config import Config
 
 from tests.conftest import is_docker_running
 
@@ -2566,18 +2567,20 @@ def test_the_environment_variables_page_names_every_limiter_backend():
 
 
 def _code_blocks(text: str) -> list[tuple[str, str]]:
-    """``(language, body)`` for each fenced block, pairing each opening fence with the next one."""
+    """``(language, body)`` for each fenced block, pairing each opening fence with the next one. A
+    fence indented under a list item or an admonition opens a block too, and its indent comes off."""
     blocks: list[tuple[str, str]] = []
-    opened: tuple[str, list[str]] | None = None
+    opened: tuple[str, str, list[str]] | None = None
     for line in text.splitlines():
-        if line.startswith("```"):
+        if line.lstrip().startswith("```"):
             if opened is None:
-                opened = (line[3:].strip(), [])
+                indent = line[: len(line) - len(line.lstrip())]
+                opened = (line.strip()[3:].strip(), indent, [])
             else:
-                blocks.append((opened[0], "\n".join(opened[1]) + "\n"))
+                blocks.append((opened[0], "\n".join(opened[2]) + "\n"))
                 opened = None
         elif opened is not None:
-            opened[1].append(line)
+            opened[2].append(line.removeprefix(opened[1]))
 
     return blocks
 
@@ -2586,6 +2589,7 @@ def test_the_code_block_reader_pairs_each_fence_with_the_next():
     text = "```python\nx = 1\n```\n\nprose between\n\n```env\nA=1\n```\n"
 
     assert _code_blocks(text) == [("python", "x = 1\n"), ("env", "A=1\n")]
+    assert _code_blocks("!!! note\n    ```env\n    A=1\n    ```\n") == [("env", "A=1\n")]
 
 
 def test_a_redis_setting_under_a_limiter_backend_with_a_choice_says_it_is_redis_s():
@@ -2682,17 +2686,145 @@ def test_a_settings_class_a_page_points_at_is_defined_there():
 
 def test_the_production_example_counts_where_the_production_check_lets_it():
     """The example is what a reader copies into production, where the validator refuses a limiter
-    counting in the process; the backends its comment calls refused are the ones the validator refuses."""
+    counting in the process; the backends the comment above it calls refused are the ones the validator
+    refuses. The comment sits on its own line, since the file is read literally and a trailing one would
+    be part of the value."""
     validator = importlib.import_module("src.infrastructure.security.production_validator").ProductionSecurityValidator
-    line = re.search(r"^RATE_LIMITER_BACKEND=(\w+)\s+#(.*)$", PRODUCTION_PAGE.read_text(), re.M)
+    line = re.search(r"^#(.*)\nRATE_LIMITER_BACKEND=(\w+)$", PRODUCTION_PAGE.read_text(), re.M)
 
     def refused(backend: str) -> bool:
         return bool(validator(type("Settings", (), {"RATE_LIMITER_BACKEND": backend})())._counts_rate_limits_in_the_process())
 
     assert line is not None
-    said_refused = _backends_named(next(clause for clause in line[2].split(";") if "refused" in clause))
-    assert not refused(line[1])
+    said_refused = _backends_named(next(clause for clause in line[1].split(";") if "refused" in clause))
+    assert not refused(line[2])
     assert said_refused == {backend for backend in _limiter_backends() if refused(backend)}
+
+
+SETTING_LINE = re.compile(r"^([A-Z][A-Z0-9_]*)=(.*)$")
+
+
+def _production_examples() -> list[tuple[str, list[str]]]:
+    """Each ``env`` block in the docs that sets ``ENVIRONMENT=production``, with where it is."""
+    return [
+        (page.relative_to(REPO_ROOT).as_posix(), block.splitlines())
+        for page in _tracked(REPO_ROOT / "docs", "*.md")
+        if page.name != "changelog.md"
+        for language, block in _code_blocks(page.read_text())
+        if language == "env" and re.search(r"^ENVIRONMENT=production\b", block, re.M)
+    ]
+
+
+def _filled(name: str, value: str) -> str:
+    """A ``<placeholder>`` value filled the way it asks, a host with a host and a secret with one;
+    anything else, a trailing ``#`` and what follows it included, as the file gives it."""
+    if not re.fullmatch(r"<[^<>]*>", value):
+        return value
+    if name.endswith(("_HOST", "_SERVER")):
+        return f"{name.lower().replace('_', '-')}.internal.example"
+    if name == "FORWARDED_ALLOW_IPS":
+        return "10.0.0.0/8"
+    return f"filled-{name.lower()}-{'x' * 48}"
+
+
+def _settings_read_from(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, *files: list[str]) -> Any:
+    """The project's settings with nothing set but what the files set, each read as the app reads its
+    environment file, a later file winning. Nothing the shell or the test setup exported reaches them."""
+    settings_class = importlib.import_module("src.infrastructure.config.settings").Settings
+    for name, field in settings_class.model_fields.items():
+        monkeypatch.delenv(name, raising=False)
+        if isinstance(field.validation_alias, str):
+            monkeypatch.delenv(field.validation_alias, raising=False)
+    for number, lines in enumerate(files):
+        written = tmp_path / f"{number}.env"
+        written.write_text("\n".join(lines) + "\n")
+        for name, value in Config(written).file_values.items():
+            monkeypatch.setenv(name, _filled(name, value))
+
+    return settings_class()
+
+
+PRODUCTION_EXAMPLES = _production_examples()
+
+
+def test_the_docs_have_production_examples_to_check():
+    """An example whose ``ENVIRONMENT`` line stopped being read as one would leave the run unnoticed."""
+    assert {page for page, _ in PRODUCTION_EXAMPLES} >= {
+        "docs/user-guide/production.md",
+        "docs/user-guide/configuration/index.md",
+        "docs/user-guide/configuration/environment-specific.md",
+    }
+
+
+@pytest.mark.parametrize(("page", "lines"), PRODUCTION_EXAMPLES, ids=[page for page, _ in PRODUCTION_EXAMPLES])
+def test_every_production_example_in_the_docs_passes_the_production_check(
+    page: str, lines: list[str], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    """A reader copies the example over the ``.env.example`` they generated the project with, and the
+    app refuses to start on anything the validator calls critical: the email backend, the frontend
+    URL, a limiter or a session store in the process, a default secret or database password. Each
+    CORS origin the app reads from it is an HTTPS origin, scheme, host and port and nothing else: the
+    browser's ``Origin`` header is compared as written, so a path or a trailing slash matches nothing,
+    and a JSON list splits on commas into origins nothing matches and hides a ``*`` from the check."""
+    validator = importlib.import_module("src.infrastructure.security.production_validator")
+    settings = _settings_read_from(monkeypatch, tmp_path, ENV_EXAMPLE.read_text().splitlines(), lines)
+    values = [line.partition("=")[2] for line in lines if SETTING_LINE.match(line)]
+    commented = [value for value in values if re.search(r"\s#", value)]
+    quoted = [value for value in values if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'"]
+
+    assert commented == [], "the file is read literally, so a trailing comment is part of the value"
+    assert quoted == [], "docker run --env-file keeps the quotes the app's own reader would take off"
+    assert not any(re.match(r"^CONFIRM_PRODUCTION_MIGRATION=", line) for line in lines), "a long-lived file"
+    assert [origin for origin in settings.CORS_ORIGINS_LIST if not re.fullmatch(r"https://[a-z0-9.-]+(?::\d+)?", origin)] == []
+    assert settings.ENVIRONMENT.value == "production"
+    validator.validate_production_security(settings)
+
+
+def test_the_production_check_refuses_what_the_examples_used_to_leave_out(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    """The test above would pass on a validator that checked nothing; this example, the production
+    page's before it set the email backend and the frontend URL, is refused."""
+    validator = importlib.import_module("src.infrastructure.security.production_validator")
+    lines = ["ENVIRONMENT=production", "SECRET_KEY=<secret>", "POSTGRES_PASSWORD=<secret>", "RATE_LIMITER_BACKEND=redis"]
+    settings = _settings_read_from(monkeypatch, tmp_path, ENV_EXAMPLE.read_text().splitlines(), lines)
+
+    with pytest.raises(validator.ProductionSecurityError, match="EMAIL_BACKEND"):
+        validator.validate_production_security(settings)
+
+
+PROJECT_GITIGNORE = REPO_ROOT / "blueprint" / "overlay" / ".gitignore"
+"""The ``.gitignore`` a generated project gets; the repository's own root one is blueprint-only."""
+
+
+def _git_ignores(gitignore: Path, path: str, tmp_path: Path) -> bool:
+    """Whether a repository whose only ignore rules are ``gitignore``'s ignores ``path``."""
+    repository = tmp_path / f"ignores-{gitignore.parent.name}"
+    repository.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=repository, check=True)
+    (repository / ".gitignore").write_text(gitignore.read_text())
+    return subprocess.run(["git", "check-ignore", "-q", path], cwd=repository, check=False).returncode == 0
+
+
+def test_the_production_page_runs_the_env_file_its_checklist_writes(tmp_path: Path):
+    """Its commands run from the repository root, the build context they give, so the file the
+    checklist has the reader write sits next to ``backend/.env.example`` and every ``--env-file``
+    names that one path. A generated project's ``.gitignore`` ignores it; while a clone's doesn't, the
+    checklist tells the reader to add it."""
+    page = PRODUCTION_PAGE.read_text()
+    builds = re.findall(r"^docker build .*$", page, re.M)
+    env_files = set(re.findall(r"--env-file[= ](\S+)", page))
+    checklist = page.split("## Production `.env` Checklist\n", 1)[1].split("\n## ", 1)[0]
+
+    assert builds
+    assert all(build.endswith(" .") and "-f backend/Dockerfile" in build for build in builds)
+    (env_file,) = env_files
+    opening = " ".join(checklist.split("```", 1)[0].split())
+    assert (REPO_ROOT / env_file).parent == ENV_EXAMPLE.parent
+    assert f"`{env_file}`" in opening
+    assert _git_ignores(PROJECT_GITIGNORE, env_file, tmp_path), "a generated project's .gitignore"
+    if not _git_ignores(REPO_ROOT / ".gitignore", env_file, tmp_path):
+        assert re.search(r"\badd\b[^.]*`\.gitignore`", opening), (
+            "the file holds production secrets and a clone's git would take it"
+        )
 
 
 ADMIN_GUIDE = REPO_ROOT / "docs" / "user-guide" / "admin-panel" / "configuration.md"

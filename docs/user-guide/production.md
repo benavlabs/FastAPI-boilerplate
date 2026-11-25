@@ -45,7 +45,11 @@ The validator is **not** a substitute for a thorough threat model — it catches
 
 ## Production `.env` Checklist
 
-Generate a `.env` for production from `backend/.env.example`. The bare-minimum changes:
+Generate `backend/.env.production` from `backend/.env.example`, and keep it out of git. A project
+fastro creates already does: its `.gitignore` ignores `.env.*` other than `.env.example`. A clone of
+this repository ignores only `.env`, so add the file to its `.gitignore`. The file is read
+literally, by the app and by `docker run --env-file`, so a comment goes on its own line and a value
+takes no quotes. The bare-minimum changes:
 
 ```env
 # Environment
@@ -53,7 +57,7 @@ ENVIRONMENT=production
 DEBUG=false
 
 # App
-APP_NAME="Your Production App"
+APP_NAME=Your Production App
 VERSION=1.0.0
 
 # Secrets — generate a fresh, unique value
@@ -69,11 +73,15 @@ POSTGRES_DB=app_prod
 # Auto-creating tables in prod is dangerous; use Alembic instead
 CREATE_TABLES_ON_STARTUP=false
 
-# Migrations: must be opted into, even with the right env
-CONFIRM_PRODUCTION_MIGRATION=yes      # only when actively running migrations
-
 # CORS — list the exact origins that can call your API
-CORS_ORIGINS=["https://app.example.com","https://admin.example.com"]
+CORS_ORIGINS=https://app.example.com,https://admin.example.com
+
+# Account email, with the accounts feature: links are built from FRONTEND_URL
+EMAIL_BACKEND=smtp
+EMAIL_SMTP_HOST=<smtp-host>
+EMAIL_SMTP_USER=<smtp-user>
+EMAIL_SMTP_PASSWORD=<smtp-password>
+FRONTEND_URL=https://app.example.com
 
 # Cache (Redis or Memcached)
 CACHE_ENABLED=true
@@ -81,31 +89,36 @@ CACHE_BACKEND=redis
 CACHE_REDIS_HOST=<redis-host>
 CACHE_REDIS_PASSWORD=<redis-password>
 
-# Sessions
-SESSION_BACKEND=redis                  # redis | database | memory; Redis unless SESSION_REDIS_URL is set
-SESSION_SECURE_COOKIES=true            # required when serving over HTTPS
+# Sessions: redis | database | memory; Redis unless SESSION_REDIS_URL is set
+SESSION_BACKEND=redis
+# Required when serving over HTTPS
+SESSION_SECURE_COOKIES=true
 CSRF_ENABLED=true
-TRUSTED_PROXY_HOPS=1                    # set to the number of proxies in front of the app
-FORWARDED_ALLOW_IPS=<proxy-subnet>     # which peers uvicorn takes forwarded headers from
+# The number of proxies in front of the app
+TRUSTED_PROXY_HOPS=1
+# Which peers uvicorn takes forwarded headers from
+FORWARDED_ALLOW_IPS=<proxy-subnet>
 
 # Rate limiting (provided by crudauth)
 RATE_LIMITER_ENABLED=true
-RATE_LIMITER_BACKEND=redis              # or database; memory is refused in production
-RATE_LIMITER_REDIS_HOST=<redis-host>    # with redis only
-RATE_LIMITER_REDIS_PASSWORD=<redis-password>  # with redis only
+# redis or database; memory is refused in production
+RATE_LIMITER_BACKEND=redis
+# With redis only
+RATE_LIMITER_REDIS_HOST=<redis-host>
+RATE_LIMITER_REDIS_PASSWORD=<redis-password>
 
 # Taskiq
 TASKIQ_BROKER_TYPE=redis
 TASKIQ_REDIS_HOST=<redis-host>
 TASKIQ_REDIS_PASSWORD=<redis-password>
 
-# Admin panel
-ADMIN_ENABLED=false                    # safest default in prod
+# Admin panel, off: the safest default in prod
+ADMIN_ENABLED=false
 ADMIN_USERNAME=<unique-username>
 ADMIN_PASSWORD=<long-random-secret>
 
-# Documentation
-OPENAPI_URL=                           # disable /docs and /redoc
+# Documentation: empty disables /docs and /redoc
+OPENAPI_URL=
 
 # Logging
 LOG_LEVEL=INFO
@@ -178,7 +191,7 @@ CMD ["sh", "-c", "fastapi run interfaces/main.py --host 0.0.0.0 --port 8000 --wo
 
 ```bash
 docker run -d \
-    --env-file .env.production \
+    --env-file backend/.env.production \
     -e WORKERS=4 \
     -p 8000:8000 \
     myapp-api:1.0.0
@@ -197,7 +210,7 @@ in place of the API's:
 
 ```bash
 docker run -d \
-    --env-file .env.production \
+    --env-file backend/.env.production \
     myapp-api:1.0.0 \
     taskiq worker src.infrastructure.taskiq.worker:default_broker --workers 4
 ```
@@ -212,7 +225,7 @@ delayed retry never runs:
 
 ```bash
 docker run -d \
-    --env-file .env.production \
+    --env-file backend/.env.production \
     myapp-api:1.0.0 \
     taskiq scheduler src.infrastructure.taskiq.scheduler:scheduler
 ```

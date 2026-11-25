@@ -189,10 +189,19 @@ SESSION_SECURE_COOKIES=true
 ```env
 ENVIRONMENT=production
 DEBUG=false
+SECRET_KEY=<from secrets manager>
+POSTGRES_PASSWORD=<from secrets manager>
 POSTGRES_SERVER=prod-db.example.com
 CACHE_REDIS_HOST=prod-redis.example.com
+CORS_ORIGINS=https://app.example.com
 PRODUCTION_SECURITY_VALIDATION_ENABLED=true
 ENABLE_DOCS_IN_PRODUCTION=false
+# Account email, with the accounts feature: links are built from FRONTEND_URL
+EMAIL_BACKEND=smtp
+EMAIL_SMTP_HOST=smtp.example.com
+EMAIL_SMTP_USER=<from secrets manager>
+EMAIL_SMTP_PASSWORD=<from secrets manager>
+FRONTEND_URL=https://app.example.com
 ```
 
 ## Docker Configuration
