@@ -428,10 +428,12 @@ SESSION_TIMEOUT_MINUTES=30
 SESSION_CLEANUP_INTERVAL_MINUTES=15
 MAX_SESSIONS_PER_USER=5
 SESSION_SECURE_COOKIES=true
-SESSION_BACKEND=redis             # redis | database | memory
+# redis | database | memory
+SESSION_BACKEND=redis
 
 # CSRF
-CSRF_ENABLED=true                  # set false for dev/test
+# Set false for dev/test
+CSRF_ENABLED=true
 
 # Trusted reverse proxies in front of the app (real client IP for login lockout)
 TRUSTED_PROXY_HOPS=0
@@ -440,7 +442,8 @@ TRUSTED_PROXY_HOPS=0
 OAUTH_REDIRECT_BASE_URL=http://localhost:8000
 OAUTH_GOOGLE_CLIENT_ID=
 OAUTH_GOOGLE_CLIENT_SECRET=
-OAUTH_GITHUB_CLIENT_ID=            # data model anticipates GitHub; no provider/routes wired
+# Data model anticipates GitHub; no provider/routes wired
+OAUTH_GITHUB_CLIENT_ID=
 OAUTH_GITHUB_CLIENT_SECRET=
 
 # Security

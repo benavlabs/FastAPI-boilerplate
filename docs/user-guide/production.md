@@ -89,8 +89,10 @@ CACHE_BACKEND=redis
 CACHE_REDIS_HOST=<redis-host>
 CACHE_REDIS_PASSWORD=<redis-password>
 
-# Sessions: redis | database | memory; Redis unless SESSION_REDIS_URL is set
+# Sessions: redis | database | memory; without SESSION_REDIS_URL, the cache Redis
 SESSION_BACKEND=redis
+# A dedicated session Redis over TLS
+SESSION_REDIS_URL=rediss://:<session-redis-password>@<session-redis-host>:6380/0
 # Required when serving over HTTPS
 SESSION_SECURE_COOKIES=true
 CSRF_ENABLED=true

@@ -86,12 +86,15 @@ RATE_LIMITER_BACKEND=redis
 
 # Defaults applied when the user has no tier or no matching rate-limit row
 DEFAULT_RATE_LIMIT_LIMIT=100
-DEFAULT_RATE_LIMIT_PERIOD=60          # seconds — 100/60s by default
+# Seconds: 100/60s by default
+DEFAULT_RATE_LIMIT_PERIOD=60
 
 # Redis backend
-RATE_LIMITER_REDIS_HOST=redis         # use "localhost" without Docker
+# Use "localhost" without Docker
+RATE_LIMITER_REDIS_HOST=redis
 RATE_LIMITER_REDIS_PORT=6379
-RATE_LIMITER_REDIS_DB=1               # rate-limiter DB (cache DB 0, sessions DB 2, taskiq DB 3)
+# Rate-limiter DB (cache DB 0, sessions DB 2, taskiq DB 3)
+RATE_LIMITER_REDIS_DB=1
 RATE_LIMITER_REDIS_PASSWORD=
 RATE_LIMITER_REDIS_CONNECT_TIMEOUT=5
 RATE_LIMITER_REDIS_POOL_SIZE=10

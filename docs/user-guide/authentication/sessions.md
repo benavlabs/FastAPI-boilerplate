@@ -269,10 +269,14 @@ For dev/test environments where CSRF gets in the way, set `CSRF_ENABLED=false`.
 Failed login attempts are throttled by `crudauth` itself. It applies an **escalating per-IP / per-identifier lockout** and, once tripped, returns `429 Too Many Requests` with a `Retry-After` header on `/api/v1/auth/login`. The thresholds are four settings, passed to crudauth as a `LockoutConfig` in `infrastructure/auth/setup.py`:
 
 ```env
-LOGIN_MAX_ATTEMPTS=5             # failures allowed inside the window, per address and per account
-LOGIN_ATTEMPT_WINDOW_SECONDS=900 # how long failures keep counting
-LOGIN_LOCKOUT_BASE_SECONDS=300   # first lockout, doubling each round
-LOGIN_LOCKOUT_MAX_SECONDS=3600   # ceiling for the doubling
+# Failures allowed inside the window, per address and per account
+LOGIN_MAX_ATTEMPTS=5
+# How long failures keep counting
+LOGIN_ATTEMPT_WINDOW_SECONDS=900
+# First lockout, doubling each round
+LOGIN_LOCKOUT_BASE_SECONDS=300
+# Ceiling for the doubling
+LOGIN_LOCKOUT_MAX_SECONDS=3600
 ```
 
 The window is the value that matters against a paced attack: crudauth's own default counts over 60 seconds, so five tries a minute never accumulate. A successful login clears the account's failures and the pressure its own failures put on that address. The admin panel counts on [two policies of its own](../admin-panel/configuration.md#login-authentication), with these same thresholds, so a failure at one door never counts against the other. Behind a reverse proxy, set `TRUSTED_PROXY_HOPS` so the lockout keys on the real client IP rather than the proxy's.
@@ -399,15 +403,22 @@ schema change, and wants one migration. Expired rows are deleted as the store wr
 
 ```env
 # Backend
-SESSION_BACKEND=redis                # redis | database | memory
-SESSION_REDIS_DB=2                   # on the cache Redis; isolated from cache (0), rate limiter (1), and taskiq (3)
-# SESSION_REDIS_URL=                 # optional dedicated session Redis, e.g. rediss://user:password@host:6380/0
+# redis | database | memory
+SESSION_BACKEND=redis
+# On the cache Redis; isolated from cache (0), rate limiter (1), and taskiq (3)
+SESSION_REDIS_DB=2
+# Optional dedicated session Redis, e.g. rediss://user:password@host:6380/0
+# SESSION_REDIS_URL=
 
 # Lifetime
-SESSION_TIMEOUT_MINUTES=30           # inactive sessions expire
-# SESSION_ABSOLUTE_TIMEOUT_HOURS=12  # the most a session may live from sign-in; unset for no cap
-# FRESH_SIGN_IN_SECONDS=600            # how recent a sign-in must be for the routes that ask; unset, closing an account asks nothing
-SESSION_CLEANUP_INTERVAL_MINUTES=15  # how often the storage backend sweeps expired entries
+# Inactive sessions expire
+SESSION_TIMEOUT_MINUTES=30
+# The most a session may live from sign-in; unset for no cap
+# SESSION_ABSOLUTE_TIMEOUT_HOURS=12
+# How recent a sign-in must be for the routes that ask; unset, closing an account asks nothing
+# FRESH_SIGN_IN_SECONDS=600
+# How often the storage backend sweeps expired entries
+SESSION_CLEANUP_INTERVAL_MINUTES=15
 
 # Per-user cap
 MAX_SESSIONS_PER_USER=5

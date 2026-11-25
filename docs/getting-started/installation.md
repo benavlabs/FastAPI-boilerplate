@@ -240,12 +240,14 @@ ENVIRONMENT=development
 POSTGRES_USER=postgres
 POSTGRES_PASSWORD=postgres
 POSTGRES_DB=postgres
-POSTGRES_SERVER=postgres  # use "localhost" without Docker
+# Use "localhost" without Docker
+POSTGRES_SERVER=postgres
 POSTGRES_PORT=5432
 
 # Cache (Redis)
 CACHE_BACKEND=redis
-CACHE_REDIS_HOST=redis    # use "localhost" without Docker
+# Use "localhost" without Docker
+CACHE_REDIS_HOST=redis
 CACHE_REDIS_PORT=6379
 
 # Security

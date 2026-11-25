@@ -12,6 +12,7 @@ import importlib
 import ipaddress
 import itertools
 import keyword
+import os
 import re
 import subprocess
 import sys
@@ -21,6 +22,7 @@ from collections.abc import Iterable
 from importlib.metadata import packages_distributions, requires
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import pytest
 import yaml
@@ -2522,15 +2524,13 @@ def test_no_page_offers_another_choice_as_a_setting(option: str):
     declared = _catalog()["features"][feature]["options"][name]
     (variable,) = declared["env"]
     choices = "|".join(re.escape(choice) for choice in declared["choices"])
-    offered = [
-        f"{page.relative_to(REPO_ROOT)}: {line.strip()}"
-        for page in _tracked(REPO_ROOT / "docs", "*.md")
-        if page.name != "changelog.md"
-        for line in page.read_text().splitlines()
-        if re.match(rf"^\s*{re.escape(variable)}=\w+.*#.*\b(?:{choices})\b", line)
+    setting_it = [
+        (page, comment) for page, block in _env_blocks() for name, _, comment, _ in _block_settings(block) if name == variable
     ]
+    offered = [f"{page}: {comment}" for page, comment in setting_it if re.search(rf"\b(?:{choices})\b", comment)]
 
     assert declared["choices"]
+    assert setting_it
     assert offered == []
 
 
@@ -2581,10 +2581,10 @@ def test_a_page_that_offers_the_limiter_backends_offers_each_one_the_code_has():
     them to a refusal at startup. The rate limiting page lists them in the first sentence above the
     setting."""
     offering = [
-        (where, line)
-        for where, line in _doc_lines()
-        if (commented := re.search(r"RATE_LIMITER_BACKEND=(\w+)\s+#(.*)", line))
-        and len(_backends_named(commented[2]) | {commented[1]}) > 1
+        (page, comment)
+        for page, block in _env_blocks()
+        for name, value, comment, _ in _block_settings(block)
+        if name == "RATE_LIMITER_BACKEND" and len(_backends_named(comment) | {value}) > 1
     ]
     explained = re.search(r"((?:^#.*\n)+)RATE_LIMITER_BACKEND=", RATE_LIMITER_PAGE.read_text(), re.M)
 
@@ -2592,7 +2592,7 @@ def test_a_page_that_offers_the_limiter_backends_offers_each_one_the_code_has():
     assert explained is not None
     listing = re.split(r"(?<=\.)\s", " ".join(line.lstrip("# ") for line in explained[1].splitlines()))[0]
     assert _backends_named(listing) == _limiter_backends()
-    assert [(where, line) for where, line in offering if _backends_named(line) != _limiter_backends()] == []
+    assert [(page, comment) for page, comment in offering if _backends_named(comment) != _limiter_backends()] == []
 
 
 def test_no_page_gives_the_limiter_a_backend_it_does_not_have():
@@ -2641,33 +2641,81 @@ def test_the_code_block_reader_pairs_each_fence_with_the_next():
     assert _code_blocks("!!! note\n    ```env\n    A=1\n    ```\n") == [("env", "A=1\n")]
 
 
-def test_a_redis_setting_under_a_limiter_backend_with_a_choice_says_it_is_redis_s():
-    """A reader who picks the database copies the lines below it too, and points nothing at a Redis
-    the limiter will never use. Its own comment says so, or the comment heading its group. The
-    choice is offered on the backend's line or in the comment above it."""
-    blocks = [
-        block
+COMMENTED_OUT = re.compile(r"^#\s*[A-Z][A-Z0-9_]*=")
+"""A setting shown commented out, which is no comment on the settings around it."""
+
+
+def _block_settings(block: str) -> list[tuple[str, str, str, str]]:
+    """``(name, value, comment, group)`` for each setting in an env block. ``comment`` is the setting's
+    own: what follows it on its line, or the comment lines right above it; ``group`` is every comment
+    line from the blank line before it down to it, the heading of the group it sits in. A setting shown
+    commented out is neither, and ends the run of comment lines that are a setting's own."""
+    lines = block.splitlines()
+    found: list[tuple[str, str, str, str]] = []
+    for number, line in enumerate(lines):
+        if not (setting := re.match(r"^([A-Z][A-Z0-9_]*)=(\S*)(.*)$", line)):
+            continue
+        above: list[str] = []
+        for previous in reversed(lines[:number]):
+            if not previous.strip():
+                break
+            above.insert(0, previous)
+        prose = [line for line in above if line.startswith("#") and not COMMENTED_OUT.match(line)]
+        own = list(itertools.takewhile(lambda line: line.startswith("#") and not COMMENTED_OUT.match(line), reversed(above)))[
+            ::-1
+        ]
+        trailing = setting[3].partition("#")[2] if re.match(r"\s+#", setting[3]) else ""
+        comment = trailing or " ".join(line.lstrip("# ") for line in own)
+        group = " ".join(line.lstrip("# ") for line in prose)
+        found.append((setting[1], setting[2], comment, f"{group} {trailing}"))
+
+    return found
+
+
+def _env_blocks() -> list[tuple[str, str]]:
+    """Each ``env`` block in the docs but the changelog's, with the page it is on."""
+    return [
+        (page.relative_to(REPO_ROOT).as_posix(), block)
         for page in _tracked(REPO_ROOT / "docs", "*.md")
         if page.name != "changelog.md"
         for language, block in _code_blocks(page.read_text())
-        if language in {"env", "bash", "sh", ""}
-    ]
-    offering = [
-        block
-        for block in blocks
-        if (backend := re.search(r"((?:^#.*\n)*)^RATE_LIMITER_BACKEND=(\w+)[ \t]*(?:#(.*))?$", block, re.M))
-        and len(_backends_named(f"{backend[1]} {backend[3] or ''}") | {backend[2]}) > 1
-    ]
-    unsaid = [
-        line
-        for lines in (block.splitlines() for block in offering)
-        for number, line in enumerate(lines)
-        if line.startswith("RATE_LIMITER_REDIS_")
-        and "redis" not in line.partition("#")[2].lower()
-        and "redis" not in next((above for above in reversed(lines[:number]) if above.startswith("#")), "").lower()
+        if language == "env"
     ]
 
-    assert any("RATE_LIMITER_REDIS_" in block for block in offering)
+
+def test_the_setting_reader_reads_a_comment_on_the_line_or_above_it():
+    block = "# Group\nA=1  # trailing\n# own\nB=2\nC=3\n\nD=4\n\n# about E\n# REDIS_URL=\nE=5\n"
+
+    assert _block_settings(block) == [
+        ("A", "1", " trailing", "Group  trailing"),
+        ("B", "2", "own", "Group own "),
+        ("C", "3", "", "Group own "),
+        ("D", "4", "", " "),
+        ("E", "5", "", "about E "),
+    ]
+
+
+def test_a_redis_setting_under_a_limiter_backend_with_a_choice_says_it_is_redis_s():
+    """A reader who picks the database copies the lines below it too, and points nothing at a Redis
+    the limiter will never use. Its own comment says so, or a comment heading its group; the backend's
+    own comment is what offers the choice."""
+    offering = [
+        settings
+        for _, block in _env_blocks()
+        if (settings := _block_settings(block))
+        and any(
+            name == "RATE_LIMITER_BACKEND" and len(_backends_named(comment) | {value}) > 1
+            for name, value, comment, _ in settings
+        )
+    ]
+    unsaid = [
+        name
+        for settings in offering
+        for name, _, comment, group in settings
+        if name.startswith("RATE_LIMITER_REDIS_") and "redis" not in f"{comment} {group}".lower()
+    ]
+
+    assert any(name.startswith("RATE_LIMITER_REDIS_") for settings in offering for name, *_ in settings)
     assert unsaid == []
 
 
@@ -2753,14 +2801,10 @@ def test_the_production_example_counts_where_the_production_check_lets_it():
 SETTING_LINE = re.compile(r"^([A-Z][A-Z0-9_]*)=(.*)$")
 
 
-def _production_examples() -> list[tuple[str, list[str]]]:
-    """Each ``env`` block in the docs that sets ``ENVIRONMENT=production``, with where it is."""
+def _examples_for(environment: str) -> list[tuple[str, list[str]]]:
+    """Each ``env`` block in the docs that sets ``ENVIRONMENT`` to ``environment``, with where it is."""
     return [
-        (page.relative_to(REPO_ROOT).as_posix(), block.splitlines())
-        for page in _tracked(REPO_ROOT / "docs", "*.md")
-        if page.name != "changelog.md"
-        for language, block in _code_blocks(page.read_text())
-        if language == "env" and re.search(r"^ENVIRONMENT=production\b", block, re.M)
+        (page, block.splitlines()) for page, block in _env_blocks() if re.search(rf"^ENVIRONMENT={environment}\b", block, re.M)
     ]
 
 
@@ -2784,6 +2828,7 @@ def _settings_read_from(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, *files:
         monkeypatch.delenv(name, raising=False)
         if isinstance(field.validation_alias, str):
             monkeypatch.delenv(field.validation_alias, raising=False)
+    tmp_path.mkdir(parents=True, exist_ok=True)
     for number, lines in enumerate(files):
         written = tmp_path / f"{number}.env"
         written.write_text("\n".join(lines) + "\n")
@@ -2793,16 +2838,39 @@ def _settings_read_from(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, *files:
     return settings_class()
 
 
-PRODUCTION_EXAMPLES = _production_examples()
+PRODUCTION_EXAMPLES = _examples_for("production")
+
+STAGING_EXAMPLES = _examples_for("staging")
+
+UNREACHABLE_WARNING = re.compile(r"^Redis instance for (?:cache|rate_limiter) \(.*\) is not using SSL/TLS encryption\.")
+"""The one warning a production example may draw: the cache and rate limiter Redis clients take no TLS
+setting yet, so the validator reads them as plaintext whatever an example sets."""
 
 
-def test_the_docs_have_production_examples_to_check():
+def test_the_docs_have_production_and_staging_examples_to_check():
     """An example whose ``ENVIRONMENT`` line stopped being read as one would leave the run unnoticed."""
     assert {page for page, _ in PRODUCTION_EXAMPLES} >= {
         "docs/user-guide/production.md",
         "docs/user-guide/configuration/index.md",
         "docs/user-guide/configuration/environment-specific.md",
     }
+    assert {page for page, _ in STAGING_EXAMPLES} >= {
+        "docs/user-guide/configuration/index.md",
+        "docs/user-guide/configuration/environment-specific.md",
+    }
+
+
+@pytest.mark.parametrize(("page", "lines"), STAGING_EXAMPLES, ids=[page for page, _ in STAGING_EXAMPLES])
+def test_every_staging_example_in_the_docs_passes_the_staging_check(
+    page: str, lines: list[str], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    """Staging is held to a subset of production's refusals, a guessable secret, the console email
+    backend and tables built on startup, and the app refuses to start there too."""
+    validator = importlib.import_module("src.infrastructure.security.production_validator")
+    settings = _settings_read_from(monkeypatch, tmp_path, ENV_EXAMPLE.read_text().splitlines(), lines)
+
+    assert settings.ENVIRONMENT.value == "staging"
+    validator.validate_production_security(settings)
 
 
 @pytest.mark.parametrize(("page", "lines"), PRODUCTION_EXAMPLES, ids=[page for page, _ in PRODUCTION_EXAMPLES])
@@ -2811,7 +2879,8 @@ def test_every_production_example_in_the_docs_passes_the_production_check(
 ):
     """A reader copies the example over the ``.env.example`` they generated the project with, and the
     app refuses to start on anything the validator calls critical: the email backend, the frontend
-    URL, a limiter or a session store in the process, a default secret or database password. Each
+    URL, a limiter or a session store in the process, a default secret or database password; and an
+    example labelled production draws no warning either, but the one no setting can answer yet. Each
     CORS origin the app reads from it is an HTTPS origin, scheme, host and port and nothing else: the
     browser's ``Origin`` header is compared as written, so a path or a trailing slash matches nothing,
     and a JSON list splits on commas into origins nothing matches and hides a ``*`` from the check."""
@@ -2827,6 +2896,63 @@ def test_every_production_example_in_the_docs_passes_the_production_check(
     assert [origin for origin in settings.CORS_ORIGINS_LIST if not re.fullmatch(r"https://[a-z0-9.-]+(?::\d+)?", origin)] == []
     assert settings.ENVIRONMENT.value == "production"
     validator.validate_production_security(settings)
+    warnings = validator.ProductionSecurityValidator(settings)._collect_warnings()
+    assert [warning for warning in warnings if not UNREACHABLE_WARNING.match(warning)] == []
+    plaintext = {
+        (settings.CACHE_REDIS_HOST, settings.CACHE_REDIS_PORT),
+        (settings.RATE_LIMITER_REDIS_HOST, settings.RATE_LIMITER_REDIS_PORT),
+    }
+    sessions = urlsplit(settings.SESSION_REDIS_URL)
+    if sessions.scheme == "rediss":
+        assert (sessions.hostname, sessions.port or 6379) not in plaintext, "a Redis port speaks TLS or plaintext, not both"
+
+
+def test_every_env_line_in_the_docs_is_read_as_it_is_written(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    """The app reads its environment file literally, so a comment after a value is part of it: a flag
+    or a number stops parsing and a string carries the comment. A setting shown commented out is held
+    to the same, since uncommenting it is what the reader does next. Every block builds the project's
+    settings from its own lines."""
+    blocks = _env_blocks()
+    commented = [
+        f"{page}: {name}={value}{rest}"
+        for page, block in blocks
+        for name, value, rest in re.findall(r"^(?:#\s*)?([A-Z][A-Z0-9_]*)=(.*?)([ \t]+#.*)$", block, re.M)
+    ]
+    refused = []
+    for number, (page, block) in enumerate(blocks):
+        try:
+            _settings_read_from(monkeypatch, tmp_path / str(number), block.splitlines())
+        except ValueError as error:
+            refused.append(f"{page}: {error}")
+
+    assert len(blocks) > 50
+    assert commented == []
+    assert refused == []
+
+
+LINKING = re.compile(r"^ln -s\w* (\S+) (\S+)$", re.M)
+
+
+def test_a_symlink_the_docs_make_points_at_the_file_their_prose_names(tmp_path: Path):
+    """A relative target resolves from the link's own directory, not the one the command runs in, so
+    ``ln -sf .env.staging backend/.env`` points at ``backend/.env.staging``. The files the section
+    names hold secrets, so a generated project's ``.gitignore`` and a clone's ignore every one."""
+    linked = []
+    secret_files = set()
+    for page in _tracked(REPO_ROOT / "docs", "*.md"):
+        for section in re.split(r"(?m)^(?=#{2,4} )", page.read_text()):
+            prose = " ".join(section.split("```")[0::2])
+            for language, block in _code_blocks(section):
+                for target, link in LINKING.findall(block) if language in {"bash", "sh"} else []:
+                    resolved = os.path.normpath(os.path.join(os.path.dirname(link), target))
+                    linked.append((page.name, resolved, f"`{resolved}`" in prose))
+                    secret_files.update(re.findall(r"`(backend/\.env\.\w+)`", prose))
+
+    assert linked
+    assert [(page, resolved) for page, resolved, named in linked if not named] == []
+    assert secret_files
+    for gitignore in (PROJECT_GITIGNORE, REPO_ROOT / ".gitignore"):
+        assert [path for path in sorted(secret_files) if not _git_ignores(gitignore, path, tmp_path / path)] == []
 
 
 def test_the_production_check_refuses_what_the_examples_used_to_leave_out(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):

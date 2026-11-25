@@ -13,7 +13,8 @@ The admin panel is mounted at `/admin`. It is off until you ask for it, and is n
 without the credentials it signs you in with:
 
 ```env
-ADMIN_ENABLED=true   # unset or false leaves /admin unmounted
+# Unset or false leaves /admin unmounted
+ADMIN_ENABLED=true
 ADMIN_USERNAME=admin
 ADMIN_PASSWORD=Change-Me-Now-1!
 ```

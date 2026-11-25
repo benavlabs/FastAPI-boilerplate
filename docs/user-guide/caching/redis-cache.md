@@ -285,10 +285,12 @@ Pick prefixes that:
 
 ```env
 CACHE_ENABLED=true
-CACHE_BACKEND=redis              # the cache.backend the project was generated with
+# The cache.backend the project was generated with
+CACHE_BACKEND=redis
 
 # Redis backend
-CACHE_REDIS_HOST=redis           # use "localhost" without Docker
+# Use "localhost" without Docker
+CACHE_REDIS_HOST=redis
 CACHE_REDIS_PORT=6379
 CACHE_REDIS_DB=0
 CACHE_REDIS_PASSWORD=

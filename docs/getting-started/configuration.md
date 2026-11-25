@@ -46,9 +46,11 @@ ENVIRONMENT=development
 POSTGRES_USER=postgres
 POSTGRES_PASSWORD=changeme
 POSTGRES_DB=postgres
-POSTGRES_SERVER=postgres    # use "localhost" without Docker
+# Use "localhost" without Docker
+POSTGRES_SERVER=postgres
 POSTGRES_PORT=5432
-CREATE_TABLES_ON_STARTUP=true   # the default in local and development
+# The default in local and development
+CREATE_TABLES_ON_STARTUP=true
 ```
 
 ### Security
@@ -70,14 +72,19 @@ PRODUCTION_SECURITY_VALIDATION_ENABLED=true
 
 ```env
 SESSION_TIMEOUT_MINUTES=30
-# SESSION_ABSOLUTE_TIMEOUT_HOURS=12  # unset: the idle timeout is the only one
-# FRESH_SIGN_IN_SECONDS=600          # unset: closing an account asks nothing; crudauth's own routes keep their 10-minute default
+# Unset: the idle timeout is the only one
+# SESSION_ABSOLUTE_TIMEOUT_HOURS=12
+# Unset: closing an account asks nothing; crudauth's own routes keep their 10-minute default
+# FRESH_SIGN_IN_SECONDS=600
 SESSION_CLEANUP_INTERVAL_MINUTES=15
 MAX_SESSIONS_PER_USER=5
 SESSION_SECURE_COOKIES=true
-SESSION_BACKEND=redis            # redis | memory
-SESSION_REDIS_DB=2               # on the cache Redis, apart from the cache DB so a flush won't log users out
-# SESSION_REDIS_URL=             # optional dedicated session Redis, e.g. rediss://user:password@host:6380/0
+# redis | database | memory
+SESSION_BACKEND=redis
+# On the cache Redis, apart from the cache DB so a flush won't log users out
+SESSION_REDIS_DB=2
+# Optional dedicated session Redis, e.g. rediss://user:password@host:6380/0
+# SESSION_REDIS_URL=
 
 # CSRF protection (set false to disable in dev/test)
 CSRF_ENABLED=true
@@ -99,10 +106,14 @@ Login lockout is applied by `crudauth`, per client IP and per submitted identifi
 `LockoutConfig` in `infrastructure/auth/setup.py`:
 
 ```env
-LOGIN_MAX_ATTEMPTS=5              # failures allowed inside the window
-LOGIN_ATTEMPT_WINDOW_SECONDS=900  # how long failures keep counting
-LOGIN_LOCKOUT_BASE_SECONDS=300    # first lockout, doubling each round
-LOGIN_LOCKOUT_MAX_SECONDS=3600    # cap on the escalation
+# Failures allowed inside the window
+LOGIN_MAX_ATTEMPTS=5
+# How long failures keep counting
+LOGIN_ATTEMPT_WINDOW_SECONDS=900
+# First lockout, doubling each round
+LOGIN_LOCKOUT_BASE_SECONDS=300
+# Cap on the escalation
+LOGIN_LOCKOUT_MAX_SECONDS=3600
 ```
 
 Because both dimensions are counted, an attacker rotating identifiers from one address runs out of
@@ -129,14 +140,16 @@ uv run --no-sync python -m scripts.setup_initial_data
 
 ```env
 CACHE_ENABLED=true
-CACHE_BACKEND=redis             # the cache.backend the project was generated with
+# The cache.backend the project was generated with
+CACHE_BACKEND=redis
 
 # Client-side cache (Cache-Control headers)
 CLIENT_CACHE_ENABLED=true
 CLIENT_CACHE_MAX_AGE=60
 
 # Redis settings
-CACHE_REDIS_HOST=redis          # use "localhost" without Docker
+# Use "localhost" without Docker
+CACHE_REDIS_HOST=redis
 CACHE_REDIS_PORT=6379
 CACHE_REDIS_DB=0
 CACHE_REDIS_PASSWORD=
@@ -146,12 +159,14 @@ CACHE_REDIS_PASSWORD=
 
 ```env
 RATE_LIMITER_ENABLED=true
-RATE_LIMITER_BACKEND=redis        # or database (shared), or memory (per process, single worker only)
+# redis, or database (shared), or memory (per process, single worker only)
+RATE_LIMITER_BACKEND=redis
 DEFAULT_RATE_LIMIT_LIMIT=100
 DEFAULT_RATE_LIMIT_PERIOD=60
 
 # Redis (uses DB 1 by default to separate from cache)
-RATE_LIMITER_REDIS_HOST=redis   # use "localhost" without Docker
+# Use "localhost" without Docker
+RATE_LIMITER_REDIS_HOST=redis
 RATE_LIMITER_REDIS_PORT=6379
 RATE_LIMITER_REDIS_DB=1
 RATE_LIMITER_REDIS_PASSWORD=
@@ -164,10 +179,12 @@ requests are keyed by user ID; anonymous requests are keyed by the client IP, ho
 ### Background Tasks (Taskiq)
 
 ```env
-TASKIQ_BROKER_TYPE=redis        # the taskiq.broker the project was generated with
+# The taskiq.broker the project was generated with
+TASKIQ_BROKER_TYPE=redis
 
 # Redis broker (uses DB 3 by default)
-TASKIQ_REDIS_HOST=redis         # use "localhost" without Docker
+# Use "localhost" without Docker
+TASKIQ_REDIS_HOST=redis
 TASKIQ_REDIS_PORT=6379
 TASKIQ_REDIS_DB=3
 TASKIQ_REDIS_PASSWORD=
@@ -177,7 +194,8 @@ TASKIQ_REDIS_PASSWORD=
 
 ```env
 CORS_ENABLED=true
-CORS_ORIGINS=http://localhost:3000,http://localhost:5173  # comma-separated origins
+# Comma-separated origins
+CORS_ORIGINS=http://localhost:3000,http://localhost:5173
 CORS_ALLOW_CREDENTIALS=true
 CORS_ALLOW_METHODS=*
 CORS_ALLOW_HEADERS=*
@@ -217,7 +235,8 @@ browser, and validates post-login redirects as same-origin relative paths.
 ### Admin Interface
 
 ```env
-ADMIN_ENABLED=true              # enables SQLAdmin at /admin
+# Enables SQLAdmin at /admin
+ADMIN_ENABLED=true
 ```
 
 ## Docker Compose Settings

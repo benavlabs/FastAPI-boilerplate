@@ -101,7 +101,8 @@ An idle Neon compute suspends. Connections that were sitting in SQLAlchemy's poo
 `POSTGRES_POOL_PRE_PING` handles this and is **on by default** — every connection is tested before it's handed to a request, so a dead one is quietly replaced instead of failing the request. Pair it with `POSTGRES_POOL_RECYCLE` to retire connections before Neon does:
 
 ```env
-POSTGRES_POOL_RECYCLE=300     # seconds; keep it under your scale-to-zero timeout
+# Seconds; keep it under your scale-to-zero timeout
+POSTGRES_POOL_RECYCLE=300
 ```
 
 Trim the pool while you're there. `POSTGRES_POOL_SIZE` defaults to `20` per process, and the real number is `pool_size × workers × replicas` — see [Scaling considerations](../production.md#database). Against a small Neon compute, `5`–`10` is usually plenty:

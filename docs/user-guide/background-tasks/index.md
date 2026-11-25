@@ -84,16 +84,21 @@ Only a project generated with `taskiq.broker=rabbitmq` has the RabbitMQ ones in 
 
 ```env
 # Broker selection
-TASKIQ_BROKER_TYPE=redis            # the taskiq.broker the project was generated with
+# The taskiq.broker the project was generated with
+TASKIQ_BROKER_TYPE=redis
 
 # Retries
-TASKIQ_DEFAULT_RETRY_COUNT=3        # runs in all, for a task that asks; 0 turns retries off
-TASKIQ_RETRY_DELAY_SECONDS=0        # how long a retry waits; 0 retries immediately
+# Runs in all, for a task that asks; 0 turns retries off
+TASKIQ_DEFAULT_RETRY_COUNT=3
+# How long a retry waits; 0 retries immediately
+TASKIQ_RETRY_DELAY_SECONDS=0
 
 # Redis broker (when TASKIQ_BROKER_TYPE=redis)
-TASKIQ_REDIS_HOST=redis             # use "localhost" without Docker
+# Use "localhost" without Docker
+TASKIQ_REDIS_HOST=redis
 TASKIQ_REDIS_PORT=6379
-TASKIQ_REDIS_DB=3                   # separate DB from CACHE / SESSION / RATE_LIMITER
+# Separate DB from CACHE / SESSION / RATE_LIMITER
+TASKIQ_REDIS_DB=3
 TASKIQ_REDIS_PASSWORD=
 
 # RabbitMQ broker (when TASKIQ_BROKER_TYPE=rabbitmq)

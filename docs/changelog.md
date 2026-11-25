@@ -137,6 +137,18 @@ ___
 
 #### Fixed
 
+- **Every `.env` line in the docs is read as it is written.** The app reads its environment file
+  literally, so a comment after a value is part of it; the 83 setting lines on 14 pages that carried
+  one, `ENVIRONMENT=development  # development | staging | ...` among them, have their comment on
+  the line above, and so do the settings shown commented out, which a reader uncomments as they are.
+  The staging examples pass the staging check (they now set the email backend and, on the
+  Configuration page, a secret, with an HTTPS frontend URL for the links), and the production
+  examples draw no warning but the cache and rate limiter Redis TLS one no setting answers yet: they
+  set Redis passwords and, for now, put sessions on a dedicated Redis over TLS (`rediss://`, on its
+  own port, since a Redis port speaks TLS or plaintext, not both); that is interim, until the cache
+  and rate limiter can use TLS and the examples go back to one shared Redis. The Environment-Specific
+  page names the
+  `backend/.env.*` files its symlink command points at.
 - **No `.env.*` file reaches git or the image's build context.** This repository's `.gitignore`
   ignores `.env.*` other than `.env.example`, as a generated project's already did, and
   `.dockerignore` keeps every `.env` and `.env.*` but `.env.example` out of what `docker build .`

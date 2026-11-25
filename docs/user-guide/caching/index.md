@@ -73,10 +73,12 @@ When the cache hits, the handler doesn't run at all — the cached value is retu
 
 ```env
 CACHE_ENABLED=true
-CACHE_BACKEND=redis           # the cache.backend the project was generated with
+# The cache.backend the project was generated with
+CACHE_BACKEND=redis
 
 # Redis backend
-CACHE_REDIS_HOST=redis        # use "localhost" without Docker
+# Use "localhost" without Docker
+CACHE_REDIS_HOST=redis
 CACHE_REDIS_PORT=6379
 CACHE_REDIS_DB=0
 CACHE_REDIS_PASSWORD=
@@ -89,7 +91,8 @@ CACHE_MEMCACHED_POOL_SIZE=10
 
 # Client-side cache headers
 CLIENT_CACHE_ENABLED=true
-CLIENT_CACHE_MAX_AGE=60        # seconds
+# Seconds
+CLIENT_CACHE_MAX_AGE=60
 ```
 
 When `CACHE_ENABLED=false`, the decorator becomes a no-op — useful in tests.
