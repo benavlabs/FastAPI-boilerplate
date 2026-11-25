@@ -79,7 +79,7 @@ them the infrastructure is wired up and the task modules are yours to add.
 
 ## Configuration
 
-The relevant settings live in `TaskiqSettings` (`infrastructure/config/settings.py`) and read from `backend/.env`.
+The relevant settings live in `TaskiqSettings` (`infrastructure/taskiq/settings.py`) and read from `backend/.env`.
 Only a project generated with `taskiq.broker=rabbitmq` has the RabbitMQ ones in its `.env.example`:
 
 ```env
@@ -277,7 +277,9 @@ cd backend
 uv run --no-sync taskiq worker src.infrastructure.taskiq.worker:default_broker
 ```
 
-In Docker Compose, add a worker service that runs the same command. The worker needs the same Redis (or RabbitMQ) and the same database the API uses.
+`fastro make deploy` writes the worker as a `worker` service, next to the `scheduler`, for a project
+that carries the taskiq feature ([Docker Setup](../configuration/docker-setup.md)). It runs on the
+same broker and the same database the API uses.
 
 To tune concurrency:
 

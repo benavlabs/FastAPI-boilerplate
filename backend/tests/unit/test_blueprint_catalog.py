@@ -2443,6 +2443,22 @@ def test_every_page_that_sets_a_chosen_service_names_the_choice_that_brings_it(c
     assert [page for page in setting_it if f"`{choice}`" not in (REPO_ROOT / page).read_text()] == []
 
 
+@pytest.mark.parametrize(("choice", "prefix"), CHOSEN_SERVICES.items())
+def test_every_section_that_names_a_chosen_service_s_settings_names_the_choice(choice: str, prefix: str):
+    """Prose as well as settings: a section telling a reader about them is speaking to a project
+    generated with the choice, wherever else on the page the choice is named."""
+    pages = [page for page in _tracked(REPO_ROOT / "docs", "*.md") if page.name != "changelog.md"]
+    sections = [
+        (page.relative_to(REPO_ROOT).as_posix(), section)
+        for page in pages
+        for section in re.split(r"(?m)^(?=#{2,4} )", page.read_text())
+        if prefix in section
+    ]
+
+    assert sections
+    assert [(page, section.splitlines()[0]) for page, section in sections if choice not in section] == []
+
+
 @pytest.mark.parametrize(
     "option",
     [f"{name}.{option}" for name, feature in _catalog()["features"].items() for option in feature.get("options", {})],
@@ -2539,6 +2555,105 @@ def test_no_page_gives_the_limiter_a_backend_it_does_not_have():
     ]
 
     assert claiming == []
+
+
+def test_the_environment_variables_page_names_every_limiter_backend():
+    """Where its counters live is what ``RATE_LIMITER_BACKEND`` chooses, the database among them."""
+    page = REPO_ROOT / "docs" / "user-guide" / "configuration" / "environment-variables.md"
+    opening = page.read_text().split("## Rate Limiting\n", 1)[1].strip().split("\n\n", 1)[0]
+
+    assert _backends_named(opening) == _limiter_backends()
+
+
+def _code_blocks(text: str) -> list[tuple[str, str]]:
+    """``(language, body)`` for each fenced block, pairing each opening fence with the next one."""
+    blocks: list[tuple[str, str]] = []
+    opened: tuple[str, list[str]] | None = None
+    for line in text.splitlines():
+        if line.startswith("```"):
+            if opened is None:
+                opened = (line[3:].strip(), [])
+            else:
+                blocks.append((opened[0], "\n".join(opened[1]) + "\n"))
+                opened = None
+        elif opened is not None:
+            opened[1].append(line)
+
+    return blocks
+
+
+def test_the_code_block_reader_pairs_each_fence_with_the_next():
+    text = "```python\nx = 1\n```\n\nprose between\n\n```env\nA=1\n```\n"
+
+    assert _code_blocks(text) == [("python", "x = 1\n"), ("env", "A=1\n")]
+
+
+def test_a_redis_setting_under_a_limiter_backend_with_a_choice_says_it_is_redis_s():
+    """A reader who picks the database copies the lines below it too, and points nothing at a Redis
+    the limiter will never use. Its own comment says so, or the comment heading its group. The
+    choice is offered on the backend's line or in the comment above it."""
+    blocks = [
+        block
+        for page in _tracked(REPO_ROOT / "docs", "*.md")
+        if page.name != "changelog.md"
+        for language, block in _code_blocks(page.read_text())
+        if language in {"env", "bash", "sh", ""}
+    ]
+    offering = [
+        block
+        for block in blocks
+        if (backend := re.search(r"((?:^#.*\n)*)^RATE_LIMITER_BACKEND=(\w+)[ \t]*(?:#(.*))?$", block, re.M))
+        and len(_backends_named(f"{backend[1]} {backend[3] or ''}") | {backend[2]}) > 1
+    ]
+    unsaid = [
+        line
+        for lines in (block.splitlines() for block in offering)
+        for number, line in enumerate(lines)
+        if line.startswith("RATE_LIMITER_REDIS_")
+        and "redis" not in line.partition("#")[2].lower()
+        and "redis" not in next((above for above in reversed(lines[:number]) if above.startswith("#")), "").lower()
+    ]
+
+    assert any("RATE_LIMITER_REDIS_" in block for block in offering)
+    assert unsaid == []
+
+
+SOURCE_PATH = r"(?:backend/)?(?:src/)?[\w/]+\.py"
+
+
+def _settings_pointers(text: str) -> list[tuple[str, str]]:
+    """``(class, path)`` for each way a page pairs them: "`XSettings` (`path`)", "`path` (`XSettings`)"
+    and "**`XSettings`** in `path`"."""
+    return [
+        *re.findall(rf"`(\w+Settings)` \(`({SOURCE_PATH})`\)", text),
+        *[(name, path) for path, name in re.findall(rf"`({SOURCE_PATH})` \(`(\w+Settings)`\)", text)],
+        *re.findall(rf"\*\*`(\w+Settings)`\*\* in `({SOURCE_PATH})`", text),
+    ]
+
+
+def test_the_settings_pointer_reader_reads_each_form():
+    text = "`ASettings` (`src/a.py`) and `backend/src/b.py` (`BSettings`) and **`CSettings`** in `src/c.py`"
+
+    assert _settings_pointers(text) == [("ASettings", "src/a.py"), ("BSettings", "backend/src/b.py"), ("CSettings", "src/c.py")]
+
+
+def test_a_settings_class_a_page_points_at_is_defined_there():
+    """``TaskiqSettings`` moved to the taskiq package with the feature, and a page still pointing at
+    the shared config module sends a reader to a file that doesn't have it."""
+    pointed = [
+        (page.relative_to(REPO_ROOT).as_posix(), name, path)
+        for page in _tracked(REPO_ROOT / "docs", "*.md")
+        if page.name != "changelog.md"
+        for name, path in _settings_pointers(page.read_text())
+    ]
+    source = REPO_ROOT / "backend" / "src"
+
+    assert pointed
+    assert [
+        (page, name, path)
+        for page, name, path in pointed
+        if not re.search(rf"^class {name}\b", (source / re.sub(r"^(?:backend/)?(?:src/)?", "", path)).read_text(), re.M)
+    ] == []
 
 
 def test_the_production_example_counts_where_the_production_check_lets_it():

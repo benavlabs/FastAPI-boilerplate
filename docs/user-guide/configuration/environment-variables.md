@@ -85,8 +85,9 @@ CACHE_MEMCACHED_CONNECT_TIMEOUT=5
 
 ## Rate Limiting
 
-Provided by `crudauth`, on Redis or in memory. Limits are resolved per request from
-the user's tier and path, falling back to the defaults below, and each path keeps its own counter.
+Provided by `crudauth`, counting in Redis, the database or memory, as `RATE_LIMITER_BACKEND` says.
+Limits are resolved per request from the user's tier and path, falling back to the defaults below,
+and each path keeps its own counter.
 
 ```env
 RATE_LIMITER_ENABLED=true

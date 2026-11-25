@@ -41,8 +41,9 @@ docker build --target migrate -t fastapi-boilerplate:migrate -f backend/Dockerfi
 
 ## What `fastro make deploy local` Writes
 
-Four services, named `api`, `worker`, `postgres` and `redis`, with the API and the worker built
-from the `dev` stage and the source mounted for reload:
+For a project with the taskiq feature, the services are `api`, `worker`, `scheduler`, `postgres` and
+`redis`, with the API, the worker and the scheduler built from the `dev` stage and the source
+mounted. A project without taskiq gets no `worker` or `scheduler`:
 
 ```yaml
 services:
@@ -70,9 +71,11 @@ services:
         condition: service_healthy
 ```
 
-`worker` is the same image running `taskiq worker infrastructure.taskiq.worker:default_broker
---reload`; `postgres` and `redis` carry healthchecks that the other two wait on, and keep their
-data in the named volumes `postgres-data` and `redis-data`. `--api-port` moves the published port,
+`worker` is the same image running `taskiq worker src.infrastructure.taskiq.worker:default_broker
+--reload`, and `scheduler` the same image running
+`taskiq scheduler src.infrastructure.taskiq.scheduler:scheduler`. `postgres` and `redis` carry
+healthchecks that the others wait on, and keep their data in the named volumes `postgres-data` and
+`redis-data`. `--api-port` moves the published port,
 and `--dry-run` prints the file without writing it. A choice that needs a service of its own adds
 it, in all three stacks: `memcached` with `cache.backend=memcached` and `rabbitmq` with
 `taskiq.broker=rabbitmq` (see the [Service Reference](#service-reference)).
@@ -93,7 +96,7 @@ If you also use the host machine to reach Postgres/Redis directly (e.g. for a lo
 
 ## Service Reference
 
-### `api` — FastAPI Application
+### `api`: FastAPI Application
 
 Built from the `dev` Dockerfile stage. Runs `fastapi dev`, which auto-reloads on code changes. The
 volume mount on `./backend/src` makes the reload pick up your edits live.
@@ -101,17 +104,24 @@ volume mount on `./backend/src` makes the reload pick up your edits live.
 For production, generate the `prod` or `nginx` stack instead of editing this one: both build the
 `prod` stage, drop the mounts and run `fastapi run` with `--workers`.
 
-### `worker` — Taskiq Worker
+### `worker`: Taskiq Worker
 
-The same image, running `taskiq worker infrastructure.taskiq.worker:default_broker --reload`. Scale
-it with `docker compose up --scale worker=3`.
+The same image, running `taskiq worker src.infrastructure.taskiq.worker:default_broker --reload`.
+Scale it with `docker compose up --scale worker=3`.
 
-### `postgres` — PostgreSQL 16
+### `scheduler`: Taskiq Scheduler
+
+The same image, running `taskiq scheduler src.infrastructure.taskiq.scheduler:scheduler`, which
+enqueues the scheduled tasks and the delayed retries when they are due. Run exactly one: each
+scheduler fires every schedule it finds, so scale the worker instead (see
+[Scheduled Tasks](../background-tasks/index.md#scheduled-tasks)).
+
+### `postgres`: PostgreSQL 16
 
 `postgres:16-alpine`. Reads `POSTGRES_USER`, `POSTGRES_PASSWORD`, and `POSTGRES_DB` from
 `backend/.env`, and persists data in the named volume `postgres-data`.
 
-### `redis` — Redis 7
+### `redis`: Redis 7
 
 Used for cache (`CACHE_REDIS_DB=0`), rate limiting (`RATE_LIMITER_REDIS_DB=1`), sessions (`SESSION_REDIS_DB=2`), and the Taskiq broker (`TASKIQ_REDIS_DB=3`). The boilerplate uses different DB numbers so they don't interfere.
 

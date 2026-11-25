@@ -143,6 +143,14 @@ ___
   overview, the Docker page and the production example no longer make it Redis's alone; the
   production example sets a backend production accepts; and the getting-started configuration
   lists `database` beside `memory`.
+- **The background tasks, Docker, production and environment variables pages match what ships.**
+  The Docker page names the `scheduler` that `fastro make deploy local` writes for a taskiq project,
+  describes it in the Service Reference, and gives the worker the `src.` module path the compose
+  runs. The Background Tasks page leaves the worker service to `fastro make deploy` instead of
+  asking for one written by hand, and points at `infrastructure/taskiq/settings.py` for
+  `TaskiqSettings`. The production example marks the `RATE_LIMITER_REDIS_*` lines as Redis's alone,
+  its RabbitMQ note names `taskiq.broker=rabbitmq`, and the Environment Variables page gives the
+  rate limiter the database as well as Redis and memory.
 - **A project with the cache feature and without accounts imports.** The cache used to import the
   accounts feature's scope fingerprint to key a scoped credential apart from its account. Accounts
   now contributes it through `SCOPE_FINGERPRINT` in the generated `src/wiring/scope.py`, which is

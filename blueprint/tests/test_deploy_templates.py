@@ -408,3 +408,78 @@ def test_the_docker_page_says_how_to_change_the_broker_user_once_it_exists():
     assert entry is not None
     assert "`rabbitmqctl`" in entry[0]
     assert "`docker compose down -v`" in entry[0]
+
+
+def _docker_page_section(heading: str) -> str:
+    return DOCKER_PAGE.read_text().split(f"{heading}\n", 1)[1].split("\n## ", 1)[0]
+
+
+def test_the_docker_page_names_every_service_the_local_compose_runs_and_describes_each():
+    """For a project with taskiq, the one whose stack has the most to describe, all in the sentence
+    that lists them."""
+    services = _compose("local")["services"]
+    intro = " ".join(_docker_page_section("## What `fastro make deploy local` Writes").split()).split(". ", 1)[0]
+    reference = _docker_page_section("## Service Reference")
+
+    assert set(services) > set(TASKIQ_SERVICES)
+    assert not re.search(r"\b(?:two|three|four|five|six|seven|eight|nine|ten)\b", intro, re.I)
+    for name in services:
+        assert f"`{name}`" in intro, name
+        assert re.search(rf"^### `{name}`", reference, re.M), name
+
+
+def test_the_docker_page_names_the_stage_the_local_app_containers_build_and_their_source_mount():
+    services = _compose("local")["services"]
+    intro = " ".join(_docker_page_section("## What `fastro make deploy local` Writes").split()).split(". ", 1)[0]
+    stages = {services[name]["build"]["target"] for name in APP_CONTAINERS}
+
+    assert len(stages) == 1
+    assert f"built from the `{stages.pop()}` stage" in intro
+    assert all("./backend/src:/app/src" in services[name]["volumes"] for name in APP_CONTAINERS)
+    assert "source mounted" in intro
+
+
+def test_the_docker_page_says_a_project_without_taskiq_runs_neither_background_service():
+    services = _compose("local", features=("accounts",), services=())["services"]
+    section = " ".join(_docker_page_section("## What `fastro make deploy local` Writes").split())
+    saying = [sentence for sentence in re.split(r"(?<=[.:])\s", section) if "without taskiq" in sentence]
+
+    assert not set(TASKIQ_SERVICES) & set(services)
+    assert len(saying) == 1
+    assert all(f"`{name}`" in saying[0] for name in TASKIQ_SERVICES)
+
+
+def test_the_docker_page_runs_exactly_one_scheduler():
+    """Each scheduler fires every schedule, as the compose file's own comment on it says."""
+    entry = re.search(r"^### `scheduler`.*?(?=^#)", _docker_page_section("## Service Reference") + "\n#", re.M | re.S)
+
+    assert "Run exactly one" in _render("local/docker-compose.yml.j2")
+    assert entry is not None
+    assert "exactly one" in entry[0]
+    assert "--scale scheduler" not in DOCKER_PAGE.read_text()
+
+
+@pytest.mark.parametrize("name", TASKIQ_SERVICES)
+def test_the_docker_page_gives_each_background_service_the_command_the_compose_runs(name: str):
+    command = " ".join(_compose("local")["services"][name]["command"].split())
+    entry = re.search(rf"^### `{name}`.*?(?=^#)", _docker_page_section("## Service Reference") + "\n#", re.M | re.S)
+    section = " ".join(_docker_page_section("## What `fastro make deploy local` Writes").split())
+
+    assert entry is not None
+    assert f"`{command}`" in " ".join(entry[0].split())
+    assert f"`{command}`" in section
+
+
+BACKGROUND_TASKS_PAGE = REPO_ROOT / "docs" / "user-guide" / "background-tasks" / "index.md"
+
+
+def test_the_background_tasks_page_leaves_the_worker_service_to_fastro_make_deploy():
+    """The generated stack already runs the worker and the scheduler, so a service to write by hand
+    would run a second one."""
+    page = BACKGROUND_TASKS_PAGE.read_text()
+    running = page.split("## Running a Worker\n", 1)[1].split("\n## ", 1)[0]
+
+    assert "`fastro make deploy`" in running
+    assert not re.search(r"\b(?:add|write|define|create)\b[^.]*\bservice\b", running, re.I)
+    assert all(f"`{name}`" in running for name in TASKIQ_SERVICES)
+    assert not re.search(r"^```ya?ml\n(?:(?!^```).)*?^\s+(?:worker|scheduler):\s*$", page, re.M | re.S)

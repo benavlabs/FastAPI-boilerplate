@@ -91,8 +91,8 @@ FORWARDED_ALLOW_IPS=<proxy-subnet>     # which peers uvicorn takes forwarded hea
 # Rate limiting (provided by crudauth)
 RATE_LIMITER_ENABLED=true
 RATE_LIMITER_BACKEND=redis              # or database; memory is refused in production
-RATE_LIMITER_REDIS_HOST=<redis-host>
-RATE_LIMITER_REDIS_PASSWORD=<redis-password>
+RATE_LIMITER_REDIS_HOST=<redis-host>    # with redis only
+RATE_LIMITER_REDIS_PASSWORD=<redis-password>  # with redis only
 
 # Taskiq
 TASKIQ_BROKER_TYPE=redis
@@ -118,7 +118,7 @@ Notes worth calling out:
 - **`CREATE_TABLES_ON_STARTUP=false`** — the default outside local and development, and `true` is refused in production: schema changes go through Alembic, not `Base.metadata.create_all` on every boot.
 - **`SESSION_BACKEND` and `RATE_LIMITER_BACKEND` are not `memory`** — both are refused in production. A process that keeps sessions in itself signs everybody out when it restarts and knows nothing of the sessions its sibling created. A process that counts in itself multiplies every limit by the number of workers, and the backend carries more than the API throttle: the login lockout, the account-change budgets and an API key's own windows all count on it, whether or not the ratelimit feature is selected or `RATE_LIMITER_ENABLED` is on.
 - **`FRONTEND_URL` is HTTPS** — refused otherwise, along with a host only the deployment itself can reach: every verification, password-reset and email-change link is built from it, so a plaintext one carries its token where anybody on the path can read it.
-- **RabbitMQ's `guest` credentials are refused** — with `TASKIQ_BROKER_TYPE=rabbitmq`, `TASKIQ_RABBITMQ_USER`/`TASKIQ_RABBITMQ_PASSWORD` left at `guest`/`guest` means anybody who reaches the broker can enqueue a task the worker runs.
+- **RabbitMQ's `guest` credentials are refused**: in a project generated with `taskiq.broker=rabbitmq` and set to `TASKIQ_BROKER_TYPE=rabbitmq`, `TASKIQ_RABBITMQ_USER`/`TASKIQ_RABBITMQ_PASSWORD` left at `guest`/`guest` means anybody who reaches the broker can enqueue a task the worker runs.
 - **`CONFIRM_PRODUCTION_MIGRATION=yes`** — `migrations/env.py` calls `validate_production_migration` which **refuses** to run migrations against production unless this is explicitly set. Ship deployment commands with it; never set it in long-lived env files.
 - **`SESSION_SECURE_COOKIES=true`** — cookies are sent only over HTTPS. Required if you're terminating TLS at a proxy.
 - **`OPENAPI_URL=`** (empty) disables the Swagger UI and OpenAPI spec entirely. The validator warns when this is exposed in production.
