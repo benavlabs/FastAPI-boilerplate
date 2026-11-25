@@ -609,7 +609,7 @@ class ProductionSecurityValidator:
                     "port": self._feature_setting("CACHE_REDIS_PORT", 0),
                     "db": self._feature_setting("CACHE_REDIS_DB", 0),
                     "password": self._feature_setting("CACHE_REDIS_PASSWORD", None),
-                    "ssl": False,
+                    "ssl": self._feature_setting("CACHE_REDIS_SSL", False),
                 }
             )
 
@@ -621,7 +621,7 @@ class ProductionSecurityValidator:
                     "port": self._feature_setting("RATE_LIMITER_REDIS_PORT", 0),
                     "db": self._feature_setting("RATE_LIMITER_REDIS_DB", 0),
                     "password": self._feature_setting("RATE_LIMITER_REDIS_PASSWORD", None),
-                    "ssl": False,
+                    "ssl": self._feature_setting("RATE_LIMITER_REDIS_SSL", False),
                 }
             )
 

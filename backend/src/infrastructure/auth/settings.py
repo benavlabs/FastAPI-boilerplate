@@ -65,6 +65,10 @@ class AuthSettings(EnvSettings):
         default=None,
         validation_alias=AliasChoices("SESSION_REDIS_PASSWORD", "CACHE_REDIS_PASSWORD"),
     )
+    SESSION_REDIS_SSL: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("SESSION_REDIS_SSL", "CACHE_REDIS_SSL"),
+    )
 
     @property
     def SESSION_REDIS_URL(self) -> str:
@@ -77,6 +81,7 @@ class AuthSettings(EnvSettings):
             self.SESSION_REDIS_PORT,
             self.SESSION_REDIS_DB,
             self.SESSION_REDIS_PASSWORD,
+            ssl=self.SESSION_REDIS_SSL,
         )
 
 
@@ -88,6 +93,7 @@ class LimiterBackendSettings(EnvSettings):
     RATE_LIMITER_REDIS_PORT: int = 6379
     RATE_LIMITER_REDIS_DB: int = 1
     RATE_LIMITER_REDIS_PASSWORD: str | None = None
+    RATE_LIMITER_REDIS_SSL: bool = False
     RATE_LIMITER_REDIS_CONNECT_TIMEOUT: int = 5
     RATE_LIMITER_REDIS_POOL_SIZE: int = 10
 

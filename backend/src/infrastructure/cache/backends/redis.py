@@ -28,6 +28,7 @@ class RedisSettings(BaseModel):
         password: Redis server password. Default is None.
         connect_timeout: Connection timeout in seconds. Default is 5.
         pool_size: Maximum number of connections in the pool. Default is 10.
+        ssl: Whether the connection speaks TLS. Default is False.
     """
 
     host: str = "localhost"
@@ -36,6 +37,7 @@ class RedisSettings(BaseModel):
     password: str | None = None
     connect_timeout: int = 5
     pool_size: int = 10
+    ssl: bool = False
 
 
 class RedisBackend(CacheBackend):
@@ -55,6 +57,7 @@ class RedisBackend(CacheBackend):
             password=self.settings.password,
             socket_timeout=self.settings.connect_timeout,
             max_connections=self.settings.pool_size,
+            ssl=self.settings.ssl,
         )
         self._owns_client = client is None
 

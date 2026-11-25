@@ -10,6 +10,15 @@ ___
 
 ## Unreleased
 
+#### Added
+
+- **Every Redis the project talks to can speak TLS.** `CACHE_REDIS_SSL`, `RATE_LIMITER_REDIS_SSL`
+  and `TASKIQ_REDIS_SSL` connect the cache, the rate limiter and the broker over TLS, and
+  `SESSION_REDIS_SSL` the sessions, falling back to `CACHE_REDIS_SSL` as the other session fields
+  fall back to the cache's. All default to false. The production check reads them for the cache and
+  the rate limiter instead of warning that neither uses TLS whatever was set; `.env.example` and the
+  Environment Variables page list them, and the production examples set them.
+
 #### Changed
 
 - **`requires-python` stops at 3.14.** Both `pyproject.toml` files allow `>=3.11,<3.15`, the
@@ -143,12 +152,9 @@ ___
   the line above, and so do the settings shown commented out, which a reader uncomments as they are.
   The staging examples pass the staging check (they now set the email backend and, on the
   Configuration page, a secret, with an HTTPS frontend URL for the links), and the production
-  examples draw no warning but the cache and rate limiter Redis TLS one no setting answers yet: they
-  set Redis passwords and, for now, put sessions on a dedicated Redis over TLS (`rediss://`, on its
-  own port, since a Redis port speaks TLS or plaintext, not both); that is interim, until the cache
-  and rate limiter can use TLS and the examples go back to one shared Redis. The Environment-Specific
-  page names the
-  `backend/.env.*` files its symlink command points at.
+  examples draw no warning: they set Redis passwords and run on one Redis over TLS, sessions in
+  their own DB, with no two connections on one host and port where one uses TLS and one doesn't.
+  The Environment-Specific page names the `backend/.env.*` files its symlink command points at.
 - **No `.env.*` file reaches git or the image's build context.** This repository's `.gitignore`
   ignores `.env.*` other than `.env.example`, as a generated project's already did, and
   `.dockerignore` keeps every `.env` and `.env.*` but `.env.example` out of what `docker build .`

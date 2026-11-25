@@ -2809,12 +2809,13 @@ def _examples_for(environment: str) -> list[tuple[str, list[str]]]:
 
 
 def _filled(name: str, value: str) -> str:
-    """A ``<placeholder>`` value filled the way it asks, a host with a host and a secret with one;
+    """A ``<placeholder>`` value filled the way it asks, a host with a host named after it, so two
+    settings given the same placeholder land on the same host, and a secret with one;
     anything else, a trailing ``#`` and what follows it included, as the file gives it."""
     if not re.fullmatch(r"<[^<>]*>", value):
         return value
     if name.endswith(("_HOST", "_SERVER")):
-        return f"{name.lower().replace('_', '-')}.internal.example"
+        return f"{re.sub(r'[^a-z0-9]+', '-', value.lower()).strip('-')}.internal.example"
     if name == "FORWARDED_ALLOW_IPS":
         return "10.0.0.0/8"
     return f"filled-{name.lower()}-{'x' * 48}"
@@ -2841,10 +2842,6 @@ def _settings_read_from(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, *files:
 PRODUCTION_EXAMPLES = _examples_for("production")
 
 STAGING_EXAMPLES = _examples_for("staging")
-
-UNREACHABLE_WARNING = re.compile(r"^Redis instance for (?:cache|rate_limiter) \(.*\) is not using SSL/TLS encryption\.")
-"""The one warning a production example may draw: the cache and rate limiter Redis clients take no TLS
-setting yet, so the validator reads them as plaintext whatever an example sets."""
 
 
 def test_the_docs_have_production_and_staging_examples_to_check():
@@ -2880,7 +2877,7 @@ def test_every_production_example_in_the_docs_passes_the_production_check(
     """A reader copies the example over the ``.env.example`` they generated the project with, and the
     app refuses to start on anything the validator calls critical: the email backend, the frontend
     URL, a limiter or a session store in the process, a default secret or database password; and an
-    example labelled production draws no warning either, but the one no setting can answer yet. Each
+    example labelled production draws no warning either. Each
     CORS origin the app reads from it is an HTTPS origin, scheme, host and port and nothing else: the
     browser's ``Origin`` header is compared as written, so a path or a trailing slash matches nothing,
     and a JSON list splits on commas into origins nothing matches and hides a ``*`` from the check."""
@@ -2896,22 +2893,49 @@ def test_every_production_example_in_the_docs_passes_the_production_check(
     assert [origin for origin in settings.CORS_ORIGINS_LIST if not re.fullmatch(r"https://[a-z0-9.-]+(?::\d+)?", origin)] == []
     assert settings.ENVIRONMENT.value == "production"
     validator.validate_production_security(settings)
-    warnings = validator.ProductionSecurityValidator(settings)._collect_warnings()
-    assert [warning for warning in warnings if not UNREACHABLE_WARNING.match(warning)] == []
-    plaintext = {
-        (settings.CACHE_REDIS_HOST, settings.CACHE_REDIS_PORT),
-        (settings.RATE_LIMITER_REDIS_HOST, settings.RATE_LIMITER_REDIS_PORT),
-    }
-    sessions = urlsplit(settings.SESSION_REDIS_URL)
-    if sessions.scheme == "rediss":
-        assert (sessions.hostname, sessions.port or 6379) not in plaintext, "a Redis port speaks TLS or plaintext, not both"
+    assert validator.ProductionSecurityValidator(settings)._collect_warnings() == []
+
+
+def _redis_connections(settings: Any) -> list[str]:
+    """The URL of each Redis the project connects to with these settings: the cache's, the rate
+    limiter's, the broker's and the sessions'."""
+    redis = importlib.import_module("src.infrastructure.redis")
+    return [
+        redis.redis_url(
+            getattr(settings, f"{service}_REDIS_HOST"),
+            getattr(settings, f"{service}_REDIS_PORT"),
+            getattr(settings, f"{service}_REDIS_DB"),
+            None,
+            ssl=getattr(settings, f"{service}_REDIS_SSL"),
+        )
+        for service in ("CACHE", "RATE_LIMITER", "TASKIQ")
+    ] + [settings.SESSION_REDIS_URL]
+
+
+def test_the_environment_variables_page_sets_every_redis_tls_setting():
+    """A Redis a reader can only reach over TLS needs the switch: the reference and ``.env.example``
+    carry every one, and the production page names the ones whose absence the check warns about."""
+    fields = importlib.import_module("src.infrastructure.config.settings").Settings.model_fields
+    tls = {name for name in fields if name.endswith("_REDIS_SSL")}
+    page = REPO_ROOT / "docs" / "user-guide" / "configuration" / "environment-variables.md"
+    on_the_page = page.relative_to(REPO_ROOT).as_posix()
+    set_there = {name for where, block in _env_blocks() if where == on_the_page for name, *_ in _block_settings(block)}
+
+    production = " ".join(PRODUCTION_PAGE.read_text().split())
+    example = ENV_EXAMPLE.read_text()
+
+    assert tls == {"CACHE_REDIS_SSL", "RATE_LIMITER_REDIS_SSL", "SESSION_REDIS_SSL", "TASKIQ_REDIS_SSL"}
+    assert tls <= set_there
+    assert [name for name in sorted(tls) if not re.search(rf"^(?:#\s*)?{name}=", example, re.M)] == []
+    assert [name for name in sorted(tls - {"TASKIQ_REDIS_SSL"}) if f"`{name}`" not in production] == []
 
 
 def test_every_env_line_in_the_docs_is_read_as_it_is_written(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     """The app reads its environment file literally, so a comment after a value is part of it: a flag
     or a number stops parsing and a string carries the comment. A setting shown commented out is held
     to the same, since uncommenting it is what the reader does next. Every block builds the project's
-    settings from its own lines."""
+    settings from its own lines, and none has two of its Redis connections, the cache's, the rate
+    limiter's, the broker's and the sessions', on one host and port, one over TLS and one not."""
     blocks = _env_blocks()
     commented = [
         f"{page}: {name}={value}{rest}"
@@ -2919,15 +2943,23 @@ def test_every_env_line_in_the_docs_is_read_as_it_is_written(monkeypatch: pytest
         for name, value, rest in re.findall(r"^(?:#\s*)?([A-Z][A-Z0-9_]*)=(.*?)([ \t]+#.*)$", block, re.M)
     ]
     refused = []
+    mixed = []
     for number, (page, block) in enumerate(blocks):
         try:
-            _settings_read_from(monkeypatch, tmp_path / str(number), block.splitlines())
+            settings = _settings_read_from(monkeypatch, tmp_path / str(number), block.splitlines())
         except ValueError as error:
             refused.append(f"{page}: {error}")
+            continue
+        speaking: dict[tuple[str, int], set[str]] = {}
+        for url in _redis_connections(settings):
+            parts = urlsplit(url)
+            speaking.setdefault((parts.hostname or "", parts.port or 6379), set()).add(parts.scheme)
+        mixed += [f"{page}: {address}" for address, schemes in speaking.items() if len(schemes) > 1]
 
     assert len(blocks) > 50
     assert commented == []
     assert refused == []
+    assert mixed == [], "a Redis port speaks TLS or plaintext, not both"
 
 
 LINKING = re.compile(r"^ln -s\w* (\S+) (\S+)$", re.M)

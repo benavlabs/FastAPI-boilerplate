@@ -34,6 +34,7 @@ def limiter_target() -> str | None:
         settings.RATE_LIMITER_REDIS_PORT,
         settings.RATE_LIMITER_REDIS_DB,
         settings.RATE_LIMITER_REDIS_PASSWORD,
+        ssl=settings.RATE_LIMITER_REDIS_SSL,
     )
 
 

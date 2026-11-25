@@ -14,6 +14,7 @@ rate_limiter_redis_client = make_redis_client(
     settings.RATE_LIMITER_REDIS_PASSWORD,
     settings.RATE_LIMITER_REDIS_POOL_SIZE,
     settings.RATE_LIMITER_REDIS_CONNECT_TIMEOUT,
+    ssl=settings.RATE_LIMITER_REDIS_SSL,
 )
 
 

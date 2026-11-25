@@ -71,6 +71,8 @@ CACHE_REDIS_HOST=redis
 CACHE_REDIS_PORT=6379
 CACHE_REDIS_DB=0
 CACHE_REDIS_PASSWORD=
+# true when the Redis speaks TLS, as a managed one usually does
+CACHE_REDIS_SSL=false
 CACHE_REDIS_CONNECT_TIMEOUT=5
 CACHE_REDIS_POOL_SIZE=10
 ```
@@ -109,6 +111,8 @@ RATE_LIMITER_REDIS_PORT=6379
 # Separate DB from cache (DB 0)
 RATE_LIMITER_REDIS_DB=1
 RATE_LIMITER_REDIS_PASSWORD=
+# true when the Redis speaks TLS
+RATE_LIMITER_REDIS_SSL=false
 RATE_LIMITER_REDIS_CONNECT_TIMEOUT=5
 RATE_LIMITER_REDIS_POOL_SIZE=10
 ```
@@ -169,6 +173,8 @@ TASKIQ_REDIS_PORT=6379
 # Separate DB from cache and rate limiter
 TASKIQ_REDIS_DB=3
 TASKIQ_REDIS_PASSWORD=
+# true when the Redis speaks TLS
+TASKIQ_REDIS_SSL=false
 ```
 
 ### RabbitMQ broker
@@ -292,12 +298,14 @@ TRUSTED_PROXY_HOPS=0
 ```
 
 A dedicated session Redis is named either as a URL or host by host. `SESSION_REDIS_URL` wins where it
-is set; otherwise these are used with `SESSION_REDIS_DB`:
+is set; otherwise these are used with `SESSION_REDIS_DB`, each falling back to the cache's
+`CACHE_REDIS_*` when left unset, `SESSION_REDIS_SSL` to `CACHE_REDIS_SSL`:
 
 ```env
 SESSION_REDIS_HOST=redis
 SESSION_REDIS_PORT=6379
 SESSION_REDIS_PASSWORD=
+SESSION_REDIS_SSL=false
 ```
 
 ### Forwarded Headers

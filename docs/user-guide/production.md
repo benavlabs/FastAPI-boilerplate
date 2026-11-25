@@ -36,6 +36,7 @@ The password checked is the one actually used to connect: when `DATABASE_URL` is
 These don't block startup but you should fix them before the app sees real traffic:
 
 - **Redis without a password** (`CACHE_REDIS_PASSWORD` or `RATE_LIMITER_REDIS_PASSWORD` unset, or a `SESSION_REDIS_URL` without one)
+- **Redis on a host other than `localhost` or `127.0.0.1` without TLS** (`CACHE_REDIS_SSL` or `RATE_LIMITER_REDIS_SSL` false, `SESSION_REDIS_SSL` false or a `SESSION_REDIS_URL` on `redis://`): set them where the Redis speaks TLS, as a managed one usually does
 - **`DEBUG=true`** — exposes stack traces in error responses
 - **API docs (`/docs`, `/redoc`) reachable** — see "Documentation" below
 - **Session config too loose** (cookies not marked `Secure`, very long max-age, etc.)
@@ -88,11 +89,11 @@ CACHE_ENABLED=true
 CACHE_BACKEND=redis
 CACHE_REDIS_HOST=<redis-host>
 CACHE_REDIS_PASSWORD=<redis-password>
+CACHE_REDIS_SSL=true
 
-# Sessions: redis | database | memory; without SESSION_REDIS_URL, the cache Redis
+# Sessions: redis | database | memory, on the cache's Redis, TLS included, in their own DB
 SESSION_BACKEND=redis
-# A dedicated session Redis over TLS
-SESSION_REDIS_URL=rediss://:<session-redis-password>@<session-redis-host>:6380/0
+SESSION_REDIS_DB=2
 # Required when serving over HTTPS
 SESSION_SECURE_COOKIES=true
 CSRF_ENABLED=true
@@ -108,11 +109,13 @@ RATE_LIMITER_BACKEND=redis
 # With redis only
 RATE_LIMITER_REDIS_HOST=<redis-host>
 RATE_LIMITER_REDIS_PASSWORD=<redis-password>
+RATE_LIMITER_REDIS_SSL=true
 
 # Taskiq
 TASKIQ_BROKER_TYPE=redis
 TASKIQ_REDIS_HOST=<redis-host>
 TASKIQ_REDIS_PASSWORD=<redis-password>
+TASKIQ_REDIS_SSL=true
 
 # Admin panel, off: the safest default in prod
 ADMIN_ENABLED=false
@@ -403,7 +406,7 @@ Before shipping:
 - [ ] `OPENAPI_URL=` (empty) — `/docs` and `/redoc` are not exposed
 - [ ] `SESSION_SECURE_COOKIES=true` and you're terminating TLS at a proxy
 - [ ] `CSRF_ENABLED=true`
-- [ ] All Redis instances have `*_REDIS_PASSWORD` set
+- [ ] All Redis instances have `*_REDIS_PASSWORD` set, and `*_REDIS_SSL=true` where the Redis speaks TLS
 - [ ] `ADMIN_ENABLED=false` (or restricted at the network layer)
 - [ ] Database migrations run via the `migrate` Dockerfile stage with `CONFIRM_PRODUCTION_MIGRATION=yes`
 - [ ] `EMAIL_BACKEND=smtp`, with `EMAIL_SMTP_*` configured, and `FRONTEND_URL` set to the project's own frontend (both only where the accounts feature is present)

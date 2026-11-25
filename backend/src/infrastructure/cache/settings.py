@@ -28,6 +28,7 @@ class CacheSettings(EnvSettings):
         CACHE_REDIS_PORT: Redis server port. Default is 6379.
         CACHE_REDIS_DB: Redis database number. Default is 0.
         CACHE_REDIS_PASSWORD: Redis server password. Default is None.
+        CACHE_REDIS_SSL: Whether the connection speaks TLS. Default is False.
         CACHE_REDIS_CONNECT_TIMEOUT: Connection timeout in seconds. Default is 5.
         CACHE_REDIS_POOL_SIZE: Maximum number of connections in the pool. Default is 10.
     """
@@ -44,5 +45,6 @@ class CacheSettings(EnvSettings):
     CACHE_REDIS_PORT: int = 6379
     CACHE_REDIS_DB: int = 0
     CACHE_REDIS_PASSWORD: str | None = None
+    CACHE_REDIS_SSL: bool = False
     CACHE_REDIS_CONNECT_TIMEOUT: int = 5
     CACHE_REDIS_POOL_SIZE: int = 10

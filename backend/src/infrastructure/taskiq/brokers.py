@@ -51,7 +51,7 @@ def _create_redis_broker() -> AsyncBroker:
     redis_db = settings.TASKIQ_REDIS_DB
     redis_password = settings.TASKIQ_REDIS_PASSWORD
 
-    url = redis_url(redis_host, redis_port, redis_db, redis_password)
+    url = redis_url(redis_host, redis_port, redis_db, redis_password, ssl=settings.TASKIQ_REDIS_SSL)
 
     broker = ListQueueBroker(
         url=url,

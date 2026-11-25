@@ -187,17 +187,20 @@ EMAIL_SMTP_USER=<from secrets manager>
 EMAIL_SMTP_PASSWORD=<from secrets manager>
 FRONTEND_URL=https://app.example.com
 
-# Real Redis with passwords; separate DBs per concern
+# One Redis over TLS, with a password; separate DBs per concern. Sessions use the cache's
+# connection, TLS included, in their own DB.
 CACHE_REDIS_HOST=prod-redis.example.com
 CACHE_REDIS_PASSWORD=<from secrets manager>
+CACHE_REDIS_SSL=true
 CACHE_REDIS_DB=0
 RATE_LIMITER_REDIS_HOST=prod-redis.example.com
 RATE_LIMITER_REDIS_PASSWORD=<from secrets manager>
+RATE_LIMITER_REDIS_SSL=true
 RATE_LIMITER_REDIS_DB=1
-# Sessions on a dedicated Redis over TLS; without SESSION_REDIS_URL they use the cache Redis
-SESSION_REDIS_URL=rediss://:<sessions-redis-password>@sessions-redis.example.com:6380/0
+SESSION_REDIS_DB=2
 TASKIQ_REDIS_HOST=prod-redis.example.com
 TASKIQ_REDIS_PASSWORD=<from secrets manager>
+TASKIQ_REDIS_SSL=true
 TASKIQ_REDIS_DB=3
 
 DEFAULT_RATE_LIMIT_LIMIT=100

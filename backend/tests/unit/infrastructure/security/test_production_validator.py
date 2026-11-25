@@ -58,6 +58,8 @@ class TestProductionSecurityValidator:
             "RATE_LIMITER_REDIS_PORT": 6379,
             "RATE_LIMITER_REDIS_DB": 1,
             "RATE_LIMITER_REDIS_PASSWORD": None,
+            "CACHE_REDIS_SSL": False,
+            "RATE_LIMITER_REDIS_SSL": False,
         }
         defaults.update(overrides)
 
@@ -465,6 +467,20 @@ class TestProductionSecurityValidator:
         warning_logs = [record for record in caplog.records if record.levelname == "WARNING"]
         ssl_warnings = [log for log in warning_logs if "not using SSL/TLS" in log.message]
         assert len(ssl_warnings) > 0
+
+    @pytest.mark.parametrize("service", ["CACHE", "RATE_LIMITER"])
+    def test_an_external_redis_over_tls_draws_no_ssl_warning(self, service: str, caplog):
+        """The setting each client connects with is the one the check reads."""
+        settings = self.create_mock_settings(
+            CACHE_BACKEND="redis",
+            RATE_LIMITER_ENABLED=True,
+            **{f"{service}_REDIS_HOST": "redis.example.com", f"{service}_REDIS_SSL": True},
+        )
+
+        assert not any(
+            "not using SSL/TLS" in warning and service.lower() in warning
+            for warning in ProductionSecurityValidator(settings)._collect_warnings()
+        )
 
     def test_localhost_redis_no_ssl_warning(self, caplog):
         """Test that localhost Redis without SSL doesn't log SSL warning."""

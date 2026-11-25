@@ -52,6 +52,7 @@ async def initialize_cache() -> None:
             password=settings.CACHE_REDIS_PASSWORD,
             connect_timeout=settings.CACHE_REDIS_CONNECT_TIMEOUT,
             pool_size=settings.CACHE_REDIS_POOL_SIZE,
+            ssl=settings.CACHE_REDIS_SSL,
         )
         redis_backend = RedisBackend(settings=redis_settings, client=cache_redis_client)
         cache_provider.register_backend(CacheBackend.REDIS.value, redis_backend, default=True)

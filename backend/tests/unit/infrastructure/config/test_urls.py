@@ -18,13 +18,13 @@ def test_the_database_password_survives_the_url():
 
 
 def test_the_redis_password_survives_the_url():
-    url = redis_url("cache", 6379, 1, AWKWARD)
+    url = redis_url("cache", 6379, 1, AWKWARD, ssl=False)
 
     assert make_url(url).password == AWKWARD
 
 
 def test_a_redis_url_without_a_password_stays_plain():
-    assert redis_url("cache", 6379, 1, None) == "redis://cache:6379/1"
+    assert redis_url("cache", 6379, 1, None, ssl=False) == "redis://cache:6379/1"
 
 
 def test_the_database_name_may_not_hide_url_punctuation():

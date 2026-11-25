@@ -20,6 +20,7 @@ class TaskiqSettings(EnvSettings):
     TASKIQ_REDIS_PORT: int = 6379
     TASKIQ_REDIS_DB: int = 3
     TASKIQ_REDIS_PASSWORD: str | None = None
+    TASKIQ_REDIS_SSL: bool = False
 
     TASKIQ_RABBITMQ_HOST: str = "localhost"
     TASKIQ_RABBITMQ_PORT: int = 5672
@@ -31,7 +32,13 @@ class TaskiqSettings(EnvSettings):
     def TASKIQ_BROKER_URL(self) -> str:
         """Generate broker URL based on configured backend."""
         if self.TASKIQ_BROKER_TYPE == TaskiqBrokerType.REDIS.value:
-            return redis_url(self.TASKIQ_REDIS_HOST, self.TASKIQ_REDIS_PORT, self.TASKIQ_REDIS_DB, self.TASKIQ_REDIS_PASSWORD)
+            return redis_url(
+                self.TASKIQ_REDIS_HOST,
+                self.TASKIQ_REDIS_PORT,
+                self.TASKIQ_REDIS_DB,
+                self.TASKIQ_REDIS_PASSWORD,
+                ssl=self.TASKIQ_REDIS_SSL,
+            )
         elif self.TASKIQ_BROKER_TYPE == TaskiqBrokerType.RABBITMQ.value:
             return URL.create(
                 drivername="amqp",
