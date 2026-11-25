@@ -12,6 +12,11 @@ ___
 
 #### Changed
 
+- **`requires-python` stops at 3.14.** Both `pyproject.toml` files allow `>=3.11,<3.15`, the
+  newest Python every dependency installs on (`watchfiles` and `rignore` don't build on 3.15), so
+  uv, `fastro blueprint verify` and a generated project pick a Python that works without
+  `UV_PYTHON`. A `newest-python` CI job runs both suites and verifies `everything` on 3.14.
+
 - **A project on the Redis broker no longer ships the RabbitMQ broker.** `taskiq-aio-pika`,
   `infrastructure/taskiq/rabbitmq.py` and its test come with `taskiq.broker=rabbitmq`, as
   `aiomcache` and the Memcached backend come with `cache.backend=memcached`. A project on Redis

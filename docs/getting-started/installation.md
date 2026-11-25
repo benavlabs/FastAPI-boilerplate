@@ -4,7 +4,7 @@ This guide covers different ways to install the FastAPI Boilerplate depending on
 
 ## System Requirements
 
-- **Python**: 3.11 or higher
+- **Python**: 3.11 to 3.14
 - **Operating System**: Linux, macOS, or Windows (WSL2 recommended)
 - **Memory**: 4GB RAM minimum (8GB recommended)
 - **Disk Space**: ~2GB free
@@ -77,7 +77,7 @@ For development on your host machine. You provide PostgreSQL and Redis yourself.
 
 ### Prerequisites
 
-1. **Python 3.11+**:
+1. **Python 3.11 to 3.14**:
 
     ```bash
     # Ubuntu/Debian

@@ -34,6 +34,35 @@ jobs:
       - name: Pytest (blueprint)
         run: uv run --no-sync pytest blueprint/tests
 
+  newest-python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Set up Python
+        run: uv python install 3.14
+
+      - name: Sync workspace
+        run: uv sync --all-packages --all-extras --locked --python 3.14
+
+      - name: Pytest (backend)
+        run: cd backend && uv run --no-sync pytest
+        env:
+          ENVIRONMENT: local
+          SECRET_KEY: test-secret-key-for-testing-only
+
+      - name: Pytest (blueprint)
+        run: uv run --no-sync pytest blueprint/tests
+
+      - name: Verify
+        run: uv run --no-sync fastro blueprint verify everything
+
   verify:
     runs-on: ubuntu-latest
     strategy:
