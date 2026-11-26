@@ -42,8 +42,8 @@ ADMIN = {
 def _seed(url: str, **extra: str):
     """Run the script as an operator does, with the superuser settings a seeder needs.
 
-    The drill's copy of the project carries no ``.env``, so anything the script reads has
-    to be in the environment it is handed.
+    ``.env`` is git-ignored, so a checkout carries none, and anything the script reads has to
+    be in the environment it is handed.
     """
     return run_script("setup_initial_data", script_environment(url, **ADMIN, **extra))
 

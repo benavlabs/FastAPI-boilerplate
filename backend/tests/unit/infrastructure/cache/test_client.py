@@ -1,5 +1,7 @@
 """The Redis client the cache owns, and where it is injected."""
 
+import pytest
+
 from src.infrastructure.cache import initialize
 from src.infrastructure.cache.client import cache_redis_client
 from src.infrastructure.cache.settings import CacheSettings
@@ -47,3 +49,14 @@ class TestInjection:
 def test_the_default_backend_is_the_one_the_compose_files_provide():
     """An env file without CACHE_BACKEND must not switch the app onto a service nothing runs."""
     assert CacheSettings().CACHE_BACKEND == "redis"
+
+
+async def test_a_memcached_cache_without_its_backend_refuses_to_start(monkeypatch):
+    """A project on redis has neither aiomcache nor the memcached module, so the setting can't
+    quietly fall back to another backend."""
+    monkeypatch.setattr(settings, "CACHE_ENABLED", True)
+    monkeypatch.setattr(settings, "CACHE_BACKEND", "memcached")
+    monkeypatch.setattr(initialize, "MEMCACHED_INSTALLED", False)
+
+    with pytest.raises(ImportError, match="aiomcache"):
+        await initialize.initialize_cache()

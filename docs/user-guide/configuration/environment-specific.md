@@ -25,7 +25,7 @@ The boilerplate already changes its own behavior based on `ENVIRONMENT`. You don
 | **Logging style** | Detailed text, color console | Structured key/value | JSON |
 | **Default log level** | DEBUG (when `LOG_DEVELOPMENT_VERBOSE=true`) | INFO | WARNING (when `LOG_PRODUCTION_OPTIMIZE=true`) |
 | **Noisy library loggers** | Normal level | Normal level | Quieted (urllib3, sqlalchemy, redis, etc.) |
-| **Security validator** | Skipped | The secret key, the mail backend and `CREATE_TABLES_ON_STARTUP` | Every check, at startup, if `PRODUCTION_SECURITY_VALIDATION_ENABLED=true` (default) |
+| **Security validator** | Skipped | Refuses a weak `SECRET_KEY`, `EMAIL_BACKEND=console` and `CREATE_TABLES_ON_STARTUP=true`; warns on a `FRONTEND_URL` that isn't `https://` | Every check, at startup, if `PRODUCTION_SECURITY_VALIDATION_ENABLED=true` (default) |
 | **Docs at `/docs`** | Available | Available | Disabled unless `ENABLE_DOCS_IN_PRODUCTION=true` |
 
 The logging behavior is driven by `src/infrastructure/logging/config.py`. The security validator lives in `src/infrastructure/security/`.
@@ -46,7 +46,8 @@ VERSION=0.1.0-dev
 POSTGRES_USER=postgres
 POSTGRES_PASSWORD=postgres
 POSTGRES_DB=myapp_dev
-POSTGRES_SERVER=localhost     # or "postgres" with Docker Compose
+# "localhost" here, or "postgres" with Docker Compose
+POSTGRES_SERVER=localhost
 POSTGRES_PORT=5432
 
 # Security — keep a placeholder, never reuse for staging/prod
@@ -54,7 +55,8 @@ SECRET_KEY=insecure-dev-key-replace-me
 
 # Sessions — relax cookie security for plain HTTP
 SESSION_SECURE_COOKIES=false
-CSRF_ENABLED=false             # often easier when testing with curl
+# Often easier when testing with curl
+CSRF_ENABLED=false
 
 # Cache / Rate limiter / Taskiq — point at localhost
 CACHE_REDIS_HOST=localhost
@@ -72,7 +74,8 @@ ADMIN_USERNAME=admin
 ADMIN_PASSWORD=admin123
 
 # Logging
-LOG_DEVELOPMENT_VERBOSE=true   # gives you DEBUG-level console output
+# Gives you DEBUG-level console output
+LOG_DEVELOPMENT_VERBOSE=true
 ```
 
 !!! tip "Why disable CSRF in dev?"
@@ -106,6 +109,13 @@ CSRF_ENABLED=true
 CORS_ORIGINS=https://staging.example.com
 CORS_ALLOW_METHODS=GET,POST,PUT,DELETE,PATCH
 CORS_ALLOW_HEADERS=Authorization,Content-Type
+
+# Account email, with the accounts feature: links are built from FRONTEND_URL
+EMAIL_BACKEND=smtp
+EMAIL_SMTP_HOST=smtp.example.com
+EMAIL_SMTP_USER=<from secrets manager>
+EMAIL_SMTP_PASSWORD=<from secrets manager>
+FRONTEND_URL=https://staging.example.com
 
 # Real Redis hostnames — use separate DBs for cache/rate limit/taskiq
 CACHE_REDIS_HOST=staging-redis.example.com
@@ -170,16 +180,27 @@ CORS_ALLOW_HEADERS=Authorization,Content-Type
 # Docs gated off by default in production
 ENABLE_DOCS_IN_PRODUCTION=false
 
-# Real Redis with passwords; separate DBs per concern
+# Account email, with the accounts feature: links are built from FRONTEND_URL
+EMAIL_BACKEND=smtp
+EMAIL_SMTP_HOST=smtp.example.com
+EMAIL_SMTP_USER=<from secrets manager>
+EMAIL_SMTP_PASSWORD=<from secrets manager>
+FRONTEND_URL=https://app.example.com
+
+# One Redis over TLS, with a password; separate DBs per concern. Sessions use the cache's
+# connection, TLS included, in their own DB.
 CACHE_REDIS_HOST=prod-redis.example.com
 CACHE_REDIS_PASSWORD=<from secrets manager>
+CACHE_REDIS_SSL=true
 CACHE_REDIS_DB=0
 RATE_LIMITER_REDIS_HOST=prod-redis.example.com
 RATE_LIMITER_REDIS_PASSWORD=<from secrets manager>
+RATE_LIMITER_REDIS_SSL=true
 RATE_LIMITER_REDIS_DB=1
 SESSION_REDIS_DB=2
 TASKIQ_REDIS_HOST=prod-redis.example.com
 TASKIQ_REDIS_PASSWORD=<from secrets manager>
+TASKIQ_REDIS_SSL=true
 TASKIQ_REDIS_DB=3
 
 DEFAULT_RATE_LIMIT_LIMIT=100
@@ -220,7 +241,7 @@ For helpers, add small properties to your own settings class — but for most ca
 
 ### One `.env` per environment
 
-The simplest approach. Keep `.env.development`, `.env.staging`, `.env.production` *outside* version control (e.g. in a secrets manager) and symlink the active one:
+The simplest approach. Keep `backend/.env.development`, `backend/.env.staging` and `backend/.env.production` *outside* version control (the `.gitignore` ignores them; keep the secrets in a manager) and symlink the active one. A relative target resolves from the link's directory, so this points `backend/.env` at `backend/.env.staging`:
 
 ```bash
 # Switch environments locally

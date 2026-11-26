@@ -7,26 +7,29 @@ beside them is generated from a script, which is text, so it is held to the same
 """
 
 import re
+import tomllib
 from pathlib import Path
 
-from tests.unit.test_docs_imports import LEFT_OUT_PATHS
+from src.modules.tier.settings import TierSettings
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 WIRING = REPO_ROOT / "backend" / "src" / "wiring"
 STRUCTURE = REPO_ROOT / "docs" / "user-guide" / "project-structure.md"
 COMPOSABLE = REPO_ROOT / "docs" / "user-guide" / "composable-features.md"
 DIAGRAMS = REPO_ROOT / "docs" / "assets" / "build-diagrams.cjs"
+CHANGELOG = REPO_ROOT / "docs" / "changelog.md"
+ENVIRONMENT = REPO_ROOT / "docs" / "user-guide" / "configuration" / "environment-variables.md"
 
 DRAWN_TREE = re.compile(r"```text\n(.*?)```", re.DOTALL)
 
 
+def _catalog() -> dict:
+    with (REPO_ROOT / "blueprint.toml").open("rb") as handle:
+        return tomllib.load(handle)
+
+
 def _wiring_modules() -> list[str]:
-    """The composition root's modules, as a project that carries them has them."""
-    return sorted(
-        path.name
-        for path in WIRING.glob("*.py")
-        if path.name != "__init__.py" and f"backend/src/wiring/{path.name}" not in LEFT_OUT_PATHS
-    )
+    return sorted(path.name for path in WIRING.glob("*.py") if path.name != "__init__.py")
 
 
 def _tree_drawing_the_wiring() -> str:
@@ -65,11 +68,126 @@ def test_the_diagram_draws_every_module_of_the_composition_root():
     assert [name for name in _wiring_modules() if name not in drawn] == []
 
 
-def test_the_diagram_names_every_preset_the_drill_runs():
-    """A preset added to the matrix and not to the picture is a diagram that has aged."""
-    drill = (REPO_ROOT / "tools" / "removal_drill.py").read_text()
-    presets = re.findall(r'^    "([a-z0-9-]+)": \(', drill, re.M)
-    drawn = DIAGRAMS.read_text()
+def test_the_diagram_names_every_set_verify_sets_declares():
+    """A set added to `[verify.sets]` and not to the picture is a diagram that has aged."""
+    sets = _catalog()["verify"]["sets"]
+    drawn = set(re.findall(r">([a-z0-9-]+)</text>", DIAGRAMS.read_text()))
 
-    assert presets, "no presets found in the drill"
-    assert [preset for preset in presets if "-" in preset and preset not in drawn] == []
+    assert sets
+    assert [name for name in sets if name not in drawn] == []
+
+
+def _section(page: Path, heading: str) -> str:
+    text = page.read_text()
+    assert heading in text, heading
+
+    return text.split(heading, 1)[1].split("\n## ", 1)[0]
+
+
+def test_the_ci_table_is_every_declared_set_and_names_the_presets_beside_it():
+    """CI runs `fastro blueprint verify` once for each set: the declared ones, each preset and `everything`."""
+    section = _section(COMPOSABLE, "## Checking that removal still works")
+    rows = re.findall(r"^\| `([a-z0-9-]+)` \|", section, re.M)
+    catalog = _catalog()
+
+    assert rows == [*catalog["verify"]["sets"], "everything"]
+    assert [preset for preset in catalog["presets"] if f"`{preset}`" not in section] == []
+
+
+def test_each_row_of_the_ci_table_names_the_options_its_set_chooses():
+    """A set written with options builds those choices, so its row is about them."""
+    section = _section(COMPOSABLE, "## Checking that removal still works")
+    rows = dict(re.findall(r"^\| `([a-z0-9-]+)` \|(.*)$", section, re.M))
+    chosen = {
+        name: entry["options"]
+        for name, entry in _catalog()["verify"]["sets"].items()
+        if isinstance(entry, dict) and entry.get("options")
+    }
+
+    assert chosen
+    assert {
+        name: option
+        for name, options in chosen.items()
+        for option, value in options.items()
+        if f"`{option}={value}`" not in rows[name]
+    } == {}
+
+
+def test_the_steps_for_a_removable_feature_declare_it_in_the_catalog_and_verify_it():
+    section = _section(COMPOSABLE, "## Writing a feature that can be removed")
+
+    assert "`blueprint.toml`" in section and "`[features.<name>]`" in section
+    assert "`[[features.<name>.when]]`" in section and 'if = "<other>"' in section
+    assert "`fastro blueprint verify`" in section
+    assert any(feature.get("when") for feature in _catalog()["features"].values())
+
+
+def test_the_new_module_steps_declare_its_paths_in_the_catalog():
+    steps = STRUCTURE.read_text().split("**Generate a migration**", 1)[0]
+
+    assert "`blueprint.toml`" in steps.rsplit("\n9. ", 1)[1]
+    assert "`fastro blueprint verify`" in steps.rsplit("\n9. ", 1)[1]
+
+
+def test_the_changelog_names_the_wiring_the_cache_reads_the_scope_fingerprint_from():
+    unreleased = CHANGELOG.read_text().split("## Unreleased", 1)[1].split("\n## ", 1)[0]
+    entry = unreleased.split("**A project with the cache feature and without accounts imports.**", 1)[1].split("\n- **", 1)[0]
+    wiring = next(module for module in _catalog()["wiring"] if module["path"] == "backend/src/wiring/scope.py")
+    (slot,) = wiring["slots"]
+
+    assert f"`{slot['name']}`" in entry and f"{slot['name']}:" in (WIRING / "scope.py").read_text()
+    assert "`src/wiring/scope.py`" in entry
+    assert slot["fallback"] == "None" and "`None` without accounts" in entry
+
+
+def test_the_changelog_names_the_test_a_project_without_the_cache_no_longer_ships():
+    unreleased = CHANGELOG.read_text().split("## Unreleased", 1)[1].split("\n## ", 1)[0]
+    entry = unreleased.split("**A project with the cache feature and without accounts imports.**", 1)[1].split("\n- **", 1)[0]
+    path = "tests/integration/tier_limits/test_cached_listing.py"
+    (block,) = [block for block in _catalog()["features"]["tier_limits"]["when"] if f"backend/{path}" in block["paths"]]
+
+    assert f"`{path}`" in " ".join(entry.split())
+    assert block["if"] == "cache"
+
+
+def test_the_composable_features_page_says_the_scope_fingerprint_is_none_without_accounts():
+    (row,) = [line for line in COMPOSABLE.read_text().splitlines() if line.startswith("| `scope.py` |")]
+    wiring = next(module for module in _catalog()["wiring"] if module["path"] == "backend/src/wiring/scope.py")
+    (slot,) = wiring["slots"]
+
+    assert slot["fallback"] == "None" and "`None` without it" in row
+
+
+def _unreleased_entry(heading: str) -> str:
+    unreleased = CHANGELOG.read_text().split("## Unreleased", 1)[1].split("\n## ", 1)[0]
+
+    return " ".join(unreleased.split(f"**{heading}**", 1)[1].split("\n- **", 1)[0].split())
+
+
+def test_the_changelog_names_the_wiring_a_new_account_takes_its_default_tier_from():
+    entry = _unreleased_entry("A new account is given the default tier.")
+    wiring = next(module for module in _catalog()["wiring"] if module["path"] == "backend/src/wiring/signup.py")
+    (slot,) = wiring["slots"]
+
+    assert f"`{slot['name']}`" in entry and "`src/wiring/signup.py`" in entry
+    assert _catalog()["features"]["tiers"]["contributes"][slot["point"]] == ["src.modules.tier.hooks:default_tier"]
+    assert "`DEFAULT_TIER_NAME`" in entry
+
+
+def test_the_environment_page_says_both_signup_paths_take_the_default_tier():
+    page = ENVIRONMENT.read_text()
+    block, after = page.split("```env\nDEFAULT_TIER_NAME=", 1)[1].split("\n```", 1)
+    paragraph = " ".join(after.strip().split("\n\n", 1)[0].split())
+
+    assert block == TierSettings.model_fields["DEFAULT_TIER_NAME"].default
+    assert "signup route" in paragraph and "provider" in paragraph and "deleted" in paragraph
+
+
+def test_the_composable_features_page_says_tiers_sets_the_tier_default_tier_name_names():
+    (row,) = [line for line in COMPOSABLE.read_text().splitlines() if line.startswith("| `signup.py` |")]
+    wiring = next(module for module in _catalog()["wiring"] if module["path"] == "backend/src/wiring/signup.py")
+    (slot,) = wiring["slots"]
+
+    assert f"`{slot['name']}`" in row
+    assert _catalog()["features"]["tiers"]["contributes"][slot["point"]] == ["src.modules.tier.hooks:default_tier"]
+    assert "DEFAULT_TIER_NAME" in TierSettings.model_fields and "`DEFAULT_TIER_NAME`" in row

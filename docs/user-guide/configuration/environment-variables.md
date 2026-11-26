@@ -2,7 +2,7 @@
 
 This page is the complete reference for every environment variable the boilerplate reads. `backend/.env.example` ships the ones a new project usually sets, with the same defaults; the rest are here, and a variable a project never sets keeps the default named below.
 
-All variables are loaded from `backend/.env` at application startup via Pydantic `BaseSettings` classes in `src/infrastructure/config/settings.py`.
+All variables are loaded from `backend/.env` at application startup via Pydantic `BaseSettings` classes: the core ones in `src/infrastructure/config/base.py`, and each feature's next to the feature ([Settings Classes](settings-classes.md)).
 
 ## Environment
 
@@ -21,10 +21,12 @@ ENVIRONMENT=development
 POSTGRES_USER=postgres
 POSTGRES_PASSWORD=postgres
 POSTGRES_DB=postgres
-POSTGRES_SERVER=postgres    # use "localhost" without Docker
+# Use "localhost" without Docker
+POSTGRES_SERVER=postgres
 POSTGRES_PORT=5432
 POSTGRES_ASYNC_PREFIX=postgresql+asyncpg://
-CREATE_TABLES_ON_STARTUP=true   # on by default in local and development only
+# On by default in local and development only
+CREATE_TABLES_ON_STARTUP=true
 ```
 
 | Variable | Default | Purpose |
@@ -53,7 +55,8 @@ The URL must use the `postgresql+asyncpg://` prefix, and query parameters are pa
 
 ```env
 CACHE_ENABLED=true
-CACHE_BACKEND=redis           # or "memcached"
+# The cache.backend the project was generated with
+CACHE_BACKEND=redis
 
 # Client-side cache (Cache-Control headers)
 CLIENT_CACHE_ENABLED=true
@@ -63,15 +66,21 @@ CLIENT_CACHE_MAX_AGE=60
 ### Redis backend
 
 ```env
-CACHE_REDIS_HOST=redis        # use "localhost" without Docker
+# Use "localhost" without Docker
+CACHE_REDIS_HOST=redis
 CACHE_REDIS_PORT=6379
 CACHE_REDIS_DB=0
 CACHE_REDIS_PASSWORD=
+# true when the Redis speaks TLS, as a managed one usually does
+CACHE_REDIS_SSL=false
 CACHE_REDIS_CONNECT_TIMEOUT=5
 CACHE_REDIS_POOL_SIZE=10
 ```
 
 ### Memcached backend
+
+In a project generated with `cache.backend=memcached`, whose `.env.example` is the only one that
+has them:
 
 ```env
 CACHE_MEMCACHED_HOST=localhost
@@ -82,12 +91,14 @@ CACHE_MEMCACHED_CONNECT_TIMEOUT=5
 
 ## Rate Limiting
 
-Provided by `crudauth`, on Redis or in memory. Limits are resolved per request from
-the user's tier and path, falling back to the defaults below, and each path keeps its own counter.
+Provided by `crudauth`, counting in Redis, the database or memory, as `RATE_LIMITER_BACKEND` says.
+Limits are resolved per request from the user's tier and path, falling back to the defaults below,
+and each path keeps its own counter.
 
 ```env
 RATE_LIMITER_ENABLED=true
-RATE_LIMITER_BACKEND=redis        # or database (shared), or memory (per process, single worker only)
+# redis, or database (shared), or memory (per process, single worker only)
+RATE_LIMITER_BACKEND=redis
 DEFAULT_RATE_LIMIT_LIMIT=100
 DEFAULT_RATE_LIMIT_PERIOD=60
 ```
@@ -97,8 +108,11 @@ DEFAULT_RATE_LIMIT_PERIOD=60
 ```env
 RATE_LIMITER_REDIS_HOST=redis
 RATE_LIMITER_REDIS_PORT=6379
-RATE_LIMITER_REDIS_DB=1        # separate DB from cache (DB 0)
+# Separate DB from cache (DB 0)
+RATE_LIMITER_REDIS_DB=1
 RATE_LIMITER_REDIS_PASSWORD=
+# true when the Redis speaks TLS
+RATE_LIMITER_REDIS_SSL=false
 RATE_LIMITER_REDIS_CONNECT_TIMEOUT=5
 RATE_LIMITER_REDIS_POOL_SIZE=10
 ```
@@ -106,7 +120,8 @@ RATE_LIMITER_REDIS_POOL_SIZE=10
 ## Email
 
 ```env
-EMAIL_BACKEND=console           # or "smtp"
+# console, or "smtp"
+EMAIL_BACKEND=console
 EMAIL_FROM=no-reply@localhost
 EMAIL_FROM_NAME=
 FRONTEND_URL=http://localhost:3000
@@ -142,9 +157,12 @@ addresses do.
 ## Background Tasks (Taskiq)
 
 ```env
-TASKIQ_BROKER_TYPE=redis        # or "rabbitmq"
-TASKIQ_DEFAULT_RETRY_COUNT=3    # runs in all for a task labelled retry_on_error=True; 0 turns retries off
-TASKIQ_RETRY_DELAY_SECONDS=0    # seconds a retry waits; 0 retries immediately, above 0 needs the scheduler
+# The taskiq.broker the project was generated with
+TASKIQ_BROKER_TYPE=redis
+# Runs in all for a task labelled retry_on_error=True; 0 turns retries off
+TASKIQ_DEFAULT_RETRY_COUNT=3
+# Seconds a retry waits; 0 retries immediately, above 0 needs the scheduler
+TASKIQ_RETRY_DELAY_SECONDS=0
 ```
 
 ### Redis broker
@@ -152,11 +170,17 @@ TASKIQ_RETRY_DELAY_SECONDS=0    # seconds a retry waits; 0 retries immediately, 
 ```env
 TASKIQ_REDIS_HOST=redis
 TASKIQ_REDIS_PORT=6379
-TASKIQ_REDIS_DB=3               # separate DB from cache and rate limiter
+# Separate DB from cache and rate limiter
+TASKIQ_REDIS_DB=3
 TASKIQ_REDIS_PASSWORD=
+# true when the Redis speaks TLS
+TASKIQ_REDIS_SSL=false
 ```
 
 ### RabbitMQ broker
+
+In a project generated with `taskiq.broker=rabbitmq`, whose `.env.example` is the only one that
+has them:
 
 ```env
 TASKIQ_RABBITMQ_HOST=localhost
@@ -172,7 +196,8 @@ TASKIQ_RABBITMQ_VHOST=/
 
 ```env
 CORS_ENABLED=true
-CORS_ORIGINS=http://localhost:3000,http://localhost:5173  # comma-separated list of origins
+# Comma-separated list of origins
+CORS_ORIGINS=http://localhost:3000,http://localhost:5173
 CORS_ALLOW_CREDENTIALS=true
 CORS_ALLOW_METHODS=*
 CORS_ALLOW_HEADERS=*
@@ -196,8 +221,10 @@ GZIP_MINIMUM_SIZE=1000
 ### API Docs
 
 ```env
-ENABLE_DOCS_IN_PRODUCTION=false  # serve /docs even when ENVIRONMENT=production (superuser-only)
-OPENAPI_PREFIX=                   # path prefix for the OpenAPI schema
+# Serve /docs even when ENVIRONMENT=production (superuser-only)
+ENABLE_DOCS_IN_PRODUCTION=false
+# Path prefix for the OpenAPI schema
+OPENAPI_PREFIX=
 ```
 
 When docs are served outside development (staging, or production with `ENABLE_DOCS_IN_PRODUCTION=true`), the built-in FastAPI docs routes are not registered — `/docs`, `/redoc`, and `/openapi.json` are only reachable through the app's own routes, which require superuser authentication.
@@ -242,32 +269,43 @@ SESSION_CLEANUP_INTERVAL_MINUTES=15
 MAX_SESSIONS_PER_USER=5
 SESSION_SECURE_COOKIES=true
 
-LOGIN_MAX_ATTEMPTS=5             # failures allowed inside the window, per address and per account
-LOGIN_ATTEMPT_WINDOW_SECONDS=900 # how long failures keep counting
-LOGIN_LOCKOUT_BASE_SECONDS=300   # first lockout, doubling each round
-LOGIN_LOCKOUT_MAX_SECONDS=3600   # ceiling for the doubling
-SESSION_BACKEND=redis            # redis | database | memory
-SESSION_REDIS_DB=2               # on the cache Redis, apart from the cache DB so a flush won't log users out
-# SESSION_REDIS_URL=             # optional dedicated session Redis, e.g. rediss://user:password@host:6380/0
+# Failures allowed inside the window, per address and per account
+LOGIN_MAX_ATTEMPTS=5
+# How long failures keep counting
+LOGIN_ATTEMPT_WINDOW_SECONDS=900
+# First lockout, doubling each round
+LOGIN_LOCKOUT_BASE_SECONDS=300
+# Ceiling for the doubling
+LOGIN_LOCKOUT_MAX_SECONDS=3600
+# redis | database | memory
+SESSION_BACKEND=redis
+# On the cache Redis, apart from the cache DB so a flush won't log users out
+SESSION_REDIS_DB=2
+# Optional dedicated session Redis, e.g. rediss://user:password@host:6380/0
+# SESSION_REDIS_URL=
 
 # Number of trusted reverse proxies in front of the app. crudauth uses this to
 # resolve the real client IP (from X-Forwarded-For) for login lockout.
 # 0 = no proxy; set 1 behind a single nginx/Caddy, 2 if Cloudflare is also in front.
 TRUSTED_PROXY_HOPS=0
 
-# SESSION_ABSOLUTE_TIMEOUT_HOURS=   # cap on a session's total life, however active it stays; unset means no cap
-# FRESH_SIGN_IN_SECONDS=            # how recently a caller must have signed in to close an account,
-                                    # and to reach crudauth's set-password and MFA routes where a project
-                                    # mounts them; unset asks nothing, and a value below 1 is refused
+# Cap on a session's total life, however active it stays; unset means no cap
+# SESSION_ABSOLUTE_TIMEOUT_HOURS=
+# How recently a caller must have signed in to close an account, and to reach crudauth's
+# set-password and MFA routes where a project mounts them; unset asks nothing, and a value
+# below 1 is refused
+# FRESH_SIGN_IN_SECONDS=
 ```
 
 A dedicated session Redis is named either as a URL or host by host. `SESSION_REDIS_URL` wins where it
-is set; otherwise these are used with `SESSION_REDIS_DB`:
+is set; otherwise these are used with `SESSION_REDIS_DB`, each falling back to the cache's
+`CACHE_REDIS_*` when left unset, `SESSION_REDIS_SSL` to `CACHE_REDIS_SSL`:
 
 ```env
 SESSION_REDIS_HOST=redis
 SESSION_REDIS_PORT=6379
 SESSION_REDIS_PASSWORD=
+SESSION_REDIS_SSL=false
 ```
 
 ### Forwarded Headers
@@ -281,7 +319,7 @@ FORWARDED_ALLOW_IPS=172.31.240.0/24
 and the access logs report. Because uvicorn reads it from its own process environment, it reaches
 the server through compose's `env_file` (or whatever exports it where uvicorn starts) rather than
 through the app's settings — a value in `backend/.env` only applies if that file is the container's
-`env_file`. `bp deploy generate nginx` writes it for you, set to `--internal-subnet`.
+`env_file`. `fastro make deploy nginx` writes it for you, set to `--internal-subnet`.
 
 Leave it unset when nothing sits in front of the app. A wildcard (`*`) lets any client claim any
 address, and `TRUSTED_PROXY_HOPS` then counts hops in a header the client controls.
@@ -314,15 +352,17 @@ OAUTH_GITHUB_CLIENT_SECRET=
 ## Admin Interface (SQLAdmin)
 
 ```env
-ADMIN_ENABLED=true              # enables the panel
-ADMIN_BASE_URL=/admin           # where it is mounted, and the admin cookie's path
+# Enables the panel
+ADMIN_ENABLED=true
+# Where it is mounted, and the admin cookie's path
+ADMIN_BASE_URL=/admin
 ```
 
 ## Application Metadata
 
 ```env
 DEBUG=false
-APP_NAME=FastAPI Boilerplate
+# APP_NAME=
 APP_DESCRIPTION=Modular FastAPI starter
 VERSION=0.1.0
 API_CONTACT_NAME=Support
@@ -335,6 +375,10 @@ API_SUMMARY=
 API_TERMS_OF_SERVICE=
 API_TAGS_METADATA=[]
 ```
+
+Unset, `APP_NAME` is the name the project was generated with: fastro writes it to
+`src/infrastructure/config/project.py`. This repository has no such file, so its own default is
+"FastAPI Boilerplate".
 
 `API_SUMMARY` is the one-line summary beside the description, `API_TERMS_OF_SERVICE`,
 `API_CONTACT_URL` and `API_LICENSE_URL` take URLs, `API_LICENSE_IDENTIFIER` takes an SPDX identifier
@@ -351,7 +395,8 @@ contact and no licence until it sets its own.
 # API_PREFIX=/api
 # DOCS_URL=/docs
 # REDOC_URL=/redoc
-# OPENAPI_URL=/openapi.json   # set empty to serve no schema, which also takes /docs and /redoc with it
+# Set empty to serve no schema, which also takes /docs and /redoc with it
+# OPENAPI_URL=/openapi.json
 ```
 
 `API_PREFIX` must start with `/` and must not end with `/`; anything else is refused when the
@@ -360,7 +405,8 @@ settings load. It moves every API route, the OAuth routes and the `no-store` cac
 ## API Keys
 
 ```env
-KEY_USAGE_RETENTION_DAYS=90      # days of key usage rows to keep; 0 keeps every row, below 0 is refused
+# Days of key usage rows to keep; 0 keeps every row, below 0 is refused
+KEY_USAGE_RETENTION_DAYS=90
 ```
 
 A row per request carries the caller's address and user agent, so the window is what bounds the
@@ -385,15 +431,21 @@ The default tier name is also configurable (defaults to `free`):
 DEFAULT_TIER_NAME=free
 ```
 
+With the tiers feature, every new account is given this tier: one made on the signup route, and
+one a provider's first sign-in makes. While no tier has this name, or the one that had it is
+deleted, a new account has no tier.
+
 ## Logging
 
 ```env
 LOG_LEVEL=INFO
-LOG_FORMAT=                     # console only: simple | detailed | structured | json; empty = the environment's default
+# Console only: simple | detailed | structured | json; empty = the environment's default
+LOG_FORMAT=
 LOG_CONSOLE_ENABLED=true
 LOG_FILE_ENABLED=false
 LOG_FILE_PATH=logs/app.log
-LOG_FILE_MAX_SIZE=10485760      # 10 MB
+# 10 MB
+LOG_FILE_MAX_SIZE=10485760
 LOG_FILE_BACKUP_COUNT=5
 LOG_DEVELOPMENT_VERBOSE=true
 LOG_PRODUCTION_OPTIMIZE=true

@@ -1,13 +1,15 @@
+"""The memcached backend, which ships only with `cache.backend=memcached`, the choice that installs
+aiomcache for it."""
+
 import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from src.infrastructure.cache.backends.memcached import (
-    MemcachedBackend,
-    MemcachedSettings,
-    PatternMatchingNotSupportedError,
-)
+from src.infrastructure.cache import initialize
+from src.infrastructure.cache.backends.memcached import MemcachedBackend, MemcachedSettings
+from src.infrastructure.cache.exceptions import PatternMatchingNotSupportedError
+from src.infrastructure.config.settings import settings
 
 
 @pytest.fixture
@@ -73,3 +75,19 @@ async def test_delete_key(memcached_backend, mock_memcached):
 async def test_delete_pattern_raises_error(memcached_backend):
     with pytest.raises(PatternMatchingNotSupportedError):
         await memcached_backend.delete_pattern("test_*")
+
+
+async def test_a_memcached_cache_registers_the_backend_initialize_loads_by_name(monkeypatch, mock_memcached):
+    """`initialize_cache` loads this module by name, since nothing imports it outright, and registers
+    the backend it finds there."""
+    monkeypatch.setattr(settings, "CACHE_ENABLED", True)
+    monkeypatch.setattr(settings, "CACHE_BACKEND", "memcached")
+    registered: dict[str, object] = {}
+    monkeypatch.setattr(
+        initialize.cache_provider, "register_backend", lambda name, backend, default: registered.update({name: backend})
+    )
+
+    with patch("src.infrastructure.cache.backends.memcached.aiomcache.Client", return_value=mock_memcached):
+        await initialize.initialize_cache()
+
+    assert isinstance(registered["memcached"], MemcachedBackend)

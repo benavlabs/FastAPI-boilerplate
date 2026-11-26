@@ -1,6 +1,8 @@
 """The windows an API key's ``usage_limits`` may name, and the counters they become."""
 
-from typing import Any
+from typing import Annotated, Any
+
+from pydantic import AfterValidator, Field, StrictInt
 
 WINDOWS: dict[str, int] = {
     "requests_per_minute": 60,
@@ -15,21 +17,23 @@ REFUSALS_RECORDED_PER_WINDOW = 1
 """How many of the refusals a window answers are written as a usage row."""
 
 
-def validated_limits(limits: dict[str, Any]) -> dict[str, int]:
-    """``limits`` with every value read as a positive count of requests.
+def usage_window(name: str) -> str:
+    """``name``, refusing one that isn't in ``WINDOWS``, without repeating it.
 
     Raises:
-        ValueError: A name is not one of ``WINDOWS``, or a value is not a positive int.
+        ValueError: ``name`` is not a window this project counts.
     """
-    unknown = sorted(set(limits) - set(WINDOWS))
-    if unknown:
-        raise ValueError(f"Unknown usage limit(s): {', '.join(unknown)}; use {', '.join(sorted(WINDOWS))}")
+    if name not in WINDOWS:
+        raise ValueError(f"Not a usage window: use {', '.join(sorted(WINDOWS))}")
 
-    for name, value in limits.items():
-        if not isinstance(value, int) or isinstance(value, bool) or value < 1:
-            raise ValueError(f"{name} must be a positive number of requests, not {value!r}")
+    return name
 
-    return dict(limits)
+
+UsageWindow = Annotated[str, AfterValidator(usage_window)]
+"""A window ``usage_limits`` may name, refused key by key."""
+
+RequestCount = Annotated[StrictInt, Field(ge=1)]
+"""How many requests a window allows: a positive int, never a bool."""
 
 
 def countable(limits: dict[str, Any]) -> dict[str, int]:

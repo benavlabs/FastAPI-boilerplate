@@ -23,7 +23,7 @@ const marker = (line) => `<defs>
     </marker>
   </defs>`;
 
-const compositionRoot = ({ primary, body, muted, line, panel }) => `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="560" viewBox="0 0 1200 560">
+const compositionRoot = ({ primary, body, muted, line, panel }) => `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="592" viewBox="0 0 1200 592">
   ${marker(line)}
   <text x="40" y="40" font-family="${MONO}" font-size="13" font-weight="700" letter-spacing="3" fill="${muted}">THE COMPOSITION ROOT</text>
 
@@ -52,7 +52,7 @@ const compositionRoot = ({ primary, body, muted, line, panel }) => `<svg xmlns="
   <line x1="354" y1="284" x2="424" y2="284" stroke="${line}" stroke-width="1.5" marker-end="url(#arrow)"/>
   <text x="389" y="268" text-anchor="middle" font-family="${MONO}" font-size="11.5" fill="${muted}">contributes</text>
 
-  <rect x="432" y="104" width="400" height="360" rx="10" fill="none" stroke="${TEAL}" stroke-width="1.5"/>
+  <rect x="432" y="104" width="400" height="416" rx="10" fill="none" stroke="${TEAL}" stroke-width="1.5"/>
   <g font-family="${MONO}" font-size="13">
     <text x="456" y="138" fill="${primary}">app.py</text><text x="610" y="138" fill="${muted}">ROUTER_MOUNTS, LIFECYCLES</text>
     <text x="456" y="170" fill="${primary}">settings.py</text><text x="610" y="170" fill="${muted}">the settings mixins</text>
@@ -64,6 +64,8 @@ const compositionRoot = ({ primary, body, muted, line, panel }) => `<svg xmlns="
     <text x="456" y="362" fill="${primary}">tables.py</text><text x="610" y="362" fill="${muted}">TABLE_MODULES</text>
     <text x="456" y="394" fill="${primary}">transports.py</text><text x="610" y="394" fill="${muted}">EXTRA_TRANSPORTS</text>
     <text x="456" y="426" fill="${primary}">cache.py</text><text x="610" y="426" fill="${muted}">cached</text>
+    <text x="456" y="458" fill="${primary}">scope.py</text><text x="610" y="458" fill="${muted}">SCOPE_FINGERPRINT</text>
+    <text x="456" y="490" fill="${primary}">signup.py</text><text x="610" y="490" fill="${muted}">NEW_ACCOUNT_FIELDS</text>
   </g>
 
   <line x1="840" y1="284" x2="948" y2="284" stroke="${line}" stroke-width="1.5" marker-end="url(#arrow)"/>
@@ -80,9 +82,9 @@ const compositionRoot = ({ primary, body, muted, line, panel }) => `<svg xmlns="
     <text x="956" y="388" font-size="12" fill="${muted}">imports the task modules</text>
   </g>
 
-  <line x1="40" y1="496" x2="1160" y2="496" stroke="${panel}" stroke-width="1"/>
-  <text x="40" y="528" font-family="${SANS}" font-size="16" fill="${body}">The wiring imports every feature. No feature imports another, and nothing imports the wiring back.</text>
-  <text x="40" y="552" font-family="${MONO}" font-size="12.5" fill="${muted}">written by tools/removal_drill.py from the feature manifest · compared with what it writes by tests/unit/test_removal_drill.py</text>
+  <line x1="40" y1="528" x2="1160" y2="528" stroke="${panel}" stroke-width="1"/>
+  <text x="40" y="560" font-family="${SANS}" font-size="16" fill="${body}">The wiring imports every feature. No feature imports another, and nothing imports the wiring back.</text>
+  <text x="40" y="584" font-family="${MONO}" font-size="12.5" fill="${muted}">written by tools/removal_drill.py from the feature manifest · compared with what it writes by tests/unit/test_removal_drill.py</text>
 </svg>`;
 
 const removalDrill = ({ primary, body, muted, line, panel }) => `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="470" viewBox="0 0 1200 470">
@@ -121,7 +123,7 @@ const removalDrill = ({ primary, body, muted, line, panel }) => `<svg xmlns="htt
   </g>
   <line x1="972" y1="156" x2="972" y2="176" stroke="${line}" stroke-width="1.5" marker-end="url(#arrow)"/>
 
-  <text x="40" y="200" font-family="${SANS}" font-size="16" font-weight="700" fill="${primary}">nine presets run as a CI matrix</text>
+  <text x="40" y="200" font-family="${SANS}" font-size="16" font-weight="700" fill="${primary}">eleven presets run as a CI matrix</text>
   <g font-family="${MONO}" font-size="13" fill="${muted}">
     <text x="40" y="232">core-only</text>
     <text x="40" y="258">core-taskiq</text>
@@ -131,7 +133,9 @@ const removalDrill = ({ primary, body, muted, line, panel }) => `<svg xmlns="htt
     <text x="260" y="232">accounts-api-keys</text>
     <text x="260" y="258">accounts-rbac-tiers</text>
     <text x="260" y="284">accounts-cache-taskiq</text>
-    <text x="260" y="310" fill="${TEAL}">everything</text>
+    <text x="260" y="310">cache-memcached</text>
+    <text x="260" y="336">taskiq-rabbitmq</text>
+    <text x="260" y="362" fill="${TEAL}">everything</text>
   </g>
 
   <line x1="40" y1="396" x2="1160" y2="396" stroke="${panel}" stroke-width="1"/>

@@ -58,6 +58,16 @@ class TestProductionSecurityValidator:
             "RATE_LIMITER_REDIS_PORT": 6379,
             "RATE_LIMITER_REDIS_DB": 1,
             "RATE_LIMITER_REDIS_PASSWORD": None,
+            "CACHE_REDIS_SSL": False,
+            "RATE_LIMITER_REDIS_SSL": False,
+            "TASKIQ_BROKER_TYPE": "rabbitmq",
+            "TASKIQ_RABBITMQ_USER": "queue",
+            "TASKIQ_RABBITMQ_PASSWORD": "a-real-password",
+            "TASKIQ_REDIS_HOST": "localhost",
+            "TASKIQ_REDIS_PORT": 6379,
+            "TASKIQ_REDIS_DB": 3,
+            "TASKIQ_REDIS_PASSWORD": "secure_redis_password",
+            "TASKIQ_REDIS_SSL": False,
         }
         defaults.update(overrides)
 
@@ -466,6 +476,71 @@ class TestProductionSecurityValidator:
         ssl_warnings = [log for log in warning_logs if "not using SSL/TLS" in log.message]
         assert len(ssl_warnings) > 0
 
+    @pytest.mark.parametrize("service", ["CACHE", "RATE_LIMITER", "TASKIQ"])
+    def test_an_external_redis_over_tls_draws_no_ssl_warning(self, service: str, caplog):
+        """The setting each client connects with is the one the check reads."""
+        settings = self.create_mock_settings(
+            CACHE_BACKEND="redis",
+            RATE_LIMITER_ENABLED=True,
+            TASKIQ_BROKER_TYPE="redis",
+            **{f"{service}_REDIS_HOST": "redis.example.com", f"{service}_REDIS_SSL": True},
+        )
+
+        assert not any(
+            "not using SSL/TLS" in warning and service.lower() in warning
+            for warning in ProductionSecurityValidator(settings)._collect_warnings()
+        )
+
+    def test_the_broker_redis_without_a_password_is_warned_about(self):
+        """Anybody who reaches the broker's Redis can enqueue a task the worker runs."""
+        settings = self.create_mock_settings(TASKIQ_BROKER_TYPE="redis", TASKIQ_REDIS_PASSWORD=None)
+
+        assert any(
+            "taskiq" in warning and "no password" in warning
+            for warning in ProductionSecurityValidator(settings)._collect_warnings()
+        )
+
+    def test_an_external_broker_redis_without_tls_is_warned_about(self):
+        settings = self.create_mock_settings(TASKIQ_BROKER_TYPE="redis", TASKIQ_REDIS_HOST="redis.example.com")
+
+        assert any(
+            "taskiq" in warning and "not using SSL/TLS" in warning
+            for warning in ProductionSecurityValidator(settings)._collect_warnings()
+        )
+
+    def test_a_broker_redis_with_a_password_over_tls_draws_no_warning(self):
+        settings = self.create_mock_settings(
+            TASKIQ_BROKER_TYPE="redis", TASKIQ_REDIS_HOST="redis.example.com", TASKIQ_REDIS_SSL=True
+        )
+
+        assert not [warning for warning in ProductionSecurityValidator(settings)._collect_warnings() if "taskiq" in warning]
+
+    def test_the_broker_redis_is_left_alone_on_rabbitmq(self):
+        settings = self.create_mock_settings(
+            TASKIQ_BROKER_TYPE="rabbitmq", TASKIQ_REDIS_HOST="redis.example.com", TASKIQ_REDIS_PASSWORD=None
+        )
+
+        assert not [warning for warning in ProductionSecurityValidator(settings)._collect_warnings() if "taskiq" in warning]
+
+    def test_the_broker_sharing_the_cache_redis_db_is_warned_about(self):
+        settings = self.create_mock_settings(CACHE_BACKEND="redis", CACHE_REDIS_DB=3, TASKIQ_BROKER_TYPE="redis")
+
+        assert any(
+            "sharing the same Redis instance" in warning and "taskiq" in warning
+            for warning in ProductionSecurityValidator(settings)._collect_warnings()
+        )
+
+    def test_the_broker_on_another_port_of_the_cache_host_does_not_share_its_db(self):
+        settings = self.create_mock_settings(
+            CACHE_BACKEND="redis", CACHE_REDIS_DB=3, TASKIQ_BROKER_TYPE="redis", TASKIQ_REDIS_PORT=6380
+        )
+
+        assert not [
+            warning
+            for warning in ProductionSecurityValidator(settings)._collect_warnings()
+            if "sharing the same Redis instance" in warning
+        ]
+
     def test_localhost_redis_no_ssl_warning(self, caplog):
         """Test that localhost Redis without SSL doesn't log SSL warning."""
         settings = self.create_mock_settings(CACHE_BACKEND="redis", CACHE_REDIS_HOST="localhost")
@@ -579,6 +654,29 @@ class TestWhatStagingRefuses:
     def test_a_staging_deployment_that_holds_up_passes(self):
         self._staging().validate_production_security()
 
+    def test_a_frontend_url_over_http_is_warned_about_not_refused(self, caplog):
+        """Plenty of staging deployments answer on an internal http address, so refusing one would
+        break them; the links built from it still carry their tokens in the clear, so it is said."""
+        self._staging(FRONTEND_URL="http://staging.internal").validate_production_security()
+
+        assert [record for record in caplog.records if record.levelname == "WARNING" and "FRONTEND_URL" in record.message]
+
+    def test_a_frontend_url_over_https_draws_no_warning(self, caplog):
+        self._staging().validate_production_security()
+
+        assert not [record for record in caplog.records if record.levelname == "WARNING"]
+
+    def test_what_only_production_warns_about_is_left_to_production(self, caplog):
+        self._staging(DEBUG=True, CACHE_BACKEND="redis").validate_production_security()
+
+        assert not [record for record in caplog.records if record.levelname == "WARNING"]
+
+    def test_a_frontend_url_over_http_is_left_alone_without_the_accounts_feature(self):
+        """A project with no accounts builds no link from ``FRONTEND_URL``."""
+        settings = CoreSettings(ENVIRONMENT=EnvironmentOption.STAGING, FRONTEND_URL="http://staging.internal")
+
+        assert ProductionSecurityValidator(cast(Settings, settings))._collect_staging_warnings() == []
+
 
 class TestAProjectWithoutTheseFeatures:
     """The validator runs whatever features a project selected, and no more.
@@ -610,7 +708,8 @@ class TestAProjectWithoutTheseFeatures:
 
     def test_the_core_checks_still_run(self):
         """Dropping features must not drop the checks that hold for every project."""
-        validator = ProductionSecurityValidator(cast(Settings, CoreSettings(ENVIRONMENT=EnvironmentOption.PRODUCTION)))
+        settings = CoreSettings(ENVIRONMENT=EnvironmentOption.PRODUCTION, SECRET_KEY="change-me")
+        validator = ProductionSecurityValidator(cast(Settings, settings))
 
         errors = validator._validate_critical_security()
 
@@ -638,7 +737,7 @@ class TestTheSecretKeyRule:
         The rules do refuse a few generated keys: one hex key in 12.6 million runs
         through eight consecutive digits, and a ``token_urlsafe`` key walks
         neighbouring keys over 0.6 of its length at around one in ten million (one
-        such key in a 10,000,000 sample, none in a second). ``bp env gen-secret``
+        such key in a 10,000,000 sample, none in a second). ``fastro env secret``
         draws again rather than printing those, and the seed here is fixed so that
         this sweep states what the rules do instead of drawing a lottery.
         """

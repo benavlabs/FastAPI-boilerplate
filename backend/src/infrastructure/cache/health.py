@@ -69,6 +69,7 @@ def cache_target() -> str | None:
         settings.CACHE_REDIS_PORT,
         settings.CACHE_REDIS_DB,
         settings.CACHE_REDIS_PASSWORD,
+        ssl=settings.CACHE_REDIS_SSL,
     )
 
 

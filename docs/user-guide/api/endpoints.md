@@ -451,7 +451,7 @@ touch backend/src/modules/widgets/__init__.py
 |------|----------|
 | `models.py` | SQLAlchemy `Widget` model (see [Models](../database/models.md)) |
 | `schemas.py` | `WidgetCreate`, `WidgetRead`, `WidgetUpdate` (see [Schemas](../database/schemas.md)) |
-| `crud.py` | `crud_widgets: FastCRUD = FastCRUD(Widget)` |
+| `crud.py` | `crud_widgets = FastCRUD[Widget, WidgetCreate, WidgetUpdate, WidgetUpdate, BaseModel, BaseModel](Widget)` (see [CRUD](../database/crud.md#where-crud-lives)) |
 | `service.py` | `WidgetService` with `create`, `get_by_id`, `update`, `delete` methods |
 | `routes.py` | `APIRouter` with the endpoints |
 | `permissions.py` | `StrEnum` of the module's permissions, if its routes are permission-gated (see [Permissions](../authentication/permissions.md#role-based-permissions)) |

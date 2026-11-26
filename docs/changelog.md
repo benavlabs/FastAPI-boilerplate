@@ -10,13 +10,225 @@ ___
 
 ## Unreleased
 
+#### Added
+
+- **Every Redis the project talks to can speak TLS.** `CACHE_REDIS_SSL`, `RATE_LIMITER_REDIS_SSL`
+  and `TASKIQ_REDIS_SSL` connect the cache, the rate limiter and the broker over TLS, and
+  `SESSION_REDIS_SSL` the sessions, falling back to `CACHE_REDIS_SSL` as the other session fields
+  fall back to the cache's. All default to false. The production check reads them for the cache and
+  the rate limiter instead of warning that neither uses TLS whatever was set; `.env.example` and the
+  Environment Variables page list them, and the production examples set them.
+
 #### Changed
 
+- **The `prod` and `nginx` stacks' Redis requires a password.** It used to run without one, so a
+  `backend/.env` that set the passwords the production check asks for left every connection
+  refused, since a Redis with no password turns an `AUTH` away. It now requires the one
+  `CACHE_REDIS_PASSWORD`, `RATE_LIMITER_REDIS_PASSWORD`, `TASKIQ_REDIS_PASSWORD` or
+  `SESSION_REDIS_PASSWORD` sets, the last only while sessions connect to it rather than to the
+  Redis `SESSION_REDIS_URL` or `SESSION_REDIS_HOST` names. It refuses to start when two of them
+  differ, runs without a password when none is set, and counts as healthy once it answers, asking
+  for the password or not. The Docker page says so, and that this Redis speaks plaintext on the
+  compose network by design, with `*_REDIS_SSL` left false, while one elsewhere is reached over TLS.
+
+- **The production check reads the broker's Redis too.** On `TASKIQ_BROKER_TYPE=redis` it warns
+  when `TASKIQ_REDIS_PASSWORD` is unset, when `TASKIQ_REDIS_SSL` is false on a host other than
+  `localhost` or `127.0.0.1`, and when the broker shares a Redis database with the cache, the rate
+  limiter or the sessions, as it already did for those three. Anybody who reaches the broker can
+  enqueue a task the worker runs. `.env.example`'s note before production asks for the password,
+  and the Production page lists both settings.
+
+- **Staging warns on a `FRONTEND_URL` over plain `http`.** It used to say nothing; production
+  refuses one. Staging logs a warning and starts, since plenty of staging deployments answer on an
+  internal `http` address, while the verification, password-reset and email-change links built from
+  it still carry their tokens in the clear. A project without accounts builds no such link and gets
+  no warning. Staging logs none of production's other warnings.
+
+- **`requires-python` stops at 3.14.** Both `pyproject.toml` files allow `>=3.11,<3.15`, the
+  newest Python every dependency installs on (`watchfiles` and `rignore` don't build on 3.15), so
+  uv, `fastro blueprint verify` and a generated project pick a Python that works without
+  `UV_PYTHON`. A `newest-python` CI job runs both suites and verifies `everything` on 3.14.
+
+- **A project on the Redis broker no longer ships the RabbitMQ broker.** `taskiq-aio-pika`,
+  `infrastructure/taskiq/rabbitmq.py` and its test come with `taskiq.broker=rabbitmq`, as
+  `aiomcache` and the Memcached backend come with `cache.backend=memcached`. A project on Redis
+  could set `TASKIQ_BROKER_TYPE=rabbitmq` and connect with the guest/guest defaults, since its
+  `.env.example` has no `TASKIQ_RABBITMQ_*` settings; it now refuses the setting when it builds the
+  broker, which is loaded by name. The comment above `TASKIQ_BROKER_TYPE` says only
+  a project on Redis can't switch, and the Background Tasks page stops telling a reader to
+  `uv add taskiq-aio-pika`.
+- **Verify builds every choice.** Two sets build the choices no other set did:
+  `cache-memcached` (`cache.backend=memcached`) and `taskiq-rabbitmq` (`taskiq.broker=rabbitmq`).
+  Each is its own CI job. The blueprint pins fastro 0.1.0.dev1, the first build that reads a set's
+  options, and `requires_fastro` asks for at least that.
+- **A project on the Redis broker has no RabbitMQ settings in its `.env.example`.** The
+  `TASKIQ_RABBITMQ_*` lines and the advice to replace guest/guest moved into a section of their
+  own that only `taskiq.broker=rabbitmq` keeps. The Background Tasks and Environment Variables
+  pages say which projects have them.
+- **`fastro make deploy` runs the service a choice brings.** With `cache.backend=memcached` each
+  stack has a `memcached` service, and with `taskiq.broker=rabbitmq` a `rabbitmq` one, where
+  before the catalog named them and no compose file had them. The app containers are pointed at
+  the service and wait on its healthcheck. RabbitMQ starts with the user, password and vhost
+  `backend/.env` gives the app, and keeps its queues in a `rabbitmq-data` volume. The Docker page
+  lists both services instead of a block to paste in.
+- **A project on Redis has no Memcached settings in its `.env.example`.** The `CACHE_MEMCACHED_*`
+  lines moved into a section of their own that only `cache.backend=memcached` keeps, and the
+  comment above `CACHE_BACKEND` says Redis is always there and Memcached comes with that choice,
+  so only a project on Redis can't switch. The docs stop offering Memcached to every project.
+- **A project on Redis no longer ships the Memcached backend.** `cache/backends/memcached.py` and
+  its test come with `cache.backend=memcached`, the choice that installs `aiomcache`, so a project
+  on the default `redis` choice imports every module it has. `initialize_cache` loads the
+  Memcached backend by name when `CACHE_BACKEND=memcached`, `cache.backends` exports only the
+  Redis backend, and `PatternMatchingNotSupportedError` is one class, in `cache.exceptions`.
+- **Every CRUD object names its model and schemas.** Each `crud.py` builds a
+  `FastCRUD[Model, CreateInternal, Update, UpdateInternal, Delete, BaseModel]`, so mypy refuses
+  a `create` or `update` handed the wrong schema, and `init_forbid_extra` is on for pydantic's
+  mypy plugin, so it refuses a schema built with a field it doesn't declare. A CRUD object of
+  your own built as a bare `FastCRUD(Model)` still works, with every argument `Any`; see
+  [Database → CRUD](user-guide/database/crud.md#where-crud-lives) for the typed form.
+- **A generated project names itself.** Unset, `APP_NAME` is the name the project was generated
+  with, which fastro writes to `src/infrastructure/config/project.py`, so the OpenAPI title is
+  the project's own rather than "FastAPI Boilerplate". This repository has no such file and keeps
+  that default. `.env.example` no longer sets `APP_NAME`, since a copy of it in `.env` would win.
+- **A `422` says where and why each field failed.** Beside the generic `detail` and the
+  `support_id`, the body now carries `errors`, a list giving each failure's `loc`, `msg` and
+  `type`. pydantic's `input` and `ctx` are left out of the answer and the log, since `input` is
+  what was sent, and no `msg` repeats the value it refused: an unknown permission name or usage
+  limit is refused entry by entry, with the entry's index or key at the end of its `loc`. A URL
+  carrying a NUL character is answered the same way, and the OpenAPI document describes this
+  body instead of FastAPI's default one.
+- **Settings read the environment when they're built, not when the module is imported.** Every
+  settings class derives from `EnvSettings` (`src/infrastructure/config/base.py`), whose fields
+  carry plain defaults; the environment and `backend/.env` are read each time a class is built. A
+  test that deletes a variable now gets the field's default rather than the value the process
+  started with, and `CREATE_TABLES_ON_STARTUP` follows the `ENVIRONMENT` the settings are built
+  with. Every value is the same as before with no environment and with `.env.example`, and
+  values are read as they always were, in the environment and in the file: a flag is `true`,
+  `false`, `1` or `0` in any case, a number is what `int()` reads, and the file is taken
+  literally, names exactly as written, with no `${...}` expansion. A string handed to a settings
+  class's constructor is held to the same rule now, so `Settings(DEBUG="yes")`, which pydantic
+  used to read as true, is refused. A mixin of your own derives from `EnvSettings` in
+  `src.infrastructure.config.base`.
+  `config` is still exported from `src.infrastructure.config.settings`, so a settings class of
+  your own written as `config("NAME", default=...)` keeps working, with the old import-time
+  reading.
+- **`fastro make deploy` renders this repository's `[generators.deploy]`.** The files are the ones
+  `bp deploy generate` wrote, apart from the header, which names `fastro make deploy <mode>`, and
+  the compose project name, which is the project's slug, `fastapi-boilerplate`. Every
+  `--internal-subnet` value is checked in every mode, and a bad one exits 2. Make prints
+  `wrote`, `unchanged` or `kept` per file, replaces a file that differs only after you confirm or
+  with `--force`/`--yes`, and with no terminal keeps it and exits 0. It runs in the blueprint
+  repository only for now. `fastro env validate` exits 2 and says why outside a project, where it
+  used to exit 1.
+- **The tracing recipe registers its installer in `fastro.toml`.**
+  [Observability](user-guide/observability.md) used to have you call `configure_tracing()` and add
+  the installer in `src/interfaces/main.py`. Now `install()` configures tracing itself, and you
+  list it under `[app.contributes]` and run `fastro sync`, which adds it to the generated
+  `src/wiring/app.py`.
+- **FastAPI is capped below 0.140.7.** The app imports `get_flat_dependant` from
+  `fastapi.dependencies.utils`, which 0.140.7 removed, and passes `openapi_prefix` to `FastAPI`,
+  which 0.145.0 refuses. A project resolves its own dependencies, so without the cap a new one got
+  the newest FastAPI and couldn't import the app. The lock still holds 0.136.1. A later release
+  moves off both and lifts the cap.
 - **`virtualenv` 21.14.13 and `filelock` 4.2.4**, for eighteen advisories published against the
   versions the lock held. Both arrive through `pre-commit`, which lives in the `dev` extra, so the
   image installs neither and a deployment is unaffected: the advisories are about the environments
   a hook runs in and the lock files it takes, on the machines that run the hooks. `pre-commit run
   --all-files` passes on the new versions.
+- **`faker` and `httpx` are development dependencies now**, because only the tests import them.
+  The image installs the runtime list with `--no-dev`, so `faker` is no longer in it: code of your
+  own that imported it there has to declare it. `httpx` still arrives in the image through
+  `fastapi[standard]`, which requires it, so only `faker` actually leaves.
+- **`aiosqlite` is gone and `jinja2` is a development dependency.** Nothing imported either:
+  `aiosqlite` answered `SQLITE_ASYNC_PREFIX`, which no module reads, and the admin panel gets
+  `jinja2` through `sqladmin`, which requires it. `jinja2` stays in the `dev` extra for the
+  template tests. A project of your own that imported either has to declare it.
+- **`.env.example` ships `ADMIN_ENABLED=false`.** The setting has defaulted to `false` since
+  0.20.0, but the example still turned the panel on, so a copied example served `/admin` with the
+  example's own `admin` credentials. Set `ADMIN_ENABLED=true`, with credentials of your own, where
+  you want it.
+- **The CLI docs are one page about fastro now.** The `CLI` section's Overview, Commands and
+  Plugins pages are gone, and
+  [Generating and updating projects with fastro](user-guide/fastro.md) covers `fastro make deploy`,
+  `fastro env secret` and `fastro env validate`. The old `cli/` URLs redirect there.
+
+#### Removed
+
+- **The `bp` CLI and its `cli/` workspace package.** fastro, which the root dev group installs,
+  runs the same commands: `bp deploy generate MODE` is `fastro make deploy MODE`, with the same
+  modes and options; `bp env gen-secret` is `fastro env secret`; `bp env validate` is
+  `fastro env validate`. fastro installs a `bp` command too, which says it is now fastro and runs
+  the fastro command, so `uv run bp ...` keeps working. In a venv that had the old package,
+  `uv sync --all-packages --all-extras --reinstall-package fastro` puts that command back after
+  the sync removes the old one. The `bp.commands` and `bp.features` plugin entry points have no
+  counterpart in fastro. The workspace's one member is `backend/` now.
+- **The removal drill.** `tools/removal_drill.py` and its test are gone. `fastro blueprint verify`
+  builds a project for each set in `blueprint.toml`, each preset and `everything`, and runs the
+  same checks on it; CI runs it once per set. Run `uv run --no-sync fastro blueprint verify` for
+  every set, or name one, and add `--keep` to keep the builds.
+
+#### Fixed
+
+- **Every `.env` line in the docs is read as it is written.** The app reads its environment file
+  literally, so a comment after a value is part of it; the 83 setting lines on 14 pages that carried
+  one, `ENVIRONMENT=development  # development | staging | ...` among them, have their comment on
+  the line above, and so do the settings shown commented out, which a reader uncomments as they are.
+  The staging examples pass the staging check (they now set the email backend and, on the
+  Configuration page, a secret, with an HTTPS frontend URL for the links), and the production
+  examples draw no warning: they set Redis passwords and run on one Redis over TLS, sessions in
+  their own DB, with no two connections on one host and port where one uses TLS and one doesn't.
+  The Environment-Specific page names the `backend/.env.*` files its symlink command points at.
+- **No `.env.*` file reaches git or the image's build context.** This repository's `.gitignore`
+  ignores `.env.*` other than `.env.example`, as a generated project's already did, and
+  `.dockerignore` keeps every `.env` and `.env.*` but `.env.example` out of what `docker build .`
+  sends, where `backend/.env.production` and its kind went with every build.
+- **Every production example in the docs starts.** The Production, Configuration and
+  Environment-Specific pages' production `.env` examples, laid over `.env.example`, were each
+  refused by the production check: none set `EMAIL_BACKEND=smtp` or an HTTPS `FRONTEND_URL`, and
+  the Configuration page's kept the default `SECRET_KEY` and database password. They set them now,
+  and the Production page's commands all read `backend/.env.production`, the file its checklist
+  has the reader write, where three of them read `.env.production`. The file is read literally, by
+  the app and by `docker run --env-file`, so the checklist's comments sit on their own lines (a
+  comment after a value was part of it, and `ADMIN_ENABLED`, `SESSION_SECURE_COOKIES` and
+  `TRUSTED_PROXY_HOPS` failed to parse), `APP_NAME` takes no quotes, and `CORS_ORIGINS` is the
+  comma-separated list the app splits, where a JSON list gave it two origins that match nothing.
+  The Configuration page's example sets its own HTTPS origin instead of keeping `.env.example`'s
+  localhost ones. The checklist no longer puts `CONFIRM_PRODUCTION_MIGRATION=yes` in that long-lived
+  file, and says git keeps the file out.
+- **The generated compose files say what they run.** The opening comment of the local, prod and
+  nginx compose files names the services that project's file runs, the scheduler among them, and
+  leaves out the worker and scheduler a project without taskiq doesn't get. The fastro page says
+  that comment, not only its first line, is where they differ from what the legacy command wrote.
+- **The production worker commands run.** `docker run` takes no `--target`, so both examples on
+  the Production page failed; they now run the worker and the scheduler from the `prod` image, with
+  the commands the generated compose gives them. The page says a scheduler is needed for the
+  api_keys usage cleanup and delayed retries too, not only for tasks with a `schedule` label.
+- **The configuration pages say where the settings classes are.** The Environment Variables and
+  Configuration pages pointed them at `config/settings.py`, which defines none; the core ones are
+  in `config/base.py` and each feature's next to the feature.
+- **The docs give the rate limiter the backends it has.** Its counters live on `redis`, `database`
+  or `memory`, whatever `RATE_LIMITER_BACKEND` names. The Sessions page no longer says Memcached
+  remains available for it; the Rate Limiting page, the user guide index, the getting-started
+  overview, the Docker page and the production example no longer make it Redis's alone; the
+  production example sets a backend production accepts; and the getting-started configuration
+  lists `database` beside `memory`.
+- **The background tasks, Docker, production and environment variables pages match what ships.**
+  The Docker page names the `scheduler` that `fastro make deploy local` writes for a taskiq project,
+  describes it in the Service Reference, and gives the worker the `src.` module path the compose
+  runs. The Background Tasks page leaves the worker service to `fastro make deploy` instead of
+  asking for one written by hand, and points at `infrastructure/taskiq/settings.py` for
+  `TaskiqSettings`. The production example marks the `RATE_LIMITER_REDIS_*` lines as Redis's alone,
+  its RabbitMQ note names `taskiq.broker=rabbitmq`, and the Environment Variables page gives the
+  rate limiter the database as well as Redis and memory.
+- **A project with the cache feature and without accounts imports.** The cache used to import the
+  accounts feature's scope fingerprint to key a scoped credential apart from its account. Accounts
+  now contributes it through `SCOPE_FINGERPRINT` in the generated `src/wiring/scope.py`, which is
+  `None` without accounts. A project with per-tier rate limits and without the cache no longer
+  ships `tests/integration/tier_limits/test_cached_listing.py`, which imported the cache.
+- **A new account is given the default tier.** The signup route said it assigned one, and neither
+  it nor a provider's first sign-in did. With the tiers feature, both now give a new account the
+  tier `DEFAULT_TIER_NAME` names, through `NEW_ACCOUNT_FIELDS` in the generated
+  `src/wiring/signup.py`. While no such tier exists, or it is deleted, the account has none.
 
 ___
 

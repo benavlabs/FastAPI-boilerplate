@@ -29,6 +29,8 @@ plain objects at stable paths, and one package collects them.
 | `tables.py` | `TABLE_MODULES`, the modules outside `src/modules` that declare tables on `Base.metadata` |
 | `transports.py` | `EXTRA_TRANSPORTS`, the authentication transports registered beside the session one |
 | `cache.py` | `cached`, the decorator a route caches its response with, re-exported so a route never imports the cache feature |
+| `scope.py` | `SCOPE_FINGERPRINT`, which accounts contributes so the cache keys a scoped credential apart from its account without importing accounts; `None` without it |
+| `signup.py` | `NEW_ACCOUNT_FIELDS`, the columns features set on an account as it is created, on the signup route and on a provider's first sign-in: tiers gives it the tier `DEFAULT_TIER_NAME` names |
 
 Two more live beside the code they drive: `backend/scripts/seeders.py` lists
 `SEEDERS`, and `backend/tests/wiring.py` lists the fixture modules pytest loads.
@@ -109,14 +111,15 @@ the project's dependencies) and with Docker up (the tests use a Postgres contain
 RabbitMQ one where the taskiq feature is present):
 
 ```sh
-uv run --no-sync python tools/removal_drill.py                 # every preset
-uv run --no-sync python tools/removal_drill.py accounts-only   # one of them
-uv run --no-sync python tools/removal_drill.py --keep          # keep the scratch copies
+uv run --no-sync fastro blueprint verify                 # every set
+uv run --no-sync fastro blueprint verify accounts-only   # one of them
+uv run --no-sync fastro blueprint verify --keep          # keep the builds
 ```
 
-The presets run in CI as a matrix:
+CI runs it once for each set, one job each: the `[verify.sets]` and `everything`, below, and
+the presets `minimal`, `standard` and `full`.
 
-| Preset | What it proves |
+| Set | What it proves |
 |--------|----------------|
 | `core-only` | every feature can go at once |
 | `core-taskiq` | the worker runs with no accounts feature, so it registers no account mail |
@@ -126,18 +129,23 @@ The presets run in CI as a matrix:
 | `accounts-api-keys` | keys authenticate, narrow and count without rbac, tiers or the cache |
 | `accounts-rbac-tiers` | tiers and the API throttle work without per-tier limits |
 | `accounts-cache-taskiq` | the infrastructure features stand alone |
+| `cache-memcached` | the Memcached backend and its test, which ship with `cache.backend=memcached`, pass every check |
+| `taskiq-rabbitmq` | a project on `taskiq.broker=rabbitmq`, with that choice's `.env.example`, passes every check |
 | `everything` | a regenerated wiring reproduces this repository |
 
-The drill is also how a misplaced test gets caught: a test that quietly depends on
-a feature it doesn't own fails in the preset that removes it.
+Verify is also how a misplaced test gets caught: a test that quietly depends on a feature it
+doesn't own fails in the set that removes it.
 
 ## Writing a feature that can be removed
 
-1. Keep everything the feature owns under its own paths, and add those paths to the
-   drill's manifest.
+1. Keep everything the feature owns under its own paths, and list those paths in its
+   `[features.<name>]` table in `blueprint.toml`. A file that only makes sense beside another
+   feature, such as the feature's `admin.py`, goes in a `[[features.<name>.when]]` block with
+   `if = "<other>"`, together with what it contributes.
 2. Import another feature only if the table above says you need it.
 3. To reach into another feature, contribute to a hook rather than importing it.
 4. Put the feature's settings in its own `settings.py` and its fixtures in
    `tests/fixtures/`, then list both in the wiring.
-5. Run the drill. If a preset that excludes your feature fails, something of yours
-   is in a path the drill doesn't delete.
+5. Run `fastro blueprint verify`. If a set that excludes your feature fails, something of
+   yours is in a path its table doesn't list. If a set that keeps your feature and drops one
+   it reaches into fails, a file of yours belongs in a `when` block.

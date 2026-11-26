@@ -1,7 +1,8 @@
 # Rate Limiting
 
-The boilerplate ships crudauth's rate limiter with per-tier, per-path limits backed by Redis. API
-routes are protected by default; authenticated requests key by user ID and anonymous requests by
+The boilerplate ships crudauth's rate limiter with per-tier, per-path limits, counted on the
+backend `RATE_LIMITER_BACKEND` names (see [Configuration](#configuration)). API routes are
+protected by default; authenticated requests key by user ID and anonymous requests by
 trusted-proxy-aware client IP.
 
 Two features carry this: `ratelimit` is the throttle itself, and `tier_limits` adds the per-tier rules
@@ -85,12 +86,15 @@ RATE_LIMITER_BACKEND=redis
 
 # Defaults applied when the user has no tier or no matching rate-limit row
 DEFAULT_RATE_LIMIT_LIMIT=100
-DEFAULT_RATE_LIMIT_PERIOD=60          # seconds — 100/60s by default
+# Seconds: 100/60s by default
+DEFAULT_RATE_LIMIT_PERIOD=60
 
 # Redis backend
-RATE_LIMITER_REDIS_HOST=redis         # use "localhost" without Docker
+# Use "localhost" without Docker
+RATE_LIMITER_REDIS_HOST=redis
 RATE_LIMITER_REDIS_PORT=6379
-RATE_LIMITER_REDIS_DB=1               # rate-limiter DB (cache DB 0, sessions DB 2, taskiq DB 3)
+# Rate-limiter DB (cache DB 0, sessions DB 2, taskiq DB 3)
+RATE_LIMITER_REDIS_DB=1
 RATE_LIMITER_REDIS_PASSWORD=
 RATE_LIMITER_REDIS_CONNECT_TIMEOUT=5
 RATE_LIMITER_REDIS_POOL_SIZE=10
@@ -230,14 +234,17 @@ import asyncio
 
 from src.infrastructure.database.session import local_session
 from src.modules.rate_limit.crud import crud_rate_limits
+from src.modules.rate_limit.schemas import RateLimitCreateInternal
 
 
 async def main():
     async with local_session() as db:
-        await crud_rate_limits.create(db=db, object={
-            "tier_id": 1, "name": "free_widgets_create",
-            "path": "/api/v1/widgets/", "limit": 10, "period": 60,
-        })
+        await crud_rate_limits.create(
+            db=db,
+            object=RateLimitCreateInternal(
+                tier_id=1, name="free_widgets_create", path="/api/v1/widgets/", limit=10, period=60
+            ),
+        )
         await db.commit()
 
 
@@ -325,7 +332,7 @@ closed). Fix the Redis connection, or take the limiter out of the path entirely 
 | Resolver + dependency | `backend/src/infrastructure/auth/setup.py`                |
 | RateLimit model       | `backend/src/modules/rate_limit/models.py`                |
 | Rate-limit routes     | `backend/src/modules/rate_limit/routes.py`                |
-| Settings              | `backend/src/infrastructure/config/settings.py` (`RateLimiterSettings`) |
+| Settings              | `backend/src/infrastructure/ratelimit/settings.py` (`RateLimitSettings`), `backend/src/infrastructure/auth/settings.py` (`LimiterBackendSettings`) |
 
 ## Next Steps
 

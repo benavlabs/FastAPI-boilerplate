@@ -9,22 +9,18 @@ description = "Modular FastAPI starter — vertical slices, swappable infrastruc
 authors = [{ name = "Benav Labs", email = "contact@benav.io" }]
 license = { text = "MIT" }
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.11,<3.15"
 dependencies = [
     "aiomcache>=0.8.2",
-    "aiosqlite>=0.21.0",
     "alembic>=1.16.4",
     "anyio>=4.15.1",
     "asyncpg>=0.30.0",
     "crudauth[all]>=0.8.2,<0.9.0",
     "cryptography>=42.0.0",
-    "faker>=37.1.0",
-    "fastapi[standard]>=0.115.8",
+    "fastapi[standard]>=0.115.8,<0.140.7",
     "fastcrud>=0.21.0",
     "greenlet>=3.1.1",
-    "httpx>=0.28.1",
     "itsdangerous>=2.2.0",
-    "jinja2>=3.1.6",
     "pydantic>=2.10.6",
     "pydantic-settings>=2.14.2",
     "redis>=6.1.0",
@@ -48,6 +44,9 @@ dev = [
     "pytest-xdist[psutil]>=3.8.0",
     "taskiq[reload]>=0.11.20",
     "pre-commit>=4.0.0",
+    "faker>=37.1.0",
+    "httpx>=0.28.1",
+    "jinja2>=3.1.6",
 ]
 
 [tool.setuptools.packages.find]
@@ -85,6 +84,9 @@ warn_no_return = true
 warn_unreachable = true
 namespace_packages = true
 explicit_package_bases = true
+
+[tool.pydantic-mypy]
+init_forbid_extra = true
 
 [[tool.mypy.overrides]]
 module = "src.wiring.settings"

@@ -18,11 +18,11 @@ The app **will not start** if any of these is true:
   those is measured as a share of the whole value, so a generated key that happens to spell a word
   still passes. Two rules are absolute: a run of eight consecutive code points, and under 64 bits
   of entropy. The tests sweep 100,000 keys of each shape a generator produces — the hex keys
-  `bp env gen-secret` prints (`secrets.token_hex(16/32)`) and `secrets.token_urlsafe(24/32)` keys
+  `fastro env secret` prints (`secrets.token_hex(16/32)`) and `secrets.token_urlsafe(24/32)` keys
   from whatever else you might use — from a fixed seed, and none of the 400,000 is refused. A
   random key can still trip a rule: one hex key in 12.6 million runs through eight consecutive
   digits, and a `token_urlsafe` key walks the keyboard at around one in ten million. Run inside a
-  project, `bp env gen-secret` checks each draw against those rules and draws again while they
+  project, `fastro env secret` checks each draw against those rules and draws again while they
   would refuse it.
 - **The database password is `postgres`** (the well-known default). Attackers try this first.
 - **The database password is empty.** Database is unprotected.
@@ -35,7 +35,8 @@ The password checked is the one actually used to connect: when `DATABASE_URL` is
 
 These don't block startup but you should fix them before the app sees real traffic:
 
-- **Redis without a password** (`CACHE_REDIS_PASSWORD` or `RATE_LIMITER_REDIS_PASSWORD` unset, or a `SESSION_REDIS_URL` without one)
+- **Redis without a password** (`CACHE_REDIS_PASSWORD`, `RATE_LIMITER_REDIS_PASSWORD` or, on the Redis broker, `TASKIQ_REDIS_PASSWORD` unset, or a `SESSION_REDIS_URL` without one)
+- **Redis on a host other than `localhost` or `127.0.0.1` without TLS** (`CACHE_REDIS_SSL`, `RATE_LIMITER_REDIS_SSL` or, on the Redis broker, `TASKIQ_REDIS_SSL` false, `SESSION_REDIS_SSL` false or a `SESSION_REDIS_URL` on `redis://`): set them where the Redis speaks TLS, as a managed one usually does
 - **`DEBUG=true`** — exposes stack traces in error responses
 - **API docs (`/docs`, `/redoc`) reachable** — see "Documentation" below
 - **Session config too loose** (cookies not marked `Secure`, very long max-age, etc.)
@@ -45,7 +46,11 @@ The validator is **not** a substitute for a thorough threat model — it catches
 
 ## Production `.env` Checklist
 
-Generate a `.env` for production from `backend/.env.example`. The bare-minimum changes:
+Generate `backend/.env.production` from `backend/.env.example`. It stays out of git and out of the
+image's build context: the `.gitignore` of a project fastro creates and this repository's own both
+ignore `.env.*` other than `.env.example`, and so does `.dockerignore`. The file is read
+literally, by the app and by `docker run --env-file`, so a comment goes on its own line and a value
+takes no quotes. The bare-minimum changes:
 
 ```env
 # Environment
@@ -53,7 +58,7 @@ ENVIRONMENT=production
 DEBUG=false
 
 # App
-APP_NAME="Your Production App"
+APP_NAME=Your Production App
 VERSION=1.0.0
 
 # Secrets — generate a fresh, unique value
@@ -69,42 +74,56 @@ POSTGRES_DB=app_prod
 # Auto-creating tables in prod is dangerous; use Alembic instead
 CREATE_TABLES_ON_STARTUP=false
 
-# Migrations: must be opted into, even with the right env
-CONFIRM_PRODUCTION_MIGRATION=yes      # only when actively running migrations
-
 # CORS — list the exact origins that can call your API
-CORS_ORIGINS=["https://app.example.com","https://admin.example.com"]
+CORS_ORIGINS=https://app.example.com,https://admin.example.com
+
+# Account email, with the accounts feature: links are built from FRONTEND_URL
+EMAIL_BACKEND=smtp
+EMAIL_SMTP_HOST=<smtp-host>
+EMAIL_SMTP_USER=<smtp-user>
+EMAIL_SMTP_PASSWORD=<smtp-password>
+FRONTEND_URL=https://app.example.com
 
 # Cache (Redis or Memcached)
 CACHE_ENABLED=true
 CACHE_BACKEND=redis
 CACHE_REDIS_HOST=<redis-host>
 CACHE_REDIS_PASSWORD=<redis-password>
+CACHE_REDIS_SSL=true
 
-# Sessions
-SESSION_BACKEND=redis                  # redis | database | memory; Redis unless SESSION_REDIS_URL is set
-SESSION_SECURE_COOKIES=true            # required when serving over HTTPS
+# Sessions: redis | database | memory, on the cache's Redis, TLS included, in their own DB
+SESSION_BACKEND=redis
+SESSION_REDIS_DB=2
+# Required when serving over HTTPS
+SESSION_SECURE_COOKIES=true
 CSRF_ENABLED=true
-TRUSTED_PROXY_HOPS=1                    # set to the number of proxies in front of the app
-FORWARDED_ALLOW_IPS=<proxy-subnet>     # which peers uvicorn takes forwarded headers from
+# The number of proxies in front of the app
+TRUSTED_PROXY_HOPS=1
+# Which peers uvicorn takes forwarded headers from
+FORWARDED_ALLOW_IPS=<proxy-subnet>
 
-# Rate limiting (Redis-backed, provided by crudauth)
+# Rate limiting (provided by crudauth)
 RATE_LIMITER_ENABLED=true
+# redis or database; memory is refused in production
+RATE_LIMITER_BACKEND=redis
+# With redis only
 RATE_LIMITER_REDIS_HOST=<redis-host>
 RATE_LIMITER_REDIS_PASSWORD=<redis-password>
+RATE_LIMITER_REDIS_SSL=true
 
 # Taskiq
 TASKIQ_BROKER_TYPE=redis
 TASKIQ_REDIS_HOST=<redis-host>
 TASKIQ_REDIS_PASSWORD=<redis-password>
+TASKIQ_REDIS_SSL=true
 
-# Admin panel
-ADMIN_ENABLED=false                    # safest default in prod
+# Admin panel, off: the safest default in prod
+ADMIN_ENABLED=false
 ADMIN_USERNAME=<unique-username>
 ADMIN_PASSWORD=<long-random-secret>
 
-# Documentation
-OPENAPI_URL=                           # disable /docs and /redoc
+# Documentation: empty disables /docs and /redoc
+OPENAPI_URL=
 
 # Logging
 LOG_LEVEL=INFO
@@ -117,7 +136,7 @@ Notes worth calling out:
 - **`CREATE_TABLES_ON_STARTUP=false`** — the default outside local and development, and `true` is refused in production: schema changes go through Alembic, not `Base.metadata.create_all` on every boot.
 - **`SESSION_BACKEND` and `RATE_LIMITER_BACKEND` are not `memory`** — both are refused in production. A process that keeps sessions in itself signs everybody out when it restarts and knows nothing of the sessions its sibling created. A process that counts in itself multiplies every limit by the number of workers, and the backend carries more than the API throttle: the login lockout, the account-change budgets and an API key's own windows all count on it, whether or not the ratelimit feature is selected or `RATE_LIMITER_ENABLED` is on.
 - **`FRONTEND_URL` is HTTPS** — refused otherwise, along with a host only the deployment itself can reach: every verification, password-reset and email-change link is built from it, so a plaintext one carries its token where anybody on the path can read it.
-- **RabbitMQ's `guest` credentials are refused** — with `TASKIQ_BROKER_TYPE=rabbitmq`, `TASKIQ_RABBITMQ_USER`/`TASKIQ_RABBITMQ_PASSWORD` left at `guest`/`guest` means anybody who reaches the broker can enqueue a task the worker runs.
+- **RabbitMQ's `guest` credentials are refused**: in a project generated with `taskiq.broker=rabbitmq` and set to `TASKIQ_BROKER_TYPE=rabbitmq`, `TASKIQ_RABBITMQ_USER`/`TASKIQ_RABBITMQ_PASSWORD` left at `guest`/`guest` means anybody who reaches the broker can enqueue a task the worker runs.
 - **`CONFIRM_PRODUCTION_MIGRATION=yes`** — `migrations/env.py` calls `validate_production_migration` which **refuses** to run migrations against production unless this is explicitly set. Ship deployment commands with it; never set it in long-lived env files.
 - **`SESSION_SECURE_COOKIES=true`** — cookies are sent only over HTTPS. Required if you're terminating TLS at a proxy.
 - **`OPENAPI_URL=`** (empty) disables the Swagger UI and OpenAPI spec entirely. The validator warns when this is exposed in production.
@@ -177,7 +196,7 @@ CMD ["sh", "-c", "fastapi run interfaces/main.py --host 0.0.0.0 --port 8000 --wo
 
 ```bash
 docker run -d \
-    --env-file .env.production \
+    --env-file backend/.env.production \
     -e WORKERS=4 \
     -p 8000:8000 \
     myapp-api:1.0.0
@@ -191,26 +210,29 @@ For most APIs, **don't reach for gunicorn**. `fastapi run` (which wraps uvicorn)
 
 ## Running the Background Worker
 
-In production, run a separate worker container/service:
+In production, run a separate worker container from the image built above, with the worker's command
+in place of the API's:
 
 ```bash
 docker run -d \
-    --env-file .env.production \
-    --target base \
+    --env-file backend/.env.production \
     myapp-api:1.0.0 \
-    sh -c "taskiq worker src.infrastructure.taskiq.worker:default_broker --workers 4"
+    taskiq worker src.infrastructure.taskiq.worker:default_broker --workers 4
 ```
 
 In Kubernetes / ECS, that's a separate `Deployment` / `Service` with its own scaling. The worker doesn't accept HTTP traffic — it only consumes from the broker.
 
-If any task declares a `schedule` label, one scheduler has to run too, and **only one** — each scheduler enqueues every schedule it finds, so two of them run every cron entry twice:
+One scheduler has to run too, and **only one**: each scheduler enqueues every schedule it finds, so
+two of them run every cron entry twice. It enqueues the tasks that declare a `schedule` label, the
+api_keys feature's `api_keys:prune_usage` among them, and with `TASKIQ_RETRY_DELAY_SECONDS` set it
+enqueues each delayed retry when it is due. Without one, the usage rows are never pruned and a
+delayed retry never runs:
 
 ```bash
 docker run -d \
-    --env-file .env.production \
-    --target base \
+    --env-file backend/.env.production \
     myapp-api:1.0.0 \
-    sh -c "taskiq scheduler src.infrastructure.taskiq.scheduler:scheduler"
+    taskiq scheduler src.infrastructure.taskiq.scheduler:scheduler
 ```
 
 Tune via:
@@ -260,7 +282,7 @@ The proxy must:
 
 Set `TRUSTED_PROXY_HOPS` to the number of reverse proxies you've put in front of the app (1 for a single nginx/Caddy, 2 if Cloudflare is also in front). crudauth uses it to read the real client IP from the last trusted hop of `X-Forwarded-For` when applying login lockout — otherwise every request would appear to come from the proxy and the lockout would key on a single IP.
 
-Set `FORWARDED_ALLOW_IPS` to your proxy's address or subnet. **uvicorn** reads it from its own process environment, not through the app's settings, and it decides what `request.client` and the access logs report. A wildcard makes uvicorn take the *leftmost* `X-Forwarded-For` entry, which is whatever the client sent, so any client can claim any address and say its request arrived over HTTPS. Named a subnet, uvicorn skips the entries from that subnet and reads the last one outside it. The generated nginx vhost also replaces `X-Forwarded-For` with the address nginx saw, so there is only ever one entry to read. The generated stack puts the containers on a fixed subnet and sets this to that CIDR; `bp deploy generate nginx --internal-subnet 10.20.30.0/24` changes both together, and refuses host bits, a wildcard, or a range wider than `/8` (IPv4) or `/48` (IPv6).
+Set `FORWARDED_ALLOW_IPS` to your proxy's address or subnet. **uvicorn** reads it from its own process environment, not through the app's settings, and it decides what `request.client` and the access logs report. A wildcard makes uvicorn take the *leftmost* `X-Forwarded-For` entry, which is whatever the client sent, so any client can claim any address and say its request arrived over HTTPS. Named a subnet, uvicorn skips the entries from that subnet and reads the last one outside it. The generated nginx vhost also replaces `X-Forwarded-For` with the address nginx saw, so there is only ever one entry to read. The generated stack puts the containers on a fixed subnet and sets this to that CIDR; `fastro make deploy nginx --internal-subnet 10.20.30.0/24` changes both together, and refuses host bits, a wildcard, or a range wider than `/8` (IPv4) or `/48` (IPv6).
 
 !!! warning "nginx is the only hop in the generated stack"
 
@@ -384,7 +406,7 @@ Before shipping:
 - [ ] `OPENAPI_URL=` (empty) — `/docs` and `/redoc` are not exposed
 - [ ] `SESSION_SECURE_COOKIES=true` and you're terminating TLS at a proxy
 - [ ] `CSRF_ENABLED=true`
-- [ ] All Redis instances have `*_REDIS_PASSWORD` set
+- [ ] All Redis instances have `*_REDIS_PASSWORD` set, and `*_REDIS_SSL=true` where the Redis speaks TLS
 - [ ] `ADMIN_ENABLED=false` (or restricted at the network layer)
 - [ ] Database migrations run via the `migrate` Dockerfile stage with `CONFIRM_PRODUCTION_MIGRATION=yes`
 - [ ] `EMAIL_BACKEND=smtp`, with `EMAIL_SMTP_*` configured, and `FRONTEND_URL` set to the project's own frontend (both only where the accounts feature is present)

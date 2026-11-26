@@ -25,7 +25,8 @@ Don't reach for a task when the operation needs to surface a result to the user 
 ```text
 backend/src/infrastructure/taskiq/
 ├── __init__.py        Docstring only: the package is kept import-free
-├── brokers.py         Builds the Redis or RabbitMQ broker from settings
+├── brokers.py         Builds the Redis broker, or loads the RabbitMQ one, from settings
+├── rabbitmq.py        The RabbitMQ broker, in a project generated with `taskiq.broker=rabbitmq`
 ├── app.py             WORKER_STARTUP / WORKER_SHUTDOWN handlers (logging, engine disposal)
 ├── lifecycle.py       Opens and closes the broker in the API process
 ├── email.py           The email:send task, and the sender that enqueues it
@@ -78,20 +79,26 @@ them the infrastructure is wired up and the task modules are yours to add.
 
 ## Configuration
 
-The relevant settings live in `TaskiqSettings` (`infrastructure/config/settings.py`) and read from `backend/.env`:
+The relevant settings live in `TaskiqSettings` (`infrastructure/taskiq/settings.py`) and read from `backend/.env`.
+Only a project generated with `taskiq.broker=rabbitmq` has the RabbitMQ ones in its `.env.example`:
 
 ```env
 # Broker selection
-TASKIQ_BROKER_TYPE=redis            # or "rabbitmq"
+# The taskiq.broker the project was generated with
+TASKIQ_BROKER_TYPE=redis
 
 # Retries
-TASKIQ_DEFAULT_RETRY_COUNT=3        # runs in all, for a task that asks; 0 turns retries off
-TASKIQ_RETRY_DELAY_SECONDS=0        # how long a retry waits; 0 retries immediately
+# Runs in all, for a task that asks; 0 turns retries off
+TASKIQ_DEFAULT_RETRY_COUNT=3
+# How long a retry waits; 0 retries immediately
+TASKIQ_RETRY_DELAY_SECONDS=0
 
 # Redis broker (when TASKIQ_BROKER_TYPE=redis)
-TASKIQ_REDIS_HOST=redis             # use "localhost" without Docker
+# Use "localhost" without Docker
+TASKIQ_REDIS_HOST=redis
 TASKIQ_REDIS_PORT=6379
-TASKIQ_REDIS_DB=3                   # separate DB from CACHE / SESSION / RATE_LIMITER
+# Separate DB from CACHE / SESSION / RATE_LIMITER
+TASKIQ_REDIS_DB=3
 TASKIQ_REDIS_PASSWORD=
 
 # RabbitMQ broker (when TASKIQ_BROKER_TYPE=rabbitmq)
@@ -104,13 +111,8 @@ TASKIQ_RABBITMQ_VHOST=/
 
 The default `TASKIQ_REDIS_DB=3` keeps Taskiq isolated from the Cache (DB 0), the Rate Limiter (DB 1), and Sessions (DB 2) — so `redis-cli FLUSHDB` on one doesn't trash the others.
 
-If you pick `TASKIQ_BROKER_TYPE=rabbitmq`, install the optional broker:
-
-```bash
-uv add taskiq-aio-pika
-```
-
-The boilerplate already ships it as a dependency, but the `aio_pika` import is gated to keep Redis-only deployments lean.
+`taskiq.broker=rabbitmq` brings `taskiq-aio-pika` and `infrastructure/taskiq/rabbitmq.py`, and a
+project generated without it refuses `TASKIQ_BROKER_TYPE=rabbitmq` when it builds the broker.
 
 ## Writing a Task
 
@@ -243,7 +245,7 @@ cd backend
 uv run --no-sync taskiq scheduler src.infrastructure.taskiq.scheduler:scheduler
 ```
 
-`bp deploy generate` writes it as a `scheduler` service alongside the worker, for a project that
+`fastro make deploy` writes it as a `scheduler` service alongside the worker, for a project that
 carries the taskiq feature.
 
 **Run exactly one scheduler.** Each one fires every schedule it finds, so a second replica means
@@ -280,7 +282,9 @@ cd backend
 uv run --no-sync taskiq worker src.infrastructure.taskiq.worker:default_broker
 ```
 
-In Docker Compose, add a worker service that runs the same command. The worker needs the same Redis (or RabbitMQ) and the same database the API uses.
+`fastro make deploy` writes the worker as a `worker` service, next to the `scheduler`, for a project
+that carries the taskiq feature ([Docker Setup](../configuration/docker-setup.md)). It runs on the
+same broker and the same database the API uses.
 
 To tune concurrency:
 
@@ -473,7 +477,7 @@ async def rebuild_widget_index(owner_id: int, db: DBSession) -> dict[str, Any]:
 | Broker lifecycle (API) | `backend/src/infrastructure/taskiq/lifecycle.py`                   |
 | DB dependency          | `backend/src/infrastructure/taskiq/deps.py`                        |
 | Registered task modules | `backend/src/wiring/tasks.py`                                     |
-| Settings               | `backend/src/infrastructure/config/settings.py` (`TaskiqSettings`) |
+| Settings               | `backend/src/infrastructure/taskiq/settings.py` (`TaskiqSettings`) |
 
 ## Next Steps
 

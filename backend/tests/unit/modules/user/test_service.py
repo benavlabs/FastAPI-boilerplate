@@ -146,6 +146,46 @@ async def test_signup_cannot_write_the_verification_or_oauth_columns(user_servic
     assert created["oauth_provider"] is None
 
 
+async def test_what_each_feature_sets_on_a_new_account_is_written_the_later_over_the_earlier(
+    user_service: UserService, db_session: AsyncSession, monkeypatch
+):
+    """The account's own fields win over any of them, and none sets a column crudauth owns,
+    as on a provider's first sign-in."""
+    given: list[AsyncSession] = []
+    written: list[dict[str, Any]] = []
+
+    async def first(db: AsyncSession) -> dict[str, Any]:
+        given.append(db)
+        return {
+            "first_column": 1,
+            "shared_column": "first",
+            "name": "Someone Else",
+            "is_superuser": True,
+            "email_verified": True,
+            "oauth_provider": "google",
+        }
+
+    async def second(db: AsyncSession) -> dict[str, Any]:
+        return {"second_column": 2, "shared_column": "second"}
+
+    async def recording(*, db: AsyncSession, object: Any, schema_to_select: Any) -> dict[str, Any]:
+        written.append(object.model_dump())
+        return {"id": 1}
+
+    monkeypatch.setattr(service_module, "NEW_ACCOUNT_FIELDS", (first, second))
+    monkeypatch.setattr(crud_users, "create", recording)
+
+    await user_service.create(
+        UserCreate(name="Owner", username="contributed", email="contributed@example.com", password="Str1ngst!"), db_session
+    )
+
+    (row,) = written
+    assert given == [db_session]
+    assert (row["first_column"], row["second_column"], row["shared_column"]) == (1, 2, "second")
+    assert (row["name"], row["username"], row["email"]) == ("Owner", "contributed", "contributed@example.com")
+    assert (row.get("is_superuser"), row["email_verified"], row["oauth_provider"]) == (None, False, None)
+
+
 # =============================================================================
 # Which credential was taken decides how a signup answers
 # =============================================================================

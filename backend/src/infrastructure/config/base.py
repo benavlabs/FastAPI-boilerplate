@@ -3,12 +3,16 @@
 Feature settings live with their feature and are composed in ``src/wiring/settings.py``.
 """
 
+import importlib
 import logging
 import os
+from collections.abc import Mapping
 from enum import StrEnum
+from types import UnionType
+from typing import Any, Union, get_args, get_origin
 
-from pydantic import Field, field_validator
-from pydantic_settings import BaseSettings
+from pydantic import Field, ValidationInfo, field_validator, model_validator
+from pydantic_settings import BaseSettings, EnvSettingsSource, PydanticBaseSettingsSource, SettingsConfigDict
 from sqlalchemy.engine import URL
 from starlette.config import Config
 
@@ -48,6 +52,69 @@ else:
     config = Config(env_path)
 
 
+FLAG_SPELLINGS = {"true": True, "1": True, "false": False, "0": False}
+"""How a flag may be written: the spellings starlette's ``Config`` casts to a bool."""
+
+
+class _FileAsStarletteReadsIt(EnvSettingsSource):
+    """The environment file, read as starlette's ``Config`` reads it: one ``NAME=value`` a line,
+    names exactly as written, values literally, with no ``${...}`` expansion or ``#`` comments.
+
+    Only the fields of the class being built are taken from it, so each mixin leaves the other
+    mixins' names alone.
+    """
+
+    def __init__(self, settings_cls: type[BaseSettings], env_file: Any) -> None:
+        self.env_file = env_file
+        super().__init__(settings_cls, case_sensitive=True)
+
+    def _load_env_vars(self) -> Mapping[str, str | None]:
+        return Config(self.env_file).file_values if self.env_file else {}
+
+
+class EnvSettings(BaseSettings):
+    """A settings mixin that reads the environment, and the environment file, when it is built.
+
+    The file is the one ``config`` reads, and none under pytest. The environment wins over it.
+    """
+
+    model_config = SettingsConfigDict(env_file=None if running_under_pytest else env_path)
+
+    @field_validator("*", mode="before")
+    @classmethod
+    def _read_as_starlette_cast_it(cls, value: Any, info: ValidationInfo) -> Any:
+        """A flag written as text is one of ``true``, ``false``, ``1`` or ``0`` in any case, and a
+        number written as text is what ``int()`` reads, as when starlette's ``Config`` cast them."""
+        if not isinstance(value, str) or info.field_name is None:
+            return value
+
+        annotation = cls.model_fields[info.field_name].annotation
+        kinds = set(get_args(annotation)) if get_origin(annotation) in (Union, UnionType) else {annotation}
+        if bool in kinds:
+            if value.lower() not in FLAG_SPELLINGS:
+                raise ValueError(f"{value!r} is not a flag: write true, false, 1 or 0")
+
+            return FLAG_SPELLINGS[value.lower()]
+        if int in kinds:
+            return int(value)
+
+        return value
+
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
+        """The constructor, then the environment, then the file read as starlette reads it."""
+        env_file = getattr(dotenv_settings, "env_file", None)
+
+        return init_settings, env_settings, _FileAsStarletteReadsIt(settings_cls, env_file), file_secret_settings
+
+
 class EnvironmentOption(StrEnum):
     """Environment options for the application."""
 
@@ -57,43 +124,54 @@ class EnvironmentOption(StrEnum):
     LOCAL = "local"
 
 
-class EnvironmentSettings(BaseSettings):
+class EnvironmentSettings(EnvSettings):
     """Environment-related settings."""
 
-    ENVIRONMENT: EnvironmentOption = config("ENVIRONMENT", default=EnvironmentOption.DEVELOPMENT, cast=EnvironmentOption)
+    ENVIRONMENT: EnvironmentOption = EnvironmentOption.DEVELOPMENT
 
 
 SCHEMA_BUILT_ON_STARTUP = (EnvironmentOption.LOCAL, EnvironmentOption.DEVELOPMENT)
 """The environments where the app builds its schema from the models as it boots."""
 
 
-def _creates_tables_by_default() -> bool:
-    """Whether ``CREATE_TABLES_ON_STARTUP`` is on in the environment this process runs in."""
-    environment = config("ENVIRONMENT", default=EnvironmentOption.DEVELOPMENT, cast=EnvironmentOption)
-
-    return environment in SCHEMA_BUILT_ON_STARTUP
+def _creates_tables_by_default(environment: str | None = None) -> bool:
+    """Whether ``CREATE_TABLES_ON_STARTUP`` is on in ``environment``, or in the one the process runs in."""
+    return EnvironmentOption(environment or EnvironmentSettings().ENVIRONMENT) in SCHEMA_BUILT_ON_STARTUP
 
 
-class DatabaseSettings(BaseSettings):
+class DatabaseSettings(EnvSettings):
     """Database-related settings."""
 
-    POSTGRES_USER: str = config("POSTGRES_USER", default="postgres")
-    POSTGRES_PASSWORD: str = config("POSTGRES_PASSWORD", default="postgres")
-    POSTGRES_SERVER: str = config("POSTGRES_SERVER", default="localhost")
-    POSTGRES_PORT: int = config("POSTGRES_PORT", default=5432)
-    POSTGRES_DB: str = config("POSTGRES_DB", default="postgres")
-    POSTGRES_ASYNC_PREFIX: str = config("POSTGRES_ASYNC_PREFIX", default="postgresql+asyncpg://")
-    CREATE_TABLES_ON_STARTUP: bool = config("CREATE_TABLES_ON_STARTUP", default=_creates_tables_by_default(), cast=bool)
+    POSTGRES_USER: str = "postgres"
+    POSTGRES_PASSWORD: str = "postgres"
+    POSTGRES_SERVER: str = "localhost"
+    POSTGRES_PORT: int = 5432
+    POSTGRES_DB: str = "postgres"
+    POSTGRES_ASYNC_PREFIX: str = "postgresql+asyncpg://"
+    CREATE_TABLES_ON_STARTUP: bool = Field(default_factory=_creates_tables_by_default)
 
-    POSTGRES_POOL_SIZE: int = config("POSTGRES_POOL_SIZE", default=20, cast=int)
-    POSTGRES_MAX_OVERFLOW: int = config("POSTGRES_MAX_OVERFLOW", default=0, cast=int)
-    POSTGRES_POOL_PRE_PING: bool = config("POSTGRES_POOL_PRE_PING", default=True, cast=bool)
-    POSTGRES_POOL_RECYCLE: int = config("POSTGRES_POOL_RECYCLE", default=-1, cast=int)
+    POSTGRES_POOL_SIZE: int = 20
+    POSTGRES_MAX_OVERFLOW: int = 0
+    POSTGRES_POOL_PRE_PING: bool = True
+    POSTGRES_POOL_RECYCLE: int = -1
 
     DATABASE_URL_OVERRIDE: str | None = Field(
-        default=config("DATABASE_URL", default=None),
+        default=None,
         validation_alias="DATABASE_URL",
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _tables_follow_the_environment(cls, values: Any) -> Any:
+        """Default ``CREATE_TABLES_ON_STARTUP`` from the ``ENVIRONMENT`` these settings are built with."""
+        if not isinstance(values, dict) or "CREATE_TABLES_ON_STARTUP" in values:
+            return values
+        try:
+            creates = _creates_tables_by_default(values.get("ENVIRONMENT"))
+        except ValueError:
+            return values
+
+        return {**values, "CREATE_TABLES_ON_STARTUP": creates}
 
     @property
     def DATABASE_URL(self) -> str:
@@ -126,12 +204,12 @@ class DatabaseSettings(BaseSettings):
         ).render_as_string(hide_password=False)
 
 
-class CORSSettings(BaseSettings):
+class CORSSettings(EnvSettings):
     """CORS-related settings."""
 
-    CORS_ENABLED: bool = config("CORS_ENABLED", default=True, cast=bool)
-    CORS_ORIGINS: str = config("CORS_ORIGINS", default="http://localhost:3000,http://localhost:5173")
-    CORS_ALLOW_CREDENTIALS: bool = config("CORS_ALLOW_CREDENTIALS", default=True, cast=bool)
+    CORS_ENABLED: bool = True
+    CORS_ORIGINS: str = "http://localhost:3000,http://localhost:5173"
+    CORS_ALLOW_CREDENTIALS: bool = True
 
     @property
     def CORS_ORIGINS_LIST(self) -> list[str]:
@@ -142,54 +220,54 @@ class CORSSettings(BaseSettings):
         """
         return [origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()]
 
-    CORS_ALLOW_METHODS: str = config("CORS_ALLOW_METHODS", default="*")
-    CORS_ALLOW_HEADERS: str = config("CORS_ALLOW_HEADERS", default="*")
+    CORS_ALLOW_METHODS: str = "*"
+    CORS_ALLOW_HEADERS: str = "*"
 
 
-class CompressionSettings(BaseSettings):
+class CompressionSettings(EnvSettings):
     """Compression-related settings."""
 
-    GZIP_ENABLED: bool = config("GZIP_ENABLED", default=True, cast=bool)
-    GZIP_MINIMUM_SIZE: int = config("GZIP_MINIMUM_SIZE", default=1000, cast=int)
+    GZIP_ENABLED: bool = True
+    GZIP_MINIMUM_SIZE: int = 1000
 
 
-class ClientCacheSettings(BaseSettings):
+class ClientCacheSettings(EnvSettings):
     """Cache-Control headers the app sets on its own responses."""
 
-    CLIENT_CACHE_ENABLED: bool = config("CLIENT_CACHE_ENABLED", default=True, cast=bool)
-    CLIENT_CACHE_MAX_AGE: int = config("CLIENT_CACHE_MAX_AGE", default=60, cast=int)
+    CLIENT_CACHE_ENABLED: bool = True
+    CLIENT_CACHE_MAX_AGE: int = 60
 
 
-class APIDocSettings(BaseSettings):
+class APIDocSettings(EnvSettings):
     """API documentation settings."""
 
-    ENABLE_DOCS_IN_PRODUCTION: bool = config("ENABLE_DOCS_IN_PRODUCTION", default=False, cast=bool)
-    OPENAPI_PREFIX: str = config("OPENAPI_PREFIX", default="")
-    DOCS_URL: str = config("DOCS_URL", default="/docs")
-    REDOC_URL: str = config("REDOC_URL", default="/redoc")
-    OPENAPI_URL: str = config("OPENAPI_URL", default="/openapi.json")
+    ENABLE_DOCS_IN_PRODUCTION: bool = False
+    OPENAPI_PREFIX: str = ""
+    DOCS_URL: str = "/docs"
+    REDOC_URL: str = "/redoc"
+    OPENAPI_URL: str = "/openapi.json"
 
-    API_TITLE: str = config("API_TITLE", default="")
-    API_SUMMARY: str = config("API_SUMMARY", default="")
-    API_DESCRIPTION: str = config("API_DESCRIPTION", default="")
-    API_VERSION: str = config("API_VERSION", default="")
-    API_TERMS_OF_SERVICE: str = config("API_TERMS_OF_SERVICE", default="")
+    API_TITLE: str = ""
+    API_SUMMARY: str = ""
+    API_DESCRIPTION: str = ""
+    API_VERSION: str = ""
+    API_TERMS_OF_SERVICE: str = ""
 
-    API_CONTACT_NAME: str = config("API_CONTACT_NAME", default="")
-    API_CONTACT_URL: str = config("API_CONTACT_URL", default="")
-    API_CONTACT_EMAIL: str = config("API_CONTACT_EMAIL", default="")
+    API_CONTACT_NAME: str = ""
+    API_CONTACT_URL: str = ""
+    API_CONTACT_EMAIL: str = ""
 
-    API_LICENSE_NAME: str = config("API_LICENSE_NAME", default="")
-    API_LICENSE_URL: str = config("API_LICENSE_URL", default="")
-    API_LICENSE_IDENTIFIER: str = config("API_LICENSE_IDENTIFIER", default="")
+    API_LICENSE_NAME: str = ""
+    API_LICENSE_URL: str = ""
+    API_LICENSE_IDENTIFIER: str = ""
 
-    API_TAGS_METADATA: str = config("API_TAGS_METADATA", default="[]")
+    API_TAGS_METADATA: str = "[]"
 
 
-class APISettings(BaseSettings):
+class APISettings(EnvSettings):
     """API-related settings."""
 
-    API_PREFIX: str = Field(default=config("API_PREFIX", default="/api"), validate_default=True)
+    API_PREFIX: str = Field(default="/api", validate_default=True)
 
     @field_validator("API_PREFIX")
     @classmethod
@@ -200,56 +278,71 @@ class APISettings(BaseSettings):
         return value
 
 
-class AppSettings(BaseSettings):
+def _project_name() -> str:
+    """The name ``fastro`` generated the project with, from the module it wrote, or
+    "FastAPI Boilerplate" when that module is missing."""
+    module = f"{__package__}.project"
+    try:
+        project = importlib.import_module(module)
+    except ModuleNotFoundError as missing:
+        if missing.name != module:
+            raise
+
+        return "FastAPI Boilerplate"
+
+    return str(project.NAME)
+
+
+class AppSettings(EnvSettings):
     """Application-related settings."""
 
     # Note: For API documentation, prefer using API_* fields in APIDocSettings
-    APP_NAME: str = config("APP_NAME", default="FastAPI Boilerplate")
-    APP_DESCRIPTION: str = config("APP_DESCRIPTION", default="")
-    DEBUG: bool = config("DEBUG", default=False, cast=bool)
-    VERSION: str = config("VERSION", default="0.1.0")
+    APP_NAME: str = Field(default_factory=_project_name)
+    APP_DESCRIPTION: str = ""
+    DEBUG: bool = False
+    VERSION: str = "0.1.0"
 
 
-class EmailSettings(BaseSettings):
+class EmailSettings(EnvSettings):
     """How the account emails are delivered, and who they come from."""
 
-    EMAIL_BACKEND: str = config("EMAIL_BACKEND", default=EmailBackend.CONSOLE.value)
-    EMAIL_FROM: str = config("EMAIL_FROM", default="no-reply@localhost")
-    EMAIL_FROM_NAME: str = config("EMAIL_FROM_NAME", default="")
+    EMAIL_BACKEND: str = EmailBackend.CONSOLE.value
+    EMAIL_FROM: str = "no-reply@localhost"
+    EMAIL_FROM_NAME: str = ""
 
-    FRONTEND_URL: str = config("FRONTEND_URL", default="http://localhost:3000")
+    FRONTEND_URL: str = "http://localhost:3000"
 
-    EMAIL_SMTP_HOST: str = config("EMAIL_SMTP_HOST", default="")
-    EMAIL_SMTP_PORT: int = config("EMAIL_SMTP_PORT", default=587, cast=int)
-    EMAIL_SMTP_USER: str = config("EMAIL_SMTP_USER", default="")
-    EMAIL_SMTP_PASSWORD: str = config("EMAIL_SMTP_PASSWORD", default="")
-    EMAIL_SMTP_STARTTLS: bool = config("EMAIL_SMTP_STARTTLS", default=True, cast=bool)
-    EMAIL_SMTP_TIMEOUT_SECONDS: int = config("EMAIL_SMTP_TIMEOUT_SECONDS", default=10, cast=int)
+    EMAIL_SMTP_HOST: str = ""
+    EMAIL_SMTP_PORT: int = 587
+    EMAIL_SMTP_USER: str = ""
+    EMAIL_SMTP_PASSWORD: str = ""
+    EMAIL_SMTP_STARTTLS: bool = True
+    EMAIL_SMTP_TIMEOUT_SECONDS: int = 10
 
 
-class SecuritySettings(BaseSettings):
+class SecuritySettings(EnvSettings):
     """Security validation settings, and the secret every signed value derives from."""
 
-    SECRET_KEY: str = config("SECRET_KEY", default="insecure-secret-key-change-this")
+    SECRET_KEY: str = "insecure-secret-key-change-this"
 
-    PRODUCTION_SECURITY_VALIDATION_ENABLED: bool = config("PRODUCTION_SECURITY_VALIDATION_ENABLED", default=True, cast=bool)
-    SECURITY_HEADERS_ENABLED: bool = config("SECURITY_HEADERS_ENABLED", default=True, cast=bool)
+    PRODUCTION_SECURITY_VALIDATION_ENABLED: bool = True
+    SECURITY_HEADERS_ENABLED: bool = True
 
 
-class LoggingSettings(BaseSettings):
+class LoggingSettings(EnvSettings):
     """Centralized logging configuration settings."""
 
-    LOG_LEVEL: str = config("LOG_LEVEL", default=LogLevel.INFO.value)
-    LOG_FORMAT: str = Field(default=config("LOG_FORMAT", default=""), validate_default=True)
+    LOG_LEVEL: str = LogLevel.INFO.value
+    LOG_FORMAT: str = Field(default="", validate_default=True)
 
-    LOG_CONSOLE_ENABLED: bool = config("LOG_CONSOLE_ENABLED", default=True, cast=bool)
-    LOG_FILE_ENABLED: bool = config("LOG_FILE_ENABLED", default=False, cast=bool)
-    LOG_FILE_PATH: str = config("LOG_FILE_PATH", default="logs/app.log")
-    LOG_FILE_MAX_SIZE: int = config("LOG_FILE_MAX_SIZE", default=10485760, cast=int)
-    LOG_FILE_BACKUP_COUNT: int = config("LOG_FILE_BACKUP_COUNT", default=5, cast=int)
+    LOG_CONSOLE_ENABLED: bool = True
+    LOG_FILE_ENABLED: bool = False
+    LOG_FILE_PATH: str = "logs/app.log"
+    LOG_FILE_MAX_SIZE: int = 10485760
+    LOG_FILE_BACKUP_COUNT: int = 5
 
-    LOG_DEVELOPMENT_VERBOSE: bool = config("LOG_DEVELOPMENT_VERBOSE", default=True, cast=bool)
-    LOG_PRODUCTION_OPTIMIZE: bool = config("LOG_PRODUCTION_OPTIMIZE", default=True, cast=bool)
+    LOG_DEVELOPMENT_VERBOSE: bool = True
+    LOG_PRODUCTION_OPTIMIZE: bool = True
 
     @field_validator("LOG_FORMAT")
     @classmethod

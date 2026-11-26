@@ -59,15 +59,17 @@ SECRET_KEY=your-secret-key
 
 ### Layer 2: Settings Classes
 
-Pydantic `BaseSettings` classes in `src/infrastructure/config/settings.py` validate and structure config:
+Pydantic `BaseSettings` classes validate and structure config: the core ones in
+`src/infrastructure/config/base.py`, and each feature's next to the feature
+([Settings Classes](settings-classes.md)):
 
 ```python
-class DatabaseSettings(BaseSettings):
-    POSTGRES_USER: str = config("POSTGRES_USER", default="postgres")
-    POSTGRES_PASSWORD: str = config("POSTGRES_PASSWORD", default="postgres")
-    POSTGRES_SERVER: str = config("POSTGRES_SERVER", default="localhost")
-    POSTGRES_PORT: int = config("POSTGRES_PORT", default=5432)
-    POSTGRES_DB: str = config("POSTGRES_DB", default="postgres")
+class DatabaseSettings(EnvSettings):
+    POSTGRES_USER: str = "postgres"
+    POSTGRES_PASSWORD: str = "postgres"
+    POSTGRES_SERVER: str = "localhost"
+    POSTGRES_PORT: int = 5432
+    POSTGRES_DB: str = "postgres"
 ```
 
 A single composite `Settings` class combines them all.
@@ -90,7 +92,8 @@ print(settings.DATABASE_URL)
 ```env
 APP_NAME=Your App Name
 VERSION=1.0.0
-ENVIRONMENT=development  # development | staging | production | local
+# development | staging | production | local
+ENVIRONMENT=development
 DEBUG=false
 ```
 
@@ -99,10 +102,12 @@ DEBUG=false
 ```env
 POSTGRES_USER=your_user
 POSTGRES_PASSWORD=your_password
-POSTGRES_SERVER=localhost   # use "postgres" with Docker Compose
+# Use "postgres" with Docker Compose
+POSTGRES_SERVER=localhost
 POSTGRES_PORT=5432
 POSTGRES_DB=your_database
-CREATE_TABLES_ON_STARTUP=true   # the default in local and development
+# The default in local and development
+CREATE_TABLES_ON_STARTUP=true
 ```
 
 ### Security & Sessions
@@ -112,9 +117,11 @@ SECRET_KEY=your-super-secret-key-here
 
 SESSION_TIMEOUT_MINUTES=30
 SESSION_SECURE_COOKIES=true
-SESSION_BACKEND=redis           # redis | database | memory
+# redis | database | memory
+SESSION_BACKEND=redis
 CSRF_ENABLED=true
-TRUSTED_PROXY_HOPS=0            # trusted reverse proxies in front of the app
+# Trusted reverse proxies in front of the app
+TRUSTED_PROXY_HOPS=0
 ```
 
 Login lockout is applied internally by `crudauth` (escalating per-IP / per-identifier; returns `429` with `Retry-After`) — it is not configured via env vars.
@@ -123,8 +130,10 @@ Login lockout is applied internally by `crudauth` (escalating per-IP / per-ident
 
 ```env
 CACHE_ENABLED=true
-CACHE_BACKEND=redis           # or "memcached"
-CACHE_REDIS_HOST=localhost    # use "redis" with Docker Compose
+# The cache.backend the project was generated with
+CACHE_BACKEND=redis
+# Use "redis" with Docker Compose
+CACHE_REDIS_HOST=localhost
 CACHE_REDIS_PORT=6379
 CACHE_REDIS_DB=0
 ```
@@ -132,8 +141,10 @@ CACHE_REDIS_DB=0
 ### Background Tasks (Taskiq)
 
 ```env
-TASKIQ_BROKER_TYPE=redis      # or "rabbitmq"
-TASKIQ_REDIS_HOST=localhost   # use "redis" with Docker Compose
+# The taskiq.broker the project was generated with
+TASKIQ_BROKER_TYPE=redis
+# Use "redis" with Docker Compose
+TASKIQ_REDIS_HOST=localhost
 TASKIQ_REDIS_PORT=6379
 TASKIQ_REDIS_DB=3
 ```
@@ -177,9 +188,14 @@ RATE_LIMITER_REDIS_HOST=localhost
 ```env
 ENVIRONMENT=staging
 DEBUG=false
+SECRET_KEY=<from secrets manager>
 POSTGRES_SERVER=staging-db.example.com
 CACHE_REDIS_HOST=staging-redis.example.com
 SESSION_SECURE_COOKIES=true
+# Account email, with the accounts feature: links are built from FRONTEND_URL
+EMAIL_BACKEND=smtp
+EMAIL_SMTP_HOST=smtp.example.com
+FRONTEND_URL=https://staging.example.com
 ```
 
 ### Production
@@ -187,10 +203,27 @@ SESSION_SECURE_COOKIES=true
 ```env
 ENVIRONMENT=production
 DEBUG=false
+SECRET_KEY=<from secrets manager>
+POSTGRES_PASSWORD=<from secrets manager>
 POSTGRES_SERVER=prod-db.example.com
 CACHE_REDIS_HOST=prod-redis.example.com
+CACHE_REDIS_PASSWORD=<from secrets manager>
+CACHE_REDIS_SSL=true
+RATE_LIMITER_REDIS_HOST=prod-redis.example.com
+RATE_LIMITER_REDIS_PASSWORD=<from secrets manager>
+RATE_LIMITER_REDIS_SSL=true
+TASKIQ_REDIS_HOST=prod-redis.example.com
+TASKIQ_REDIS_PASSWORD=<from secrets manager>
+TASKIQ_REDIS_SSL=true
+CORS_ORIGINS=https://app.example.com
 PRODUCTION_SECURITY_VALIDATION_ENABLED=true
 ENABLE_DOCS_IN_PRODUCTION=false
+# Account email, with the accounts feature: links are built from FRONTEND_URL
+EMAIL_BACKEND=smtp
+EMAIL_SMTP_HOST=smtp.example.com
+EMAIL_SMTP_USER=<from secrets manager>
+EMAIL_SMTP_PASSWORD=<from secrets manager>
+FRONTEND_URL=https://app.example.com
 ```
 
 ## Docker Configuration
@@ -222,8 +255,8 @@ To run a Taskiq worker, add a worker service to your Compose file with the comma
 The boilerplate already exposes toggles like `CACHE_ENABLED`, `RATE_LIMITER_ENABLED`, `ADMIN_ENABLED`, and `CSRF_ENABLED`. You can add your own in a settings class:
 
 ```python
-class FeatureSettings(BaseSettings):
-    ENABLE_ANALYTICS: bool = config("ENABLE_ANALYTICS", default=False, cast=bool)
+class FeatureSettings(EnvSettings):
+    ENABLE_ANALYTICS: bool = False
 ```
 
 Then use it:

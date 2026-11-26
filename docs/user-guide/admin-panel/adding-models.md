@@ -309,22 +309,17 @@ from starlette.responses import RedirectResponse
 
 class WidgetAdmin(DataclassModelMixin, TextCsvExportMixin, ModelView, model=Widget):
     @action(
-        name="deactivate",
-        label="Deactivate Selected",
-        confirmation_message="Deactivate these widgets?",
+        name="delete_selected",
+        label="Delete Selected",
+        confirmation_message="Delete these widgets?",
         add_in_list=True,
     )
-    async def action_deactivate(self, request: Request) -> RedirectResponse:
+    async def action_delete_selected(self, request: Request) -> RedirectResponse:
         pks = request.query_params.get("pks", "").split(",")
         if pks and pks[0]:
             ids = [int(pk) for pk in pks]
             async with local_session() as db:
-                await crud_widgets.update(
-                    db=db,
-                    object={"is_active": False},
-                    allow_multiple=True,
-                    id__in=ids,
-                )
+                await crud_widgets.delete(db=db, allow_multiple=True, id__in=ids)
                 await db.commit()
 
         referer = request.headers.get("Referer")
@@ -334,6 +329,8 @@ class WidgetAdmin(DataclassModelMixin, TextCsvExportMixin, ModelView, model=Widg
 Notes:
 
 - Selected IDs come from `request.query_params["pks"]` as a comma-separated string
+- `Widget` carries `SoftDeleteMixin`, so `crud_widgets.delete` marks the rows deleted rather than
+  removing them
 - `local_session()` opens a session on the shared engine — import it from `infrastructure/database/session.py`
 - Always commit before redirecting, otherwise the change reverts when the request ends
 - sqladmin serves actions on a `GET`, which anything able to navigate the operator's browser can

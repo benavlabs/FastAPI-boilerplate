@@ -10,4 +10,5 @@ cache_redis_client = make_redis_client(
     settings.CACHE_REDIS_PASSWORD,
     settings.CACHE_REDIS_POOL_SIZE,
     settings.CACHE_REDIS_CONNECT_TIMEOUT,
+    ssl=settings.CACHE_REDIS_SSL,
 )

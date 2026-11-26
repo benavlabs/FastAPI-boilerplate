@@ -225,7 +225,8 @@ class TestOAuthProviderSelection:
 class TestNewUserFields:
     """crudauth creates the account; the boilerplate supplies the required display name."""
 
-    def test_the_display_name_is_filled_and_bounded(self):
+    async def test_the_display_name_is_filled_and_bounded(self, monkeypatch):
+        monkeypatch.setattr(setup, "NEW_ACCOUNT_FIELDS", ())
         context = NewUserContext(
             email="a" * (NAME_MAX_LENGTH + 10) + "@example.com",
             username="auser",
@@ -233,10 +234,24 @@ class TestNewUserFields:
             db=None,  # type: ignore[arg-type]
         )
 
-        fields = setup._new_user_fields(context)
+        fields = await setup._new_user_fields(context)
 
-        assert fields["name"] == "a" * NAME_MAX_LENGTH
-        assert len(fields["name"]) == NAME_MAX_LENGTH
+        assert fields == {"name": "a" * NAME_MAX_LENGTH}
+
+    async def test_what_each_feature_sets_on_a_new_account_is_added(self, monkeypatch):
+        session = object()
+
+        async def first(db):
+            assert db is session
+            return {"tier_id": 3, "first_column": 1}
+
+        async def second(db):
+            return {"tier_id": 4, "org": "x", "name": "Someone Else"}
+
+        monkeypatch.setattr(setup, "NEW_ACCOUNT_FIELDS", (first, second))
+        context = NewUserContext(email="ann@example.com", username="ann", source="oauth", db=session)  # type: ignore[arg-type]
+
+        assert await setup._new_user_fields(context) == {"name": "ann", "tier_id": 4, "first_column": 1, "org": "x"}
 
 
 class TestSessionTransportWiring:

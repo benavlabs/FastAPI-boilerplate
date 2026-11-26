@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.modules.tier.admin import TierAdmin
 from src.modules.tier.crud import crud_tiers
-from src.modules.tier.schemas import TierCreate
+from src.modules.tier.schemas import TierCreateInternal
 from src.modules.user.admin import UserAdmin
 from src.modules.user.models import User
 from tests.unit.interfaces.admin.helpers import exported_rows
@@ -48,7 +48,7 @@ async def test_a_live_tier_is_listed(db_session: AsyncSession, test_tier: dict):
 
 async def test_the_csv_export_writes_a_formula_like_tier_name_as_text(db_session: AsyncSession):
     """The tier's name and description reach the file as text."""
-    await crud_tiers.create(db=db_session, object=TierCreate(name="@SUM(1+1)", description="+2"))
+    await crud_tiers.create(db=db_session, object=TierCreateInternal(name="@SUM(1+1)", description="+2"))
     tiers = (await db_session.execute(TierAdmin().list_query(_no_request()))).scalars().all()
 
     header, *rows = await exported_rows(TierAdmin(), list(tiers))

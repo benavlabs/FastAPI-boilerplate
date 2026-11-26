@@ -8,7 +8,7 @@ from fastapi.dependencies.utils import get_flat_dependant
 from pydantic import BaseModel
 from starlette.requests import Request
 
-from ..auth.scope import scope_fingerprint
+from ...wiring.scope import SCOPE_FINGERPRINT
 
 
 def extract_data_inside_brackets(input_string: str) -> list[str]:
@@ -117,7 +117,7 @@ def caller_marks(caller: Any) -> str | None:
     if not isinstance(caller, Principal):
         return None
 
-    narrowed = scope_fingerprint(caller)
+    narrowed = SCOPE_FINGERPRINT(caller) if SCOPE_FINGERPRINT is not None else None
 
     return str(caller.user_id) if narrowed is None else f"{caller.user_id}/{narrowed}"
 

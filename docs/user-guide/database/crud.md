@@ -19,20 +19,33 @@ Each module owns its own FastCRUD instance, kept tiny and predictable:
 ```python
 # backend/src/modules/user/crud.py
 from fastcrud import FastCRUD
+from pydantic import BaseModel
 
 from .models import User
+from .schemas import UserAnonymize, UserCreateInternal, UserDelete, UserUpdate, UserUpdateInternal
 
-crud_users: FastCRUD = FastCRUD(User)
+crud_users = FastCRUD[User, UserCreateInternal, UserUpdate | UserAnonymize, UserUpdateInternal, UserDelete, BaseModel](User)
 ```
 
 ```python
 # backend/src/modules/tier/crud.py
 from fastcrud import FastCRUD
+from pydantic import BaseModel
 
 from .models import Tier
+from .schemas import TierCreateInternal, TierDelete, TierUpdate, TierUpdateInternal
 
-crud_tiers: FastCRUD = FastCRUD(Tier)
+crud_tiers = FastCRUD[Tier, TierCreateInternal, TierUpdate, TierUpdateInternal, TierDelete, BaseModel](Tier)
 ```
+
+`FastCRUD` names six types: the model, the schema `create` takes, the one `update` takes, an
+internal update type no method reads, the type of the `filters=` that `delete` and `db_delete`
+take, and the schema reads select with. Left bare, every argument is `Any`; named, mypy
+refuses a `create` handed the public schema instead of the internal one, or a schema built with a
+field it doesn't declare (`init_forbid_extra` is on in `backend/pyproject.toml`). The select type
+is `BaseModel`, since one module reads with several schemas through `schema_to_select`. A slot a
+module has no schema for, such as a delete schema, is `BaseModel` too. Leave the name
+unannotated: an annotation with the bare `FastCRUD` class makes every argument `Any` again.
 
 The CRUD instance is then imported by the module's `service.py`, which adds business logic on top — input validation, permission checks, password hashing, multi-step orchestration.
 
@@ -161,10 +174,14 @@ created = await crud_users.create(db=db, object=user_internal, schema_to_select=
 
 ### Creating Records with Foreign Keys
 
-For models that reference other rows, just include the FK column on the create schema:
+The foreign key goes on the internal create schema, the one `create` takes, since a client never
+sends it in the body:
 
 ```python
-new_rate_limit = RateLimitCreate(
+from src.modules.rate_limit.crud import crud_rate_limits
+from src.modules.rate_limit.schemas import RateLimitCreateInternal
+
+new_rate_limit = RateLimitCreateInternal(
     tier_id=tier.id,
     name="users_list",
     path="/api/v1/users/",

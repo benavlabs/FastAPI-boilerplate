@@ -6,8 +6,7 @@ finds out at the import line.
 The sweep checks that the module and the name exist, not that a relative import
 counts the right number of dots: a sample rarely says which file it belongs to.
 A relative import of a single name, ``.schemas``, is left alone -- which of them it
-means depends on the file it sits in, and in a project with features removed the
-name can turn unique and resolve to the wrong module.
+means depends on the file it sits in.
 
 ``ILLUSTRATIVE_MODULES`` lists the modules the guides invent to show how a project of
 your own would look.
@@ -15,16 +14,13 @@ your own would look.
 
 import ast
 import importlib
-import importlib.util
 import re
-import sys
 from collections.abc import Iterator
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 DOCS_ROOT = REPO_ROOT / "docs"
 SRC_ROOT = REPO_ROOT / "backend" / "src"
-DRILL_PATH = REPO_ROOT / "tools" / "removal_drill.py"
 
 PYTHON_BLOCK = re.compile(r"```python\n(.*?)```", re.DOTALL)
 
@@ -33,43 +29,7 @@ ILLUSTRATIVE_MODULES = (
     "src.modules.reports",
     "src.modules.user.routes_v2",
     "src.interfaces.api.v2",
-    "src.infrastructure.observability",
 )
-
-
-def _manifest():
-    """The drill's feature manifest, which says which paths each feature owns."""
-    spec = importlib.util.spec_from_file_location("removal_drill_manifest", DRILL_PATH)
-    assert spec is not None and spec.loader is not None
-    manifest = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = manifest
-    spec.loader.exec_module(manifest)
-
-    return manifest
-
-
-def _paths_of_features_left_out() -> tuple[str, ...]:
-    """The paths owned by the features this project doesn't carry, which its docs still show."""
-    manifest = _manifest()
-    present = {
-        name
-        for name, feature in manifest.FEATURES.items()
-        if (sources := [path for path in feature.paths if path.startswith("backend/src")])
-        and all((REPO_ROOT / path).exists() for path in sources)
-    }
-
-    left_out: list[str] = []
-    for name, feature in manifest.FEATURES.items():
-        if name not in present:
-            left_out.extend(feature.paths)
-        for combination, paths in feature.combination_paths.items():
-            if name not in present or combination not in present:
-                left_out.extend(paths)
-
-    return tuple(left_out)
-
-
-LEFT_OUT_PATHS = _paths_of_features_left_out()
 
 
 def _import_statements(block: str) -> Iterator[tuple[ast.ImportFrom, int]]:
@@ -103,8 +63,7 @@ def _module_path(node: ast.ImportFrom) -> Path | None:
 
     An absolute import names its module from ``src``. A relative one names a suffix of
     at least two parts, resolved when exactly one module, or one package that would
-    hold it, matches. A package the project doesn't carry at all resolves to nothing,
-    so a sample for a feature this project removed is left alone.
+    hold it, matches.
     """
     parts = (node.module or "").split(".")
     if node.level == 0:
@@ -123,7 +82,7 @@ def _module_path(node: ast.ImportFrom) -> Path | None:
             if existing.exists():
                 return existing
 
-        return candidate.with_suffix(".py") if candidate.parent.is_dir() else None
+        return candidate.with_suffix(".py")
 
     suffix = "/".join(parts)
     modules = [path for path in SRC_ROOT.rglob(f"{parts[-1]}.py") if str(path).endswith(f"{suffix}.py")]
@@ -160,9 +119,6 @@ def _missing(where: str, node: ast.ImportFrom, path: Path) -> list[str]:
         return []
 
     if not path.exists():
-        if LEFT_OUT_PATHS and str(path.relative_to(REPO_ROOT)).startswith(LEFT_OUT_PATHS):
-            return []
-
         return [f"{where}: no module {dotted}"]
 
     module = importlib.import_module(dotted)
@@ -185,11 +141,7 @@ def test_every_documented_project_import_resolves():
 
 
 def test_the_sweep_reads_the_samples_it_claims_to():
-    """An extractor that quietly stopped matching would make the sweep above vacuous.
-
-    Counts what every project carries, the documentation, rather than what the
-    selected features leave resolvable.
-    """
+    """An extractor that quietly stopped matching would make the sweep above vacuous."""
     blocks = [block.group(1) for document in DOCS_ROOT.rglob("*.md") for block in PYTHON_BLOCK.finditer(document.read_text())]
     statements = [node for block in blocks for node, _ in _import_statements(block)]
 

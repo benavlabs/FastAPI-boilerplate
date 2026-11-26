@@ -168,7 +168,7 @@ For richer auditing, write to a dedicated log stream or push events to a SIEM.
 |-----------|----------|
 | Admin auth backend | `backend/src/interfaces/admin/auth.py` |
 | Admin app factory | `backend/src/interfaces/admin/initialize.py` |
-| Settings classes | `backend/src/infrastructure/config/settings.py` (`AdminSettings`, `SQLAdminSettings`) |
+| Settings classes | `backend/src/infrastructure/auth/settings.py` (`FirstSuperuserSettings`), `backend/src/interfaces/admin/settings.py` (`SQLAdminSettings`) |
 | Initial data script | `backend/scripts/setup_initial_data.py` |
 
 ## Next Steps

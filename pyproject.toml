@@ -1,28 +1,37 @@
 # Workspace root.
 #
-# This file exists so `uv` recognizes the repo as a workspace and can resolve
-# both the `backend/` (deployable application) and `cli/` (developer/operator
-# tool) packages from a single venv. It is NOT a deployable package itself —
-# nothing here ships to production.
+# This file exists so `uv` resolves the repo as a workspace whose one member is `backend/`
+# (the deployable application), and installs the blueprint's own tools, fastro among them,
+# into the same venv. It is NOT a deployable package itself: nothing here ships to production.
 #
 # Most commands work from anywhere in the repo:
 #
-#     uv sync --all-packages --all-extras   # one venv shared by all members
-#     uv run bp ...                         # runs the CLI from cli/, from any cwd
+#     uv sync --all-packages --all-extras   # one venv: the backend and the root's dev group
+#     uv run --no-sync fastro ...           # runs fastro, from any cwd
 #     cd backend && uv run --no-sync pytest # runs the backend test suite
+#     uv run --no-sync pytest               # runs the blueprint's own tests
 #
-# To install `bp` machine-wide so it works outside this repo:
-#
-#     uv tool install --editable ./cli
+# The backend's tests run under their own root: `backend/tests/conftest.py` declares
+# `pytest_plugins`, which pytest only reads from the root's top-level conftest. So the root's
+# testpaths name the blueprint's tests and nothing else.
 
 [project]
 name = "fastapi-boilerplate-workspace"
 version = "0"
-description = "Workspace root — see backend/ and cli/ for actual packages."
-requires-python = ">=3.11"
+description = "Workspace root; the application is in backend/."
+requires-python = ">=3.11,<3.15"
+
+[dependency-groups]
+dev = ["fastro", "packaging>=24.0", "pyyaml>=6.0.2", "types-pyyaml>=6.0.12"]
 
 [tool.uv.workspace]
-members = ["backend", "cli"]
+members = ["backend"]
+
+[tool.uv.sources]
+fastro = { git = "https://github.com/benavlabs/fastro", rev = "d74640741beff33d1923301c86d32eefef52d53f" }
+
+[tool.pytest.ini_options]
+testpaths = ["blueprint/tests"]
 
 [tool.ruff]
 line-length = 128

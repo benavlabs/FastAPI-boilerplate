@@ -9,8 +9,6 @@ from httpx import AsyncClient
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.infrastructure.auth.dependencies import get_current_user
-from src.interfaces.main import app
 from src.modules.api_keys.models import APIKey
 
 pytestmark = pytest.mark.asyncio
@@ -25,13 +23,12 @@ async def test_a_missing_api_key_returns_the_generic_not_found(auth_client: Asyn
     assert body["support_id"]
 
 
-async def test_another_users_api_key_is_forbidden_generically(auth_client: AsyncClient, test_user_2: dict):
+async def test_another_users_api_key_is_forbidden_generically(auth_client: AsyncClient, auth_client_2: AsyncClient):
     created = await auth_client.post("/api/v1/api-keys/", json={"name": "Cross User Key"})
     assert created.status_code == 201
     key_id = created.json()["id"]
 
-    app.dependency_overrides[get_current_user] = lambda: test_user_2
-    response = await auth_client.get(f"/api/v1/api-keys/{key_id}")
+    response = await auth_client_2.get(f"/api/v1/api-keys/{key_id}")
 
     assert response.status_code == 403
     body = response.json()

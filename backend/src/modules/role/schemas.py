@@ -5,7 +5,7 @@ from typing import Annotated, Any, ClassVar
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from ...infrastructure.permissions import registered_permissions
+from ...infrastructure.permissions import RegisteredPermission
 from ..common.schemas import EncodableText, PartialUpdate, not_nullable_columns
 from .constants import ROLE_NAME_MAX_LENGTH
 from .models import Role as RoleModel
@@ -19,12 +19,12 @@ class RolePermissions(EncodableText):
 
     model_config = ConfigDict(extra="forbid")
 
-    permissions: list[str] = Field(default_factory=list, examples=[["user.read", "user.update"]])
+    permissions: list[RegisteredPermission] = Field(default_factory=list, examples=[["user.read", "user.update"]])
 
     @field_validator("permissions")
     @classmethod
-    def _registered(cls, names: list[str]) -> list[str]:
-        return registered_permissions(names)
+    def _distinct(cls, names: list[str]) -> list[str]:
+        return sorted(set(names))
 
 
 class RoleCreate(RolePermissions):

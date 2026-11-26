@@ -161,6 +161,7 @@ class TestCreating:
         )
 
         assert response.status_code == 422
+        assert [error["loc"] for error in response.json()["errors"]] == [["body", "permissions", 1]]
         assert "widget.explode" not in response.text
         assert await _role_named(db_session, "editor") is None
 

@@ -16,6 +16,7 @@ from ...infrastructure.auth.deps import CurrentPermissionsDep, CurrentPrincipalD
 from ...infrastructure.dependencies import AsyncSessionDep
 from ...infrastructure.permissions import permission_groups
 from ..common.pagination import MAX_INTEGER_ID, ItemsPerPageDep, PageDep
+from ..common.utils.error_handler import INVALID_REQUEST_RESPONSE
 from .dependencies import RoleServiceDep
 from .permissions import RolePermissionName
 from .schemas import RoleCreate, RolePermissions, RoleRead, RoleUpdate
@@ -127,7 +128,7 @@ async def get_role(role_id: RoleIdDep, db: AsyncSessionDep, _: CurrentUserDep, r
         401: {"description": "Not authenticated"},
         403: {"description": "Missing the role.create permission, or granting what the caller doesn't hold"},
         409: {"description": "A role with this name already exists"},
-        422: {"description": "An unknown permission name"},
+        422: {"description": "An unknown permission name", **INVALID_REQUEST_RESPONSE},
     },
     dependencies=[require_permissions(RolePermissionName.CREATE.value)],
     response_description="The role that was created",
@@ -192,7 +193,7 @@ async def update_role(
         401: {"description": "Not authenticated"},
         403: {"description": "Missing the role.update permission, touching what the caller doesn't hold, or a stronger holder"},
         404: {"description": "Role not found"},
-        422: {"description": "An unknown permission name"},
+        422: {"description": "An unknown permission name", **INVALID_REQUEST_RESPONSE},
     },
     dependencies=[require_permissions(RolePermissionName.UPDATE.value)],
     response_description="The role and what it now carries",

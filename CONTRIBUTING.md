@@ -24,8 +24,13 @@ cd FastAPI-boilerplate
 uv sync --all-packages --all-extras
 ```
 
-`--all-packages` installs both workspace members, and `--all-extras` brings in the
-dev tools: a plain `uv sync` leaves you without ruff, mypy or pytest.
+`--all-packages` installs the backend, the workspace's one member, and `--all-extras`
+brings in the dev tools: a plain `uv sync` leaves you without ruff, mypy or pytest.
+
+The sync also installs fastro, the CLI that generates projects from this blueprint
+and checks it. The root `pyproject.toml` pins fastro to one commit in its `dev`
+group. `uv.lock` is at lock revision 5, which uv 0.13.8 wrote, so use uv 0.13.8 or
+newer.
 
 ### Activating the Virtual Environment
 
@@ -85,6 +90,7 @@ It helps in identifying simple issues before submission to code review. By runni
 1. **Committing Your Changes**:
    After making your changes, use `git commit -am 'Add some fooBar'` to commit them. Pre-commit will run automatically on your files when you commit, ensuring that they meet the required standards.
    Note: If pre-commit identifies issues, it may block your commit. Fix these issues and commit again. This ensures that all contributions are of high quality.
+   A commit that touches `blueprint.toml`, `fastro.toml`, a wiring file fastro generates, the root `pyproject.toml`, or `uv.lock` also runs `uv run --no-sync fastro sync --check`, which fails when the wiring in the commit differs from what fastro generates. Run `uv run --no-sync fastro sync` to regenerate the wiring, then commit the result.
 1. **Pushing Changes and Creating Pull Request**:
    Push your changes to the branch using `git push origin feature/fooBar`.
    Visit your fork on GitHub and create a new Pull Request to the main repository.

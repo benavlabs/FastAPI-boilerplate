@@ -269,10 +269,14 @@ For dev/test environments where CSRF gets in the way, set `CSRF_ENABLED=false`.
 Failed login attempts are throttled by `crudauth` itself. It applies an **escalating per-IP / per-identifier lockout** and, once tripped, returns `429 Too Many Requests` with a `Retry-After` header on `/api/v1/auth/login`. The thresholds are four settings, passed to crudauth as a `LockoutConfig` in `infrastructure/auth/setup.py`:
 
 ```env
-LOGIN_MAX_ATTEMPTS=5             # failures allowed inside the window, per address and per account
-LOGIN_ATTEMPT_WINDOW_SECONDS=900 # how long failures keep counting
-LOGIN_LOCKOUT_BASE_SECONDS=300   # first lockout, doubling each round
-LOGIN_LOCKOUT_MAX_SECONDS=3600   # ceiling for the doubling
+# Failures allowed inside the window, per address and per account
+LOGIN_MAX_ATTEMPTS=5
+# How long failures keep counting
+LOGIN_ATTEMPT_WINDOW_SECONDS=900
+# First lockout, doubling each round
+LOGIN_LOCKOUT_BASE_SECONDS=300
+# Ceiling for the doubling
+LOGIN_LOCKOUT_MAX_SECONDS=3600
 ```
 
 The window is the value that matters against a paced attack: crudauth's own default counts over 60 seconds, so five tries a minute never accumulate. A successful login clears the account's failures and the pressure its own failures put on that address. The admin panel counts on [two policies of its own](../admin-panel/configuration.md#login-authentication), with these same thresholds, so a failure at one door never counts against the other. Behind a reverse proxy, set `TRUSTED_PROXY_HOPS` so the lockout keys on the real client IP rather than the proxy's.
@@ -385,7 +389,7 @@ Sessions are stored server-side. Configure via `SESSION_BACKEND`:
 | `redis` *(default)* | Production. Supports key expiration, pattern scans for cleanup, persists across restarts |
 | `memory` | Tests only. Cleared on restart, not safe for multi-process deploys |
 
-The backends ship inside the `crudauth` library, not the boilerplate — `setup.py` just selects `redis`, `database` or `memory` based on `SESSION_BACKEND`, and a value it has no store for is refused when the app starts. (Memcached is no longer a session option; it remains available for the general cache and rate limiter.)
+The backends ship inside the `crudauth` library, not the boilerplate — `setup.py` just selects `redis`, `database` or `memory` based on `SESSION_BACKEND`, and a value it has no store for is refused when the app starts. (The session store's and the rate limiter's Memcached backends were both removed; [Rate Limiting](../rate-limiting/index.md#configuration) says where its counters live.)
 
 `database` keeps sessions, CSRF tokens, the one-time tokens behind the email flows and the OAuth
 state in two tables of this project's own database — `crudauth_store` and `crudauth_counters` —
@@ -399,15 +403,22 @@ schema change, and wants one migration. Expired rows are deleted as the store wr
 
 ```env
 # Backend
-SESSION_BACKEND=redis                # redis | database | memory
-SESSION_REDIS_DB=2                   # on the cache Redis; isolated from cache (0), rate limiter (1), and taskiq (3)
-# SESSION_REDIS_URL=                 # optional dedicated session Redis, e.g. rediss://user:password@host:6380/0
+# redis | database | memory
+SESSION_BACKEND=redis
+# On the cache Redis; isolated from cache (0), rate limiter (1), and taskiq (3)
+SESSION_REDIS_DB=2
+# Optional dedicated session Redis, e.g. rediss://user:password@host:6380/0
+# SESSION_REDIS_URL=
 
 # Lifetime
-SESSION_TIMEOUT_MINUTES=30           # inactive sessions expire
-# SESSION_ABSOLUTE_TIMEOUT_HOURS=12  # the most a session may live from sign-in; unset for no cap
-# FRESH_SIGN_IN_SECONDS=600            # how recent a sign-in must be for the routes that ask; unset, closing an account asks nothing
-SESSION_CLEANUP_INTERVAL_MINUTES=15  # how often the storage backend sweeps expired entries
+# Inactive sessions expire
+SESSION_TIMEOUT_MINUTES=30
+# The most a session may live from sign-in; unset for no cap
+# SESSION_ABSOLUTE_TIMEOUT_HOURS=12
+# How recent a sign-in must be for the routes that ask; unset, closing an account asks nothing
+# FRESH_SIGN_IN_SECONDS=600
+# How often the storage backend sweeps expired entries
+SESSION_CLEANUP_INTERVAL_MINUTES=15
 
 # Per-user cap
 MAX_SESSIONS_PER_USER=5
@@ -545,7 +556,7 @@ entries, Redis keeps a per-user index, and the database store has a `user_id` co
 | Refused-login and lockout hooks | `backend/src/infrastructure/auth/audit.py` |
 | Session management routes | crudauth's `build_session_management_router`, mounted in `routes.py` |
 | HTTP exceptions (fastcrud re-export) | `backend/src/infrastructure/http_exceptions.py` |
-| Auth settings | `backend/src/infrastructure/config/settings.py` (`AuthSettings`) |
+| Auth settings | `backend/src/infrastructure/auth/settings.py` (`AuthSettings`) |
 
 Session storage, CSRF, and lockout themselves live in the `crudauth` library, not the boilerplate.
 

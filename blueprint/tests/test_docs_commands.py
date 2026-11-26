@@ -1,0 +1,228 @@
+"""The commands the README and the docs tell a reader to run are ones the pinned fastro has."""
+
+import re
+import shlex
+import tomllib
+from collections.abc import Iterator
+
+import click
+import pytest
+import typer.main
+from fastro import make as making
+from fastro.cli import app
+from fastro.engine import blueprint
+from fastro.tools import installed_version
+from fastro.verify import verify_sets
+from retired import OLD_COMMAND, OLD_DRILL, REPO_ROOT, RUNS_OLD_COMMAND, SAYS_OLD_COMMAND_EXITS, shown_pages
+
+
+def _fastro() -> click.Group:
+    command = typer.main.get_command(app)
+    assert isinstance(command, click.Group)
+
+    return command
+
+
+FASTRO = _fastro()
+
+LAUNCHERS = (("uv", "run", "--no-sync"), ("uv", "run"), ("uvx",), ("python", "-m"))
+
+STOPS = {"|", "&&", "||", ";"}
+
+
+def _code(text: str) -> Iterator[tuple[str, bool]]:
+    """Every line of every fenced block, a commented-out alternative included, and every inline
+    code span outside them, each with whether it is a line a reader runs."""
+    fenced = False
+    for line in text.splitlines():
+        if line.lstrip().startswith("```"):
+            fenced = not fenced
+        elif fenced:
+            yield re.sub(r"^\s*#\s*(?:or:\s*)?", "", line), True
+        else:
+            yield from ((span, False) for span in re.findall(r"`([^`\n]+)`", line))
+
+
+def _fastro_words(code: str) -> list[str] | None:
+    """The words after `fastro` when the code runs it, through any launcher; `None` when it doesn't."""
+    lexer = shlex.shlex(code.strip().removeprefix("$ "), posix=True, punctuation_chars=True)
+    lexer.whitespace_split = True
+    try:
+        words = list(lexer)
+    except ValueError:
+        return None
+    for index, word in enumerate(words):
+        if word in STOPS:
+            words = words[:index]
+            break
+    for launcher in LAUNCHERS:
+        if tuple(words[: len(launcher)]) == launcher:
+            words = words[len(launcher) :]
+            break
+    if not words or words[0].split("@")[0] != "fastro":
+        return None
+
+    return words[1:]
+
+
+def _commands() -> list[tuple[str, list[str], bool]]:
+    return [
+        (f"{name}: {code.strip()}", words, runs)
+        for name, text in shown_pages()
+        for code, runs in _code(text)
+        if (words := _fastro_words(code)) is not None
+    ]
+
+
+def _refusal(words: list[str], runs: bool = True) -> str | None:
+    """Why the pinned fastro would refuse these words, or `None` when it takes them.
+
+    A command named in a sentence, with nothing after it, only has to exist; a line a reader
+    runs has to parse."""
+    command: click.Command = FASTRO
+    remaining = list(words)
+    while isinstance(command, click.Group) and remaining and not remaining[0].startswith("-"):
+        if remaining[0] not in command.commands:
+            return f"{command.name} has no command {remaining[0]!r}"
+        command = command.commands[remaining.pop(0)]
+    if isinstance(command, click.Group) and remaining:
+        return f"{command.name} takes a command before {remaining[0]!r}"
+    if command is FASTRO.commands["make"]:
+        return _make_refusal(remaining, runs)
+    if not remaining and not runs:
+        return None
+    try:
+        command.make_context(command.name, remaining)
+    except click.ClickException as refused:
+        return refused.format_message()
+
+    return None
+
+
+def _make_refusal(words: list[str], runs: bool) -> str | None:
+    """Why `fastro make` would refuse these words: it reads them itself, against this blueprint's generators."""
+    if not words or words[0] == making.HELP:
+        return None
+    catalog = blueprint.load("blueprint.toml", (REPO_ROOT / "blueprint.toml").read_text(), installed_version())
+    if not runs and len(words) <= 1:
+        return None if not words or words[0] in catalog.generators else f"make has no generator {words[0]!r}"
+    try:
+        making.parse(catalog, words)
+    except (making.UsageError, making.Refused) as refused:
+        return str(refused)
+
+    return None
+
+
+def test_no_page_a_reader_sees_runs_the_retired_command():
+    """B3 item 2 removes the old developer CLI; every command it ran is a fastro command now."""
+    found = [
+        f"{name}:{number}"
+        for name, text in shown_pages()
+        for number, line in enumerate(text.splitlines(), 1)
+        if RUNS_OLD_COMMAND.search(line) and not (name == "docs/user-guide/fastro.md" and SAYS_OLD_COMMAND_EXITS.match(line))
+    ]
+
+    assert not found, found
+
+
+def test_no_code_block_a_reader_sees_runs_the_drill():
+    """A page may still name it in prose, but a block a reader copies runs fastro."""
+    found = [
+        f"{name}: {code.strip()}" for name, text in shown_pages() for code, runs in _code(text) if runs and OLD_DRILL in code
+    ]
+
+    assert found == []
+
+
+def test_the_pages_show_fastro_commands():
+    """The rule below has something to read, so a reader that stopped finding commands would show."""
+    assert any(words[:2] == ["make", "deploy"] and runs for _, words, runs in _commands())
+
+
+@pytest.mark.parametrize(("where", "words", "runs"), _commands(), ids=[where for where, _, _ in _commands()])
+def test_every_fastro_command_a_page_shows_is_one_the_pinned_fastro_takes(where: str, words: list[str], runs: bool):
+    assert _refusal(words, runs) is None, (where, _refusal(words, runs))
+
+
+FENCE = "`" * 3
+
+
+@pytest.mark.parametrize(
+    ("page", "refused"),
+    [
+        (f"{FENCE}bash\nuv run --no-sync fastro make deploy prod --wokers 8\n{FENCE}", True),
+        ("Run `fastro env gen-secret`.", True),
+        ("Run `fastro make deploy prodd`.", True),
+        ("Run `fastro env secret --bytes 8`.", True),
+        ("Run `fastro make deploy prod --workers many`.", True),
+        ("Run `fastro make deploy prod extra`.", True),
+        (f"{FENCE}bash\n# or: uv run --no-sync fastro make deploy prodd\n{FENCE}", True),
+        (f"{FENCE}bash\nuv run --no-sync fastro make deploy  # writes the compose file\n{FENCE}", True),
+        ("`fastro make deploy` writes it.", False),
+        ("Run `fastro make deploy --workers 8 prod`.", True),
+        ("Run `fastro make deploy prod --workers 8`.", False),
+        ("Run `fastro make deploy local --internal-subnet '*'`.", True),
+        ("Run `fastro make deploy prod|cat`.", False),
+        (f"{FENCE}bash\nuv run --no-sync fastro make\n{FENCE}", False),
+        ("Run `fastro make --help`.", False),
+        (f"{FENCE}bash\n# or: uv run --no-sync fastro make deploy prod\n{FENCE}", False),
+        (f"{FENCE}bash\n$ uv run --no-sync fastro env secret --bytes 16 | gh secret set SECRET_KEY\n{FENCE}", False),
+        ("Run `uv run --no-sync fastro make deploy nginx --internal-subnet=10.89.0.0/24 --dry-run`.", False),
+        (f"{FENCE}bash\nfastro sync --check  # in the blueprint repo\n{FENCE}", False),
+    ],
+)
+def test_the_reader_refuses_what_fastro_would(page: str, refused: bool):
+    read = [(words, runs) for code, runs in _code(page) if (words := _fastro_words(code)) is not None]
+
+    assert len(read) == 1, read
+    assert (_refusal(*read[0]) is not None) is refused
+
+
+@pytest.mark.parametrize(
+    ("line", "runs"),
+    [
+        (f"uv run --no-sync {OLD_COMMAND} env validate", True),
+        (f"the `{OLD_COMMAND}` tool", True),
+        (f"{OLD_COMMAND}-and-fastro", False),
+        ("redis-cli ping", False),
+    ],
+)
+def test_the_old_command_is_read_where_it_runs(line: str, runs: bool):
+    assert bool(RUNS_OLD_COMMAND.search(line)) is runs
+
+
+def test_every_root_sync_a_page_shows_installs_the_backend():
+    """The root project doesn't depend on the backend, so `--all-packages` is what installs it."""
+    root = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text())
+    backend = tomllib.loads((REPO_ROOT / "backend" / "pyproject.toml").read_text())["project"]["name"]
+    groups = root.get("dependency-groups", {}).values()
+    requirements = [*root["project"].get("dependencies", []), *(requirement for group in groups for requirement in group)]
+    pages = [*shown_pages(), ("CONTRIBUTING.md", (REPO_ROOT / "CONTRIBUTING.md").read_text())]
+    syncs = [
+        f"{name}: {code.strip()}" for name, text in pages for code, _ in _code(text) if code.strip().startswith("uv sync ")
+    ]
+
+    assert not [requirement for requirement in requirements if re.match(rf"{re.escape(backend)}(?![\w.-])", requirement)]
+    assert syncs
+    assert [sync for sync in syncs if "--all-packages" not in sync.split()] == []
+
+
+def _verify_sets() -> set[str]:
+    catalog = blueprint.load("blueprint.toml", (REPO_ROOT / "blueprint.toml").read_text(), installed_version())
+
+    return set(verify_sets(catalog))
+
+
+def test_every_set_a_page_verifies_is_one_verify_builds():
+    named = [
+        (name, word)
+        for name, text in shown_pages()
+        for code, runs in _code(text)
+        if runs and (words := _fastro_words(code)) and words[:2] == ["blueprint", "verify"]
+        for word in words[2:]
+        if not word.startswith("-")
+    ]
+
+    assert named
+    assert [(name, word) for name, word in named if word not in _verify_sets()] == []

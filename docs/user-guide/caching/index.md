@@ -66,30 +66,33 @@ When the cache hits, the handler doesn't run at all — the cached value is retu
 | `@cache` decorator | Endpoint-level caching with auto-invalidation | `infrastructure/cache/decorator.py` |
 | Provider API | Direct cache ops (`get`, `set`, `delete`, …) | `infrastructure/cache/provider.py` |
 | Redis backend | Pattern matching, persistence, rich types | `infrastructure/cache/backends/redis.py` |
-| Memcached backend | Lightweight, key/value only | `infrastructure/cache/backends/memcached.py` |
+| Memcached backend | Lightweight, key/value only | `infrastructure/cache/backends/memcached.py`, in a project generated with `cache.backend=memcached` |
 | `ClientCacheMiddleware` | Adds `Cache-Control` headers | `infrastructure/middleware.py` |
 
 ## Configuration
 
 ```env
 CACHE_ENABLED=true
-CACHE_BACKEND=redis           # or "memcached"
+# The cache.backend the project was generated with
+CACHE_BACKEND=redis
 
 # Redis backend
-CACHE_REDIS_HOST=redis        # use "localhost" without Docker
+# Use "localhost" without Docker
+CACHE_REDIS_HOST=redis
 CACHE_REDIS_PORT=6379
 CACHE_REDIS_DB=0
 CACHE_REDIS_PASSWORD=
 CACHE_REDIS_POOL_SIZE=10
 
-# Memcached backend (only when CACHE_BACKEND=memcached)
+# Memcached backend (only in a project generated with cache.backend=memcached)
 CACHE_MEMCACHED_HOST=localhost
 CACHE_MEMCACHED_PORT=11211
 CACHE_MEMCACHED_POOL_SIZE=10
 
 # Client-side cache headers
 CLIENT_CACHE_ENABLED=true
-CLIENT_CACHE_MAX_AGE=60        # seconds
+# Seconds
+CLIENT_CACHE_MAX_AGE=60
 ```
 
 When `CACHE_ENABLED=false`, the decorator becomes a no-op — useful in tests.
@@ -111,6 +114,11 @@ Both backends work with the decorator and provider. They have different strength
 
 **Pick Memcached** if you have an existing Memcached deployment or you specifically want simpler key/value semantics.
 
+The backend is the cache feature's `backend` option, chosen when the project is generated:
+`cache.backend=memcached` brings `aiomcache` and `infrastructure/cache/backends/memcached.py`, and
+the default, `redis`, brings neither. In a
+project on Redis, `CACHE_BACKEND=memcached` refuses to start, since the backend isn't there to load.
+
 The boilerplate's defaults run Redis everywhere because it doubles as the session and rate-limit backend.
 
 ## Graceful Degradation
@@ -130,7 +138,7 @@ If the cache backend becomes unavailable, the decorator catches the error and fa
 | Decorator | `backend/src/infrastructure/cache/decorator.py` |
 | Provider API | `backend/src/infrastructure/cache/provider.py` |
 | Backends | `backend/src/infrastructure/cache/backends/` |
-| Settings | `backend/src/infrastructure/config/settings.py` (`CacheSettings`) |
+| Settings | `backend/src/infrastructure/cache/settings.py` (`CacheSettings`) |
 | Client-cache middleware | `backend/src/infrastructure/middleware.py` |
 
 ## Next Steps

@@ -3,7 +3,7 @@
 [Neon](https://neon.com) is serverless Postgres — a managed database that scales compute to zero when idle and lets you branch a database like you branch code. It's a drop-in replacement for the local Postgres container: the boilerplate needs **one environment variable**, no code changes.
 
 !!! info "Neon sponsors this project"
-    Neon supports Fastro · The Benav Labs FastAPI Boilerplate with database credits for our open-source infrastructure. It's one option among many — the boilerplate runs on any Postgres 14+ (local, RDS, Cloud SQL, Supabase, your own box) — but it's the one we use and the one these instructions are tested against.
+    Neon supports FastAPI-boilerplate by Benav Labs with database credits for our open-source infrastructure. It's one option among many — the boilerplate runs on any Postgres 14+ (local, RDS, Cloud SQL, Supabase, your own box) — but it's the one we use and the one these instructions are tested against.
 
 ## When it's a good fit
 
@@ -101,7 +101,8 @@ An idle Neon compute suspends. Connections that were sitting in SQLAlchemy's poo
 `POSTGRES_POOL_PRE_PING` handles this and is **on by default** — every connection is tested before it's handed to a request, so a dead one is quietly replaced instead of failing the request. Pair it with `POSTGRES_POOL_RECYCLE` to retire connections before Neon does:
 
 ```env
-POSTGRES_POOL_RECYCLE=300     # seconds; keep it under your scale-to-zero timeout
+# Seconds; keep it under your scale-to-zero timeout
+POSTGRES_POOL_RECYCLE=300
 ```
 
 Trim the pool while you're there. `POSTGRES_POOL_SIZE` defaults to `20` per process, and the real number is `pool_size × workers × replicas` — see [Scaling considerations](../production.md#database). Against a small Neon compute, `5`–`10` is usually plenty:
@@ -131,7 +132,7 @@ services:
         condition: service_healthy
 ```
 
-Redis still runs locally — Neon replaces Postgres only. Regenerating with `uv run --no-sync bp deploy generate local` brings the Postgres service back, so keep the edit in mind after a regen.
+Redis still runs locally; Neon replaces Postgres only. Regenerating with `uv run --no-sync fastro make deploy local` brings the Postgres service back, so keep the edit in mind after a regen.
 
 ## Database branching for previews
 

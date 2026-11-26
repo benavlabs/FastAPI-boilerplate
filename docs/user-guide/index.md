@@ -51,7 +51,7 @@ Powered by [SQLAdmin](https://github.com/smithyhq/sqladmin) - a flexible admin i
 - **[Background Tasks](background-tasks/index.md)** - Handle long-running operations with Taskiq (Redis or RabbitMQ broker)
 
 ### Rate Limiting
-- **[Rate Limiting](rate-limiting/index.md)** - Protect your API from abuse with Redis-based rate limiting
+- **[Rate Limiting](rate-limiting/index.md)** - Protect your API from abuse with per-tier, per-path limits
 
 ### Operations
 - **[Observability](observability.md)** - What the project emits, and putting Logfire or any OpenTelemetry collector in front of it

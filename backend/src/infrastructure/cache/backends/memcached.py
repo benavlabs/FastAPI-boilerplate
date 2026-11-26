@@ -1,29 +1,14 @@
 import json
 from typing import Any
 
-try:
-    import aiomcache
-except ImportError:
-    raise ImportError(
-        "The aiomcache package is not installed. "
-        "Please install it with 'pip install aiomcache' or 'pip install -e \".[memcached]\"'"
-    )
-
+import aiomcache
 from pydantic import BaseModel
 
 from ...config.settings import get_settings
 from ..base import CacheBackend
-from ..exceptions import CacheException
+from ..exceptions import PatternMatchingNotSupportedError
 
 settings = get_settings()
-
-
-class PatternMatchingNotSupportedError(CacheException):
-    """Raised when attempting to use pattern matching with Memcached."""
-
-    def __init__(self, pattern: str):
-        self.message = f"Memcached doesn't support pattern-based deletion. Pattern '{pattern}' cannot be used."
-        super().__init__(self.message)
 
 
 class MemcachedSettings(BaseModel):

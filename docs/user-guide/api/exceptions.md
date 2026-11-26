@@ -82,14 +82,15 @@ async def search(q: str | None = None):
 
 `register_exception_handlers(app)` is called in `infrastructure/app_factory.py` at startup. It installs:
 
-- A `RequestValidationError` handler (Pydantic 422s) → returns a generic `Invalid request` message + a `support_id`
+- A `RequestValidationError` handler (Pydantic 422s) → returns a generic `Invalid request` message, an `errors` list giving each failure's `loc`, `msg` and `type`, and a `support_id`. pydantic's `input` and `ctx` are never sent or logged: `input` is the value that failed, the whole body for a missing field, passwords included
 - A catch-all `DomainError` handler → maps to the right HTTP status **and message** via `EXCEPTION_MAPPING`, and returns that message + a `support_id`. The raw exception message is logged server-side, never sent.
 - A `CatchAllErrorMiddleware` that converts truly unhandled exceptions into 500s with a `support_id`
 
 `NulCharacterMiddleware` (`infrastructure/middleware.py`) answers that same validation body before
 the router runs, for a path or query carrying a NUL character: `%00` arrives decoded, reaches a
 query, and Postgres refuses the whole statement, so the request used to answer 500. The log names
-the reason and the path; the response says only what every other 422 says.
+the reason and the path; the response is the same 422 body, its `errors` naming `path` or `query`
+as where the NUL was.
 
 Request bodies are refused by their schemas, which inherit `EncodableText`. The routes crudauth
 mounts carry models the library owns, so they are refused by `body_a_database_can_hold` instead,
@@ -157,12 +158,24 @@ async def get_tier_limits(name: str, db: AsyncSessionDep, tier_service: TierServ
 
 ### Validation error (422)
 
+A signup sent as `{"name": "Ann Example", "email": "not-an-email", "password": "Str1ngst!"}`:
+
 ```json
 {
   "detail": "Invalid request. Please check your input and try again.",
+  "errors": [
+    {"loc": ["body", "username"], "msg": "Field required", "type": "missing"},
+    {"loc": ["body", "email"], "msg": "value is not a valid email address: An email address must have an @-sign.", "type": "value_error"}
+  ],
   "support_id": "a1b2c3d4"
 }
 ```
+
+A `msg` never repeats the value it refused: the caller has what it sent, and `loc` says where to
+look. A bad entry in a list or a map is refused on its own, so its `loc` ends with the entry's
+index or key, such as `["body", "permissions", 2]`. A URL carrying a NUL character gets the same
+body, with `["path"]` or `["query"]` as the `loc`.
+The OpenAPI document describes this body for every route's `422`.
 
 ## Common Patterns
 

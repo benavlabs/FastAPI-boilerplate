@@ -127,14 +127,6 @@ class TestSettings:
             assert hasattr(settings, attr), f"Missing required setting: {attr}"
             assert getattr(settings, attr) is not None, f"Setting {attr} is None"
 
-    @patch.dict(os.environ, {"SQLITE_URI": ":memory:"})
-    def test_test_database_override(self):
-        """Test that test database settings work."""
-        settings = Settings()
-        # In test mode, should use in-memory database
-        if hasattr(settings, "SQLITE_URI"):
-            assert ":memory:" in settings.SQLITE_URI
-
 
 class TestCORSSettings:
     """Credentialed requests reject a wildcard origin, so the default must not be one."""

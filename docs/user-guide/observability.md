@@ -44,10 +44,10 @@ from .config.settings import settings
 from .database.session import get_engine
 
 
-def configure_tracing() -> None:
+def configure_tracing(service_name: str = "api") -> None:
     """Configure Logfire and instrument the clients this app talks through."""
     logfire.configure(
-        service_name="api",
+        service_name=service_name,
         environment=settings.ENVIRONMENT.value,
         send_to_logfire="if-token-present",
         console=False,
@@ -59,33 +59,35 @@ def configure_tracing() -> None:
 
 
 def install(app: FastAPI) -> None:
-    """Trace every request this app serves, except the probes."""
+    """Configure tracing, then trace every request this app serves, except the probes."""
+    configure_tracing()
     logfire.instrument_fastapi(app, excluded_urls=["/health", "/health/ready"])
 ```
 
-Then wire it where this app is composed, in `src/interfaces/main.py`:
+Then register the installer in the project's `fastro.toml`, and regenerate the wiring:
 
-```python
-from ..infrastructure.observability import configure_tracing, install as tracing_install
+```toml
+[app]
+paths = ["backend/src/infrastructure/observability.py"]
 
-configure_tracing()
-
-app = create_application(
-    router=router,
-    settings=settings,
-    lifespan=lifespan_with_security,
-    root_routers=ROOT_ROUTERS,
-    installers=(*INSTALLERS, tracing_install),
-    docs_guard=DOCS_GUARD,
-)
+[app.contributes]
+installers = ["src.infrastructure.observability:install as tracing_install"]
 ```
 
-Not `src/wiring/app.py`. The removal drill generates the wiring modules from
-`tools/removal_drill.py`, and `tests/unit/test_removal_drill.py` compares what it generates with
-what the project committed, so an installer written into `INSTALLERS` by hand fails that test.
-`main.py` is the composition root, and nothing regenerates it. A project that would rather have
-the generator know about this one makes it a feature
-([below](#if-you-turn-this-into-a-feature)).
+```bash
+fastro sync
+```
+
+`fastro sync` adds `tracing_install` to `INSTALLERS` in `src/wiring/app.py`, after the features'
+installers, and the app calls it as it's built. Don't write it into `src/wiring/app.py` by hand:
+fastro generates that file from `fastro.toml`, so `fastro sync --check` fails on a hand edit and
+the next `fastro sync` undoes it. `[app].paths` marks the module as your own code.
+
+In a generated project, `fastro sync` and `fastro sync --check` need a fastro release with
+project-mode sync, so until one ships, add
+`from ..infrastructure.observability import install as tracing_install` to `src/interfaces/main.py`
+and change its `installers=INSTALLERS,` line to `installers=(*INSTALLERS, tracing_install),`, then
+undo that edit the first time you run `fastro sync`, or the app installs tracing twice.
 
 `send_to_logfire="if-token-present"` is what keeps it off: with no `LOGFIRE_TOKEN` in the
 environment, nothing leaves the process, which is the same rule every other optional thing in this
@@ -95,10 +97,10 @@ are defaults a deployment can override without touching the code.
 
 !!! note "The worker is a second process"
     `taskiq worker src.infrastructure.taskiq.worker:default_broker` never imports `main.py`,
-    so none of the above runs there. Call `configure_tracing()` in
-    `src/infrastructure/taskiq/worker.py` as well, with `service_name="worker"`, and the two
-    processes report separately. A task enqueued by a request is not joined to that request's trace
-    unless you propagate the context yourself (`logfire.propagate`).
+    so none of the above runs there. Call `configure_tracing(service_name="worker")` in
+    `src/infrastructure/taskiq/worker.py` as well, and the two processes report separately. A task
+    enqueued by a request is not joined to that request's trace unless you propagate the context
+    yourself (`logfire.propagate`).
 
 ## What not to send
 
@@ -148,9 +150,10 @@ proxy's own access logs already cover whether the app is up and how fast it answ
 
 ## If you turn this into a feature
 
-A project that wants observability to be removable like the others gives it a `FEATURES` entry in
-`tools/removal_drill.py` — the `observability` module, its tests, and its contribution to
-`src/wiring/app.py` — and settings that are off when unset. See
+In a project, the module above is your own code, under `[app]`. Observability becomes a removable
+feature only in FastAPI-boilerplate itself, as a `[features.observability]` table in its
+`blueprint.toml`: its `paths` own the module and its tests, `[features.observability.contributes]`
+lists the installer, and its settings are off when unset. See
 [Composable Features](composable-features.md).
 
 ## Key Files
@@ -162,8 +165,8 @@ A project that wants observability to be removable like the others gives it a `F
 | Refused-login audit hooks | `backend/src/infrastructure/auth/audit.py` |
 | API-key usage rows | `backend/src/modules/api_keys/usage.py` |
 | The catch-all handler and its support id | `backend/src/modules/common/utils/error_handler.py` |
-| Where this recipe wires its installer | `backend/src/interfaces/main.py` |
-| Where a feature's installer is wired | `backend/src/wiring/app.py` |
+| Where this recipe registers its installer | `fastro.toml`, under `[app.contributes]` |
+| Where every installer is wired, generated by `fastro sync` | `backend/src/wiring/app.py` |
 
 ---
 
