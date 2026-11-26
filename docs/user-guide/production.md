@@ -35,8 +35,8 @@ The password checked is the one actually used to connect: when `DATABASE_URL` is
 
 These don't block startup but you should fix them before the app sees real traffic:
 
-- **Redis without a password** (`CACHE_REDIS_PASSWORD` or `RATE_LIMITER_REDIS_PASSWORD` unset, or a `SESSION_REDIS_URL` without one)
-- **Redis on a host other than `localhost` or `127.0.0.1` without TLS** (`CACHE_REDIS_SSL` or `RATE_LIMITER_REDIS_SSL` false, `SESSION_REDIS_SSL` false or a `SESSION_REDIS_URL` on `redis://`): set them where the Redis speaks TLS, as a managed one usually does
+- **Redis without a password** (`CACHE_REDIS_PASSWORD`, `RATE_LIMITER_REDIS_PASSWORD` or, on the Redis broker, `TASKIQ_REDIS_PASSWORD` unset, or a `SESSION_REDIS_URL` without one)
+- **Redis on a host other than `localhost` or `127.0.0.1` without TLS** (`CACHE_REDIS_SSL`, `RATE_LIMITER_REDIS_SSL` or, on the Redis broker, `TASKIQ_REDIS_SSL` false, `SESSION_REDIS_SSL` false or a `SESSION_REDIS_URL` on `redis://`): set them where the Redis speaks TLS, as a managed one usually does
 - **`DEBUG=true`** — exposes stack traces in error responses
 - **API docs (`/docs`, `/redoc`) reachable** — see "Documentation" below
 - **Session config too loose** (cookies not marked `Secure`, very long max-age, etc.)

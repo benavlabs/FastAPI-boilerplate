@@ -21,6 +21,13 @@ ___
 
 #### Changed
 
+- **The production check reads the broker's Redis too.** On `TASKIQ_BROKER_TYPE=redis` it warns
+  when `TASKIQ_REDIS_PASSWORD` is unset, when `TASKIQ_REDIS_SSL` is false on a host other than
+  `localhost` or `127.0.0.1`, and when the broker shares a Redis database with the cache, the rate
+  limiter or the sessions, as it already did for those three. Anybody who reaches the broker can
+  enqueue a task the worker runs. `.env.example`'s note before production asks for the password,
+  and the Production page lists both settings.
+
 - **Staging warns on a `FRONTEND_URL` over plain `http`.** It used to say nothing; production
   refuses one. Staging logs a warning and starts, since plenty of staging deployments answer on an
   internal `http` address, while the verification, password-reset and email-change links built from

@@ -62,7 +62,7 @@ def _strong() -> dict[str, Any]:
     """A configuration production would accept, less whatever this project has no feature for.
 
     `Settings` forbids an input no field of its own takes, so a project without the cache, the
-    limiter or the admin panel refuses their settings rather than ignoring them.
+    limiter, the task queue or the admin panel refuses their settings rather than ignoring them.
     """
     strong = {
         "SECRET_KEY": secrets.token_hex(32),
@@ -73,6 +73,7 @@ def _strong() -> dict[str, Any]:
         "OPENAPI_URL": "",
         "CACHE_REDIS_PASSWORD": "redis-password",
         "RATE_LIMITER_REDIS_PASSWORD": "redis-password",
+        "TASKIQ_REDIS_PASSWORD": "redis-password",
         "SESSION_SECURE_COOKIES": True,
         "SESSION_BACKEND": "redis",
         "RATE_LIMITER_BACKEND": "redis",

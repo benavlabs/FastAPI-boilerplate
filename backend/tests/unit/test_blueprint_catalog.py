@@ -2939,7 +2939,22 @@ def test_the_environment_variables_page_sets_every_redis_tls_setting():
     assert tls == {"CACHE_REDIS_SSL", "RATE_LIMITER_REDIS_SSL", "SESSION_REDIS_SSL", "TASKIQ_REDIS_SSL"}
     assert tls <= set_there
     assert [name for name in sorted(tls) if not re.search(rf"^(?:#\s*)?{name}=", example, re.M)] == []
-    assert [name for name in sorted(tls - {"TASKIQ_REDIS_SSL"}) if f"`{name}`" not in production] == []
+    assert [name for name in sorted(tls) if f"`{name}`" not in production] == []
+
+
+@pytest.mark.parametrize("service", ["CACHE", "RATE_LIMITER", "TASKIQ"])
+def test_every_redis_the_production_check_reads_asks_for_a_password(service: str):
+    """The check warns on a Redis without a password, so the production page names the setting and
+    ``.env.example``'s note before production, the one that turns on TLS, asks for it."""
+    production = " ".join(PRODUCTION_PAGE.read_text().split())
+    notes = [
+        " ".join(line.lstrip("# ") for line in note.splitlines())
+        for note in re.findall(r"^# Before production:.*(?:\n#.*)*", ENV_EXAMPLE.read_text(), re.M)
+    ]
+    note = next(note for note in notes if f"{service}_REDIS_SSL" in note)
+
+    assert f"`{service}_REDIS_PASSWORD`" in production
+    assert f"{service}_REDIS_PASSWORD" in note
 
 
 def test_every_env_line_in_the_docs_is_read_as_it_is_written(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):

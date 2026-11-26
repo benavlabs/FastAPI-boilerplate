@@ -581,7 +581,7 @@ class ProductionSecurityValidator:
             - Instance isolation between services
 
             Multiple Redis instances may be configured for different
-            services (cache, rate limiting, sessions, admin).
+            services (cache, rate limiting, sessions, the taskiq broker).
         """
         warnings = []
 
@@ -616,8 +616,8 @@ class ProductionSecurityValidator:
 
         Note:
             This method collects Redis configurations from all services
-            that may use Redis including cache, rate limiting, admin
-            interface, and session storage.
+            that may use Redis including cache, rate limiting, session
+            storage and the taskiq broker.
         """
         configs = []
 
@@ -647,6 +647,18 @@ class ProductionSecurityValidator:
 
         if self._feature_setting("SESSION_BACKEND", "") == "redis":
             configs.append(self._redis_configuration_from_url("sessions", self._feature_setting("SESSION_REDIS_URL", "")))
+
+        if self._feature_setting("TASKIQ_BROKER_TYPE", "") == TaskiqBrokerType.REDIS.value:
+            configs.append(
+                {
+                    "service": "taskiq",
+                    "host": self._feature_setting("TASKIQ_REDIS_HOST", ""),
+                    "port": self._feature_setting("TASKIQ_REDIS_PORT", 0),
+                    "db": self._feature_setting("TASKIQ_REDIS_DB", 0),
+                    "password": self._feature_setting("TASKIQ_REDIS_PASSWORD", None),
+                    "ssl": self._feature_setting("TASKIQ_REDIS_SSL", False),
+                }
+            )
 
         return configs
 

@@ -60,6 +60,14 @@ class TestProductionSecurityValidator:
             "RATE_LIMITER_REDIS_PASSWORD": None,
             "CACHE_REDIS_SSL": False,
             "RATE_LIMITER_REDIS_SSL": False,
+            "TASKIQ_BROKER_TYPE": "rabbitmq",
+            "TASKIQ_RABBITMQ_USER": "queue",
+            "TASKIQ_RABBITMQ_PASSWORD": "a-real-password",
+            "TASKIQ_REDIS_HOST": "localhost",
+            "TASKIQ_REDIS_PORT": 6379,
+            "TASKIQ_REDIS_DB": 3,
+            "TASKIQ_REDIS_PASSWORD": "secure_redis_password",
+            "TASKIQ_REDIS_SSL": False,
         }
         defaults.update(overrides)
 
@@ -468,12 +476,13 @@ class TestProductionSecurityValidator:
         ssl_warnings = [log for log in warning_logs if "not using SSL/TLS" in log.message]
         assert len(ssl_warnings) > 0
 
-    @pytest.mark.parametrize("service", ["CACHE", "RATE_LIMITER"])
+    @pytest.mark.parametrize("service", ["CACHE", "RATE_LIMITER", "TASKIQ"])
     def test_an_external_redis_over_tls_draws_no_ssl_warning(self, service: str, caplog):
         """The setting each client connects with is the one the check reads."""
         settings = self.create_mock_settings(
             CACHE_BACKEND="redis",
             RATE_LIMITER_ENABLED=True,
+            TASKIQ_BROKER_TYPE="redis",
             **{f"{service}_REDIS_HOST": "redis.example.com", f"{service}_REDIS_SSL": True},
         )
 
@@ -481,6 +490,56 @@ class TestProductionSecurityValidator:
             "not using SSL/TLS" in warning and service.lower() in warning
             for warning in ProductionSecurityValidator(settings)._collect_warnings()
         )
+
+    def test_the_broker_redis_without_a_password_is_warned_about(self):
+        """Anybody who reaches the broker's Redis can enqueue a task the worker runs."""
+        settings = self.create_mock_settings(TASKIQ_BROKER_TYPE="redis", TASKIQ_REDIS_PASSWORD=None)
+
+        assert any(
+            "taskiq" in warning and "no password" in warning
+            for warning in ProductionSecurityValidator(settings)._collect_warnings()
+        )
+
+    def test_an_external_broker_redis_without_tls_is_warned_about(self):
+        settings = self.create_mock_settings(TASKIQ_BROKER_TYPE="redis", TASKIQ_REDIS_HOST="redis.example.com")
+
+        assert any(
+            "taskiq" in warning and "not using SSL/TLS" in warning
+            for warning in ProductionSecurityValidator(settings)._collect_warnings()
+        )
+
+    def test_a_broker_redis_with_a_password_over_tls_draws_no_warning(self):
+        settings = self.create_mock_settings(
+            TASKIQ_BROKER_TYPE="redis", TASKIQ_REDIS_HOST="redis.example.com", TASKIQ_REDIS_SSL=True
+        )
+
+        assert not [warning for warning in ProductionSecurityValidator(settings)._collect_warnings() if "taskiq" in warning]
+
+    def test_the_broker_redis_is_left_alone_on_rabbitmq(self):
+        settings = self.create_mock_settings(
+            TASKIQ_BROKER_TYPE="rabbitmq", TASKIQ_REDIS_HOST="redis.example.com", TASKIQ_REDIS_PASSWORD=None
+        )
+
+        assert not [warning for warning in ProductionSecurityValidator(settings)._collect_warnings() if "taskiq" in warning]
+
+    def test_the_broker_sharing_the_cache_redis_db_is_warned_about(self):
+        settings = self.create_mock_settings(CACHE_BACKEND="redis", CACHE_REDIS_DB=3, TASKIQ_BROKER_TYPE="redis")
+
+        assert any(
+            "sharing the same Redis instance" in warning and "taskiq" in warning
+            for warning in ProductionSecurityValidator(settings)._collect_warnings()
+        )
+
+    def test_the_broker_on_another_port_of_the_cache_host_does_not_share_its_db(self):
+        settings = self.create_mock_settings(
+            CACHE_BACKEND="redis", CACHE_REDIS_DB=3, TASKIQ_BROKER_TYPE="redis", TASKIQ_REDIS_PORT=6380
+        )
+
+        assert not [
+            warning
+            for warning in ProductionSecurityValidator(settings)._collect_warnings()
+            if "sharing the same Redis instance" in warning
+        ]
 
     def test_localhost_redis_no_ssl_warning(self, caplog):
         """Test that localhost Redis without SSL doesn't log SSL warning."""
