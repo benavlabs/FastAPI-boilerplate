@@ -5,8 +5,10 @@ The templates are rendered with the generator context of catalog spec 6.2, under
 """
 
 import ast
+import os
 import re
 import shlex
+import subprocess
 import tomllib
 from collections.abc import Iterator
 from pathlib import Path
@@ -460,6 +462,170 @@ def test_the_docker_page_says_how_to_change_the_broker_user_once_it_exists():
     assert entry is not None
     assert "`rabbitmqctl`" in entry[0]
     assert "`docker compose down -v`" in entry[0]
+
+
+PRODUCTION_MODES = ("prod", "nginx")
+
+STRANGE_PASSWORD = "p'w\"q z$x"
+"""A password holding a quote of each kind, a space and a dollar sign."""
+
+SESSION_PASSWORD = "SESSION_REDIS_PASSWORD"
+"""The one Redis password that may belong to another Redis: ``SESSION_REDIS_URL`` or ``SESSION_REDIS_HOST`` can send
+sessions elsewhere, while the stack pins the cache's, the limiter's and the broker's hosts to ``redis``."""
+
+ELSEWHERE = {"SESSION_REDIS_HOST": "sessions.example.com"}, {"SESSION_REDIS_URL": "rediss://:other@sessions.example.com:6380/0"}
+
+
+def _redis_password_settings() -> list[str]:
+    """Every ``*_REDIS_PASSWORD`` a backend settings class declares, each one a password the app connects to Redis with."""
+    return sorted(
+        node.target.id
+        for path in (REPO_ROOT / "backend" / "src").rglob("settings.py")
+        for node in ast.walk(ast.parse(path.read_text()))
+        if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name) and node.target.id.endswith("_REDIS_PASSWORD")
+    )
+
+
+def _stand_ins(tmp_path: Path, reply: str = "PONG") -> dict[str, str]:
+    """A ``PATH`` whose ``docker-entrypoint.sh`` prints the arguments it is handed and whose ``redis-cli`` gives ``reply``."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir(parents=True)
+    (bin_dir / "docker-entrypoint.sh").write_text("#!/bin/sh\nprintf '%s\\n' \"$@\"\n")
+    (bin_dir / "redis-cli").write_text(f"#!/bin/sh\necho {shlex.quote(reply)}\n")
+    for stand_in in bin_dir.iterdir():
+        stand_in.chmod(0o755)
+
+    return {"PATH": f"{bin_dir}{os.pathsep}/usr/bin{os.pathsep}/bin"}
+
+
+def _redis(mode: str) -> dict:
+    return _compose(mode)["services"]["redis"]
+
+
+def _as_compose_hands_it(text: str) -> str:
+    """Compose reads ``$$`` as a literal ``$`` and every other ``$`` from the shell that runs it."""
+    return text.replace("$$", "$")
+
+
+def _redis_start(mode: str, tmp_path: Path, **environment: str) -> subprocess.CompletedProcess[str]:
+    """Run the stack's Redis entrypoint as the container would, with ``environment`` read from ``backend/.env``."""
+    shell, flag, script = _redis(mode)["entrypoint"]
+
+    return subprocess.run(
+        [shell, flag, _as_compose_hands_it(script)],
+        env=_stand_ins(tmp_path) | environment,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+
+
+@pytest.mark.parametrize("mode", PRODUCTION_MODES)
+def test_a_production_stack_reads_its_redis_password_from_the_environment_file(mode: str):
+    """Compose would read ``${VAR}`` from the shell that runs it, so every one is escaped and the container
+    reads it from ``backend/.env``; the image's own entrypoint starts Redis, so it still drops root."""
+    redis = _redis(mode)
+
+    assert redis["env_file"] == ["./backend/.env"]
+    assert "command" not in redis
+    assert not re.search(r"(?<!\$)\$\{", yaml.safe_dump(redis))
+    assert redis["entrypoint"][:2] == ["sh", "-c"]
+
+
+@pytest.mark.parametrize("name", _redis_password_settings())
+@pytest.mark.parametrize("mode", PRODUCTION_MODES)
+def test_a_production_stack_redis_requires_each_password_the_app_connects_with(mode: str, name: str, tmp_path: Path):
+    started = _redis_start(mode, tmp_path, **{name: STRANGE_PASSWORD})
+
+    assert started.returncode == 0, started.stderr
+    assert started.stdout.splitlines() == ["redis-server", "--appendonly", "yes", "--requirepass", STRANGE_PASSWORD]
+
+
+@pytest.mark.parametrize("mode", PRODUCTION_MODES)
+def test_a_production_stack_redis_takes_the_password_every_connection_shares(mode: str, tmp_path: Path):
+    started = _redis_start(mode, tmp_path, **dict.fromkeys(_redis_password_settings(), "s3cret"), SESSION_REDIS_HOST="redis")
+
+    assert started.returncode == 0, started.stderr
+    assert started.stdout.splitlines()[-2:] == ["--requirepass", "s3cret"]
+
+
+@pytest.mark.parametrize("odd_one", _redis_password_settings())
+@pytest.mark.parametrize("mode", PRODUCTION_MODES)
+def test_a_production_stack_redis_refuses_to_start_on_two_passwords(mode: str, odd_one: str, tmp_path: Path):
+    """One Redis has one password, so a second one would leave a connection refused at its first command."""
+    passwords = dict.fromkeys(_redis_password_settings(), "one") | {odd_one: "another"}
+
+    started = _redis_start(mode, tmp_path, **passwords)
+
+    assert started.returncode != 0
+    assert started.stdout == ""
+    assert "backend/.env" in started.stderr
+
+
+@pytest.mark.parametrize("elsewhere", ELSEWHERE, ids=lambda setting: next(iter(setting)))
+@pytest.mark.parametrize("mode", PRODUCTION_MODES)
+def test_a_production_stack_redis_leaves_alone_the_password_of_sessions_kept_elsewhere(
+    mode: str, elsewhere: dict[str, str], tmp_path: Path
+):
+    others = {name: "s3cret" for name in _redis_password_settings() if name != SESSION_PASSWORD}
+
+    alone = _redis_start(mode, tmp_path / "alone", **elsewhere, **{SESSION_PASSWORD: "another"})
+    beside = _redis_start(mode, tmp_path / "beside", **elsewhere, **others, **{SESSION_PASSWORD: "another"})
+
+    assert alone.returncode == 0, alone.stderr
+    assert alone.stdout.splitlines() == ["redis-server", "--appendonly", "yes"]
+    assert beside.returncode == 0, beside.stderr
+    assert beside.stdout.splitlines()[-2:] == ["--requirepass", "s3cret"]
+
+
+@pytest.mark.parametrize("mode", PRODUCTION_MODES)
+def test_a_production_stack_redis_runs_without_a_password_when_none_is_set(mode: str, tmp_path: Path):
+    """A project whose cache, limiter, sessions and broker are all elsewhere still runs the service and sets none."""
+    started = _redis_start(mode, tmp_path, **dict.fromkeys(_redis_password_settings(), ""))
+
+    assert started.returncode == 0, started.stderr
+    assert started.stdout.splitlines() == ["redis-server", "--appendonly", "yes"]
+
+
+@pytest.mark.parametrize(
+    ("reply", "healthy"),
+    [
+        ("PONG", True),
+        ("NOAUTH Authentication required.", True),
+        ("LOADING Redis is loading the dataset in memory", False),
+        ("Could not connect to Redis at 127.0.0.1:6379: Connection refused", False),
+    ],
+)
+@pytest.mark.parametrize("mode", PRODUCTION_MODES)
+def test_a_production_stack_redis_is_healthy_once_it_answers_with_or_without_a_password(
+    mode: str, reply: str, healthy: bool, tmp_path: Path
+):
+    """A server that asks for the password is up and answering; whether the app gets in is the API's own readiness."""
+    kind, probe = _redis(mode)["healthcheck"]["test"]
+
+    checked = subprocess.run(
+        ["sh", "-c", _as_compose_hands_it(probe)], env=_stand_ins(tmp_path, reply), capture_output=True, text=True, timeout=10
+    )
+
+    assert kind == "CMD-SHELL"
+    assert "PASSWORD" not in probe
+    assert (checked.returncode == 0) is healthy
+
+
+def test_the_docker_page_says_where_the_stack_redis_password_comes_from_and_that_it_speaks_plaintext():
+    """The ``prod`` and ``nginx`` stacks' Redis requires the password the app connects with and refuses two, the
+    ``local`` one requires none; each speaks plaintext on the compose network, while a Redis elsewhere is one to
+    reach over TLS."""
+    entry = re.search(r"^### `redis`.*?(?=^#)", DOCKER_PAGE.read_text(), re.M | re.S)
+    local = _redis("local")
+
+    assert entry is not None
+    assert all(f"`{name}`" in entry[0] for name in _redis_password_settings())
+    assert all(f"`{mode}`" in entry[0] for mode in (*PRODUCTION_MODES, "local"))
+    assert "env_file" not in local and "requirepass" not in yaml.safe_dump(local)
+    assert "`backend/.env`" in entry[0]
+    assert "`*_REDIS_SSL=false`" in entry[0] and "`*_REDIS_SSL=true`" in entry[0]
+    assert "`SESSION_REDIS_URL`" in entry[0] and "`SESSION_REDIS_HOST`" in entry[0]
 
 
 def _docker_page_section(heading: str) -> str:

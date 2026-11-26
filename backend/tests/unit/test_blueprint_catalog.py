@@ -2942,6 +2942,24 @@ def test_the_environment_variables_page_sets_every_redis_tls_setting():
     assert [name for name in sorted(tls) if f"`{name}`" not in production] == []
 
 
+def test_the_docker_page_is_right_that_the_check_warns_about_tls_for_the_stack_redis(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    """The compose stacks point the app at the host ``redis``, which speaks plaintext on their network, and
+    the production check warns about any Redis off ``localhost`` without TLS, so it warns there too."""
+    validator = importlib.import_module("src.infrastructure.security.production_validator")
+    docker_page = (REPO_ROOT / "docs" / "user-guide" / "configuration" / "docker-setup.md").read_text()
+    entry = re.search(r"^### `redis`.*?(?=^#)", docker_page, re.M | re.S)
+    stack = [f"{service}_REDIS_HOST=redis" for service in ("CACHE", "RATE_LIMITER", "TASKIQ")]
+    settings = _settings_read_from(monkeypatch, tmp_path, ENV_EXAMPLE.read_text().splitlines(), stack)
+
+    warnings = validator.ProductionSecurityValidator(settings)._collect_warnings()
+
+    assert entry is not None
+    assert "../production.md#warnings-logged-app-starts" in entry[0] and "host `redis`" in entry[0]
+    assert any("(redis:6379)" in warning and "not using SSL/TLS" in warning for warning in warnings)
+
+
 @pytest.mark.parametrize("service", ["CACHE", "RATE_LIMITER", "TASKIQ"])
 def test_every_redis_the_production_check_reads_asks_for_a_password(service: str):
     """The check warns on a Redis without a password, so the production page names the setting and

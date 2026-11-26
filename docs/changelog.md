@@ -21,6 +21,16 @@ ___
 
 #### Changed
 
+- **The `prod` and `nginx` stacks' Redis requires a password.** It used to run without one, so a
+  `backend/.env` that set the passwords the production check asks for left every connection
+  refused, since a Redis with no password turns an `AUTH` away. It now requires the one
+  `CACHE_REDIS_PASSWORD`, `RATE_LIMITER_REDIS_PASSWORD`, `TASKIQ_REDIS_PASSWORD` or
+  `SESSION_REDIS_PASSWORD` sets, the last only while sessions connect to it rather than to the
+  Redis `SESSION_REDIS_URL` or `SESSION_REDIS_HOST` names. It refuses to start when two of them
+  differ, runs without a password when none is set, and counts as healthy once it answers, asking
+  for the password or not. The Docker page says so, and that this Redis speaks plaintext on the
+  compose network by design, with `*_REDIS_SSL` left false, while one elsewhere is reached over TLS.
+
 - **The production check reads the broker's Redis too.** On `TASKIQ_BROKER_TYPE=redis` it warns
   when `TASKIQ_REDIS_PASSWORD` is unset, when `TASKIQ_REDIS_SSL` is false on a host other than
   `localhost` or `127.0.0.1`, and when the broker shares a Redis database with the cache, the rate

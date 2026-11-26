@@ -200,11 +200,29 @@ services:
 
   redis:
     image: redis:7-alpine
-    command: ["redis-server", "--appendonly", "yes"]
+    env_file:
+      - ./backend/.env
+    entrypoint:
+      - sh
+      - -c
+      - |
+        session="$${SESSION_REDIS_PASSWORD:-}"
+        case "$${SESSION_REDIS_URL:-}|$${SESSION_REDIS_HOST:-redis}" in
+          "|redis") ;;
+          *) session="" ;;
+        esac
+        password="$${CACHE_REDIS_PASSWORD:-$${RATE_LIMITER_REDIS_PASSWORD:-$${TASKIQ_REDIS_PASSWORD:-$$session}}}"
+        for value in "$${CACHE_REDIS_PASSWORD:-}" "$${RATE_LIMITER_REDIS_PASSWORD:-}" "$${TASKIQ_REDIS_PASSWORD:-}" "$$session"; do
+          if [ -n "$$value" ] && [ "$$value" != "$$password" ]; then
+            echo "The Redis passwords in backend/.env differ, and this stack runs one Redis: set them to one value." >&2
+            exit 1
+          fi
+        done
+        exec docker-entrypoint.sh redis-server --appendonly yes $${password:+--requirepass "$$password"}
     volumes:
       - redis-data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "redis-cli ping 2>&1 | grep -qE '^(PONG|NOAUTH)'"]
       interval: 10s
       timeout: 5s
       retries: 10

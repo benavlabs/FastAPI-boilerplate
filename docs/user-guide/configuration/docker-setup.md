@@ -125,6 +125,20 @@ scheduler fires every schedule it finds, so scale the worker instead (see
 
 Used for cache (`CACHE_REDIS_DB=0`), rate limiting (`RATE_LIMITER_REDIS_DB=1`), sessions (`SESSION_REDIS_DB=2`), and the Taskiq broker (`TASKIQ_REDIS_DB=3`). The boilerplate uses different DB numbers so they don't interfere.
 
+In the `prod` and `nginx` stacks it requires the password the app connects with, the one
+`CACHE_REDIS_PASSWORD`, `RATE_LIMITER_REDIS_PASSWORD`, `TASKIQ_REDIS_PASSWORD` or
+`SESSION_REDIS_PASSWORD` sets in `backend/.env`. The cache, the rate limiter and the broker always
+connect to this one Redis, so give them one value: it refuses to start when two differ, and runs
+without a password when none is set. Sessions connect to it too unless `SESSION_REDIS_URL` is set
+or `SESSION_REDIS_HOST` names another host, and only then is their password left out. The `local`
+stack runs it without one.
+
+It speaks plaintext, which is by design: its traffic stays on the compose network. Leave
+`*_REDIS_SSL=false` for it, even where the production examples set them to true, since those run
+on a Redis elsewhere. The [production check](../production.md#warnings-logged-app-starts) still
+warns that it doesn't use TLS, since its host `redis` is neither `localhost` nor `127.0.0.1`. A
+Redis on another host, or a managed one, is one to reach over TLS, with `*_REDIS_SSL=true`.
+
 ### `memcached`: Memcached 1.6
 
 Only in a project generated with `cache.backend=memcached`. `memcached:1.6-alpine`, with a

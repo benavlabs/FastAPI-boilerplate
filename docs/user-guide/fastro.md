@@ -15,8 +15,9 @@ the mode it is given, and for `nginx` also `nginx/default.conf`, at the reposito
 `--output-dir` says otherwise. Each file starts with a header naming the command that wrote it,
 and a compose file's opening comment goes on to name the services that project's file runs. The
 compose project is named after the project's slug, `fastapi-boilerplate` here. Apart from that
-opening comment, the header line and the project name, the files are byte for byte what the legacy
-deploy command wrote.
+opening comment, the header line, the project name and the `redis` service of the `prod` and
+`nginx` stacks, which requires a password, the files are byte for byte what the legacy deploy
+command wrote.
 
 It runs in the blueprint repository. In a project fastro created it exits 2 for now.
 `bp deploy generate` exits 2 too, in a project made before fastro.
